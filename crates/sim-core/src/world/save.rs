@@ -16,7 +16,7 @@ use crate::finite::FiniteF64;
 use crate::genome::meiosis::Zygote;
 use crate::genome::{Genome, Sex};
 use crate::house::day::{DayDuty, duty, next_plan, night_of, plan_day, work_draw};
-use crate::house::state::{Due, Place};
+use crate::house::state::{Due, Place, dwell_walk};
 use crate::ids::{Counter, HouseholdId, PartnershipId, SimId};
 use crate::input::{Input, InputRecord, PoolStart, Start};
 use crate::kinship::{Kin, KinshipCache};
@@ -250,6 +250,7 @@ impl World {
                     members,
                     house_mornings,
                     house_moves: Vec::new(),
+                    house_changed: BTreeMap::new(),
                 },
                 ids: IdCounters::restore(
                     counter(loaded.next_sim_id)?,
@@ -1269,8 +1270,18 @@ fn house_consistent(loaded: &LoadedState, data: &Data, now: i64, opened: bool) -
         })
         .collect();
     let choices = opened.then_some(&choices);
-    crate::house::state::consistent(&loaded.house, data.houses(), now, choices, alive, member)
-        .is_ok()
+    let checked =
+        crate::house::state::consistent(&loaded.house, data.houses(), now, choices, alive, member);
+    // The small children of a household, its living members without needs (ADR-0026, addendum
+    // of 2026-11-04 after the playtest).
+    let young = |household: HouseholdId| {
+        (loaded.sims.iter())
+            .filter(|(id, sim)| sim.household == household && !loaded.house.sims.contains_key(id))
+            .count()
+    };
+    let children =
+        crate::house::state::children_consistent(&loaded.house, data.houses(), now, young, member);
+    checked.is_ok() && children.is_ok()
 }
 
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
@@ -2474,6 +2485,55 @@ fn action_due(loaded: &LoadedState, data: &Data, sim: SimId) -> Option<SimTime> 
     crate::house::state::action_end(person, offer, houses.day(), born)
 }
 
+/// The house of a person with needs.
+fn house_of<'a>(
+    loaded: &LoadedState,
+    data: &'a Data,
+    sim: SimId,
+) -> Option<&'a crate::house::data::House> {
+    let household = loaded.sims.get(&sim)?.household;
+    data.houses()?
+        .house(&loaded.house.households.get(&household)?.house)
+}
+
+/// The next choice of a person idle in a room or on its walk to the room one stays in, not lying
+/// and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest), recomputed from
+/// the second the loaded world runs next with the places of its household taken by an action or
+/// held for others; `None` for anyone else or if nothing comes.
+fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
+    let person = loaded.house.sims.get(&sim)?;
+    let houses = rules.data.houses()?;
+    let house = house_of(loaded, rules.data, sim)?;
+    let waits = (loaded.house.waits.values().flatten()).any(|&(_, waiter)| waiter == sim);
+    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(person, house);
+    if !stands || person.action.is_some() || person.collapsed || waits {
+        return None;
+    }
+    let me = loaded.sims.get(&sim)?;
+    let start = loaded
+        .closed_through
+        .checked_add(SimDuration::from_secs(1))?;
+    let members = (loaded.sims.iter()).filter(|(_, other)| other.household == me.household);
+    let mut taken: BTreeSet<(u16, u8)> = (members.clone())
+        .filter_map(|(id, _)| loaded.house.sims.get(id)?.action)
+        .map(|action| (action.object, action.slot))
+        .collect();
+    taken.extend(
+        (loaded.house.holds.iter())
+            .filter(|&(&(household, _, _), &holder)| household == me.household && holder != sim)
+            .map(|(&(_, object, slot), _)| (object, slot)),
+    );
+    let young = members
+        .filter(|(id, _)| !loaded.house.sims.contains_key(id))
+        .count();
+    let morning = (loaded.house.households.get(&me.household)).is_some_and(|moved| moved.morning);
+    if morning {
+        taken.extend(crate::house::state::child_held(house, houses, young, start));
+    }
+    let who = (me.born, me.lineage_key, rules.seed);
+    crate::house::state::next_choice_of((house, houses), who, person, &taken, start)
+}
+
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at
 /// 0), recomputed from its energy and its night; `None` for one not lying or beyond the end of
 /// time.
@@ -2518,12 +2578,13 @@ fn duty_today(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<Day
 fn day_of(
     person: &crate::house::state::InHouse,
     today: Option<DayDuty>,
-    clock: SimTime,
+    (clock, dwelling): (SimTime, bool),
 ) -> Option<(Option<SimTime>, Option<DayDuty>, Option<DayDuty>)> {
+    // A walk without an action leads out, unless it leads to the room one stays in.
     let out = matches!(
         (person.place, person.action),
         (Place::Away | Place::Walking { .. }, None)
-    );
+    ) && !dwelling;
     let between = today.filter(|duty| duty.depart <= clock && clock < duty.back);
     if out || person.due.is_some() {
         let duty = between?;
@@ -2583,7 +2644,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let clock = loaded.closed_through;
     // Each person's day; `None` for one whose state its day does not allow.
     let days: BTreeMap<SimId, Option<_>> = (loaded.house.sims.iter())
-        .map(|(&sim, person)| (sim, day_of(person, duty_today(loaded, rules, sim), clock)))
+        .map(|(&sim, person)| {
+            let dwelling =
+                (house_of(loaded, rules.data, sim)).is_some_and(|house| dwell_walk(person, house));
+            let today = duty_today(loaded, rules, sim);
+            (sim, day_of(person, today, (clock, dwelling)))
+        })
         .collect();
     let day = |sim: &SimId| days.get(sim).copied().flatten();
     // The daily plan of everyone in a house is due at the first 5:00 after the clock; for the
@@ -2675,21 +2741,21 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && ends.insert(*sim)
                     && action_due(loaded, rules.data, *sim) == Some(entry.time)
             }
-            // A choice runs in the second it was planned for (ADR-0026 section 3), so after a
-            // run none is pending. An input at the clock plans one for the next second, once per
-            // person idle in a room: a command or another input that freed a place held for a
-            // waiter, or a day begun (ADR-0024 sections 2 and 5); a waiter has none (the house
-            // part's checks).
+            // A choice planned by a handler runs in its second (ADR-0026 section 3), so after a
+            // run only the next choice of an idle person is pending, at the second it is
+            // recomputed for (ADR-0026, addendum of 2026-11-04 after the playtest). An input at
+            // the clock plans one for the next second, once per person idle in a room: a command
+            // or another input that freed a place held for a waiter, or a day begun (ADR-0024
+            // sections 2 and 5); a waiter has none (the house part's checks).
             EventPayload::Decide { sim } => {
                 let idle = (loaded.house.sims.get(sim)).is_some_and(|person| {
                     let room = matches!((person.place, person.action), (Place::Room(_), None));
                     room && !person.collapsed
                 });
-                rules.opened
-                    && entry.period.is_none()
-                    && idle
-                    && clock.checked_add(SimDuration::from_secs(1)) == Some(entry.time)
-                    && choices.insert(*sim)
+                let next = clock.checked_add(SimDuration::from_secs(1)) == Some(entry.time);
+                let by_input = rules.opened && idle && next;
+                let planned = choice_due(loaded, rules, *sim) == Some(entry.time);
+                entry.period.is_none() && choices.insert(*sim) && (by_input || planned)
             }
             // Once per person with needs, at the start of its night of today if that is still
             // to come (ADR-0026, addendum of 2026-11-04), checked as a whole below.
@@ -2906,6 +2972,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     // Everyone lying on the floor gets up, unless after the end of time.
     let all_stands_planned = (loaded.house.sims.keys())
         .all(|sim| stand_due(loaded, rules.data, *sim).is_none() || stands.contains(sim));
+    // Everyone idle has its next choice, unless nothing comes.
+    let all_choices_planned = (loaded.house.sims.keys())
+        .all(|sim| choice_due(loaded, rules, *sim).is_none() || choices.contains(sim));
     // Every member of a household in a house has its daily plan from moving in (ADR-0024,
     // addendum of 2026-11-04), unless the next one is beyond the end of time.
     let all_plans_planned = loaded.sims.iter().all(|(sim, person)| {
@@ -2918,6 +2987,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         && all_plans_planned
         && all_bedtimes_planned
         && all_stands_planned
+        && all_choices_planned
         && all_mornings_planned
         && crossings == due_crossings
         && crossings_in_order

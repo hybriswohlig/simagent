@@ -861,7 +861,10 @@ AGE_BANDS = [(6, 12), (13, 17), (18, 66), (67, OLDEST)]
 ESSENTIALS = ["core:dining_table", "core:fridge", "core:toilet", "core:shower", "core:sofa"]
 SOFA = "core:sofa"
 OFFER_FIELDS = {"id", "rates", "seconds", "until_full", "max_seconds", "sleep", "min_age", "max_age"}
-HOUSE_FIELDS = {"id", "capacity", "rooms", "child_day_room", "child_night_room", "doors", "objects"}
+# Whom a bed is for (ADR-0026, addendum of 2026-11-04 after the playtest), in the order of the
+# core's `BedFor`.
+BED_FOR = ["couples", "children"]
+HOUSE_FIELDS = {"id", "capacity", "rooms", "child_day_room", "child_night_room", "dwell_room", "doors", "objects"}
 # The fields of day.json in the order of `DayRules` (ADR-0024 section 4), every one required,
 # none other, each an integer of its type: u8, u16, u32 or i32.
 U8, U16, U32, I32 = (0, 2**8), (0, 2**16), (0, 2**32), (-(2**31), 2**31)
@@ -880,8 +883,9 @@ DAY_FORMAT = {
     },
     "return_jumps": {need: I32 for need in NEEDS},
     "young": {"until_age": U8, "kita_from": U32, "kita_to": U32, "bed_from": U32, "bed_to": U32},
-    # The night per age band (ADR-0026, addendum of 2026-11-04): four u32 each.
-    "night": {"from": (U32, 4), "until": (U32, 4)},
+    # The night per age band (ADR-0026, addendum of 2026-11-04): four u32 each; the end of a night
+    # before a Saturday or a Sunday morning since its addendum after the playtest.
+    "night": {"from": (U32, 4), "until": (U32, 4), "until_weekend": (U32, 4)},
     # What a need at 0 does (ADR-0026, addendum of 2026-11-04 on a need at 0).
     "zero": {"collapse_energy_rate": I32, "stand_up_at": U16, "accident_hygiene_at_most": U16, "hygiene_empty_fun": I32},
     # The most the mood moves the points of a choice, in percent (its addendum on the mood).
@@ -977,9 +981,16 @@ def day_checked(day: dict) -> None:
     assert all(-1000 <= jumps[need] <= 0 for need in NEEDS), "house.day_jump"
     night = day["night"]
     wakes = [depart - wake for depart, _ in hours]
-    assert all(time < SECONDS_OF_DAY for time in night["from"] + night["until"]), "house.day_night"
+    ends = night["until"] + night["until_weekend"]
+    assert all(time < SECONDS_OF_DAY for time in night["from"] + ends), "house.day_night"
     assert all(day["day_plan_at"] <= until and all(until <= w for w in wakes) for until in night["until"]), "house.day_night"
+    # A weekend morning has no wake (its addendum after the playtest).
+    assert all(day["day_plan_at"] <= until for until in night["until_weekend"]), "house.day_night"
     assert all(all(start > back for _, back in hours) for start in night["from"]), "house.day_night"
+    # The small children's bed holds its places from `bed_from`: every night starts at or after
+    # it and ends at or before it.
+    assert all(young["bed_from"] <= start for start in night["from"]), "house.day_night"
+    assert all(until <= young["bed_from"] for until in ends), "house.day_night"
     zero = day["zero"]
     assert (
         zero["collapse_energy_rate"] > 0
@@ -1001,7 +1012,8 @@ def houses_checked(needs, day, kinds, houses):
         assert all(len(rates) == 4 and all(isinstance(r, int) and -(2**31) <= r < 2**31 for r in rates) for rates in column.values()), "needs rates"
     day_checked(day)
     for kind in kinds:
-        assert set(kind) == {"id", "slots", "offers"}, f"kind fields {kind}"
+        assert {"id", "slots", "offers"} <= set(kind) <= {"id", "slots", "offers", "bed_for"}, f"kind fields {kind}"
+        assert kind.get("bed_for", "couples") in BED_FOR, f"kind bed_for {kind}"
         names = [offer["id"] for offer in kind["offers"]]
         assert len(set(names)) == len(names), "house.offer_duplicate"
         for offer in kind["offers"]:
@@ -1026,6 +1038,10 @@ def houses_checked(needs, day, kinds, houses):
             if shape[1]:
                 ages = range(max(offer["min_age"], AGE_BANDS[0][0]), offer["max_age"] + 1)
                 assert all(raises(needs, offer, offer["until_full"], age) for age in ages), "house.offer_full"
+        # A bed only sleeps; only a bed says whom it is for (its addendum after the playtest).
+        bed = is_bed(kind)
+        sleeps_only = all(offer.get("sleep", False) for offer in kind["offers"])
+        assert not (bed and not sleeps_only) and not ("bed_for" in kind and not bed), "house.bed_for"
     by_id = {kind["id"]: kind for kind in kinds}
     numbered = [house_numbered(house) for house in houses]
     numbered.sort(key=lambda house: house["id"].encode())
@@ -1038,12 +1054,18 @@ def houses_checked(needs, day, kinds, houses):
     return needs, day, kinds, numbered
 
 
+def is_bed(kind: dict) -> bool:
+    """A kind with an offer of sleep other than the sofa (ADR-0025 section 3)."""
+    return kind["id"] != SOFA and any(offer.get("sleep", False) for offer in kind["offers"])
+
+
 def house_numbered(house: dict) -> dict:
     """The reader's part (sim-cli): each room once, at most 255, one entrance, every named
-    room there; the rooms numbered in the file's order."""
+    room there; the rooms numbered in the file's order; per room whether one stays there idle,
+    true unless it says `dwell: false` (ADR-0026, addendum of 2026-11-04 after the playtest)."""
     assert set(house) == HOUSE_FIELDS, f"house fields {house.get('id')}"
     names = [room["id"] for room in house["rooms"]]
-    assert all(set(room) <= {"id", "entrance"} for room in house["rooms"]), "room fields"
+    assert all(set(room) <= {"id", "entrance", "dwell"} for room in house["rooms"]), "room fields"
     assert len(set(names)) == len(names), "house.room_duplicate"
     assert len(names) <= 255, "house.limit"
     entrances = [at for at, room in enumerate(house["rooms"]) if room.get("entrance", False)]
@@ -1060,6 +1082,8 @@ def house_numbered(house: dict) -> dict:
         "entrance": entrances[0],
         "child_day_room": room(house["child_day_room"], "house.child_room"),
         "child_night_room": room(house["child_night_room"], "house.child_room"),
+        "dwell_room": room(house["dwell_room"], "house.dwell_room"),
+        "dwell": [room.get("dwell", True) for room in house["rooms"]],
         "doors": [(room(d["a"], "house.door_room"), room(d["b"], "house.door_room"), d["seconds"]) for d in house["doors"]],
         "objects": [(o["kind"], room(o["room"], "house.object_room")) for o in house["objects"]],
     }
@@ -1081,6 +1105,10 @@ def house_checked(needs: dict, kinds: dict, house: dict) -> None:
                     reached.add(there)
                     todo.append(there)
     assert len(reached) == house["rooms"], "house.disconnected"
+    # One goes from a room one does not stay in to one one stays in, other than the entrance.
+    dwell = house["dwell"]
+    assert len(dwell) == house["rooms"] and dwell[house["dwell_room"]], "house.dwell_room"
+    assert house["dwell_room"] != house["entrance"], "house.dwell_room"
     objects = []
     for kind, _ in house["objects"]:
         assert kind in kinds, "house.object_kind"
@@ -1088,7 +1116,7 @@ def house_checked(needs: dict, kinds: dict, house: dict) -> None:
     assert len(objects) <= 32 and sum(len(kind["offers"]) for kind in objects) <= 64, "house.limit"
     present = {kind["id"] for kind in objects}
     assert all(essential in present for essential in ESSENTIALS), "house.essentials"
-    beds = sum(kind["slots"] for kind in objects if kind["id"] != SOFA and any(o.get("sleep", False) for o in kind["offers"]))
+    beds = sum(kind["slots"] for kind in objects if is_bed(kind))
     assert beds >= house["capacity"], "house.sleep_places"
     offers = [offer for kind in objects for offer in kind["offers"]]
     for need in NEEDS:
@@ -1105,16 +1133,18 @@ def houses_suffix(files) -> bytes:
     back: u32 }, part_time: Hours }, return_jumps: NeedJumps { hunger: i32, energy: i32,
     bladder: i32, hygiene: i32, fun: i32 }, young: YoungRules { until_age: u8, kita_from: u32,
     kita_to: u32, bed_from: u32, bed_to: u32 }, night: NightRules { from: [u32; 4], until: [u32;
-    4] }, zero: ZeroRules { collapse_energy_rate: i32, stand_up_at: u16, accident_hygiene_at_most:
+    4], until_weekend: [u32; 4] }, zero: ZeroRules { collapse_energy_rate: i32, stand_up_at: u16, accident_hygiene_at_most:
     u16, hygiene_empty_fun: i32 }, choice_mood_percent: u8 }` (ADR-0024 section 4; the night of
     ADR-0026, its addendum of 2026-11-04: a fixed array as its four elements, no length; a need
-    at 0 and the mood of its addenda of 2026-11-04), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need,
-    i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep:
-    bool, min_age: u8, max_age: u8 }] }` (an offer's `id` is a name, not hashed), and the houses
-    by ID as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
-    child_night_room: u8, doors: [DoorDef { a: u8, b: u8, seconds: u32 }], objects:
-    [ObjectDef { kind, room: u8 }] }` (rooms are numbers, their names are not hashed). Empty
-    for data without houses (None)."""
+    at 0 and the mood of its addenda of 2026-11-04; the weekend's end of the night of its addendum
+    after the playtest), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates:
+    BTreeMap<Need, i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds:
+    Option<u32>, sleep: bool, min_age: u8, max_age: u8 }], bed_for: Option<BedFor> }` (an
+    offer's `id` is a name, not hashed; `BedFor` the index in `BED_FOR`), and the houses by ID
+    as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
+    child_night_room: u8, dwell_room: u8, dwell: [bool], doors: [DoorDef { a: u8, b: u8,
+    seconds: u32 }], objects: [ObjectDef { kind, room: u8 }] }` (rooms are numbers, their names
+    are not hashed). Empty for data without houses (None)."""
     if files is None:
         return b""
     needs, day, kinds, houses = houses_checked(*files)
@@ -1129,7 +1159,7 @@ def houses_suffix(files) -> bytes:
     out += b"".join(varint(work[hours][end]) for hours in ("full_time", "part_time") for end in ("depart", "back"))
     out += b"".join(zigzag(jumps[need]) for need in NEEDS)
     out += u8(young["until_age"]) + b"".join(varint(young[time]) for time in ("kita_from", "kita_to", "bed_from", "bed_to"))
-    out += b"".join(varint(time) for bound in ("from", "until") for time in day["night"][bound])
+    out += b"".join(varint(time) for bound in ("from", "until", "until_weekend") for time in day["night"][bound])
     zero = day["zero"]
     out += zigzag(zero["collapse_energy_rate"]) + varint(zero["stand_up_at"])
     out += varint(zero["accident_hygiene_at_most"]) + zigzag(zero["hygiene_empty_fun"])
@@ -1144,10 +1174,12 @@ def houses_suffix(files) -> bytes:
             out += option(offer.get("until_full"), lambda need: varint(NEEDS.index(need)))
             out += option(offer.get("max_seconds"), varint)
             out += boolean(offer.get("sleep", False)) + u8(offer["min_age"]) + u8(offer["max_age"])
+        out += option(kind.get("bed_for"), lambda sleepers: varint(BED_FOR.index(sleepers)))
     out += varint(len(houses))
     for house in houses:
         out += string(house["id"]) + u8(house["capacity"]) + u8(house["rooms"]) + u8(house["entrance"])
         out += u8(house["child_day_room"]) + u8(house["child_night_room"])
+        out += u8(house["dwell_room"]) + varint(len(house["dwell"])) + b"".join(boolean(dwells) for dwells in house["dwell"])
         out += varint(len(house["doors"])) + b"".join(u8(a) + u8(b) + varint(s) for a, b, s in house["doors"])
         out += varint(len(house["objects"])) + b"".join(string(kind) + u8(room) for kind, room in house["objects"])
     return out

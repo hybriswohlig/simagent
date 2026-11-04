@@ -8,11 +8,11 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::house::choice::CRITICAL;
+use crate::house::choice::{CRITICAL, next_choice};
 use crate::house::data::{
     AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
 };
-use crate::house::day::night;
+use crate::house::day::{YoungPlace, night, young_place};
 use crate::house::need::{EMPTY, FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
@@ -44,7 +44,9 @@ pub struct InHouse {
 }
 
 /// Where a person with needs is (ADR-0025 section 5). A walk with an action leads to its
-/// object, one without leads out through the entrance; after it the person is away.
+/// object, one without leads out through the entrance, after which the person is away, or from
+/// a room one does not stay in to the house's `dwell_room` (ADR-0026, addendum of 2026-11-04
+/// after the playtest).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Place {
     Room(u8),
@@ -119,6 +121,57 @@ impl HouseState {
             && self.waits.is_empty()
             && self.holds.is_empty()
     }
+}
+
+/// Whether a person walks without an action to the room one stays in (ADR-0026, addendum of
+/// 2026-11-04 after the playtest): every other walk without one leads out to the entrance.
+pub fn dwell_walk(person: &InHouse, house: &House) -> bool {
+    matches!(person.place, Place::Walking { to, .. } if person.action.is_none() && to != house.def().entrance)
+}
+
+/// The places `young` small children hold in their beds at `now` (ADR-0026, addendum of
+/// 2026-11-04 after the playtest): while the clock puts them in bed (`young_place`), the
+/// first `young` of `House::child_beds`, one each; none otherwise.
+pub fn child_held(house: &House, data: &HouseData, young: usize, now: SimTime) -> Vec<(u16, u8)> {
+    match young_place(data.day(), now) {
+        YoungPlace::Bed => house.child_beds(data).take(young).collect(),
+        YoungPlace::Kita { .. } | YoungPlace::DayRoom => Vec::new(),
+    }
+}
+
+/// The second the idle person `person`, born at `born` with the lineage key `key` in the world
+/// of `seed`, chooses next from `start` on (`house::choice::next_choice`), `taken` the places
+/// of the house taken or held for others: it weighs the objects with a free place from the
+/// room it stands in, or on its walk to the room one stays in from that room, no earlier than
+/// its arrival (ADR-0026, addendum of 2026-11-04 after the playtest).
+pub fn next_choice_of(
+    (house, data): (&House, &HouseData),
+    (born, key, seed): (SimTime, crate::lineage::LineageKey, u64),
+    person: &InHouse,
+    taken: &BTreeSet<(u16, u8)>,
+    start: SimTime,
+) -> Option<SimTime> {
+    let (room, start) = match person.place {
+        Place::Room(room) => (room, start),
+        Place::Walking { to, arrive, .. } => (to, start.max(arrive)),
+        Place::Away => return None,
+    };
+    let free = |object: u16| {
+        let def = &house.def().objects[usize::from(object)];
+        let slots = data.kind(&def.kind).map_or(0, |kind| kind.slots);
+        (0..slots).any(|slot| !taken.contains(&(object, slot)))
+    };
+    let percent = data.day().choice_mood_percent;
+    let moods = |at: SimTime, object: u16, offer: u16| {
+        crate::house::choice::mood(seed, key, at, (object, offer), percent)
+    };
+    next_choice(
+        (house, data),
+        (born, &person.needs, room),
+        free,
+        start,
+        moods,
+    )
 }
 
 /// The crossings a change of the person's rates at `after` plans (ADR-0026 section 1): per
@@ -243,6 +296,13 @@ pub enum Broken {
     /// Lying on the floor elsewhere than in a room, with an action, or with its energy not at
     /// 0 when it was last written down (it fell there in that second and only rises since).
     Collapse,
+    /// Idle in a room one does not stay in, waiting for nothing, holding nothing and with no
+    /// choice due in the next second after an input at the clock; or a walk to the room one
+    /// stays in from a room one stays in (ADR-0026, addendum of 2026-11-04 after the playtest).
+    Dwell,
+    /// An action on a place a small child holds in its bed at the clock or in the next second
+    /// (ADR-0026, addendum of 2026-11-04 after the playtest).
+    ChildBed,
 }
 
 /// The checks on load of the house part (ADR-0024, addendum of 2026-11-02) at `now`, the
@@ -355,6 +415,53 @@ pub fn consistent(
     if !house.holds.values().all(due) || waiters.any(due) {
         return Err(Broken::Choice);
     }
+    // Idle and waiting for nothing, one walks from a room one does not stay in to the room one
+    // does in the second it chooses, unless that walk would end beyond the end of time.
+    for (&sim, person) in &house.sims {
+        let home = homes[&households[&sim]];
+        let Place::Room(room) = person.place else {
+            continue;
+        };
+        let stays = home.dwells(room) || person.action.is_some() || person.collapsed;
+        let walked = SimDuration::from_secs(i64::from(home.walk_to_dwell(room)));
+        let beyond = now.checked_add(walked).is_none();
+        if !(stays || queued.contains(&sim) || due(&sim) || beyond) {
+            return Err(Broken::Dwell);
+        }
+    }
+    Ok(())
+}
+
+/// The check on load of the places small children hold in their beds (ADR-0026, addendum of
+/// 2026-11-04 after the playtest): no action is on one at the clock or in the next second, `now`,
+/// `young` the number of living members without needs of a household moved in.
+pub fn children_consistent(
+    house: &HouseState,
+    data: Option<&HouseData>,
+    now: SimTime,
+    young: impl Fn(HouseholdId) -> usize,
+    member: impl Fn(SimId) -> Option<(HouseholdId, SimTime)>,
+) -> Result<(), Broken> {
+    let clock = now.checked_sub(SimDuration::from_secs(1)).unwrap_or(now);
+    for (&sim, person) in &house.sims {
+        let (Some(action), Some((household, _))) = (person.action, member(sim)) else {
+            continue;
+        };
+        let Some(moved) = house
+            .households
+            .get(&household)
+            .filter(|moved| moved.morning)
+        else {
+            continue;
+        };
+        let data = data.ok_or(Broken::HouseUnknown)?;
+        let home = data.house(&moved.house).ok_or(Broken::HouseUnknown)?;
+        let place = (action.object, action.slot);
+        let held = |at: SimTime| child_held(home, data, young(household), at).contains(&place);
+        if held(clock) || held(now) {
+            return Err(Broken::ChildBed);
+        }
+    }
     Ok(())
 }
 
@@ -392,9 +499,11 @@ fn person_consistent(
             return Err(Broken::SlotUnknown);
         }
     }
-    let goal = match person.action {
-        Some(action) => home.def().objects[usize::from(action.object)].room,
-        None => home.def().entrance,
+    let dwelling = dwell_walk(person, home);
+    let goal = match (person.action, dwelling) {
+        (Some(action), _) => home.def().objects[usize::from(action.object)].room,
+        (None, true) => home.def().dwell_room,
+        (None, false) => home.def().entrance,
     };
     match person.place {
         Place::Room(at) => {
@@ -413,22 +522,27 @@ fn person_consistent(
             room(to)?;
             // The walk the house gives, begun before the clock or, by an input at it (a
             // command, ADR-0024 section 5), in the second the loaded world runs next; no input
-            // begins a walk out (leaving is an event).
-            let secs = match person.action {
-                Some(action) => home.walk_to(from, action.object),
-                None => home.walk_out(from),
+            // begins a walk out (leaving is an event) or one to the room one stays in (only a
+            // choice does, from a room one does not stay in).
+            let secs = match (person.action, dwelling) {
+                (Some(action), _) => home.walk_to(from, action.object),
+                (None, true) => home.walk_to_dwell(from),
+                (None, false) => home.walk_out(from),
             };
             let walked = arrive.as_secs() - depart.as_secs();
             let begun = depart < now || (depart == now && opened && person.action.is_some());
             if !begun || walked != i64::from(secs) || to != goal {
                 return Err(Broken::Walk);
             }
+            if dwelling && home.dwells(from) {
+                return Err(Broken::Dwell);
+            }
         }
         Place::Away => {}
     }
     // Away and on the way out every need stands still since the second of leaving, the start
     // of the walk out (ADR-0024 section 4).
-    if out(person) {
+    if out(person, home) {
         let still = person.needs.iter().all(|need| need.rate() == 0);
         if !still || person.action.is_some() || person.due.is_some() {
             return Err(Broken::AwayBusy);
@@ -455,12 +569,11 @@ fn person_consistent(
     Ok(())
 }
 
-/// Whether a person is away or on its way out: a walk without an action leads out.
-fn out(person: &InHouse) -> bool {
-    matches!(
-        (person.place, person.action),
-        (Place::Away, _) | (Place::Walking { .. }, None)
-    )
+/// Whether a person is away or on its way out: a walk without an action leads out, unless it
+/// leads to the room one stays in.
+fn out(person: &InHouse, home: &House) -> bool {
+    let walking_out = matches!(person.place, Place::Walking { .. }) && person.action.is_none();
+    person.place == Place::Away || (walking_out && !dwell_walk(person, home))
 }
 
 /// The age band at `at` of a person born at `born`.
@@ -564,7 +677,7 @@ fn rates_consistent(
     data: Option<&HouseData>,
     born: SimTime,
 ) -> Result<(), Broken> {
-    if out(person) {
+    if out(person, home) {
         return Ok(());
     }
     let houses = data.ok_or(Broken::HouseUnknown)?;

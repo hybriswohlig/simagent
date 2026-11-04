@@ -8,7 +8,7 @@ use crate::data::Data;
 use crate::house::data::Need;
 use crate::house::day::night;
 use crate::house::need::EMPTY;
-use crate::house::state::Place;
+use crate::house::state::{Place, dwell_walk};
 use crate::input::{Command, InputRejected, RejectCode};
 use crate::log::{Causes, EndReason};
 use crate::time::{SimDuration, SimTime};
@@ -67,13 +67,15 @@ fn rejection(
         return Err(RejectCode::Collapsed);
     }
     // Away, on the way out, or with a departure waiting: the departure stays first. On the
-    // way to an object the walk ends back in the room it came from.
+    // way to an object, or to the room one stays in (ADR-0026, addendum of 2026-11-04 after the
+    // playtest), the walk ends back in the room it came from.
     let room = match (person.place, person.action) {
         (Place::Room(room), _) | (Place::Walking { from: room, .. }, Some(_))
             if person.due.is_none() =>
         {
             room
         }
+        (Place::Walking { from: room, .. }, None) if dwell_walk(person, house) => room,
         _ => return Err(RejectCode::Away),
     };
     // With fun at 0 only what raises fun is still done on command; the person's own choices
@@ -87,7 +89,7 @@ fn rejection(
     }
     // Its own place frees when what it does ends, and goes to the first who waits for that
     // object (ADR-0026 section 5); a place held for it is free for it.
-    let mut taken = action::taken(domain, household, sim);
+    let mut taken = action::taken(domain, data, household, sim, now);
     if let Some(own) = person.action
         && !domain.house.waits.contains_key(&(household, own.object))
     {
@@ -115,6 +117,7 @@ pub(crate) fn apply(
         let causes = Causes::new(ctx.trigger());
         action::interrupt(domain, data, sim, EndReason::Command, causes, ctx);
     }
+    action::halt(domain, data, sim, ctx);
     let what = (input.object, input.offer);
     action::obey(domain, data, sim, what, Causes::new(ctx.trigger()), ctx);
 }

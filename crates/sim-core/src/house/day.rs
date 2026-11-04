@@ -122,19 +122,27 @@ impl Night {
 }
 
 /// The night of the day `day` of a person born at `born`: from `night.from` of that day to
-/// `night.until` of the next, of the age band at the day's plan (as its duty). `None` at an
-/// age without needs (under 6, above `OLDEST`) or if the day's plan or the night's start lies
-/// beyond the end of time; a night that would end beyond it ends with time. Time begins outside
-/// every night: a night before the first second has no plan in time, and nobody is 6 there, as
-/// nobody is born before it.
+/// `night.until` of the next, or to `night.until_weekend` when the next is a Saturday or a
+/// Sunday (weekday 5 or 6; ADR-0026, addendum of 2026-11-04 after the playtest), of the age
+/// band at the day's plan (as its duty). `None` at an age without needs (under 6, above
+/// `OLDEST`) or if the day's plan or the night's start lies beyond the end of time; a night that
+/// would end beyond it ends with time. Time begins outside every night: a night before the
+/// first second has no plan in time, and nobody is 6 there, as nobody is born before it.
 pub fn night_of(rules: &DayRules, day: i64, born: SimTime) -> Option<Night> {
     let plan = of_day(day, rules.day_plan_at)?;
     let years = (plan.as_secs() - born.as_secs()).div_euclid(YEAR.as_secs());
     let band = u8::try_from(years).ok().and_then(age_band)?;
-    let next = day.checked_add(1);
+    let until = |next: i64| {
+        let morning = of_day(next, 0)?;
+        let ends = match calendar(morning).weekday >= WEEKDAYS {
+            true => rules.night.until_weekend[band],
+            false => rules.night.until[band],
+        };
+        of_day(next, ends)
+    };
     Some(Night {
         from: of_day(day, rules.night.from[band])?,
-        until: next.and_then(|next| of_day(next, rules.night.until[band])),
+        until: day.checked_add(1).and_then(until),
     })
 }
 

@@ -11,11 +11,13 @@ use alloc::vec::Vec;
 use super::house::plan_crossings;
 use super::{DomainState, Slot};
 use crate::data::Data;
-use crate::house::choice::{CRITICAL, Choice, choose, mood, score};
-use crate::house::data::{House, HouseData, NEEDS, Need, OfferDef, age_band};
+use crate::house::choice::{CRITICAL, Choice, choose, in_tier, mood, score, tier};
+use crate::house::data::{BedFor, House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::day::night;
 use crate::house::need::{EMERGENCY, EMPTY, FULL};
-use crate::house::state::{Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end};
+use crate::house::state::{
+    Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end, child_held, dwell_walk,
+};
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
 use crate::time::{SimDuration, SimTime, day_index};
@@ -117,10 +119,14 @@ pub(super) fn asleep(domain: &DomainState, data: &Data, sim: SimId) -> bool {
 
 /// The places of the household's objects taken by an action or held for another than `sim`,
 /// as (object, place): in its choice a place held for `sim` counts as free (ADR-0026 section 5).
+/// A small child in its bed holds one at `now` as well (ADR-0026, addendum of 2026-11-04 after
+/// the playtest).
 pub(super) fn taken(
     domain: &DomainState,
+    data: &Data,
     household: HouseholdId,
     sim: SimId,
+    now: SimTime,
 ) -> BTreeSet<(u16, u8)> {
     let members = domain.members.get(&household).into_iter().flatten();
     let actions = members.filter_map(|sim| domain.house.sims.get(sim)?.action);
@@ -129,7 +135,88 @@ pub(super) fn taken(
         .filter(|&(_, &holder)| holder != sim)
         .map(|(&(_, object, slot), _)| (object, slot));
     taken.extend(held);
+    taken.extend(young_held(domain, data, household, now));
     taken
+}
+
+/// The places the household's small children hold in their beds at `now` (ADR-0026, addendum
+/// of 2026-11-04 after the playtest): after its first morning, its living members without
+/// needs, by SimId, each the next place of `House::child_beds`, while the clock puts them in bed.
+pub(super) fn young_held(
+    domain: &DomainState,
+    data: &Data,
+    household: HouseholdId,
+    now: SimTime,
+) -> Vec<(u16, u8)> {
+    let Some(moved) = domain.house.households.get(&household) else {
+        return Vec::new();
+    };
+    let (Some(houses), true) = (data.houses(), moved.morning) else {
+        return Vec::new();
+    };
+    let house = (houses.house(&moved.house)).unwrap_or_else(|| panic!("invariant house.unknown"));
+    let members = domain.members.get(&household).into_iter().flatten();
+    let young = members
+        .filter(|sim| !domain.house.sims.contains_key(sim))
+        .count();
+    child_held(house, houses, young, now)
+}
+
+/// The objects with a place the household's small children hold at `now`, in their order.
+fn held_objects(
+    domain: &DomainState,
+    data: &Data,
+    household: HouseholdId,
+    now: SimTime,
+) -> Vec<u16> {
+    let mut objects: Vec<u16> = (young_held(domain, data, household, now).into_iter())
+        .map(|(object, _)| object)
+        .collect();
+    objects.dedup();
+    objects
+}
+
+/// The partner of `sim` in an open partnership who lives in the same household (ADR-0026,
+/// addendum of 2026-11-04 after the playtest).
+pub(crate) fn partner(domain: &DomainState, sim: SimId) -> Option<SimId> {
+    let id = super::partnership::open_partnership(domain, sim)?;
+    let pair = domain.partnerships.get(&id)?;
+    let other = if pair.woman == sim {
+        pair.man
+    } else {
+        pair.woman
+    };
+    let household = |sim: SimId| domain.sims.get(&sim).map(|person| person.household);
+    (household(other).is_some() && household(other) == household(sim)).then_some(other)
+}
+
+/// The beds of the tier of `sim` at `age` in its night (`house::choice::tier`): its partner's
+/// bed for couples if the partner holds a place on one.
+fn tier_beds(
+    domain: &DomainState,
+    house: &House,
+    houses: &HouseData,
+    sim: SimId,
+    age: u8,
+) -> Vec<u16> {
+    let partner = partner(domain, sim);
+    let couples = crate::house::choice::Tier::For(BedFor::Couples);
+    let partner_bed = (partner.and_then(|partner| domain.house.sims.get(&partner)?.action))
+        .map(|action| action.object)
+        .filter(|&object| in_tier(house, houses, couples, object));
+    let tier = tier(partner.is_some(), partner_bed, age);
+    (0_u16..)
+        .zip(&house.def().objects)
+        .map(|(object, _)| object)
+        .filter(|&object| in_tier(house, houses, tier, object))
+        .collect()
+}
+
+/// The household's free places changed in this handler, last by the entry `by`: the idle
+/// persons' next choices are planned anew when it ends (`house::settle`, ADR-0026, addendum of
+/// 2026-11-04 after the playtest).
+pub(super) fn changed(domain: &mut DomainState, household: HouseholdId, by: EventId) {
+    domain.house_changed.insert(household, by);
 }
 
 /// The keys of all places of a household's objects.
@@ -158,6 +245,7 @@ pub(crate) fn release(
     by: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
+    changed(domain, household, by);
     let Some(waiters) = domain.house.waits.get_mut(&(household, object)) else {
         return;
     };
@@ -206,8 +294,16 @@ pub(crate) fn decide(
     };
     // Who chooses leaves every waiting list (ADR-0026 section 5).
     let held = stop_waiting(domain, household, sim, ctx);
-    let taken = taken(domain, household, sim);
+    let taken = taken(domain, data, household, sim, now);
     let busy = busy(house, houses, &taken);
+    // In the night the beds of its tier, and those with a place a small child holds.
+    let (beds, children) = match tonight {
+        Some(_) => (
+            tier_beds(domain, house, houses, sim, age),
+            held_objects(domain, data, household, now),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
     let person = person_mut(domain, sim);
     let (Place::Room(room), None, false) = (person.place, person.action, person.collapsed) else {
         panic!("invariant house.choice_busy");
@@ -233,7 +329,7 @@ pub(crate) fn decide(
         (age, needs),
         &scored,
         &busy,
-        tonight.is_some(),
+        tonight.map(|_| beds.as_slice()),
     );
     let chosen = match choice {
         Choice::Take(chosen) => Some(chosen),
@@ -257,8 +353,31 @@ pub(crate) fn decide(
             needs,
             busy,
             waits,
+            held: children,
+            tier: beds,
         };
         let entry = ctx.emit(idle, vec![Subject::Sim(sim)], causes);
+        // One idle and waiting for nothing goes from a room one does not stay in to the room
+        // one does, without an action (ADR-0026, addendum of 2026-11-04 after the playtest); its
+        // next choice is planned when the handler ends, for that room.
+        if waits.is_none() {
+            if !house.dwells(room) {
+                let to = house.def().dwell_room;
+                let walked = SimDuration::from_secs(i64::from(house.walk_to_dwell(room)));
+                if let Some(arrive) = now.checked_add(walked) {
+                    let person = person_mut(domain, sim);
+                    person.place = Place::Walking {
+                        from: room,
+                        to,
+                        depart: now,
+                        arrive,
+                    };
+                    let handle = ctx.schedule(arrive, EventPayload::Arrive { sim }, entry);
+                    domain.pending.insert((sim, Slot::Arrive), handle);
+                }
+            }
+            changed(domain, household, entry);
+        }
         if let Some(place) = held {
             release(domain, household, place, entry, ctx);
         }
@@ -271,11 +390,77 @@ pub(crate) fn decide(
         walk_secs,
         arrive,
     };
-    let seen = (needs, &taken, busy);
+    let seen = (needs, &taken, busy, (children, beds));
     let (entry, slot) = begin(domain, house, sim, walk, seen, (false, causes), ctx);
     // A held place the choice did not take goes on to the next who waits.
     if let Some(place) = held.filter(|&place| place != (chosen.object, slot)) {
         release(domain, household, place, entry, ctx);
+    }
+}
+
+/// The next choices of the idle persons of each household whose free places changed in this
+/// handler (ADR-0026, addendum of 2026-11-04 after the playtest), in the order of the
+/// households and their members: each idle in a room or on its walk to the room one stays in,
+/// not lying and waiting for nothing, chooses at `next_choice_of` from now on, planned by the
+/// household's last entry that changed it; anyone else has no choice planned. A choice already
+/// due in this second stays: it comes anyway, and plans the next.
+pub(crate) fn plan_idle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
+    for (household, by) in core::mem::take(&mut domain.house_changed) {
+        if !domain.house.households.contains_key(&household) {
+            continue;
+        }
+        let members: Vec<SimId> = (domain.members.get(&household).into_iter().flatten())
+            .copied()
+            .collect();
+        for sim in members {
+            plan_next(domain, data, (household, sim), by, ctx);
+        }
+    }
+}
+
+/// The next choice of `sim` of `household` anew (`plan_idle`).
+fn plan_next(
+    domain: &mut DomainState,
+    data: &Data,
+    (household, sim): (HouseholdId, SimId),
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let Some(person) = domain.house.sims.get(&sim) else {
+        return;
+    };
+    let pending = domain.pending.get(&(sim, Slot::Decide)).copied();
+    let due = pending.and_then(|handle| ctx.pending_time(handle));
+    if due == Some(now) {
+        return;
+    }
+    let (_, houses, house) = home(domain, data, sim);
+    let waits = (domain.house.waits.values().flatten()).any(|&(_, waiter)| waiter == sim);
+    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(person, house);
+    let idle = stands && person.action.is_none() && !person.collapsed && !waits;
+    let next = match idle {
+        true => {
+            let seed =
+                (domain.world_seed).unwrap_or_else(|| panic!("invariant seeds.before_start"));
+            let Some(key) = domain.sims.get(&sim).map(|person| person.lineage_key) else {
+                panic!("invariant unknown_entity_id: sim {}", sim.get());
+            };
+            let taken = taken(domain, data, household, sim, now);
+            let who = (born(domain, sim), key, seed);
+            crate::house::state::next_choice_of((house, houses), who, person, &taken, now)
+        }
+        false => None,
+    };
+    if next == due {
+        return;
+    }
+    if let Some(handle) = domain.pending.remove(&(sim, Slot::Decide)) {
+        ctx.cancel(handle);
+    }
+    if let Some(at) = next {
+        let handle = ctx.schedule(at, EventPayload::Decide { sim }, by);
+        domain.pending.insert((sim, Slot::Decide), handle);
     }
 }
 
@@ -302,6 +487,16 @@ pub(super) fn stop_waiting(
     held
 }
 
+/// What a choice saw (`core:action_started`): the needs, the places taken or held for others,
+/// the objects without a free place, and in the night the objects with a place a small child
+/// holds and the beds of the person's tier.
+type Seen<'a> = (
+    [u16; 5],
+    &'a BTreeSet<(u16, u8)>,
+    Vec<u16>,
+    (Vec<u16>, Vec<u16>),
+);
+
 /// A walk that begins now (ADR-0026 section 4): to `object` for `offer` from `room`,
 /// `walk_secs` long, arriving at `arrive`.
 struct Walk {
@@ -321,7 +516,7 @@ fn begin(
     house: &House,
     sim: SimId,
     walk: Walk,
-    (needs, taken, busy): ([u16; 5], &BTreeSet<(u16, u8)>, Vec<u16>),
+    (needs, taken, busy, (held, tier)): Seen<'_>,
     (commanded, causes): (bool, Causes),
     ctx: &mut SimCtx<'_, '_>,
 ) -> (EventId, u8) {
@@ -345,9 +540,14 @@ fn begin(
         needs,
         busy,
         commanded,
+        held,
+        tier,
     };
     let entry = ctx.emit(started, vec![Subject::Sim(sim)], causes);
     let depart = ctx.now();
+    if let Some(household) = domain.sims.get(&sim).map(|person| person.household) {
+        changed(domain, household, entry);
+    }
     let person = person_mut(domain, sim);
     person.place = Place::Walking {
         from: room,
@@ -381,8 +581,12 @@ pub(super) fn obey(
     let now = ctx.now();
     let (household, houses, house) = home(domain, data, sim);
     let held = stop_waiting(domain, household, sim, ctx);
-    let taken = taken(domain, household, sim);
+    let taken = taken(domain, data, household, sim, now);
     let busy = busy(house, houses, &taken);
+    let children = match night(houses.day(), born(domain, sim), now) {
+        Some(_) => held_objects(domain, data, household, now),
+        None => Vec::new(),
+    };
     let person = person_mut(domain, sim);
     let (Place::Room(room), None) = (person.place, person.action) else {
         panic!("invariant house.command_busy");
@@ -398,7 +602,8 @@ pub(super) fn obey(
         walk_secs,
         arrive,
     };
-    let seen = (needs, &taken, busy);
+    // A command is no choice: it has no tier.
+    let seen = (needs, &taken, busy, (children, Vec::new()));
     let (entry, slot) = begin(domain, house, sim, walk, seen, (true, causes), ctx);
     if let Some(place) = held.filter(|&place| place != (object, slot)) {
         release(domain, household, place, entry, ctx);
@@ -465,6 +670,13 @@ pub(crate) fn on_crossing(
     }
     match (place, action) {
         (Place::Room(_), None) => decide(domain, data, sim, causes, ctx),
+        // On the way to the room one stays in, 700 and 400 do nothing (the planned choice is
+        // the wakeup); 150 and 50 end the walk back in the room it came from, and it chooses.
+        (Place::Walking { .. }, None) if level <= CRITICAL => {
+            if halt(domain, data, sim, ctx) {
+                decide(domain, data, sim, causes, ctx);
+            }
+        }
         // At the object the need falls, so the action does not raise it. On the way the
         // offer's rate is still to come, in the age band of the arrival.
         (_, Some(_)) if level <= CRITICAL && !raises(domain, data, sim, need) => {
@@ -473,6 +685,33 @@ pub(crate) fn on_crossing(
         }
         _ => {}
     }
+}
+
+/// A person on its walk without an action to the room one stays in (ADR-0026, addendum of
+/// 2026-11-04 after the playtest) stops it: the walk counts as not gone, so it stands in the
+/// room it came from again (ADR-0025 section 5), and its arrival and planned choice are
+/// cancelled. Whether it was on such a walk; nothing happens to anyone else.
+pub(super) fn halt(
+    domain: &mut DomainState,
+    data: &Data,
+    sim: SimId,
+    ctx: &mut SimCtx<'_, '_>,
+) -> bool {
+    let (_, _, house) = home(domain, data, sim);
+    let person = person_mut(domain, sim);
+    let Place::Walking { from, .. } = person.place else {
+        return false;
+    };
+    if !dwell_walk(person, house) {
+        return false;
+    }
+    person.place = Place::Room(from);
+    for slot in [Slot::Arrive, Slot::Decide] {
+        if let Some(handle) = domain.pending.remove(&(sim, slot)) {
+            ctx.cancel(handle);
+        }
+    }
+    true
 }
 
 /// A person's walk or action ends now for `reason` (ADR-0026 section 4): its arrival or end
@@ -547,9 +786,18 @@ pub(crate) fn on_arrive(
         panic!("invariant house.orphan_event");
     };
     // Out of the door the person is away; its needs stand still since it left (ADR-0024
-    // section 4).
+    // section 4). In the room one stays in it stands idle, its rates as they were, and waits for
+    // its planned choice; in its night it chooses now (ADR-0026, addendum of 2026-11-04 after
+    // the playtest), as the bedtime it walked through made nobody choose.
     let Some(action) = action else {
-        person.place = Place::Away;
+        if to == house.def().entrance {
+            person.place = Place::Away;
+            return;
+        }
+        person.place = Place::Room(to);
+        if night(houses.day(), born, now).is_some() {
+            decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
+        }
         return;
     };
     let offer = offer_of(house, houses, action);

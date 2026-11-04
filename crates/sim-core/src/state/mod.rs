@@ -272,6 +272,11 @@ pub(crate) struct DomainState {
     /// The changes of membership of the running handler, for `house::settle`; empty
     /// between handlers, so not part of the projection.
     pub(crate) house_moves: Vec<house::HouseMove>,
+    /// The households whose free places changed in the running handler, each with the last
+    /// entry that changed them, for `house::settle` to plan their idle persons' next choices
+    /// (ADR-0026, addendum of 2026-11-04 after the playtest); empty between handlers, so not
+    /// part of the projection.
+    pub(crate) house_changed: BTreeMap<HouseholdId, crate::ids::EventId>,
 }
 
 /// What a pending event of a sim is. A sim has at most one of each.
@@ -408,6 +413,7 @@ impl DomainState {
             members: BTreeMap::new(),
             house_mornings: BTreeMap::new(),
             house_moves: Vec::new(),
+            house_changed: BTreeMap::new(),
         }
     }
 }

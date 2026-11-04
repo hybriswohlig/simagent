@@ -501,6 +501,7 @@ pub fn why_answer(
             needs,
             busy,
             waits,
+            ..
         } => (house, *room, *needs, busy, None, false, *waits),
         _ => return Ok(None),
     };

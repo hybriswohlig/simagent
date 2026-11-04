@@ -151,10 +151,16 @@ fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+            let bed_for = (kind
+                .get("bed_for")
+                .map(|value| serde_json::from_value(value.clone())))
+            .transpose()
+            .map_err(|e| format!("kinds.json: bed_for: {e}"))?;
             Ok(KindDef {
                 id: id(&kind["id"])?,
                 slots: small(&kind["slots"], "slots")?,
                 offers,
+                bed_for,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -204,6 +210,11 @@ fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
                     .ok_or("house: entrance")?,
                 child_day_room: room(&house["child_day_room"])?,
                 child_night_room: room(&house["child_night_room"])?,
+                dwell_room: room(&house["dwell_room"])?,
+                dwell: (rooms.iter())
+                    .map(|room| room.get("dwell").map_or(Some(true), Value::as_bool))
+                    .collect::<Option<Vec<bool>>>()
+                    .ok_or("house: dwell")?,
                 doors,
                 objects,
             })

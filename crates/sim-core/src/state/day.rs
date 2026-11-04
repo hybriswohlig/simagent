@@ -235,7 +235,9 @@ pub(crate) fn on_depart(
 }
 
 /// A person leaves the house for `place`, `late_secs` after its plan (ADR-0024 section 4,
-/// ADR-0025 section 5): what it does ends with reason `obligation` and no choice follows; it
+/// ADR-0025 section 5): what it does ends with reason `obligation` and no choice follows, a walk
+/// to the room one stays in ends where it began (ADR-0026, addendum of 2026-11-04 after the
+/// playtest); it
 /// leaves every waiting list, passes on a held place and has no choice planned; its entry
 /// `core:left_home`; from now every need stands still and it walks out through the entrance.
 pub(crate) fn leave(
@@ -251,6 +253,8 @@ pub(crate) fn leave(
         let ended = action::interrupt(domain, data, sim, EndReason::Obligation, causes, ctx);
         causes = Causes::new(Cause::Event(ended));
     }
+    // On its walk to the room one stays in, it leaves from the room it came from.
+    action::halt(domain, data, sim, ctx);
     let (household, _, house) = home(domain, data, sim);
     for waiters in domain.house.waits.values_mut() {
         waiters.retain(|&(_, waiter)| waiter != sim);

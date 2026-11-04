@@ -110,6 +110,11 @@ pub(super) fn settle(
     if written {
         plan_crossings(domain, sim, last, ctx);
     }
+    // A walk to the room one stays in ends where it began, as at 150 and 50 (ADR-0026, addendum
+    // of 2026-11-04 after the playtest).
+    if choose {
+        action::halt(domain, data, sim, ctx);
+    }
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
@@ -159,6 +164,8 @@ fn collapse(
         let ended = action::interrupt(domain, data, sim, EndReason::Collapse, causes, ctx);
         causes = Causes::new(Cause::Event(ended));
     }
+    // On its walk to the room one stays in, it falls in the room it came from.
+    action::halt(domain, data, sim, ctx);
     let (household, houses, _) = home(domain, data, sim);
     let held = action::stop_waiting(domain, household, sim, ctx);
     let band = action::band(domain, sim, now);
