@@ -163,6 +163,7 @@ fn started_in(
         commanded: false,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
 }
 
@@ -266,6 +267,7 @@ fn nothing_that_can_bring_enough_plans_no_choice() {
         |_| true,
         t(MORNING),
         |_, _, _| 10,
+        |_| None,
     );
     assert_eq!(next, None);
 }
@@ -297,6 +299,7 @@ fn the_search_stops_at_bedtime_and_at_a_birthday() {
             |_| true,
             start,
             |_, _, _| mood,
+            |_| None,
         )
     };
     let ten_to = at(21, 50, 0);
@@ -327,11 +330,30 @@ fn the_search_stops_at_bedtime_and_at_a_birthday() {
 /// boy of 4 (sims 3, 4 and 5), whom they take in; moved in at 23:59:59 of day 0, the first
 /// morning 6:00 of day 1, a Tuesday (weekday 1). Five live in the terraced house.
 fn family() -> Run {
+    family_on(common::repository_data())
+}
+
+/// The same family on `data`.
+fn family_on(data: Data) -> Run {
     let born = [-33 * Y, -31 * Y, -9 * Y, -6 * Y, -4 * Y];
-    let (run, home) = Run::family(common::repository_data(), SEED_RULES, TAG, &born, 0);
+    let (run, home) = Run::family(data, SEED_RULES, TAG, &born, 0);
     let house = &run.world.state().house().households[&home].house;
     assert_eq!(house, &DataId::new("core:terraced").expect("id"));
     run
+}
+
+/// The repository's data with no time-filler (every `fallback` of `kinds.json` left out), so that
+/// one with nothing worth it idles as before them (ADR-0026, addendum of 2026-11-04 on comfort and
+/// the time-filler): the rules of idling here hold where no time-filler is free.
+fn without_fillers() -> Data {
+    let houses = common::repository_houses_with(|kinds| {
+        for kind in kinds.as_array_mut().expect("the kinds") {
+            for offer in kind["offers"].as_array_mut().expect("the offers") {
+                offer.as_object_mut().expect("an offer").remove("fallback");
+            }
+        }
+    });
+    common::repository_data().with_houses(houses)
 }
 
 /// The family's seed (never reseeded) and its tag.
@@ -354,10 +376,11 @@ const SMALL_ROOM_BED: u16 = 12;
 /// the awake ones as before, until its planned choice, which weighs the offers from the living
 /// room: the first such idle choice of the Saturday (day 5), a day without duty, so nothing but
 /// that choice comes next. To the Sunday nobody stands idle in the WC or the bath without
-/// waiting (the state after every second with events).
+/// waiting (the state after every second with events). In the repository's house a time-filler
+/// is always free by day, so the family lives here without them (`without_fillers`).
 #[test]
 fn idle_in_the_wc_or_the_bath_walks_to_the_living_room() {
-    let mut whole = family();
+    let mut whole = family_on(without_fillers());
     let end = 6 * D;
     let mut stood = Vec::new();
     whole.step(end, |world, second| {
@@ -395,7 +418,7 @@ fn idle_in_the_wc_or_the_bath_walks_to_the_living_room() {
     };
     for (room, secs) in [(WC, 5), (BATH, 18)] {
         let (at, who) = first(room);
-        let mut run = family();
+        let mut run = family_on(without_fillers());
         run.advance(at);
         let person = &run.world.state().house().sims[&who];
         let walking = Place::Walking {
@@ -574,7 +597,8 @@ fn bed_rates() -> String {
         "awake": {"hunger": bands(0), "energy": bands(-30), "bladder": bands(0),
                   "hygiene": bands(0), "fun": bands(0)},
         "asleep": {"hunger": bands(0), "energy": bands(100), "bladder": bands(0),
-                   "hygiene": bands(0), "fun": bands(0)}
+                   "hygiene": bands(0), "fun": bands(0)},
+        "comfort": [1000, 1000, 1000, 1000, 1000]
     })
     .to_string()
 }
@@ -610,6 +634,7 @@ fn a_full_tier_goes_to_the_other_beds() {
                 commanded: false,
                 held: Vec::new(),
                 tier: tier.to_vec(),
+                filler: false,
             }
         };
     let chose = |id: u64| {
@@ -692,11 +717,15 @@ fn the_family_sleeps_in_on_the_weekend() {
 /// with the boy's bed held: each save loads, saves to the same bytes and runs on as the
 /// uninterrupted family to noon of day 3, with the same state hash and the same entries. The
 /// first is the second of the first idle choice after 6:30 of day 1 that waits for nothing, the
-/// second that of the first walk to the living room, the third 23:00 of day 1.
+/// second that of the first walk to the living room, the third 23:00 of day 1; the family lives
+/// without time-fillers (`without_fillers`), so that it idles. With them, saved in the middle of
+/// the first time-filler after 6:30 of day 1, at its object with its end planned, the same
+/// (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
 #[test]
 fn saves_with_a_planned_choice_a_walk_and_a_held_bed_run_on_the_same() {
     let end = 3 * D + 12 * H;
-    let mut whole = family();
+    let data = without_fillers();
+    let mut whole = family_on(data.clone());
     whole.advance(end);
     let idle_after = |from: i64, walks: bool| {
         (whole.log.iter())
@@ -712,11 +741,10 @@ fn saves_with_a_planned_choice_a_walk_and_a_held_bed_run_on_the_same() {
     let planned = idle_after(D + 6 * H + 1_800, false);
     let walking = idle_after(D + 6 * H, true);
     for saved_at in [planned, walking, D + 23 * H] {
-        let mut run = family();
+        let mut run = family_on(data.clone());
         run.advance(saved_at);
         let bytes = run.world.save(&run.out.year_hashes).expect("saves");
-        let data = common::repository_data();
-        let (mut loaded, _) = World::load(&bytes, data).expect("loads");
+        let (mut loaded, _) = World::load(&bytes, data.clone()).expect("loads");
         assert_eq!(loaded.save(&run.out.year_hashes).expect("saves"), bytes);
         loaded.advance_until(&mut YearOut::default(), t(end), &mut |_| false);
         let saved = run.log.len();
@@ -730,4 +758,37 @@ fn saves_with_a_planned_choice_a_walk_and_a_held_bed_run_on_the_same() {
         );
         assert_eq!(loaded.state_hash(), whole.world.state_hash(), "{saved_at}");
     }
+    let mut whole = family();
+    whole.advance(end);
+    let filled = (whole.log.iter())
+        .filter(|entry| entry.t.as_secs() >= D + 6 * H + 1_800)
+        .find(|entry| {
+            matches!(
+                entry.payload,
+                LogPayload::ActionStarted { filler: true, .. }
+            )
+        })
+        .expect("a time-filler");
+    let ends = (whole.log.iter())
+        .filter(|entry| entry.subjects == filled.subjects && entry.t > filled.t)
+        .find(|entry| matches!(entry.payload, LogPayload::ActionEnded { .. }))
+        .expect("its end");
+    let saved_at = (filled.t.as_secs() + ends.t.as_secs()) / 2;
+    let mut run = family();
+    run.advance(saved_at);
+    let [Subject::Sim(who)] = filled.subjects.as_slice() else {
+        panic!("one person");
+    };
+    let person = &run.world.state().house().sims[who];
+    assert!(matches!(person.place, Place::Room(_)), "{saved_at}");
+    assert!(
+        person.action.is_some_and(|action| action.filler),
+        "{saved_at}"
+    );
+    let bytes = run.world.save(&run.out.year_hashes).expect("saves");
+    let data = common::repository_data();
+    let (mut loaded, _) = World::load(&bytes, data).expect("loads");
+    assert_eq!(loaded.save(&run.out.year_hashes).expect("saves"), bytes);
+    loaded.advance_until(&mut YearOut::default(), t(end), &mut |_| false);
+    assert_eq!(loaded.state_hash(), whole.world.state_hash(), "{saved_at}");
 }

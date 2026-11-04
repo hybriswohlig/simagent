@@ -20,6 +20,8 @@ pub const MORNING: i64 = DAY.as_secs() + 6 * HOUR.as_secs();
 
 /// The rates of a test house, the same in every age band: hunger, energy and fun as given
 /// awake, bladder and hygiene still; asleep hunger falls 1 200 an hour and energy rises 1 200.
+/// Every need weighs from full on, its comfort 1000 (ADR-0026, addendum of 2026-11-04 on comfort
+/// and the time-filler): the points of a test house are `(1000 − v) · gain` as before it.
 pub fn rates(hunger: i32, energy: i32, fun: i32) -> String {
     let bands = |rate: i32| [rate; 4];
     serde_json::json!({
@@ -36,7 +38,8 @@ pub fn rates(hunger: i32, energy: i32, fun: i32) -> String {
             "bladder": bands(0),
             "hygiene": bands(0),
             "fun": bands(0)
-        }
+        },
+        "comfort": [1000, 1000, 1000, 1000, 1000]
     })
     .to_string()
 }

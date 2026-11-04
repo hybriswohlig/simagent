@@ -6,14 +6,16 @@
 //! same rule gives idling, or waiting for the object the entry names. The offers of sleep are
 //! closed by day, without points or mood, and open in the night. Each open offer carries the
 //! person's mood for it, the addressed draw of the choice's second (ADR-0026, addendum of
-//! 2026-11-04 on the mood), and its points with it; the chosen one the same. A couple of 30 and
+//! 2026-11-04 on the mood), and its points with it; the chosen one the same. A time-filler's start
+//! is a choice that comes to idling by day, and its offer is the one `house::choice::filler`
+//! gives (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). A couple of 30 and
 //! 32 in the flat of the repository, with the data `simagent` uses.
 
 use sim_cli::data::core_data;
 use sim_cli::why_answer;
 use sim_core::data_id::DataId;
 use sim_core::genome::{LocusAlleles, Sex};
-use sim_core::house::choice::{Choice, Scored, age, choose, mood};
+use sim_core::house::choice::{Choice, Scored, age, choose, filler, mood};
 use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
 use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, LogPayload, Subject};
@@ -64,9 +66,9 @@ fn why_recomputes_the_choice() {
     world.advance_until(&mut out, week, &mut |_| false);
     log.extend(world.take_log());
     let houses = world.state().data().houses().expect("houses");
-    let (mut starts, mut idles, mut nights) = (0, 0, 0);
+    let (mut starts, mut idles, mut nights, mut fillers) = (0, 0, 0, 0);
     for entry in &log {
-        let Some(answer) = why_answer(&world, entry, 0, false).expect("recomputes") else {
+        let Some(answer) = why_answer(&world, entry, 0, false, None).expect("recomputes") else {
             continue;
         };
         let number = |value: &serde_json::Value| value.as_i64().expect("a number");
@@ -89,9 +91,10 @@ fn why_recomputes_the_choice() {
             .collect();
         let night = answer["night"]["now"] == true;
         assert_eq!(night, closed.is_empty(), "{answer}");
-        let (house, needs, busy, tier) = match &entry.payload {
+        let (house, room, needs, busy, tier) = match &entry.payload {
             LogPayload::ActionStarted {
                 house,
+                room,
                 needs,
                 busy,
                 tier,
@@ -99,11 +102,12 @@ fn why_recomputes_the_choice() {
             }
             | LogPayload::Idle {
                 house,
+                room,
                 needs,
                 busy,
                 tier,
                 ..
-            } => (house, *needs, busy, tier),
+            } => (house, *room, *needs, busy, tier),
             other => panic!("no choice: {other:?}"),
         };
         let house = houses.house(house).expect("its house");
@@ -122,6 +126,19 @@ fn why_recomputes_the_choice() {
         let night = night.then_some(tier.as_slice());
         let choice = choose((house, houses), (years, needs), &scored, busy, night);
         match &entry.payload {
+            LogPayload::ActionStarted {
+                object,
+                offer,
+                filler: true,
+                ..
+            } => {
+                (starts, fillers) = (starts + 1, fillers + 1);
+                assert_eq!(choice, Choice::Idle, "{answer}");
+                assert!(night.is_none(), "{answer}");
+                let filled = filler((house, houses), (years, room), busy);
+                assert_eq!(filled, Some((*object, *offer)), "{answer}");
+                assert!(answer["filler"].is_object(), "{answer}");
+            }
             LogPayload::ActionStarted { object, offer, .. } => {
                 starts += 1;
                 nights += usize::from(night.is_some());
@@ -144,8 +161,9 @@ fn why_recomputes_the_choice() {
         }
     }
     // About 60 entries a person a day: hundreds of choices in a week, each night at least the
-    // two bedtimes.
+    // two bedtimes; the time-fillers' starts among the starts.
     assert!(starts > 200, "{starts} starts");
     assert!(idles > 0, "{idles} idles");
     assert!(nights >= 14, "{nights} choices in the night");
+    assert!(fillers > 14, "{fillers} time-fillers");
 }

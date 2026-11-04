@@ -269,8 +269,8 @@ fn the_first_morning_gives_the_needs() {
     let morning = DAY.as_secs() + SIX;
     run.advance(morning);
     // Morning values with the awake rates of an adult (18 to 66), in the entrance; each
-    // chooses at once and walks from there (she to the toilet in the bath, 3 s, he to the
-    // table in the kitchen, 4 s; tests/house_day.rs has the choices by hand).
+    // chooses at once and walks from there (she to the toilet in the bath, 3 s, he with the
+    // toilet taken to the shower in the bath, 3 s; tests/house_day.rs has the choices by hand).
     let values = [600, 900, 500, 700, 800];
     for entry in run.entries(day_started) {
         assert_eq!(entry.payload, LogPayload::DayStarted { needs: values });
@@ -289,6 +289,7 @@ fn the_first_morning_gives_the_needs() {
             object,
             offer: 0,
             slot: 0,
+            filler: false,
         }),
         due: None,
         decisions: Decisions {
@@ -304,7 +305,7 @@ fn the_first_morning_gives_the_needs() {
         [sim(1), sim(2)]
     );
     assert_eq!(house.sims[&sim(1)], walking(3, 3, 5));
-    assert_eq!(house.sims[&sim(2)], walking(1, 4, 0));
+    assert_eq!(house.sims[&sim(2)], walking(3, 3, 6));
 }
 
 #[test]

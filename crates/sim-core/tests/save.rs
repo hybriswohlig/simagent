@@ -479,17 +479,28 @@ fn archived(index: usize, born: i64, left: i64) -> Archived {
 type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
 
 /// A person with needs (ADR-0024, addendum of 2026-11-02): each need as (value, at, rate),
-/// the place, the action as (object, offer, place), a departure that waits as (place,
-/// depart, back), the choices of a day as (day, count), whether it lies on the floor (ADR-0026,
-/// addendum of 2026-11-04 on a need at 0).
+/// the place, the action as (object, offer, place, whether it is a time-filler), a departure
+/// that waits as (place, depart, back), the choices of a day as (day, count), whether it lies on
+/// the floor (ADR-0026, addendum of 2026-11-04 on a need at 0).
 #[derive(Clone, Serialize)]
 struct TestInHouse {
     needs: [(u16, i64, i32); 5],
     place: TestPlace,
-    action: Option<(u16, u16, u8)>,
+    action: Option<TestAction>,
     due: Option<(u8, i64, i64)>,
     decisions: (i64, u16),
     collapsed: bool,
+}
+
+/// An action as (object, offer, place, whether it is a time-filler; ADR-0026, addendum of
+/// 2026-11-04 on comfort and the time-filler); from a triple, none.
+#[derive(Clone, Copy, Serialize)]
+struct TestAction(u16, u16, u8, bool);
+
+impl From<(u16, u16, u8)> for TestAction {
+    fn from((object, offer, slot): (u16, u16, u8)) -> TestAction {
+        TestAction(object, offer, slot, false)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -876,15 +887,17 @@ fn a_save_keeps_the_crossings() {
 /// The next choice of one idle in a save (ADR-0026, addendum of 2026-11-04 after the playtest):
 /// at 7 in the hall of the flat at 7:00 of her Saturday, `SEVEN_SIX` + 1 h, every need written
 /// down then at the awake rates of 6 to 12, hunger 820 (−100 an hour), the others full, with
-/// their crossings. Her deficit of hunger `s` seconds on is 180 + ⌊s / 36⌋; the table (it fills
-/// 600) and the fridge (200) bring its square, less 4 s of walking (200): 40 000 at her most mood,
-/// +10, from the deficit 192, 432 s on; surely at the least, −10, at the table from 212, 1 152 s
-/// on (211 · 211 · 90 / 100 − 200 = 39 868, 212 · 212 · 90 / 100 − 200 = 40 249). The whole
-/// minutes between at her moods (the draw `mood`): at 7:08 the table +6 (193 · 193 · 106 / 100 −
-/// 200 = 39 283), the fridge −7; at 7:09 the fridge +7, 195 · 195 · 107 / 100 − 200 = 40 486. Her
-/// other needs bring nothing near: the toilet at bladder 1 000 − 120 an hour no sooner than 1.6
-/// h. So her choice is due at 7:09:00, after a run as well as after an input; at 7:10:00, at
-/// 7:09:01, in the next second, missing or twice it is refused.
+/// their crossings. Hunger weighs only below its comfort 700 (ADR-0026, addendum of 2026-11-04 on
+/// comfort and the time-filler); `s` seconds on it stands at 820 − ⌊s / 36⌋. The table fills 600,
+/// so at hunger 700 − w it brings w · (300 + w), less its 4 s of walking (200): 40 000 at her
+/// most mood, +10, from w = 93 (hunger 607, 7 668 s on, 9:07:48); surely at the least, −10, from
+/// 110 (590, 8 280 s on, 9:18:00; 109 · 409 · 90 / 100 − 200 = 39 922, 110 · 410 · 90 / 100 −
+/// 200 = 40 390). The whole minutes between at her moods for the table (the draw `mood`): +5, +4,
+/// +3, −10, −3 at 9:08 to 9:12 (38 176 at most, at 9:10: 96 · 396 · 103 / 100 − 200 = 38 956), and
+/// +3 at 9:13: 101 · 401 · 103 / 100 − 200 = 41 516. Her other needs bring less: the fridge fills
+/// only 200, the bladder weighs only below 700 (2.5 h on), fun and hygiene fall slowly. So her
+/// choice is due at 9:13:00, after a run as well as after an input; at 9:14:00, at 9:13:01, in
+/// the next second, missing or twice it is refused.
 #[test]
 fn a_save_keeps_the_next_choice() {
     let data = common::data().with_houses(common::repository_houses_on_weekdays());
@@ -899,14 +912,18 @@ fn a_save_keeps_the_next_choice() {
             10,
         ))
     };
-    assert_eq!(
-        [mood_at(480, 0), mood_at(480, 1), mood_at(540, 1)],
-        [6, -7, 7]
-    );
-    let brings = |deficit: i64, mood: i64| deficit * deficit * (100 + mood) / 100 - 200;
-    assert!(brings(191, 10) < 40_000 && brings(192, 10) >= 40_000);
-    assert!(brings(211, -10) < 40_000 && brings(212, -10) >= 40_000);
-    assert_eq!((brings(193, 6), brings(195, 7)), (39_283, 40_486));
+    let minutes: Vec<i64> = (8..=13).map(|minute| 2 * 3_600 + minute * 60).collect();
+    let moods: Vec<i64> = minutes.iter().map(|&secs| mood_at(secs, 0)).collect();
+    assert_eq!(moods, [5, 4, 3, -10, -3, 3]);
+    let table = |w: i64, mood: i64| w * (300 + w) * (100 + mood) / 100 - 200;
+    let weight = |secs: i64| 700 - (820 - secs / 36);
+    assert!(table(92, 10) < 40_000 && table(93, 10) >= 40_000);
+    assert!(table(109, -10) < 40_000 && table(110, -10) >= 40_000);
+    assert_eq!((weight(7_667), weight(7_668), weight(8_280)), (92, 93, 110));
+    let at: Vec<i64> = (minutes.iter().zip(&moods))
+        .map(|(&secs, &mood)| table(weight(secs), mood))
+        .collect();
+    assert_eq!(at, [38_176, 38_826, 38_956, 34_903, 38_600, 41_516]);
     let awake = [-100, -50, -120, -30, -60];
     let values = [820, 1000, 1000, 1000, 1000];
     let person = TestInHouse {
@@ -940,11 +957,12 @@ fn a_save_keeps_the_next_choice() {
             &in_the_flat(&data, seven_am, person.clone(), events),
         )
     };
-    assert_eq!(saved(vec![decide(540)]), None);
+    let due = 2 * 3_600 + 13 * 60;
+    assert_eq!(saved(vec![decide(due)]), None);
     let refused = Some(LoadError::Inconsistent);
     for (index, wrong) in [
-        vec![decide(600)],
-        vec![decide(541)],
+        vec![decide(due + 60)],
+        vec![decide(due + 1)],
         vec![decide(1)],
         vec![],
     ]
@@ -953,7 +971,84 @@ fn a_save_keeps_the_next_choice() {
     {
         assert_eq!(saved(wrong), refused, "{index}");
     }
-    assert_eq!(saved(vec![decide(540), decide(540)]), refused);
+    assert_eq!(saved(vec![decide(due), decide(due)]), refused);
+}
+
+/// A time-filler in a save (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): the
+/// girl of `a_save_keeps_the_next_choice` at the television in the living room since 7:00, its
+/// time-filler (fun written down then at its +400 an hour, full), the other needs as there. Its
+/// end is her next choice from the living room: the table now 7 s away (350), so 40 000 at the
+/// most mood from w = 94 (94 · 394 · 110 / 100 − 350 = 40 039; 93 · 393 · 110 / 100 − 350 =
+/// 39 853), surely at the least again from 110; at her moods +4, +3, −10, −3 at 9:09 to 9:12 the
+/// table brings at most 38 806, at +3 at 9:13 101 · 401 · 103 / 100 − 350 = 41 366. So the end is
+/// due at 9:13:00, before the 4 h the time-filler may last and before her bedtime at 20:00; at
+/// 9:14:00, at 9:13:01, at 7:45:00 (where the television ends as a choice), missing or twice it
+/// is refused. As an ordinary choice the same action ends at 7:45:00, 45 min on, and 9:13:00 is
+/// refused; as a time-filler at the shower, which is none, the save is refused.
+#[test]
+fn a_save_keeps_a_time_filler() {
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
+    let seven_am = SEVEN_SIX + 3_600;
+    let key = LineageKey::founder(&DataId::new("test:tiny").expect("id"), 0);
+    let mood_at = |secs: i64| {
+        let at = SimTime::from_secs(seven_am + secs);
+        i64::from(mood(0xff, key, at, (0, 0), 10))
+    };
+    let table = |w: i64, mood: i64| w * (300 + w) * (100 + mood) / 100 - 350;
+    assert!(table(93, 10) < 40_000 && table(94, 10) >= 40_000);
+    let minutes: Vec<i64> = (9..=13).map(|minute| 2 * 3_600 + minute * 60).collect();
+    let weight = |secs: i64| 700 - (820 - secs / 36);
+    let at: Vec<i64> = (minutes.iter())
+        .map(|&secs| table(weight(secs), mood_at(secs)))
+        .collect();
+    assert_eq!(at, [38_676, 38_806, 34_753, 38_450, 41_366]);
+    let awake = [-100, -50, -120, -30, 400];
+    let values = [820, 1000, 1000, 1000, 1000];
+    let watching = |filler: bool, object: u16| TestInHouse {
+        needs: [0, 1, 2, 3, 4].map(|at| (values[at], seven_am, awake[at])),
+        action: Some(TestAction(object, 0, 0, filler)),
+        ..seven(TestPlace::Room(2), None, [0; 5], None)
+    };
+    let mut crossings = Vec::new();
+    for (need, (&value, &rate)) in (0_u8..4).zip(values.iter().zip(&awake)) {
+        for level in [700, 400, 150, 50, 0_u16]
+            .into_iter()
+            .filter(|&level| level < value)
+        {
+            let (distance, speed) = (3_600 * i64::from(value - level), i64::from(-rate));
+            let secs = (distance + speed - 1) / speed;
+            let payload = Payload::NeedCrossing {
+                sim: 1,
+                need,
+                level,
+            };
+            crossings.push((seven_am + secs, 0, 0, payload, None));
+        }
+    }
+    let ends = |at: i64| (seven_am + at, 0, 0, Payload::ActionEnd { sim: 1 }, None);
+    let saved = |person: TestInHouse, end: Vec<QueueEntry>| {
+        let mut events = crossings.clone();
+        events.extend(end);
+        load_error_with(data.clone(), &in_the_flat(&data, seven_am, person, events))
+    };
+    let (due, done) = (2 * 3_600 + 13 * 60, 2_700);
+    assert_eq!(saved(watching(true, 3), vec![ends(due)]), None);
+    let refused = Some(LoadError::Inconsistent);
+    for (index, wrong) in [
+        vec![ends(due + 60)],
+        vec![ends(due + 1)],
+        vec![ends(done)],
+        vec![],
+        vec![ends(due), ends(due)],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(saved(watching(true, 3), wrong), refused, "{index}");
+    }
+    assert_eq!(saved(watching(false, 3), vec![ends(done)]), None);
+    assert_eq!(saved(watching(false, 3), vec![ends(due)]), refused);
+    assert_eq!(saved(watching(true, 6), vec![ends(due)]), refused);
 }
 
 /// One lying on the floor in a save (ADR-0026, addendum of 2026-11-04 on a need at 0): at 7 in
@@ -1046,7 +1141,7 @@ fn seven(
     TestInHouse {
         needs,
         place,
-        action,
+        action: action.map(TestAction::from),
         due: None,
         decisions: (
             sim_core::time::day_index(sim_core::time::SimTime::from_secs(SEVEN_SIX)),
@@ -1295,7 +1390,7 @@ fn a_save_keeps_the_night() {
         needs: [(0, -40), (500, 80), (0, -40), (0, -10), (0, 0)]
             .map(|(value, rate)| (value, since, rate)),
         place: TestPlace::Room(5),
-        action: Some((8, 0, 0)),
+        action: Some((8, 0, 0).into()),
         due: None,
         decisions: idle.decisions,
         collapsed: false,
@@ -1324,7 +1419,7 @@ fn a_save_keeps_the_night() {
             depart,
             arrive: depart + 5,
         },
-        action: Some((8, 0, 0)),
+        action: Some((8, 0, 0).into()),
         ..idle.clone()
     };
     let arrive = |depart: i64| event(depart + 5, Payload::Arrive { sim: 1 });

@@ -50,7 +50,17 @@ fn started(
         commanded: false,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
+}
+
+/// The same walk as a time-filler's (ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler).
+fn filled(mut payload: LogPayload) -> LogPayload {
+    if let LogPayload::ActionStarted { filler, .. } = &mut payload {
+        *filler = true;
+    }
+    payload
 }
 
 fn ended(object: u16, reason: EndReason, needs: [u16; 5]) -> LogPayload {
@@ -404,12 +414,13 @@ const LATE_KINDS: &str = r#"
   {"id": "test:stew", "slots": 2, "offers": [
     {"id": "simmer", "rates": {"hunger": 160}, "seconds": 9500, "min_age": 0, "max_age": 130}]},
   {"id": "test:game", "slots": 2, "offers": [
-    {"id": "play", "rates": {"fun": 600}, "seconds": 1800, "min_age": 0, "max_age": 130}]},
+    {"id": "play", "rates": {"fun": 600}, "seconds": 1800, "min_age": 0, "max_age": 130,
+     "fallback": true}]},
   {"id": "test:cot", "slots": 2, "offers": [
     {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]}"#;
 
-/// Rooms hall 0 (the entrance) and den 1, 95 s apart. Objects: stew 0 in the hall, game 1 in
-/// the den, cot 2 and the five essential ones 3 to 7 in the hall.
+/// Rooms hall 0 (the entrance) and den 1, 95 s apart. Objects: stew 0 in the hall, game 1 (a
+/// time-filler) in the den, cot 2 and the five essential ones 3 to 7 in the hall.
 const LATE: &str = r#"{
   "id": "test:late", "capacity": 2,
   "rooms": [{"id": "hall", "entrance": true}, {"id": "den"}],
@@ -423,12 +434,15 @@ const LATE: &str = r#"{
 /// at 8:40, 9 600 s after the first morning), fun falling 60 an hour awake, all else still. At
 /// 6:00 the stew (400 · 400 − 250 = 159 750) beats the game (200 · 200 − 50 · 95) and the cot;
 /// there at 5 s, done at 9 505 s (8:38:25) with hunger full and fun 642 (800 − 158.4
-/// truncated). Then the game brings 358 · 300 − 4 750 = 102 650: walking 95 s, each would
-/// arrive at 8:40:00, the second of leaving. The departure runs first (its kind comes before
-/// the arrival's): fun 640 is not critical, so the walk ends there with reason `obligation`
-/// (back in the hall, as if not gone), `core:left_home` on time, and the walk out of 5 s; the
-/// arrival planned for 8:40:00 is cancelled and never fires. Their wakes at 7:55 and fun at 700
-/// (7:40) came while they were busy and did nothing.
+/// truncated). Then the game would bring 358 · 300 − 4 750 = 102 650, but its 95 s of walk and
+/// 30 min would still run at the departure 95 s away: it is closed (ADR-0026, addendum of
+/// 2026-11-04 on comfort and the time-filler), nothing else brings 40 000, and each takes it as
+/// its time-filler instead, which the departure does not close: walking 95 s, each would arrive
+/// at 8:40:00, the second of leaving. The departure runs first (its kind comes before the
+/// arrival's): fun 640 is not critical, so the walk ends there with reason `obligation` (back in
+/// the hall, as if not gone), `core:left_home` on time, and the walk out of 5 s; the arrival
+/// planned for 8:40:00 is cancelled and never fires. Their wakes at 7:55 and fun at 700 (7:40)
+/// came while they were busy and did nothing.
 #[test]
 fn an_arrival_in_the_second_of_leaving() {
     let data = day::house_data(&day::rates(0, 0, -60), LATE_KINDS, LATE);
@@ -444,7 +458,10 @@ fn an_arrival_in_the_second_of_leaving() {
                 (0, started(late, (0, slot), (0, 5), MORNING_VALUES, &[])),
                 (5, LogPayload::Reached { object: 0 }),
                 (9_505, ended(0, EndReason::Done, stewed)),
-                (9_505, started(late, (1, slot), (0, 95), stewed, &[])),
+                (
+                    9_505,
+                    filled(started(late, (1, slot), (0, 95), stewed, &[]))
+                ),
                 (
                     9_600,
                     ended(1, EndReason::Obligation, [1000, 900, 500, 700, 640])

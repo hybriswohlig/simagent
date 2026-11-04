@@ -95,11 +95,13 @@ fn legal() -> HouseState {
         object: 3,
         offer: 0,
         slot: 0,
+        filler: false,
     };
     let fridge = Action {
         object: 1,
         offer: 0,
         slot: 0,
+        filler: false,
     };
     let walk = Place::Walking {
         from: 2,
@@ -361,6 +363,7 @@ fn places_and_actions_are_checked() {
                 object,
                 offer,
                 slot,
+                filler: false,
             });
             one.needs[4] = fun_since(if object == 3 { 400 } else { 300 });
             s.waits.clear();
@@ -459,6 +462,7 @@ fn walks_and_rates_are_checked() {
             object: 7,
             offer: 0,
             slot: 0,
+            filler: false,
         });
         let rates = [-40, 85, -40, -10, 0];
         for (at, need) in one.needs.iter_mut().enumerate() {
@@ -485,6 +489,7 @@ fn walks_and_rates_are_checked() {
             object: 7,
             offer: 0,
             slot: 0,
+            filler: false,
         });
         consistent(&state, Some(&houses()), t(depart + 3), None, alive, member)
     };
@@ -515,6 +520,7 @@ fn away_due_and_decisions_are_checked() {
             object: 4,
             offer: 0,
             slot: 0,
+            filler: false,
         });
     });
     assert_eq!(busy, Err(Broken::AwayBusy));
@@ -655,6 +661,7 @@ fn one_lying_is_checked() {
             object: 3,
             offer: 0,
             slot: 1,
+            filler: false,
         });
     });
     assert_eq!(busy, Err(Broken::Collapse));
@@ -703,6 +710,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 object: 6,
                 offer: 0,
                 slot: 0,
+                filler: false,
             });
             one.needs[3] = NeedSample::new(140, t(NOW - 600), -30);
             one.due = Some(due(NOW - 5));
@@ -748,6 +756,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 object: 6,
                 offer: 0,
                 slot: 0,
+                filler: false,
             });
             one.needs[3] = NeedSample::new(100, t(NOW - 300), 2_800);
             one.needs[2] = bladder;
@@ -1030,6 +1039,7 @@ fn a_bed_a_young_child_holds_is_checked() {
         object: 8,
         offer: 0,
         slot: 0,
+        filler: false,
     });
     let houses = houses();
     let check = |now: i64, young: usize| {

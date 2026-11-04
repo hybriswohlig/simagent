@@ -39,6 +39,11 @@ const line = (code, fields) => dayLine(LAYOUT, item(1, code, fields));
 test("a choice and a command, the object told apart", () => {
   assert.deepEqual(line("core:action_started", { object: 2, offer: 0, commanded: false }), { text: "Wahl: ist auf der Toilette im Bad", choice: true });
   assert.deepEqual(line("core:action_started", { object: 0, offer: 0, commanded: true }), { text: "Befehl: isst am Esstisch", choice: true });
+  // A time-filler says so (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+  assert.deepEqual(
+    line("core:action_started", { object: 2, offer: 0, commanded: false, filler: true }),
+    { text: "Zeitvertreib: ist auf der Toilette im Bad", choice: true },
+  );
 });
 
 test("what ended and how", () => {

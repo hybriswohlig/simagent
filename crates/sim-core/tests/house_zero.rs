@@ -142,7 +142,9 @@ fn rates(awake: [i32; 5], asleep: [i32; 5], his: [i32; 5]) -> String {
             .collect::<serde_json::Map<String, Value>>()
             .into()
     };
-    json!({"awake": column(awake, his), "asleep": column(asleep, [0, 100, 0, 0, 0])}).to_string()
+    let comfort = [1000; 5];
+    json!({"awake": column(awake, his), "asleep": column(asleep, [0, 100, 0, 0, 0]), "comfort": comfort})
+        .to_string()
 }
 
 /// The repository's day with weekday mornings (`common::weekday_mornings`): the runs here begin
@@ -318,6 +320,7 @@ fn started(
         commanded,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
 }
 
@@ -815,7 +818,8 @@ fn fun_kinds() -> Value {
 }
 
 /// Her fun falls 1 200 an hour; the man is sent to the television at 6:00:01, there until 2 704
-/// s. She waits for it from 700 (300 s), at 400, 150, 50 and at 0 (2 400 s), each a choice. With
+/// s. She waits for it from 700 (300 s) and keeps her place at 400 (1 200 s; ADR-0026, addendum
+/// of 2026-11-04 on comfort and the time-filler); at 150, 50 and at 0 (2 400 s) each is a choice. With
 /// fun at 0, a command for the shower is refused `listless`; one for the taken television, which
 /// raises fun, is refused only `slot_busy`; one for the bed by day `not_night`. When he is done the
 /// place is held for her: she takes it, there at 2 707 s; fun is 0 there until 2 722 s (1 after
@@ -856,7 +860,6 @@ fn fun_at_0_refuses_what_is_no_fun() {
         [
             (0, idle(HALL, START, &[], None)),
             (300, idle(HALL, fun(700), &tv, Some(TV))),
-            (1_200, idle(HALL, fun(400), &tv, Some(TV))),
             (1_950, critical(Need::Fun, 150)),
             (1_950, idle(HALL, fun(150), &tv, Some(TV))),
             (2_250, critical(Need::Fun, 50)),
@@ -871,8 +874,9 @@ fn fun_at_0_refuses_what_is_no_fun() {
 
 /// Hygiene at 0 takes fun once. The shower runs 12 hours (+2 800 an hour, 300 · 300 at 6:00):
 /// she takes it at 6:00 and stays. The man's hygiene falls 700 an hour; the bookshelf gives +150
-/// an hour for an hour. He waits for the shower at 6:00 and at 400, 150 and 50 (1 543, 2 829 and
-/// 3 343 s). At 0 (3 600 s) fun drops from 800 to 650, and the bookshelf now brings 350 · 150:
+/// an hour for an hour. He waits for the shower at 6:00, keeps his place at 400 (1 543 s; ADR-0026,
+/// addendum of 2026-11-04 on comfort and the time-filler) and chooses again at 150 and 50 (2 829
+/// and 3 343 s). At 0 (3 600 s) fun drops from 800 to 650, and the bookshelf now brings 350 · 150:
 /// he reads from 3 603 s with hygiene at 0, the change of rates there takes nothing more, and at
 /// 7 203 s fun is 800, then he waits for the shower again.
 #[test]
@@ -895,7 +899,6 @@ fn hygiene_at_0_takes_fun_once() {
         doings(&run, 2, SATURDAY),
         [
             (0, idle(HALL, START, &shower, Some(SHOWER))),
-            (1_543, idle(HALL, hygiene(400), &shower, Some(SHOWER))),
             (2_829, critical(Need::Hygiene, 150)),
             (2_829, idle(HALL, hygiene(150), &shower, Some(SHOWER))),
             (3_343, critical(Need::Hygiene, 50)),

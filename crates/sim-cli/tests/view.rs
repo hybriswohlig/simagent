@@ -2592,10 +2592,14 @@ const MORNING: i64 = DAY + 6 * 3_600;
 
 /// The offers of the flat a command may name for the couple of `COUPLE` (30 and 32) by day
 /// (version 5 of the house answer): every offer of `kinds.json` open from 18 to 66 years, the
-/// table, the fridge, the television, the bookshelf, the toilet and the shower, but neither the
-/// toy chest (6 to 12) nor sofa, bed and single bed, which sleep, outside the night.
+/// table, the fridge, the sofa's `sit` (its second offer), the television, the bookshelf, the
+/// toilet and the shower, but neither the toy chest (6 to 12) nor the sleep of sofa, bed and
+/// single bed outside the night.
 fn by_day() -> Value {
-    json!([0, 1, 3, 4, 5, 6].map(|object| json!({"object": object, "offer": 0})))
+    json!(
+        [(0, 0), (1, 0), (2, 1), (3, 0), (4, 0), (5, 0), (6, 0)]
+            .map(|(object, offer)| json!({"object": object, "offer": offer}))
+    )
 }
 
 fn dated(t: i64) -> Value {
@@ -2654,14 +2658,17 @@ fn served(name: &str, scenario_json: &str) -> (Server, Value, PathBuf) {
 /// The house of a household over HTTP (ADR-0021, addendum of 2026-11-03): none before it moves
 /// in; moved in, its house without persons until its first morning; the steps of ten minutes,
 /// an hour and to the next morning; at 6:00 both walk (she, the smaller SimId, to the toilet
-/// 3 s away, he finds it taken and goes to the table, 4 s), with the morning values; at 6:10
-/// both eat at the table, she from 6:02:40 on place 1 (hunger 596 on arrival, +1 800 an hour:
-/// 816), he from 6:00:04 on place 0 (600 + 298), each for 20 minutes; energy 900 − 6.7,
-/// her bladder 1 000 at 6:02:33 − 14.9, his 500 − 20, hygiene 700 − 5, fun 800 − 10, all
-/// truncated (ADR-0026). Both work full time (their draws 30 and 3, ADR-0024 section 4) and
+/// 3 s away, he finds it taken and goes to the shower, 3 s; `sim-core/tests/house_day.rs` has
+/// the choices by hand), with the morning values; at 6:10 she waits in the bath for the shower,
+/// he showers there from 6:00:03 until 6:15:03; hunger 600 − 16.7, energy 900 − 6.7, her
+/// bladder 1 000 at 6:02:33 − 14.9, his 500 − 20, her hygiene 700 − 5, his full, fun 800 − 10,
+/// all truncated (ADR-0026). Both work full time (their draws 30 and 3, ADR-0024 section 4) and
 /// leave at 8:40, no need of theirs below 150 by then (at most 2:40 h at the awake rates from
 /// the morning values: bladder 500 − 320); at 9:10 both are at work until 17:20 (version 2).
-/// By day each may be told every offer `by_day` names (version 5).
+/// By day each may be told every offer `by_day` names (version 5). Each need weighs in a choice
+/// as far as it stands below its comfort (700, 1 000, 700, 900, 1 000), at 6:00 100, 100, 200,
+/// 200, 200; no action is a time-filler (version 7, ADR-0026, addendum of 2026-11-04 on comfort
+/// and the time-filler).
 #[test]
 fn a_house_over_http() {
     let (server, home, _) = couple("house");
@@ -2680,11 +2687,15 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(6), &dated(at))
+            (&json!("simagent.view.house"), &json!(7), &dated(at))
         );
         assert_eq!(
-            (&answer["household"], &answer["house"]),
-            (&home, &json!("core:flat"))
+            (&answer["household"], &answer["house"], &answer["comfort"]),
+            (
+                &home,
+                &json!("core:flat"),
+                &json!([700, 1000, 700, 900, 1000])
+            )
         );
         answer
     };
@@ -2725,14 +2736,17 @@ fn a_house_over_http() {
     let walking = |to: u8, arrive: i64| json!({"walking": {"from": 0, "to": to, "depart": dated(MORNING), "arrive": dated(arrive), "out": false}});
     let at_six = house(MORNING);
     assert_eq!(at_six["morning"], json!(true));
+    let weights = [100, 100, 200, 200, 200];
     assert_eq!(
         at_six["persons"],
         json!([
             {"sim": 1, "place": walking(3, MORNING + 3),
-             "action": {"object": 5, "offer": 0, "slot": 0, "until": null}, "needs": morning,
+             "action": {"object": 5, "offer": 0, "slot": 0, "until": null, "filler": false},
+             "needs": morning, "weights": weights,
              "collapsed": false, "smells": false, "commands": by_day()},
-            {"sim": 2, "place": walking(1, MORNING + 4),
-             "action": {"object": 0, "offer": 0, "slot": 0, "until": null}, "needs": morning,
+            {"sim": 2, "place": walking(3, MORNING + 3),
+             "action": {"object": 6, "offer": 0, "slot": 0, "until": null, "filler": false},
+             "needs": morning, "weights": weights,
              "collapsed": false, "smells": false, "commands": by_day()},
         ])
     );
@@ -2740,14 +2754,14 @@ fn a_house_over_http() {
     assert_eq!(
         house(MORNING + 600)["persons"],
         json!([
-            {"sim": 1, "place": {"room": 1},
-             "action": {"object": 0, "offer": 0, "slot": 1, "until": dated(MORNING + 1_360)},
-             "needs": [816, 894, 986, 695, 790], "collapsed": false, "smells": false,
-             "commands": by_day()},
-            {"sim": 2, "place": {"room": 1},
-             "action": {"object": 0, "offer": 0, "slot": 0, "until": dated(MORNING + 1_204)},
-             "needs": [898, 894, 480, 695, 790], "collapsed": false, "smells": false,
-             "commands": by_day()},
+            {"sim": 1, "place": {"room": 3}, "action": null,
+             "needs": [584, 894, 986, 695, 790], "weights": [116, 106, 0, 205, 210],
+             "collapsed": false, "smells": false, "commands": by_day()},
+            {"sim": 2, "place": {"room": 3},
+             "action": {"object": 6, "offer": 0, "slot": 0, "until": dated(MORNING + 903),
+                        "filler": false},
+             "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
+             "collapsed": false, "smells": false, "commands": by_day()},
         ])
     );
     step("hour", MORNING + 4_200);
@@ -2790,7 +2804,7 @@ fn young_children_in_the_house() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["version"], &answer["at"], &answer["house"]),
-            (&json!(6), &dated(at), &json!("core:flat"))
+            (&json!(7), &dated(at), &json!("core:flat"))
         );
         answer
     };
@@ -2836,17 +2850,20 @@ fn young_children_in_the_house() {
 }
 
 /// "Warum?" over HTTP (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6, version 2 of its
-/// addendum of 2026-11-04 on the night, version 3 of the one on the mood): the first choices of
-/// the couple at 6:00 in the hall at the morning values, recomputed (the points by hand in
-/// `sim-core/tests/house_choice.rs`): what the offers fill, the toilet 250 000, the table
-/// 160 000, the shower 90 000, the fridge 80 000, television and bookshelf 40 000, each scaled
-/// by `(100 + mood) / 100` with the person's mood for it in that second (the draw `mood`, as its
-/// addendum gives it), less the walk, 150 or 200; the most first. Sofa and beds are closed by
-/// day, listed after them without points or mood, and their night is the next, from 22:00 to
-/// 6:00. She takes the toilet (at least 224 850 against at most 175 800), for him it is taken
-/// and he takes the table (at least 143 800 against at most 98 850). No need is critical at the
-/// morning values, so no offer is urgent; the needs of the choice stand beside them, and a
-/// start has no comparison at the clock (version 4). Any other entry is no choice.
+/// addendum of 2026-11-04 on the night, version 3 of the one on the mood, version 6 of the one on
+/// comfort and the time-filler): the first choices of the couple at 6:00 in the hall at the
+/// morning values, recomputed (the points by hand in `sim-core/tests/house_choice.rs`): what the
+/// offers fill, each need weighed below its comfort, the toilet 100 000, the shower 60 000, the
+/// table, television and bookshelf 40 000, the fridge 20 000, the sofa's `sit` 12 000, each
+/// scaled by `(100 + mood) / 100` with the person's mood for it in that second (the draw `mood`,
+/// as its addendum gives it), less the walk, 150 or 200; the most first. The sleep of sofa and
+/// beds is closed by day, listed after them without points or mood, and their night is the next,
+/// from 22:00 to 6:00; the departure at 8:40 closes nothing yet. She takes the toilet (at least
+/// 89 850 against at most 65 850), for him it is taken and he takes the shower (at least 53 850
+/// against at most 43 850). No need is critical at the morning values, so no offer is urgent, and
+/// none stands at its comfort; the needs of the choice and each need's comfort stand beside them,
+/// and a start has no comparison at the clock (version 4) and is no time-filler. Any other entry
+/// is no choice.
 #[test]
 fn why_over_http() {
     let (server, home, run) = couple("why");
@@ -2865,33 +2882,41 @@ fn why_over_http() {
     };
     // Sims 1 and 2 are the founders 0 and 1 of `test:house`, the world seed 7.
     let tag = DataId::new("test:house").expect("valid");
-    let scored = |sim: u64| -> Vec<(u16, i8, i64)> {
+    let scored = |sim: u64| -> Vec<(u16, u16, i8, i64)> {
         let filled = [
-            (5, 250_000, 150),
-            (0, 160_000, 200),
-            (6, 90_000, 150),
-            (1, 80_000, 200),
-            (3, 40_000, 150),
-            (4, 40_000, 150),
+            (5, 0, 100_000, 150),
+            (6, 0, 60_000, 150),
+            (0, 0, 40_000, 200),
+            (3, 0, 40_000, 150),
+            (4, 0, 40_000, 150),
+            (1, 0, 20_000, 200),
+            (2, 1, 12_000, 150),
         ];
         let key = LineageKey::founder(&tag, sim - 1);
-        let mut scored: Vec<(u16, i8, i64)> = (filled.iter())
-            .map(|&(object, filled, walk)| {
+        let mut scored: Vec<(u16, u16, i8, i64)> = (filled.iter())
+            .map(|&(object, offer, filled, walk)| {
                 // The repository's day moves the points by at most 10 percent either way.
-                let mood = mood(7, key, SimTime::from_secs(MORNING), (object, 0), 10);
-                (object, mood, filled * (100 + i64::from(mood)) / 100 - walk)
+                let mood = mood(7, key, SimTime::from_secs(MORNING), (object, offer), 10);
+                (
+                    object,
+                    offer,
+                    mood,
+                    filled * (100 + i64::from(mood)) / 100 - walk,
+                )
             })
             .collect();
-        scored.sort_by_key(|&(object, _, points)| (std::cmp::Reverse(points), object));
+        scored
+            .sort_by_key(|&(object, offer, _, points)| (std::cmp::Reverse(points), object, offer));
         scored
     };
     let offers =
         |sim: u64, busy: Option<u16>| {
             let mut offers: Vec<serde_json::Value> = (scored(sim).into_iter())
-                .map(|(object, mood, points)| {
-                    json!({"object": object, "offer": 0, "points": points, "mood": mood,
-                       "busy": Some(object) == busy, "closed": false, "urgent": [],
-                       "held": false, "outside": false, "bed_for": null})
+                .map(|(object, offer, mood, points)| {
+                    json!({"object": object, "offer": offer, "points": points, "mood": mood,
+                       "busy": Some(object) == busy, "closed": false, "departs": null,
+                       "urgent": [], "sated": [], "held": false, "outside": false,
+                       "bed_for": null})
                 })
                 .collect();
             // By day the beds are closed: the sofa for nobody in particular, the bed for couples,
@@ -2899,15 +2924,15 @@ fn why_over_http() {
             offers.extend([(2, json!(null)), (7, json!("couples")), (8, json!("children"))].map(
             |(object, bed_for)| {
                 json!({"object": object, "offer": 0, "points": null, "mood": null, "busy": false,
-                       "closed": true, "urgent": [], "held": false, "outside": false,
-                       "bed_for": bed_for})
+                       "closed": true, "departs": null, "urgent": [], "sated": [],
+                       "held": false, "outside": false, "bed_for": bed_for})
             },
         ));
             offers
         };
     let chosen = |sim: u64, object: u16| {
-        let (_, mood, points) = (scored(sim).into_iter())
-            .find(|&(each, _, _)| each == object)
+        let (_, _, mood, points) = (scored(sim).into_iter())
+            .find(|&(each, offer, _, _)| (each, offer) == (object, 0))
             .expect("scored");
         json!({"object": object, "offer": 0, "points": points, "mood": mood, "urgent": []})
     };
@@ -2916,7 +2941,7 @@ fn why_over_http() {
         "until": dated(MORNING + 24 * 3_600),
         "now": false,
     });
-    for (sim, object, busy) in [(1, 5, None), (2, 0, Some(5))] {
+    for (sim, object, busy) in [(1, 5, None), (2, 6, Some(5))] {
         let entry = starts(sim)[0];
         let (status, _, body) = get(port, &format!("/api/runs/couple/why/{entry}"));
         assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
@@ -2924,17 +2949,19 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 5,
+                "version": 6,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
                 "enough": 40_000,
                 "commanded": false,
                 "needs": [600, 900, 500, 700, 800],
+                "comfort": [700, 1000, 700, 900, 1000],
                 "night": night,
                 "chosen": chosen(sim, object),
                 "waits": null,
                 "goes_to": null,
+                "filler": null,
                 "offers": offers(sim, busy),
                 "now": null,
             }),
@@ -2976,16 +3003,14 @@ fn why_over_http() {
 /// chest (object 9, from 6 to 12 only) she is refused for her age, and nothing is written; told
 /// to watch television (object 3) she stops in the second the command acts, back in the hall,
 /// and walks to the living room, 3 s, on its first place, with the morning values. At 6:10 he
-/// eats at the table (`a_house_over_http`); told to watch as well he stops in the second the
-/// command acts and walks from the kitchen, 7 s, to the television's second place. His hunger,
-/// written down then, stands in the answer at 6:10 with that value (600 + 1 800 · 597 / 3 600,
-/// truncated), his other needs as at 6:10. Here the clock and the next second give the same
-/// hunger: the table adds 1 every 2 s and every stop of the steps lies an even number of
-/// seconds after his arrival; `the_house_answer_after_a_command` tells the two apart. "Warum?"
-/// for her commanded walk says so; a command is no choice and has no mood (ADR-0026, addendum
-/// of 2026-11-04 on the mood), so the points beside it are those of the needs and the walk
-/// alone, at the morning values in the hall as in `why_over_http` without a mood, every mood
-/// `null`.
+/// showers (`a_house_over_http`); told to watch as well he stops in the second the command acts
+/// and walks from the bath, 6 s, to the television's second place. His hygiene, written down
+/// then, stands in the answer at 6:10 with that value (700 + 2 800 · 598 / 3 600, full), his
+/// other needs as at 6:10; `the_house_answer_after_a_command` tells the clock and the next second
+/// apart. "Warum?" for her commanded walk says so; a command is no choice and has no mood
+/// (ADR-0026, addendum of 2026-11-04 on the mood), so the points beside it are those of the needs
+/// and the walk alone, at the morning values in the hall as in `why_over_http` without a mood,
+/// every mood `null`.
 #[test]
 fn a_command_over_http() {
     let (server, home, run) = couple("command");
@@ -3017,9 +3042,9 @@ fn a_command_over_http() {
     assert_eq!(
         json_of(&body)["persons"][0],
         json!({"sim": 1, "place": walking,
-               "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
-               "needs": [600, 900, 500, 700, 800], "collapsed": false, "smells": false,
-               "commands": by_day()})
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null, "filler": false},
+               "needs": [600, 900, 500, 700, 800], "weights": [100, 100, 200, 200, 200],
+               "collapsed": false, "smells": false, "commands": by_day()})
     );
     let minutes = r#"{"step":"minutes10"}"#;
     assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
@@ -3049,12 +3074,13 @@ fn a_command_over_http() {
         })
         .collect();
     let by_hand = [
-        (5, 249_850),
-        (0, 159_800),
-        (6, 89_850),
-        (1, 79_800),
+        (5, 99_850),
+        (6, 59_850),
         (3, 39_850),
         (4, 39_850),
+        (0, 39_800),
+        (1, 19_800),
+        (2, 11_850),
     ];
     assert_eq!(open, by_hand, "{why}");
     assert!(offers.iter().all(|offer| offer["mood"].is_null()), "{why}");
@@ -3064,13 +3090,13 @@ fn a_command_over_http() {
     assert_eq!(json_of(&body)["seq"], json!(4));
     let (status, _, body) = get(port, &format!("/api/runs/couple/house/{home}"));
     assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
-    let walking = json!({"walking": {"from": 1, "to": 2, "depart": dated(MORNING + 601), "arrive": dated(MORNING + 608), "out": false}});
+    let walking = json!({"walking": {"from": 3, "to": 2, "depart": dated(MORNING + 601), "arrive": dated(MORNING + 607), "out": false}});
     assert_eq!(
         json_of(&body)["persons"][1],
         json!({"sim": 2, "place": walking,
-               "action": {"object": 3, "offer": 0, "slot": 1, "until": null},
-               "needs": [898, 894, 480, 695, 790], "collapsed": false, "smells": false,
-               "commands": by_day()})
+               "action": {"object": 3, "offer": 0, "slot": 1, "until": null, "filler": false},
+               "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
+               "collapsed": false, "smells": false, "commands": by_day()})
     );
 }
 
@@ -3138,9 +3164,9 @@ fn the_house_answer_after_a_command() {
     assert_eq!(
         answer["persons"][0],
         json!({"sim": 1, "place": walking,
-               "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
-               "needs": [598, 899, 826, 700, 799], "collapsed": false, "smells": false,
-               "commands": by_day()})
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null, "filler": false},
+               "needs": [598, 899, 826, 700, 799], "weights": [102, 101, 0, 200, 201],
+               "collapsed": false, "smells": false, "commands": by_day()})
     );
 }
 
@@ -3236,7 +3262,7 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
         let answer = sim_cli::house_answer(world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(6));
+        assert_eq!(answer["version"], json!(7));
         (answer["persons"].as_array().expect("persons").iter())
             .map(|person| person[name].clone())
             .collect()
@@ -3270,13 +3296,26 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
 /// acts at 21:59:59, by day, and may name what `by_day` lists; at 21:59:59 it acts at 22:00, in
 /// the night, and may name sofa (object 2), bed (7) and single bed (8) too; at 5:59:58 of day 2
 /// still the night, at 5:59:59, acting at 6:00, the day again. The toy chest (9, 6 to 12)
-/// never.
+/// never; the sofa's `sit` (its second offer) by day and in the night.
 #[test]
 fn the_offers_a_command_may_name_follow_the_night() {
     use sim_core::world::YearOut;
     let (mut world, household) = couple_in_the_flat(|_, _| {});
-    let in_the_night =
-        json!([0, 1, 2, 3, 4, 5, 6, 7, 8].map(|object| json!({"object": object, "offer": 0})));
+    let in_the_night = json!(
+        [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (2, 1),
+            (3, 0),
+            (4, 0),
+            (5, 0),
+            (6, 0),
+            (7, 0),
+            (8, 0)
+        ]
+        .map(|(object, offer)| json!({"object": object, "offer": offer}))
+    );
     let cases = [
         (DAY + 79_198, by_day()),
         (DAY + 79_199, in_the_night.clone()),
@@ -3290,7 +3329,7 @@ fn the_offers_a_command_may_name_follow_the_night() {
         let answer = sim_cli::house_answer(&world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(6));
+        assert_eq!(answer["version"], json!(7));
         let persons = answer["persons"].as_array().expect("persons");
         assert_eq!(persons.len(), 2);
         for person in persons {
@@ -3302,13 +3341,14 @@ fn the_offers_a_command_may_name_follow_the_night() {
 /// What is urgent in "Warum?" (version 4, ADR-0026 section 3), for a choice of hers (sim 1 of
 /// `couple_in_the_flat`) in the hall at 6:00 of day 1 with hunger 100, bladder 120 and hygiene
 /// 50, all critical (at most 150), energy 900 and fun 800 not. Table and fridge raise hunger,
-/// the toilet the bladder, the shower hygiene; television and bookshelf raise fun alone, and
-/// sofa, bed and single bed, closed by day, energy: nothing of theirs is urgent. The urgent
-/// part, (151 − v) · 10⁹ for each critical need an offer raises, puts the shower first (101 ·
-/// 10⁹), then table and fridge (51 · 10⁹; the table fills 900 · 600, the fridge 900 · 200),
-/// then the toilet (31 · 10⁹), then television and bookshelf. The shower's points by hand: 101 ·
-/// 10⁹ + 950 · 700 · (100 + her mood for it) / 100 − 3 · 50, the walk from the hall to the bath
-/// 3 s. The needs of the choice stand beside the offers.
+/// the toilet the bladder, the shower hygiene; television, bookshelf and the sofa's `sit` raise
+/// fun alone, and the sleep of sofa, bed and single bed, closed by day, energy: nothing of
+/// theirs is urgent. The urgent part, (151 − v) · 10⁹ for each critical need an offer raises,
+/// puts the shower first (101 · 10⁹), then table and fridge (51 · 10⁹; hunger weighs 600 from its
+/// comfort 700, the table fills 600 · 600, the fridge 600 · 200), then the toilet (31 · 10⁹), then
+/// television, bookshelf and `sit`. The shower's points by hand: 101 · 10⁹ + 850 · 700 · (100 +
+/// her mood for it) / 100 − 3 · 50, hygiene weighing 850 from its comfort 900, the walk from the
+/// hall to the bath 3 s. The needs of the choice stand beside the offers.
 #[test]
 fn why_names_what_is_urgent() {
     use sim_core::log::{LogPayload, Subject};
@@ -3338,10 +3378,10 @@ fn why_names_what_is_urgent() {
         },
         ..hers
     };
-    let why = sim_cli::why_answer(&world, &entry, 7, false)
+    let why = sim_cli::why_answer(&world, &entry, 7, false, None)
         .expect("answers")
         .expect("a choice");
-    assert_eq!(why["version"], json!(5));
+    assert_eq!(why["version"], json!(6));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -3367,13 +3407,20 @@ fn why_names_what_is_urgent() {
     rest.sort_by_key(|&(object, _)| object);
     assert_eq!(
         rest,
-        [(2, &none), (3, &none), (4, &none), (7, &none), (8, &none)]
+        [
+            (2, &none),
+            (2, &none),
+            (3, &none),
+            (4, &none),
+            (7, &none),
+            (8, &none)
+        ]
     );
     let key = LineageKey::founder(&DataId::new("test:house").expect("valid"), 0);
     let shower = mood(7, key, SimTime::from_secs(MORNING), (6, 0), 10);
     assert_eq!(
         offers[0]["points"],
-        json!(101_000_000_000_i64 + 665_000 * (100 + i64::from(shower)) / 100 - 150)
+        json!(101_000_000_000_i64 + 595_000 * (100 + i64::from(shower)) / 100 - 150)
     );
 }
 
@@ -3383,15 +3430,17 @@ fn why_names_what_is_urgent() {
 /// the bath 5 (ADR-0025 section 4).
 const TO_BATH: [i64; 6] = [3, 7, 6, 5, 8, 8];
 
-/// "Warum?" of an idle person at the clock (version 4): the couple of `COUPLE` comes back from
-/// work at 17:20 of day 1, and the clock steps ten minutes at a time until one of them stands
-/// idle in a room. Its last choice is idle, and "Warum?" of it adds the comparison at the
-/// clock: the second, the needs the house answer gives then, and the offers as "Warum?" computes
-/// them for an idle choice in that second, from that room, with those needs and the objects
-/// without a free place then, which is the object of the other's action if it has one place,
-/// else none. The toilet among them by hand: it fills the missing bladder whole in its 300 s at
-/// 12 000 an hour, so the missing bladder squared, scaled by the person's mood for it in that
-/// second, less 50 a second of the walk to the bath (`TO_BATH`), and (151 − v) · 10⁹ if the
+/// "Warum?" of an idle person at the clock (version 4): the couple of `COUPLE` at its first
+/// morning, and the clock steps ten minutes at a time until one of them stands idle in a room
+/// (with time-fillers nobody idles by day but who waits: at 6:10 she waits in the bath for the
+/// shower he uses, `a_house_over_http`). Its last choice is idle, and "Warum?" of it adds the
+/// comparison at the clock: the second, the needs the house answer gives then, and the offers as
+/// "Warum?" computes them for an idle choice in that second, from that room, with those needs and
+/// the objects without a free place then, which is the object of the other's action if it has one
+/// place, else none. The toilet among them by hand: it fills the missing bladder whole in its
+/// 300 s at 12 000 an hour, weighed by what the bladder lacks of its comfort 700 (ADR-0026,
+/// addendum of 2026-11-04 on comfort and the time-filler), scaled by the person's mood for it in
+/// that second, less 50 a second of the walk to the bath (`TO_BATH`), and (151 − v) · 10⁹ if the
 /// bladder is critical. No earlier choice of that person has the comparison, and once the
 /// person does something again its last idle choice has none either.
 #[test]
@@ -3409,12 +3458,9 @@ fn why_compares_an_idle_person_at_the_clock() {
         );
     };
     step("morning");
-    for _ in 0..11 {
-        step("hour");
-    }
     let house = || json_of(&get(port, &format!("/api/runs/couple/house/{home}")).2);
     let idle = |person: &Value| person["action"].is_null() && person["place"]["room"].is_u64();
-    // Ten minutes at a time from 17:00 until one of them stands idle, by 22:00 at the latest.
+    // Ten minutes at a time from 6:00 until one of them stands idle, by 11:00 at the latest.
     let mut found = None;
     for _ in 0..30 {
         step("minutes10");
@@ -3425,7 +3471,7 @@ fn why_compares_an_idle_person_at_the_clock() {
             break;
         }
     }
-    let (now, index) = found.expect("one of them idle in the evening");
+    let (now, index) = found.expect("one of them idle in the morning");
     let clock = now["at"]["t"].as_i64().expect("the clock");
     let person = &now["persons"][index];
     let other = &now["persons"][1 - index];
@@ -3470,25 +3516,22 @@ fn why_compares_an_idle_person_at_the_clock() {
         "needs": person["needs"], "busy": busy, "waits": null, "held": [], "tier": []}});
     let asked: sim_core::log::LogEntry = serde_json::from_value(asked).expect("an entry");
     let world = sim_cli::load_world(&run).expect("the world");
-    let same = sim_cli::why_answer(&world, &asked, 0, false)
+    let same = sim_cli::why_answer(&world, &asked, 0, false, None)
         .expect("answers")
         .expect("a choice");
-    let open: Vec<&Value> = (same["offers"].as_array().expect("offers").iter())
-        .filter(|offer| offer["closed"] == false)
-        .collect();
-    assert_eq!(
-        compared["offers"]
-            .as_array()
-            .expect("offers")
-            .iter()
-            .collect::<Vec<_>>(),
-        open
-    );
+    let open = |answer: &Value| -> Vec<Value> {
+        (answer["offers"].as_array().expect("offers").iter())
+            .filter(|offer| offer["closed"] == false)
+            .cloned()
+            .collect()
+    };
+    assert_eq!(open(&compared), open(&same));
     let toilet = (compared["offers"].as_array().expect("offers").iter())
         .find(|offer| offer["object"] == 5)
         .expect("the toilet");
     let bladder = person["needs"][2].as_i64().expect("the bladder");
     let missing = 1_000 - bladder;
+    let weight = (700 - bladder).max(0);
     let key = LineageKey::founder(&DataId::new("test:house").expect("valid"), sim - 1);
     let felt = i64::from(mood(7, key, SimTime::from_secs(clock), (5, 0), 10));
     let urgent = if bladder <= 150 {
@@ -3499,7 +3542,7 @@ fn why_compares_an_idle_person_at_the_clock() {
     let walk = TO_BATH[usize::try_from(room).expect("an index")] * 50;
     assert_eq!(
         toilet["points"],
-        json!(missing * missing * (100 + felt) / 100 - walk + urgent),
+        json!(weight * missing * (100 + felt) / 100 - walk + urgent),
         "{compared}"
     );
     assert_eq!(toilet["mood"], json!(felt));

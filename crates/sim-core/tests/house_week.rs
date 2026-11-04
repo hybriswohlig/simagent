@@ -27,7 +27,7 @@ use sim_core::house::need::NeedSample;
 use sim_core::house::state::{Action, Place};
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::log::{Cause, LogEntry, LogPayload, Subject};
-use sim_core::time::{DAY, HOUR, SimTime, YEAR};
+use sim_core::time::{DAY, HOUR, SimTime, YEAR, calendar};
 use sim_core::world::{World, YearOut};
 
 const D: i64 = DAY.as_secs();
@@ -752,6 +752,13 @@ struct Lived {
     mornings: BTreeMap<i64, (i64, i64)>,
     /// The most choices one person made in one day.
     most_choices: usize,
+    /// The seconds persons waited for an object, and the longest stretch one waited.
+    waiting: i64,
+    longest_wait: i64,
+    /// Per person with needs and day 1 to 7, whether the day is a Saturday or a Sunday, and its
+    /// meals (an offer reached that raises hunger: the table or the fridge), toilet trips (one
+    /// that raises the bladder), showers (one that raises hygiene) and choices.
+    days: Vec<(bool, [usize; 4])>,
 }
 
 /// What `week` lived through, measured as the playtest saw it.
@@ -772,6 +779,7 @@ fn lived(week: &Week) -> Lived {
     let mut lived = Lived::default();
     let ends = (week.stood.iter().skip(1).map(|(second, _)| *second)).chain([END + 1]);
     let mut open: BTreeMap<SimId, i64> = BTreeMap::new();
+    let mut waits: BTreeMap<SimId, i64> = BTreeMap::new();
     for ((from, stood), to) in week.stood.iter().zip(ends) {
         let span = to - from;
         for (&sim, &(place, action, lying, waiting)) in stood {
@@ -785,6 +793,13 @@ fn lived(week: &Week) -> Lived {
             let idle = awake && action.is_none();
             if awake {
                 lived.awake += span;
+            }
+            if waiting {
+                lived.waiting += span;
+                let begun = *waits.entry(sim).or_insert(*from);
+                lived.longest_wait = lived.longest_wait.max(to - begun);
+            } else {
+                waits.remove(&sim);
             }
             if idle {
                 lived.idle += span;
@@ -832,16 +847,39 @@ fn lived(week: &Week) -> Lived {
     }
     let mut chosen: BTreeMap<SimId, bool> = BTreeMap::new();
     let mut choices: BTreeMap<(SimId, i64), usize> = BTreeMap::new();
+    let mut going: BTreeMap<SimId, (u16, u16)> = BTreeMap::new();
+    let mut done: BTreeMap<(SimId, i64), [usize; 3]> = BTreeMap::new();
+    let mut persons: BTreeSet<SimId> = BTreeSet::new();
+    let state = week.world.state();
     for entry in &week.log {
         let &[Subject::Sim(sim)] = entry.subjects.as_slice() else {
             continue;
         };
         let at = entry.t.as_secs();
         match &entry.payload {
+            LogPayload::DayStarted { .. } => {
+                persons.insert(sim);
+            }
             LogPayload::ActionStarted { object, offer, .. } => {
                 *choices.entry((sim, at.div_euclid(D))).or_default() += 1;
                 let offers = &kind(*object).offers;
                 chosen.insert(sim, offers[usize::from(*offer)].sleep);
+                going.insert(sim, (*object, *offer));
+            }
+            LogPayload::Reached { .. } => {
+                let (object, offer) = going[&sim];
+                let years = age(state.born(sim).expect("born"), entry.t).expect("an age");
+                let def = &kind(object).offers[usize::from(offer)];
+                let counts = done.entry((sim, at.div_euclid(D))).or_default();
+                for (count, need) in
+                    counts
+                        .iter_mut()
+                        .zip([Need::Hunger, Need::Bladder, Need::Hygiene])
+                {
+                    if def.raises(houses.rates(), need, years) {
+                        *count += 1;
+                    }
+                }
             }
             LogPayload::Idle { .. } => *choices.entry((sim, at.div_euclid(D))).or_default() += 1,
             LogPayload::ActionEnded { .. } => {
@@ -857,7 +895,39 @@ fn lived(week: &Week) -> Lived {
         }
     }
     lived.most_choices = choices.values().copied().max().unwrap_or(0);
+    for day in 1..=7 {
+        let weekend = calendar(t(day * D)).weekday >= 5;
+        for &sim in &persons {
+            let [meals, toilets, showers] = done.get(&(sim, day)).copied().unwrap_or_default();
+            let chose = choices.get(&(sim, day)).copied().unwrap_or(0);
+            lived.days.push((weekend, [meals, toilets, showers, chose]));
+        }
+    }
     lived
+}
+
+/// The person-days of `days` on the weekend or not, `weekend`: their number, and per measure
+/// (meals, toilet trips, showers, choices) the sum and the most of one person-day.
+fn per_day(days: &[(bool, [usize; 4])], weekend: bool) -> (usize, [(usize, usize); 4]) {
+    let mut sums = [(0, 0); 4];
+    let of = days.iter().filter(|(on, _)| *on == weekend);
+    for (_, counts) in of.clone() {
+        for ((sum, most), count) in sums.iter_mut().zip(counts) {
+            *sum += count;
+            *most = (*most).max(*count);
+        }
+    }
+    (of.count(), sums)
+}
+
+/// Per measure the mean of a person-day with one decimal and the most: "3.0 (4)".
+fn means((n, sums): (usize, [(usize, usize); 4])) -> Vec<String> {
+    (sums.iter())
+        .map(|(sum, most)| {
+            let tenths = (sum * 10 + n / 2) / n.max(1);
+            format!("{}.{} ({most})", tenths / 10, tenths % 10)
+        })
+        .collect()
 }
 
 /// The playtest's findings of 2026-11-04 for the 20 families (`--nocapture` shows them): the
@@ -865,7 +935,8 @@ fn lived(week: &Week) -> Lived {
 /// idle in the WC or the bath unless it waits there; the nights the couple shares the double bed
 /// (all seven); the father never in a single bed; the weekend mornings at 7:00, the others at
 /// 6:00 (by the night's end in `day.json`, weekday 1 being day 1, so days 5 and 6 are Saturday
-/// and Sunday).
+/// and Sunday). Reported, not judged: per person and day on weekdays and on the weekend the
+/// meals, toilet trips, showers and choices, and the waiting (the second playtest of 2026-11-04).
 #[test]
 fn the_week_the_playtest_saw() {
     let data = common::repository_data();
@@ -873,6 +944,7 @@ fn the_week_the_playtest_saw() {
     let (mut longest, mut awake, mut idle, mut wet, mut waiting) = (0, 0, 0, 0, 0);
     let mut mornings: BTreeMap<i64, (i64, i64)> = BTreeMap::new();
     let mut most_choices = 0;
+    let (mut all_days, mut waited, mut longest_wait) = (Vec::new(), 0, 0);
     for i in 0..FAMILIES {
         let lived = lived(&week(&data, i));
         println!(
@@ -891,6 +963,22 @@ fn the_week_the_playtest_saw() {
                 .map(|(day, (low, high))| format!("{day}: {} to {}", hm(*low), hm(*high)))
                 .collect::<Vec<_>>()
         );
+        println!(
+            "family {i:2}: per person and day, mean (most), weekday / weekend: meals {} / {}, toilet {} / {}, shower {} / {}, choices {} / {}; waited {} in all, the longest wait {}",
+            means(per_day(&lived.days, false))[0],
+            means(per_day(&lived.days, true))[0],
+            means(per_day(&lived.days, false))[1],
+            means(per_day(&lived.days, true))[1],
+            means(per_day(&lived.days, false))[2],
+            means(per_day(&lived.days, true))[2],
+            means(per_day(&lived.days, false))[3],
+            means(per_day(&lived.days, true))[3],
+            hm(lived.waiting),
+            hm(lived.longest_wait)
+        );
+        all_days.extend(lived.days.iter().copied());
+        waited += lived.waiting;
+        longest_wait = longest_wait.max(lived.longest_wait);
         longest = longest.max(lived.longest_idle);
         (awake, idle) = (awake + lived.awake, idle + lived.idle);
         (wet, waiting) = (
@@ -916,6 +1004,23 @@ fn the_week_the_playtest_saw() {
         "all: longest idle {}, idle {}% of the waking time at home; idle in the WC or bath {wet} s, waiting there {waiting} s; most choices of one person in a day {most_choices}",
         hm(longest),
         idle * 100 / awake.max(1)
+    );
+    let (weekday, weekend) = (
+        means(per_day(&all_days, false)),
+        means(per_day(&all_days, true)),
+    );
+    println!(
+        "all: per person and day, mean (most), weekday / weekend: meals {} / {}, toilet {} / {}, shower {} / {}, choices {} / {}; waited {} in all, the longest wait {}",
+        weekday[0],
+        weekend[0],
+        weekday[1],
+        weekend[1],
+        weekday[2],
+        weekend[2],
+        weekday[3],
+        weekend[3],
+        hm(waited),
+        hm(longest_wait)
     );
     for (day, (low, high)) in &mornings {
         println!(

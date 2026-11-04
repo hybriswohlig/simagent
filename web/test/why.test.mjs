@@ -2,12 +2,13 @@
 // playtest of 2026-11-04): the mood beside the points with its sign, the typographic minus in
 // negative points, an urgent offer by its critical needs instead of its points, a command as
 // told, a taken offer waited for once, the objects told apart, and the comparison at the clock
-// of an idle choice that is still the person's state. Written by hand from the words of
-// `text.ts`.
+// of an idle choice that is still the person's state; a time-filler, an offer the departure
+// closes and a need at its comfort (ADR-0026, addendum of 2026-11-04 on comfort and the
+// time-filler). Written by hand from the words of `text.ts`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { moodWords, pointsText, urgentWords, whyText } from "../dist/why.js";
+import { fillerWords, moodWords, pointsText, satedWords, urgentWords, weightWords, whyText } from "../dist/why.js";
 
 test("the mood with its sign, nothing without one", () => {
   assert.equal(moodWords(6), " (Laune +6 %)");
@@ -51,13 +52,16 @@ const LAYOUT = {
 
 const date = (second_of_day) => ({ year: 1, day_of_year: 0, month: 0, day_of_month: 0, week: 0, weekday: 0, season: 0, second_of_day });
 const dated = (second) => ({ t: second, date: date(second) });
-const offer = (object, points, mood, extra = {}) => ({ object, offer: 0, points, mood, busy: false, closed: false, urgent: [], held: false, outside: false, bed_for: null, ...extra });
+const offer = (object, points, mood, extra = {}) => ({
+  object, offer: 0, points, mood, busy: false, closed: false, departs: null, urgent: [], sated: [], held: false, outside: false, bed_for: null, ...extra,
+});
 const night = { from: dated(79_200), until: dated(21_600), now: false };
 
 function why(fields) {
   return {
-    format: "simagent.view.why", version: 5, entry: 1, sim: 1, at: dated(61_200), enough: 40_000, commanded: false,
-    needs: [600, 900, 500, 50, 800], night, chosen: null, waits: null, goes_to: null, offers: [], now: null, ...fields,
+    format: "simagent.view.why", version: 6, entry: 1, sim: 1, at: dated(61_200), enough: 40_000, commanded: false,
+    needs: [600, 900, 500, 50, 800], comfort: [700, 1000, 700, 900, 1000], night, chosen: null, waits: null, goes_to: null,
+    filler: null, offers: [], now: null, ...fields,
   };
 }
 
@@ -69,7 +73,7 @@ test("an urgent choice by its need, the others by their points", () => {
         offer(2, 101_000_631_000, -5, { urgent: ["hygiene"] }),
         offer(0, 269_900, 8),
         offer(1, -250, 3, { busy: true }),
-        { object: 4, offer: 0, points: null, mood: null, busy: false, closed: true, urgent: [], held: false, outside: false, bed_for: "couples" },
+        { object: 4, offer: 0, points: null, mood: null, busy: false, closed: true, departs: null, urgent: [], sated: [], held: false, outside: false, bed_for: "couples" },
       ],
     }),
     LAYOUT,
@@ -162,4 +166,59 @@ test("idle in a room one does not stay in, the room it went to", () => {
     told.told,
     "Nichts brachte genug (40.000 Punkte nötig). Hier bleibt niemand stehen: geht ins Wohnzimmer. Dahinter: sieht fern vor dem Fernseher 38.710 (Laune +2 %).",
   );
+});
+
+// Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+const LIVING = { ...LAYOUT, rooms: [{ id: "living", floor: 0, x: 0, y: 0, w: 4, h: 4 }] };
+
+test("a time-filler with its end, what then brings enough, and its walk", () => {
+  const filler = { walk_secs: 3, until: dated(37_440), then: ["bladder"] };
+  const told = whyText(
+    why({
+      chosen: { object: 3, offer: 0, points: 39_000, mood: -2, urgent: [] },
+      filler,
+      offers: [offer(3, 39_000, -2), offer(0, 38_000, 1)],
+    }),
+    LIVING,
+  );
+  assert.equal(
+    told.told,
+    "Nichts brachte genug (40.000 Punkte nötig). Zeitvertreib: sieht fern vor dem Fernseher, bis 10:24, dann reicht die Blase. " +
+      "3 s Weg ins Wohnzimmer. Dahinter: ist auf der Toilette auf dem WC 38.000 (Laune +1 %).",
+  );
+  const chosen = { object: 3, offer: 0, points: null, mood: null, urgent: [] };
+  const running = fillerWords(why({ chosen, filler: { walk_secs: 5, until: null, then: [] } }), LIVING);
+  assert.equal(running, "Zeitvertreib: sieht fern vor dem Fernseher. 5 s Weg ins Wohnzimmer.");
+  const two = fillerWords(why({ chosen, filler: { walk_secs: 5, until: dated(36_000), then: ["hunger", "bladder"] } }), LIVING);
+  assert.equal(two, "Zeitvertreib: sieht fern vor dem Fernseher, bis 10:00, dann reichen der Hunger und die Blase. 5 s Weg ins Wohnzimmer.");
+  assert.equal(fillerWords(why({}), LIVING), "");
+});
+
+test("an offer the departure closes, with the departure", () => {
+  const closes = { points: null, mood: null, closed: true, departs: dated(31_200) };
+  const told = whyText(why({ offers: [offer(0, 38_000, 1), offer(2, null, null, closes)] }), LAYOUT);
+  assert.equal(
+    told.told,
+    "Nichts brachte genug (40.000 Punkte nötig). Dahinter: ist auf der Toilette auf dem WC 38.000 (Laune +1 %), " +
+      "duscht unter der Dusche endet nach dem Aufbruch um 8:40.",
+  );
+});
+
+test("a need at or above its comfort brings nothing", () => {
+  const needs = [750, 900, 500, 950, 800];
+  const comfort = [700, 1000, 700, 900, 1000];
+  assert.equal(satedWords(offer(0, -250, 0, { sated: ["hunger"] }), needs, comfort), " (Hunger zählt ab 700 und steht bei 750, das bringt nichts)");
+  assert.equal(satedWords(offer(0, -250, 0), needs, comfort), "");
+  const told = whyText(why({ needs, offers: [offer(2, -150, 0, { sated: ["hygiene"] })] }), LAYOUT);
+  assert.equal(
+    told.told,
+    "Nichts brachte genug (40.000 Punkte nötig). Dahinter: duscht unter der Dusche −150 (Laune 0 %) (Hygiene zählt ab 900 und steht bei 950, das bringt nichts).",
+  );
+});
+
+test("a need that weighs nothing now says from where it counts", () => {
+  assert.equal(weightWords(0, 700), " · zählt ab 700");
+  assert.equal(weightWords(50, 700), "");
+  assert.equal(weightWords(0, 1000), "");
+  assert.equal(weightWords(undefined, 700), "");
 });
