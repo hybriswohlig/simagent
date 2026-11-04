@@ -4,7 +4,7 @@
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sim_core::data_id::DataId;
 use sim_core::house::data::{HouseData, Need};
@@ -132,10 +132,22 @@ fn checked(change: impl FnOnce(&mut HouseState)) -> Result<(), Broken> {
     checked_with(&houses(), change)
 }
 
+/// Checked as after an advance: no input acted at the clock.
 fn checked_with(houses: &HouseData, change: impl FnOnce(&mut HouseState)) -> Result<(), Broken> {
+    checked_after(houses, None, change)
+}
+
+/// Checked after an input at the clock, `choices` the sims whose choice it left due at `NOW`
+/// (ADR-0024, addendum of 2026-11-04); `None` for no input at the clock.
+fn checked_after(
+    houses: &HouseData,
+    choices: Option<&[u64]>,
+    change: impl FnOnce(&mut HouseState),
+) -> Result<(), Broken> {
     let mut state = legal();
     change(&mut state);
-    consistent(&state, Some(houses), t(NOW), alive, member)
+    let due: Option<BTreeSet<SimId>> = choices.map(|ids| ids.iter().map(|&id| sim(id)).collect());
+    consistent(&state, Some(houses), t(NOW), due.as_ref(), alive, member)
 }
 
 /// The repository's houses, but fun rising awake from 67 on (+10 an hour).
@@ -164,7 +176,10 @@ fn a_legal_house_passes() {
     assert_eq!(checked(|_| {}), Ok(()));
     // The empty house of every run without `MoveIn`, with or without house data.
     let empty = HouseState::default();
-    assert_eq!(consistent(&empty, None, t(NOW), alive, member), Ok(()));
+    assert_eq!(
+        consistent(&empty, None, t(NOW), None, alive, member),
+        Ok(())
+    );
     // Before the first morning nobody has needs; a child of 5 never has.
     let before = checked(|s| {
         s.sims.clear();
@@ -174,8 +189,9 @@ fn a_legal_house_passes() {
             .for_each(|moved| moved.morning = false);
     });
     assert_eq!(before, Ok(()));
-    // A hold for the waiter instead of the waiting position; away with no rate.
-    let held = checked(|s| {
+    // A hold for the waiter instead of the waiting position, her choice due after an input at
+    // the clock; away with no rate.
+    let held = checked_after(&houses(), Some(&[1]), |s| {
         s.waits.clear();
         s.holds.insert((household(1), 7, 1), sim(1));
     });
@@ -216,7 +232,7 @@ fn the_households_are_checked() {
             DataId::new("core:castle").expect("id");
     });
     assert_eq!(unknown, Err(Broken::HouseUnknown));
-    let no_data = consistent(&legal(), None, t(NOW), alive, member);
+    let no_data = consistent(&legal(), None, t(NOW), None, alive, member);
     assert_eq!(no_data, Err(Broken::HouseUnknown));
 }
 
@@ -303,6 +319,23 @@ fn places_and_actions_are_checked() {
     assert_eq!(out(0, 0), Ok(()));
     assert_eq!(out(1, 0), Err(Broken::Walk));
     assert_eq!(out(0, -30), Err(Broken::AwayBusy));
+    // No input begins a walk out (leaving is an event): one begun in the next second is refused
+    // even after an input at the clock.
+    let out_now = checked_after(&houses(), Some(&[]), |s| {
+        s.waits.clear();
+        let three = in_house(s, 3);
+        three.action = None;
+        three.place = Place::Walking {
+            from: 2,
+            to: 0,
+            depart: t(NOW),
+            arrive: t(NOW + 8),
+        };
+        three.needs = three
+            .needs
+            .map(|need| NeedSample::new(need.value(), t(NOW), 0));
+    });
+    assert_eq!(out_now, Err(Broken::Walk));
     // Leaving writes down all five needs at the second of the departure, the start of the walk.
     let late_need = checked(|s| {
         s.waits.clear();
@@ -345,13 +378,43 @@ fn places_and_actions_are_checked() {
     assert_eq!(held, Err(Broken::SlotTaken));
 }
 
-/// A walk is as long as the house makes it and began before the clock; the rates are the
-/// awake ones, at an object those the offer sets the offer's, written down together, each by
-/// the age band of its second (ADR-0026 sections 1 and 4).
+/// A held place lasts only the second of the choice it plans (ADR-0026 section 5), and only an
+/// input at the clock leaves one, for one whose choice it left due at `NOW` (ADR-0024, addendum
+/// of 2026-11-04). Sim 3 idles in the living room instead of walking to the fridge, whose one
+/// place is held for sim 1, who no longer waits: that loads only with her choice due after an
+/// input. A choice is never due for one who waits, since choosing takes a person off every list:
+/// sim 1 waiting for the fridge with her choice due is refused.
+#[test]
+fn holds_and_choices_are_checked() {
+    let held = |s: &mut HouseState| {
+        s.waits.clear();
+        let three = in_house(s, 3);
+        three.place = Place::Room(2);
+        three.action = None;
+        s.holds.insert((household(1), 1, 0), sim(1));
+    };
+    assert_eq!(checked_after(&houses(), Some(&[1]), held), Ok(()));
+    assert_eq!(
+        checked_after(&houses(), Some(&[]), held),
+        Err(Broken::Choice)
+    );
+    assert_eq!(checked_after(&houses(), None, held), Err(Broken::Choice));
+    assert_eq!(checked_after(&houses(), Some(&[]), |_| {}), Ok(()));
+    assert_eq!(
+        checked_after(&houses(), Some(&[1]), |_| {}),
+        Err(Broken::Choice)
+    );
+}
+
+/// A walk is as long as the house makes it and began before the clock, or in the next second
+/// only after an input at the clock (a command, ADR-0024 section 5): an advance runs every
+/// event of a second; the rates are the awake ones, at an object those the offer sets the
+/// offer's, written down together, each by the age band of its second (ADR-0026 sections 1
+/// and 4).
 #[test]
 fn walks_and_rates_are_checked() {
-    let walk = |depart: i64, arrive: i64| {
-        checked(move |s| {
+    let walk = |choices: Option<&[u64]>, depart: i64, arrive: i64| {
+        checked_after(&houses(), choices, move |s| {
             in_house(s, 3).place = Place::Walking {
                 from: 2,
                 to: 1,
@@ -360,9 +423,11 @@ fn walks_and_rates_are_checked() {
             };
         })
     };
-    assert_eq!(walk(NOW - 1, NOW + 6), Ok(()));
-    assert_eq!(walk(NOW - 3, NOW + 5), Err(Broken::Walk));
-    assert_eq!(walk(NOW, NOW + 7), Err(Broken::Walk));
+    assert_eq!(walk(None, NOW - 1, NOW + 6), Ok(()));
+    assert_eq!(walk(None, NOW - 3, NOW + 5), Err(Broken::Walk));
+    assert_eq!(walk(None, NOW, NOW + 7), Err(Broken::Walk));
+    assert_eq!(walk(Some(&[]), NOW, NOW + 7), Ok(()));
+    assert_eq!(walk(Some(&[]), NOW + 1, NOW + 8), Err(Broken::Walk));
     let rate = |change: fn(&mut HouseState)| checked(change);
     // Idle with another hunger rate; a child with an adult's energy.
     let hungry = rate(|s| in_house(s, 1).needs[0] = NeedSample::new(600, t(NOW - 60), -90));
@@ -605,7 +670,7 @@ fn waiters_and_holds_are_checked() {
         three.place = Place::Room(2);
     });
     assert_eq!(free, Err(Broken::WaitFree));
-    let held_free = checked(|s| {
+    let held_free = checked_after(&houses(), Some(&[6]), |s| {
         let three = in_house(s, 3);
         three.action = None;
         three.place = Place::Room(2);

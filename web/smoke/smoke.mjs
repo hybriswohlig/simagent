@@ -464,10 +464,22 @@ if (browser !== undefined) {
     await step("the day", page.getByText("Heute").first().click());
     await step("why", page.getByRole("button", { name: "Warum?" }).first().click());
     await step("why told", page.getByText(/Gewählt: .*, [\d.]+ Punkte\./).first().waitFor());
+    // A command (ADR-0024 section 5): the first person with needs is told to watch television
+    // and, in the second the command acts, walks into the living room; its line says so.
+    const order = page.getByRole("group", { name: /^Befehl für / }).first();
+    await step("a command to give", order.waitFor());
+    const who = (await order.getAttribute("aria-label")).slice("Befehl für ".length);
+    const television = await order.locator("option", { hasText: "Fernseher" }).first().getAttribute("value");
+    await step("television chosen", order.getByRole("combobox").selectOption(television));
+    await step("the command", order.getByRole("button", { name: "Befehlen" }).click());
+    // The person's line in the list, not the title of its dot in the plan.
+    const resident = page.getByRole("listitem").filter({ has: order });
+    const name = who.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    await step("the command in the line", resident.getByText(new RegExp(`${name}: geht ins Wohnzimmer$`)).waitFor());
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, and a household moved into its house, an hour on and why a choice was made");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, and a household moved into its house, an hour on, why a choice was made and a command given");
   } catch (error) {
     fail(error.message);
   } finally {

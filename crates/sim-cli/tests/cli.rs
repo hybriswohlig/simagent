@@ -306,7 +306,8 @@ fn commands() -> Vec<(Input, &'static str)> {
             | Input::SeparatePartnership(_)
             | Input::TimeTogether(_)
             | Input::MoveIn(_)
-            | Input::MoveOut(_) => {}
+            | Input::MoveOut(_)
+            | Input::Command(_) => {}
         }
     }
     commands

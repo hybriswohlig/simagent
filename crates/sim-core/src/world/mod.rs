@@ -240,6 +240,7 @@ fn check(
         Input::TimeTogether(pair) => state::together::check(domain, data, closed_through, pair),
         Input::MoveIn(input) => state::house::check_move_in(domain, data, closed_through, input),
         Input::MoveOut(input) => state::house::check_move_out(domain, closed_through, input),
+        Input::Command(input) => state::command::check(domain, data, closed_through, input),
     }
 }
 
@@ -294,6 +295,9 @@ impl WorldState {
             }
             Input::MoveOut(input) => {
                 state::house::apply_move_out(&mut self.domain, input, &mut ctx);
+            }
+            Input::Command(input) => {
+                state::command::apply(&mut self.domain, &self.data, input, &mut ctx);
             }
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);
@@ -352,6 +356,17 @@ impl WorldState {
     /// The household of a living sim (ADR-0018 section 4).
     pub fn household_of(&self, id: SimId) -> Option<crate::ids::HouseholdId> {
         self.domain.sims.get(&id).map(|sim| sim.household)
+    }
+
+    /// The living members of a household in ascending SimId; none once it has ended
+    /// (ADR-0018 section 4).
+    pub fn members(&self, household: crate::ids::HouseholdId) -> impl Iterator<Item = SimId> + '_ {
+        self.domain
+            .members
+            .get(&household)
+            .into_iter()
+            .flatten()
+            .copied()
     }
 
     /// Birth time of a sim, living or archived; `None` for an ID never handed out.

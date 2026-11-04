@@ -1,4 +1,4 @@
-import type { HouseLayout, HousePerson } from "../generated/export.js";
+import type { HouseLayout, HouseWalk } from "../generated/export.js";
 
 /** The gap between two floors drawn side by side, in metres. */
 export const FLOOR_GAP = 1.5;
@@ -6,6 +6,12 @@ export const FLOOR_GAP = 1.5;
 export const SPREAD = 0.45;
 
 export type Point = { readonly x: number; readonly y: number };
+
+/** Someone drawn in the plan: a person with needs, or a child under 6, who has no action. */
+export type Drawn = {
+  readonly place: { readonly room?: number; readonly walking?: HouseWalk };
+  readonly action?: { readonly object: number } | null;
+};
 
 /** The floors of a drawing side by side, from the ground floor: where each begins on the
  * right, and the size of the whole, in metres (ADR-0025 section 1). */
@@ -51,9 +57,9 @@ export function objectMiddle(layout: HouseLayout, drawn: Plan, index: number): P
 
 /** Where each person is drawn at the second `at`, only for the picture (ADR-0025 section 5):
  * at its object while it does something there, in the middle of its room while it does
- * nothing, on the way along the straight line between the middles of the two rooms by the
- * share of the walk gone. Several at one spot stand side by side. */
-export function spots(layout: HouseLayout, persons: readonly HousePerson[], at: number): Point[] {
+ * nothing (a child always), on the way along the straight line between the middles of the
+ * two rooms by the share of the walk gone. Several at one spot stand side by side. */
+export function spots(layout: HouseLayout, persons: readonly Drawn[], at: number): Point[] {
   const drawn = plan(layout);
   const placed = persons.map((person): Point => {
     const { room, walking } = person.place;
@@ -64,7 +70,7 @@ export function spots(layout: HouseLayout, persons: readonly HousePerson[], at: 
       const share = length <= 0 ? 1 : Math.min(1, Math.max(0, (at - walking.depart.t) / length));
       return { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share };
     }
-    if (person.action !== null) {
+    if (person.action !== undefined && person.action !== null) {
       return objectMiddle(layout, drawn, person.action.object);
     }
     return roomMiddle(layout, drawn, room ?? 0);

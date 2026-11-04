@@ -253,6 +253,30 @@ enum TestInput {
     TriggerShock {
         shock: String,
     },
+    #[allow(dead_code, reason = "only its place matters, before the command")]
+    SeparatePartnership {
+        woman: u64,
+        man: u64,
+    },
+    #[allow(dead_code, reason = "only its place matters, before the command")]
+    TimeTogether {
+        woman: u64,
+        man: u64,
+    },
+    #[allow(dead_code, reason = "only its place matters, before the command")]
+    MoveIn {
+        household: u64,
+    },
+    #[allow(dead_code, reason = "only its place matters, before the command")]
+    MoveOut {
+        household: u64,
+    },
+    /// A command (ADR-0024 section 5), variant 9.
+    Command {
+        sim: u64,
+        object: u16,
+        offer: u16,
+    },
 }
 
 #[derive(Clone, Serialize)]
@@ -900,25 +924,37 @@ fn flat_save(
     holds: Vec<((u64, u16, u8), u64)>,
     planned_at: i64,
 ) -> Vec<u8> {
-    let hash = data.hash();
-    File::tiny().with(move |f| {
-        f.house_holds = holds;
-        f.data_hash = hash;
-        f.closed_through = clock;
-        for entry in &mut f.queue {
-            if matches!(entry.3, Payload::Birthday { .. } | Payload::YearEnd) {
-                entry.0 = 8 * Y - 1;
-            }
+    flat_file(data, clock, person, events, holds, planned_at).bytes()
+}
+
+/// The file of `flat_save`, to change further.
+fn flat_file(
+    data: &Data,
+    clock: i64,
+    person: TestInHouse,
+    events: Vec<QueueEntry>,
+    holds: Vec<((u64, u16, u8), u64)>,
+    planned_at: i64,
+) -> File {
+    let mut file = File::tiny();
+    let f = &mut file;
+    f.house_holds = holds;
+    f.data_hash = data.hash();
+    f.closed_through = clock;
+    for entry in &mut f.queue {
+        if matches!(entry.3, Payload::Birthday { .. } | Payload::YearEnd) {
+            entry.0 = 8 * Y - 1;
         }
-        f.year_hashes = (0..7).map(|year| (year, 7)).collect();
-        f.house_households = vec![(1, ("core:flat".into(), true))];
-        f.house_sims = vec![(1, person)];
-        for mut entry in events {
-            entry.2 = f.next_event_seq;
-            f.next_event_seq += 1;
-            insert_event(f, entry, (3, planned_at));
-        }
-    })
+    }
+    f.year_hashes = (0..7).map(|year| (year, 7)).collect();
+    f.house_households = vec![(1, ("core:flat".into(), true))];
+    f.house_sims = vec![(1, person)];
+    for mut entry in events {
+        entry.2 = f.next_event_seq;
+        f.next_event_seq += 1;
+        insert_event(f, entry, (3, planned_at));
+    }
+    file
 }
 
 /// A walk and an action (ADR-0026 section 4), every need she does not fill at 0, so that
@@ -927,8 +963,8 @@ fn flat_save(
 /// 300 s later; on the toilet from 6:00 with the bladder at 500 at +12 000 an hour it is full
 /// after 150 s, and at 990 after 3 s, but an action lasts at least 60 s. Any other second, a
 /// missing or doubled event, an arrival of someone not walking, a walk without an action, a
-/// walk longer than the house makes it, a snack without its rate and a pending choice are
-/// refused.
+/// walk longer than the house makes it, a snack without its rate and a choice pending after
+/// the next second are refused.
 #[test]
 fn a_save_keeps_the_walk_and_the_action() {
     let data = common::data().with_houses(common::repository_houses());
@@ -1014,9 +1050,9 @@ fn a_save_keeps_the_walk_and_the_action() {
     assert_eq!(loads(six + 100, &still, vec![end(300)]), refused);
 }
 
-/// A held place lasts only the second of the choice it plans (ADR-0026 section 5), and no
-/// choice is pending in a save: she idles in the hall of the flat and the fridge (object 1, one
-/// place) is free; held for her, the same save is refused.
+/// A held place lasts only the second of the choice it plans (ADR-0026 section 5): she idles in
+/// the hall of the flat and the fridge (object 1, one place) is free; held for her without a
+/// choice of hers pending, the same save is refused.
 #[test]
 fn a_save_holds_no_place() {
     let data = common::data().with_houses(common::repository_houses());
@@ -1026,6 +1062,82 @@ fn a_save_holds_no_place() {
     assert_eq!(
         load_error_with(data.clone(), &save(vec![((1, 1, 0), 1)])),
         Some(LoadError::Inconsistent)
+    );
+}
+
+/// A choice, a held place and a walk in the open second, the one after the clock, come only
+/// from an input at the clock (ADR-0024, addendum of 2026-11-04 for commands): an advance runs
+/// every event of a second, so after one none is left; a command that frees a place holds it
+/// for the first who waits, whose choice is then due in the open second, and its own walk
+/// begins there. She idles in the hall of the flat. After a command of hers at the clock her
+/// choice due in the open second loads, with the fridge (object 1, one place) held for her or
+/// without, and so does her walk to the fridge (4 s) begun then; her choice due later, twice, or
+/// while she walks is refused. Without an input at the clock her choice due in the open second,
+/// the held place with it and the walk begun then are refused each. (A walk out begun then, and
+/// a choice due for one who waits, are refused by the checks of the house part,
+/// `tests/house_state.rs`: with one person a save holds no walk out on a day without duty, and
+/// nobody else to take the place she would wait for.)
+#[test]
+fn a_save_after_an_input_keeps_its_choice() {
+    let data = common::data().with_houses(common::repository_houses());
+    let clock = SEVEN_SIX + 2;
+    let idle = seven(TestPlace::Room(0), None, [0; 5], None);
+    let walk = |depart: i64| TestPlace::Walking {
+        from: 0,
+        to: 1,
+        depart,
+        arrive: depart + 4,
+    };
+    let walking = seven(walk(SEVEN_SIX), Some((1, 0, 0)), [0; 5], None);
+    let begun = seven(walk(clock + 1), Some((1, 0, 0)), [0; 5], None);
+    let arrive = |at: i64| -> QueueEntry { (at, 0, 0, Payload::Arrive { sim: 1 }, None) };
+    let decide = |at: i64| -> QueueEntry { (at, 0, 0, Payload::Decide { sim: 1 }, None) };
+    let held = || vec![((1, 1, 0), 1)];
+    let loads = |command: bool, person: &TestInHouse, events: Vec<QueueEntry>, holds| {
+        let mut all = vec![day_plan(clock)];
+        all.extend(events);
+        let mut file = flat_file(&data, clock, person.clone(), all, holds, SEVEN_SIX);
+        if command {
+            let input = TestInput::Command {
+                sim: 1,
+                object: 1,
+                offer: 0,
+            };
+            file.input_log.push((clock, 2, input));
+        }
+        load_error_with(data.clone(), &file.bytes())
+    };
+    assert_eq!(
+        loads(true, &idle, vec![decide(clock + 1)], Vec::new()),
+        None
+    );
+    assert_eq!(loads(true, &idle, vec![decide(clock + 1)], held()), None);
+    assert_eq!(
+        loads(true, &begun, vec![arrive(clock + 5)], Vec::new()),
+        None
+    );
+    assert_eq!(
+        loads(false, &walking, vec![arrive(SEVEN_SIX + 4)], Vec::new()),
+        None
+    );
+    let refused = Some(LoadError::Inconsistent);
+    assert_eq!(loads(true, &idle, vec![decide(clock + 2)], held()), refused);
+    let twice = vec![decide(clock + 1), decide(clock + 1)];
+    assert_eq!(loads(true, &idle, twice, held()), refused);
+    let walks = vec![arrive(SEVEN_SIX + 4), decide(clock + 1)];
+    assert_eq!(loads(true, &walking, walks, Vec::new()), refused);
+    // Without an input at the clock.
+    assert_eq!(
+        loads(false, &idle, vec![decide(clock + 1)], Vec::new()),
+        refused
+    );
+    assert_eq!(
+        loads(false, &idle, vec![decide(clock + 1)], held()),
+        refused
+    );
+    assert_eq!(
+        loads(false, &begun, vec![arrive(clock + 5)], Vec::new()),
+        refused
     );
 }
 

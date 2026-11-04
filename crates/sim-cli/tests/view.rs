@@ -2594,10 +2594,37 @@ fn dated(t: i64) -> Value {
 /// The server over the run `couple` of the scenario `COUPLE`, the couple's household, and the
 /// run's directory.
 fn couple(name: &str) -> (Server, Value, PathBuf) {
+    served(name, COUPLE)
+}
+
+/// A couple as in `COUPLE` with a founder girl of 3: founders are unrelated, so the orphan rule
+/// gives her (sim 3) to the woman of the open partnership as a foster child (ADR-0018 section
+/// 4), a household of three in the flat.
+const YOUNG: &str = r#"{
+  "format_version": 5,
+  "start": {
+    "world_seed": "0000000000000007",
+    "founder_tag": "test:house",
+    "world_params": {"hereditary_diseases": false, "nutrition": []},
+    "founders": [
+      {"born": -943488000, "sex": "female", "alleles": [{"locus": "core:disease_ar", "copies": [0, 0]}]},
+      {"born": -1006387200, "sex": "male", "alleles": [{"locus": "core:disease_ar", "copies": [0, 0]}]},
+      {"born": -94348800, "sex": "female", "alleles": [{"locus": "core:disease_ar", "copies": [0, 0]}]}
+    ],
+    "couples": [{"woman": 0, "man": 1}],
+    "capacity": null,
+    "pool": null
+  },
+  "until": 86398
+}"#;
+
+/// The server over the run `couple` of `scenario`, its first household, and the run's
+/// directory.
+fn served(name: &str, scenario_json: &str) -> (Server, Value, PathBuf) {
     let (runs, web) = fixture(name);
     let base = runs.parent().expect("a parent").to_path_buf();
     let scenario = base.join("couple.json");
-    write(&scenario, COUPLE.as_bytes());
+    write(&scenario, scenario_json.as_bytes());
     let out = runs.join("couple");
     simagent(&[
         "run".as_ref(),
@@ -2641,7 +2668,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(2), &dated(at))
+            (&json!("simagent.view.house"), &json!(3), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"]),
@@ -2652,8 +2679,8 @@ fn a_house_over_http() {
     // The clock stays at the last second it ran; the input stands one second later.
     let before = house(DAY - 2);
     assert_eq!(
-        (&before["morning"], &before["persons"]),
-        (&json!(false), &json!([]))
+        (&before["morning"], &before["persons"], &before["children"]),
+        (&json!(false), &json!([]), &json!([]))
     );
     // The drawing of the flat with each object's places and offers (`kinds.json`).
     let layout = &before["layout"];
@@ -2725,6 +2752,71 @@ fn a_house_over_http() {
     // From 9:10 the next morning is tomorrow's, and from 6:00 itself too.
     step("morning", MORNING + DAY);
     step("morning", MORNING + 2 * DAY);
+}
+
+/// Children under 6 in the house over HTTP (ADR-0024 sections 2 and 4, version 3): the foster
+/// child of `YOUNG` has no needs, so it is no person; before the first morning no child is
+/// shown either. From it, where the child is by the clock: on Tuesday (day 1) at 6:00 asleep
+/// in the flat's night room, at 9:00 at the kindergarten until 15:00 of that day, at 16:00 in
+/// its day room, at 20:00 asleep again; on Saturday (day 5) at 9:00 in its day room. Both rooms
+/// of the flat are `kids`, its room 5.
+#[test]
+fn young_children_in_the_house() {
+    const KIDS: u8 = 5;
+    let (server, home, _) = served("young", YOUNG);
+    let port = server.port;
+    let path = format!("/api/runs/couple/house/{home}");
+    let move_in = format!(r#"{{"move_in":{{"household":{home}}}}}"#);
+    assert_eq!(post(port, "/api/runs/couple/input", &move_in).0, 200);
+    let house = |at: i64| {
+        let (status, _, body) = get(port, &path);
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+        let answer = json_of(&body);
+        assert_eq!(
+            (&answer["version"], &answer["at"], &answer["house"]),
+            (&json!(3), &dated(at), &json!("core:flat"))
+        );
+        answer
+    };
+    let step = |step: &str, target: i64| {
+        let body = format!(r#"{{"step":"{step}"}}"#);
+        let (status, _, answer) = post(port, "/api/runs/couple/advance", &body);
+        assert_eq!(status, 200, "{step}: {}", String::from_utf8_lossy(&answer));
+        assert_eq!(json_of(&answer)["closed_through"], json!(target), "{step}");
+    };
+    let hours = |from: i64, count: i64| {
+        for hour in 1..=count {
+            step("hour", from + hour * 3_600);
+        }
+    };
+    let before = house(DAY - 2);
+    assert_eq!(
+        (&before["morning"], &before["persons"], &before["children"]),
+        (&json!(false), &json!([]), &json!([]))
+    );
+    let at_home = |asleep: bool| json!([{"sim": 3, "place": {"room": KIDS, "asleep": asleep}}]);
+    step("morning", MORNING);
+    let at_six = house(MORNING);
+    let persons: Vec<&Value> = (at_six["persons"].as_array().expect("persons").iter())
+        .map(|person| &person["sim"])
+        .collect();
+    assert_eq!(persons, [1, 2]);
+    assert_eq!(at_six["children"], at_home(true));
+    hours(MORNING, 3);
+    let kita = json!({"away": {"place": "kita", "until": dated(DAY + 54_000)}});
+    assert_eq!(
+        house(DAY + 32_400)["children"],
+        json!([{"sim": 3, "place": kita}])
+    );
+    hours(DAY + 32_400, 7);
+    assert_eq!(house(DAY + 57_600)["children"], at_home(false));
+    hours(DAY + 57_600, 4);
+    assert_eq!(house(DAY + 72_000)["children"], at_home(true));
+    for day in 2..=5 {
+        step("morning", day * DAY + 21_600);
+    }
+    hours(5 * DAY + 21_600, 3);
+    assert_eq!(house(5 * DAY + 32_400)["children"], at_home(false));
 }
 
 /// "Warum?" over HTTP (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6): the first
@@ -2815,6 +2907,137 @@ fn why_over_http() {
     write(&log, format!("{text}{again}\n{again}\n").as_bytes());
     let (status, _, body) = get(port, &path);
     assert_eq!((status, code_of(&body)), (500, "events_invalid".to_owned()));
+}
+
+/// A command over HTTP (ADR-0024 section 5): the input route takes `command` like any input.
+/// At 6:00 she walks from the hall to the toilet (`a_house_over_http`). Told to play at the toy
+/// chest (object 9, from 6 to 12 only) she is refused for her age, and nothing is written; told
+/// to watch television (object 3) she stops in the second the command acts, back in the hall,
+/// and walks to the living room, 3 s, on its first place, with the morning values. At 6:10 he
+/// eats at the table (`a_house_over_http`); told to watch as well he stops in the second the
+/// command acts and walks from the kitchen, 7 s, to the television's second place. His hunger,
+/// written down then, stands in the answer at 6:10 with that value (600 + 1 800 · 597 / 3 600,
+/// truncated), his other needs as at 6:10. Here the clock and the next second give the same
+/// hunger: the table adds 1 every 2 s and every stop of the steps lies an even number of
+/// seconds after his arrival; `the_house_answer_after_a_command` tells the two apart.
+#[test]
+fn a_command_over_http() {
+    let (server, home, run) = couple("command");
+    let port = server.port;
+    let move_in = format!(r#"{{"move_in":{{"household":{home}}}}}"#);
+    assert_eq!(post(port, "/api/runs/couple/input", &move_in).0, 200);
+    let morning = r#"{"step":"morning"}"#;
+    assert_eq!(post(port, "/api/runs/couple/advance", morning).0, 200);
+    let inputs = || fs::read_to_string(run.join("input.ndjson")).expect("the input log");
+    let before = inputs();
+    let toys = r#"{"command":{"sim":1,"object":9,"offer":0}}"#;
+    let (status, _, body) = post(port, "/api/runs/couple/input", toys);
+    assert_eq!(
+        (status, code_of(&body), &json_of(&body)["reason"]),
+        (409, "input_rejected".to_owned(), &json!("wrong_age"))
+    );
+    assert_eq!(inputs(), before);
+    let television = r#"{"command":{"sim":1,"object":3,"offer":0}}"#;
+    let (status, _, body) = post(port, "/api/runs/couple/input", television);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        json_of(&body),
+        json!({"format": "simagent.view.input", "version": 1, "t": MORNING, "seq": 3})
+    );
+    assert!(inputs().contains(r#""input":{"command":{"sim":1,"object":3,"offer":0}}"#));
+    let (status, _, body) = get(port, &format!("/api/runs/couple/house/{home}"));
+    assert_eq!(status, 200);
+    let walking = json!({"walking": {"from": 0, "to": 2, "depart": dated(MORNING + 1), "arrive": dated(MORNING + 4)}});
+    assert_eq!(
+        json_of(&body)["persons"][0],
+        json!({"sim": 1, "place": walking,
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
+               "needs": [600, 900, 500, 700, 800]})
+    );
+    let minutes = r#"{"step":"minutes10"}"#;
+    assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
+    let his = r#"{"command":{"sim":2,"object":3,"offer":0}}"#;
+    let (status, _, body) = post(port, "/api/runs/couple/input", his);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(json_of(&body)["seq"], json!(4));
+    let (status, _, body) = get(port, &format!("/api/runs/couple/house/{home}"));
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    let walking = json!({"walking": {"from": 1, "to": 2, "depart": dated(MORNING + 601), "arrive": dated(MORNING + 608)}});
+    assert_eq!(
+        json_of(&body)["persons"][1],
+        json!({"sim": 2, "place": walking,
+               "action": {"object": 3, "offer": 0, "slot": 1, "until": null},
+               "needs": [898, 894, 480, 695, 790]})
+    );
+}
+
+/// The house answer right after a command (ADR-0024 section 5, the answer called directly at a
+/// stop the steps never reach): what the command wrote down in the second it acts stands with
+/// that value. The couple of `COUPLE` in the flat with the data `simagent` uses: at 6:00 she
+/// walks to the toilet, there at 6:00:03 with the bladder at 500, +12 000 an hour. Told at
+/// 6:01:40 to watch television (object 3) she stops at 6:01:41 with the bladder at 826 (500 +
+/// 326.7), where the clock would give 823 (500 + 323.3), and walks from the bath to the living
+/// room, 6 s; her other needs at the clock: hunger 598 (600 − 2.8), energy 899 (900 − 1.1),
+/// hygiene 700 (700 − 0.8), fun 799 (800 − 1.7).
+#[test]
+fn the_house_answer_after_a_command() {
+    use sim_core::input::{Command as Order, Couple, Founder, Input, MoveIn, Start};
+    use sim_core::log::LogPayload;
+    use sim_core::world::{World, YearOut};
+    let founder = |born: i64, sex: sim_core::genome::Sex| Founder {
+        born: SimTime::from_secs(born),
+        sex,
+        alleles: Vec::new(),
+    };
+    let mut world = World::new(sim_cli::data::core_data().expect("the data"));
+    let start = Start {
+        world_seed: 7,
+        founder_tag: sim_core::data_id::DataId::new("test:house").expect("valid"),
+        world_params: sim_core::params::WorldParams {
+            hereditary_diseases: false,
+            nutrition: Vec::new(),
+        },
+        founders: vec![
+            founder(-943_488_000, sim_core::genome::Sex::Female),
+            founder(-1_006_387_200, sim_core::genome::Sex::Male),
+        ],
+        couples: vec![Couple { woman: 0, man: 1 }],
+        capacity: None,
+        pool: None,
+    };
+    world.submit(Input::Start(start)).expect("accepted");
+    let mut out = YearOut::default();
+    let mut advance = |world: &mut World, until: i64| {
+        world.advance_until(&mut out, SimTime::from_secs(until), &mut |_| false);
+        world.take_log()
+    };
+    let household = (advance(&mut world, DAY - 2).into_iter())
+        .find_map(|entry| match entry.payload {
+            LogPayload::HouseholdFormed { household } => Some(household),
+            _ => None,
+        })
+        .expect("their household");
+    world
+        .submit(Input::MoveIn(MoveIn { household }))
+        .expect("moves in");
+    advance(&mut world, MORNING + 100);
+    let television = Order {
+        sim: sim_core::ids::SimId::try_from(1).expect("valid"),
+        object: 3,
+        offer: 0,
+    };
+    world.submit(Input::Command(television)).expect("accepted");
+    let answer = sim_cli::house_answer(&world, household.get())
+        .expect("answers")
+        .expect("a house");
+    let walking = json!({"walking": {"from": 3, "to": 2, "depart": dated(MORNING + 101), "arrive": dated(MORNING + 107)}});
+    assert_eq!(answer["at"], dated(MORNING + 100));
+    assert_eq!(
+        answer["persons"][0],
+        json!({"sim": 1, "place": walking,
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null},
+               "needs": [598, 899, 826, 700, 799]})
+    );
 }
 
 /// The households with a house (ADR-0021, addendum of 2026-11-03): none, then the couple's,

@@ -50,6 +50,21 @@ test("people at their object, in their room, on the way", () => {
   assert.deepEqual(spots(layout, walking, 120), [{ x: 4, y: 2 }]);
 });
 
+test("children under 6 in the middle of their room", () => {
+  // A child has no action (ADR-0024 section 4): in the middle of its room, beside a person
+  // there who does nothing, asleep or awake alike.
+  const drawn = [
+    { sim: 2, place: { room: 0 }, action: null, needs: [] },
+    { sim: 5, place: { room: 0, asleep: false } },
+    { sim: 6, place: { room: 1, asleep: true } },
+  ];
+  assert.deepEqual(spots(layout, drawn, 0), [
+    { x: 1, y: 2 },
+    { x: 1 + SPREAD, y: 2 },
+    { x: 4, y: 2 },
+  ]);
+});
+
 test("a second of the day as a clock reads it", async () => {
   const { timeOfDay } = await import("../dist/render/plan.js");
   assert.equal(timeOfDay(0), "0:00");

@@ -1,6 +1,7 @@
 //! A person's duty of a day (ADR-0024 section 4): school or work on a weekday by the age at
-//! the day's plan at 5:00 and, for work, by the person's work plan, a draw once in its life.
-//! Pure functions of the day's rules, so the handlers, the loader and the page agree.
+//! the day's plan at 5:00 and, for work, by the person's work plan, a draw once in its life;
+//! and where a child under 6 is. Pure functions of the day's rules, so the handlers, the
+//! loader and the page agree.
 
 use crate::house::data::DayRules;
 use crate::house::state::Duty;
@@ -94,6 +95,36 @@ pub fn duty(
     })
 }
 
+/// Where a child under 6 is (ADR-0024 section 4): at the kindergarten until the second it
+/// ends, in bed in the house's `child_night_room`, or in its `child_day_room`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YoungPlace {
+    Kita { until: SimTime },
+    Bed,
+    DayRoom,
+}
+
+/// Where a child under 6 is at `at`, a pure function of the second (ADR-0024 sections 2 and
+/// 4 and its addendum of 2026-11-04, slice 8c): on a weekday from `kita_from` to before
+/// `kita_to` at the kindergarten, every night from `bed_from` to before `bed_to` of the next
+/// morning in bed, else in the day room. The loader keeps the bed's end before the
+/// kindergarten and its start after it. Who is a child is the caller's: in a house, whoever
+/// has no needs.
+pub fn young_place(rules: &DayRules, at: SimTime) -> YoungPlace {
+    let young = &rules.young;
+    let date = calendar(at);
+    let second = date.second_of_day;
+    if date.weekday < WEEKDAYS && (young.kita_from..young.kita_to).contains(&second) {
+        // The end of time is a midnight, so the end of a kindergarten day that began is in it.
+        let left = SimDuration::from_secs(i64::from(young.kita_to - second));
+        return YoungPlace::Kita { until: at + left };
+    }
+    if second >= young.bed_from || second < young.bed_to {
+        return YoungPlace::Bed;
+    }
+    YoungPlace::DayRoom
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +150,37 @@ mod tests {
         assert_eq!(plan_day(&rules, t(17_999)), -1);
         assert_eq!(plan_day(&rules, t(18_000)), 0);
         assert_eq!(plan_day(&rules, t(day + 17_999)), 0);
+    }
+
+    /// A child under 6 by the clock, at the edges of `day.json`: the kindergarten from 8:00 to
+    /// before 15:00 on Monday (day 0) to Friday (day 4), bed from 19:00 to before 7:00 every
+    /// night, else the day room. Day -3 is a Friday, day -2 a Saturday, day -1 a Sunday.
+    #[test]
+    fn a_young_child_by_the_clock() {
+        let day = DAY.as_secs();
+        let rules = rules();
+        let kita = |until: i64| YoungPlace::Kita { until: t(until) };
+        let cases = [
+            (28_799, YoungPlace::DayRoom),
+            (28_800, kita(54_000)),
+            (53_999, kita(54_000)),
+            (54_000, YoungPlace::DayRoom),
+            (68_399, YoungPlace::DayRoom),
+            (68_400, YoungPlace::Bed),
+            (day + 25_199, YoungPlace::Bed),
+            (day + 25_200, YoungPlace::DayRoom),
+            (4 * day + 28_800, kita(4 * day + 54_000)),
+            (4 * day + 86_399, YoungPlace::Bed),
+            (5 * day + 25_199, YoungPlace::Bed),
+            (5 * day + 28_800, YoungPlace::DayRoom),
+            (5 * day + 53_999, YoungPlace::DayRoom),
+            (5 * day + 68_400, YoungPlace::Bed),
+            (-1, YoungPlace::Bed),
+            (-3 * day + 32_400, kita(-3 * day + 54_000)),
+            (-2 * day + 36_000, YoungPlace::DayRoom),
+        ];
+        for (at, place) in cases {
+            assert_eq!(young_place(&rules, t(at)), place, "{at}");
+        }
     }
 }

@@ -303,7 +303,8 @@ export const TEXT = {
   house_floor_0: "Erdgeschoss",
   house_floor_1: "Obergeschoss",
   house_people: "Bewohner",
-  house_young: "Kinder unter 6 sind noch nicht im Haus zu sehen.",
+  house_young_kita: "in der Kita bis {time}",
+  house_young_asleep: "schläft {room}",
   house_walks: "geht {where}",
   house_does: "{offer} {at}",
   house_until: "bis {time}",
@@ -334,6 +335,12 @@ export const TEXT = {
   house_why_offer: "{what} {points}",
   house_why_busy: "(besetzt)",
   house_why_commanded: "Befohlen.",
+  house_command_for: "Befehl für {name}",
+  house_command_what: "Was tun?",
+  house_command: "Befehlen",
+  house_command_choice: "{what} {room}",
+  house_command_numbered: "{label} ({n})",
+  house_commanded: "Befehl: {what}",
   need_hunger: "Hunger",
   need_energy: "Energie",
   need_bladder: "Blase",
@@ -344,21 +351,21 @@ export const TEXT = {
 } as const;
 
 /** The rooms of the houses by their names in `data/house/houses/` (ADR-0025), as the house
- * page shows them; "in" for a walk's goal. */
-export const ROOM_WORDS: { readonly [id: string]: readonly [string, string] } = {
-  hall: ["Flur", "in den Flur"],
-  kitchen: ["Küche", "in die Küche"],
-  living: ["Wohnzimmer", "ins Wohnzimmer"],
-  dining: ["Esszimmer", "ins Esszimmer"],
-  bath: ["Bad", "ins Bad"],
-  wc: ["WC", "aufs WC"],
-  bedroom: ["Schlafzimmer", "ins Schlafzimmer"],
-  kids: ["Kinderzimmer", "ins Kinderzimmer"],
-  kids_two: ["zweites Kinderzimmer", "ins zweite Kinderzimmer"],
-  small_room: ["kleines Zimmer", "ins kleine Zimmer"],
-  guest: ["Gästezimmer", "ins Gästezimmer"],
-  study: ["Arbeitszimmer", "ins Arbeitszimmer"],
-  landing: ["Flur oben", "in den Flur oben"],
+ * page shows them; "in" for a walk's goal; where one is, for a child under 6. */
+export const ROOM_WORDS: { readonly [id: string]: readonly [string, string, string] } = {
+  hall: ["Flur", "in den Flur", "im Flur"],
+  kitchen: ["Küche", "in die Küche", "in der Küche"],
+  living: ["Wohnzimmer", "ins Wohnzimmer", "im Wohnzimmer"],
+  dining: ["Esszimmer", "ins Esszimmer", "im Esszimmer"],
+  bath: ["Bad", "ins Bad", "im Bad"],
+  wc: ["WC", "aufs WC", "auf dem WC"],
+  bedroom: ["Schlafzimmer", "ins Schlafzimmer", "im Schlafzimmer"],
+  kids: ["Kinderzimmer", "ins Kinderzimmer", "im Kinderzimmer"],
+  kids_two: ["zweites Kinderzimmer", "ins zweite Kinderzimmer", "im zweiten Kinderzimmer"],
+  small_room: ["kleines Zimmer", "ins kleine Zimmer", "im kleinen Zimmer"],
+  guest: ["Gästezimmer", "ins Gästezimmer", "im Gästezimmer"],
+  study: ["Arbeitszimmer", "ins Arbeitszimmer", "im Arbeitszimmer"],
+  landing: ["Flur oben", "in den Flur oben", "im Flur oben"],
 };
 
 /** The kinds of furniture by their data IDs (`data/house/kinds.json`): the name, and where
@@ -515,6 +522,7 @@ export const CODES: { readonly [code: string]: string } = {
   "input time_together": "Zeit zu zweit",
   "input move_in": "Einziehen",
   "input move_out": "Ausziehen",
+  "input command": "Befehl",
   "reject already_started": "Die Welt hat schon begonnen.",
   "reject clock_not_at_start": "Die Uhr steht nicht am Anfang.",
   "reject founder_not_born_before_start": "Eine Gründerperson ist nicht vor dem Start geboren.",
@@ -558,6 +566,12 @@ export const CODES: { readonly [code: string]: string } = {
   "reject house_limit": "Es wohnen schon 64 Haushalte in Häusern.",
   "reject no_house": "Kein Haus ist groß genug für diesen Haushalt.",
   "reject not_in_house": "Der Haushalt wohnt in keinem Haus.",
+  "reject wrong_age": "Dafür ist die Person zu jung oder zu alt.",
+  "reject away": "Die Person ist nicht zu Hause oder muss gleich los.",
+  "reject object_unknown": "Dieses Möbel gibt es in diesem Haus nicht.",
+  "reject offer_unknown": "Das bietet dieses Möbel nicht an.",
+  "reject slot_busy": "Dort ist gerade kein Platz frei.",
+  "reject critical_need": "Die Person kümmert sich gerade um etwas Dringendes.",
   "save log_not_taken": "Das Protokoll wurde vor dem Speichern nicht abgeholt.",
   "save year_hashes_mismatch": "Die Jahresprüfsummen passen nicht zum Stand.",
   "load bad_magic": "Das ist keine Speicherdatei.",
@@ -650,4 +664,5 @@ export const CODES: { readonly [code: string]: string } = {
   "end_reason left": "Haus verlassen",
   "end_reason critical": "Dringenderes",
   "end_reason obligation": "Pflicht",
+  "end_reason command": "Befehl",
 };
