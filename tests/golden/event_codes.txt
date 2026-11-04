@@ -31,3 +31,4 @@ kind action_end 18
 kind need_crossing 19
 kind decide 20
 kind bedtime 21
+kind stand_up 22
