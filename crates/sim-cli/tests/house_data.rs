@@ -354,7 +354,10 @@ fn house_data_loads_and_rejects() {
             change(kind);
         })
     };
-    assert_eq!(bed_kind("core:bed", |k| k["bed_for"] = json!("couples")), "ok");
+    assert_eq!(
+        bed_kind("core:bed", |k| k["bed_for"] = json!("couples")),
+        "ok"
+    );
     assert_eq!(
         bed_kind("core:single_bed", |k| k["bed_for"] = json!("children")),
         "ok"
