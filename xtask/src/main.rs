@@ -686,6 +686,34 @@ fn server_answers(
         "WhyAnswer",
         get(port, &format!("/api/runs/town/why/{waited}"))?,
     ));
+    // An idle choice waiting for nothing in a room one does not stay in, the WC or the bath
+    // (version 5 of "Warum?"): the room the person went to, the first in the town's log from
+    // that morning on.
+    let mut after = String::new();
+    let went = 'pages: loop {
+        let page = get(
+            port,
+            &format!("/api/runs/town/events?from={morning}{after}"),
+        )?;
+        let rows = page["events"].as_array().into_iter().flatten();
+        for row in rows {
+            let idle = &row["entry"]["payload"]["core:idle"];
+            if !(idle.is_object() && idle["waits"].is_null()) {
+                continue;
+            }
+            let why = get(port, &format!("/api/runs/town/why/{}", row["entry"]["id"]))?;
+            if !why["goes_to"].is_null() {
+                break 'pages why;
+            }
+        }
+        match page["next"].as_u64() {
+            Some(next) => after = format!("&after={next}"),
+            None => {
+                return Err("nobody in the town's houses idled in the WC or the bath".to_owned());
+            }
+        }
+    };
+    answers.push(("WhyAnswer", went));
     // An idle entry that is still its person's state (version 4 of "Warum?"): hour by hour
     // until someone of the three households stands idle in a room, then its last choice, which
     // is idle, compared at the clock.

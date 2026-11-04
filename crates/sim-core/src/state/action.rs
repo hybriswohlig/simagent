@@ -142,7 +142,7 @@ pub(super) fn taken(
 /// The places the household's small children hold in their beds at `now` (ADR-0026, addendum
 /// of 2026-11-04 after the playtest): after its first morning, its living members without
 /// needs, by SimId, each the next place of `House::child_beds`, while the clock puts them in bed.
-pub(super) fn young_held(
+pub(crate) fn young_held(
     domain: &DomainState,
     data: &Data,
     household: HouseholdId,
@@ -192,7 +192,7 @@ pub(crate) fn partner(domain: &DomainState, sim: SimId) -> Option<SimId> {
 
 /// The beds of the tier of `sim` at `age` in its night (`house::choice::tier`): its partner's
 /// bed for couples if the partner holds a place on one.
-fn tier_beds(
+pub(crate) fn tier_beds(
     domain: &DomainState,
     house: &House,
     houses: &HouseData,

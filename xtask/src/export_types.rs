@@ -681,12 +681,13 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseWalk",
-            doc: "A walk between two rooms, its start and its arrival.",
+            doc: "A walk between two rooms, its start and its arrival, and whether it leads out of the house; a walk without an action that does not leads to the room one stays in (ADR-0026, addendum of 2026-11-04 after the playtest).",
             fields: vec![
                 field("from", Integer),
                 field("to", Integer),
                 field("depart", Ref("DatedSecond")),
                 field("arrive", Ref("DatedSecond")),
+                field("out", Bool),
             ],
         },
         Named {
@@ -701,7 +702,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}` (version 4): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, what an idle person waited for, the needs of the choice, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 5): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the needs of the choice, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -714,6 +715,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("night", nullable(Ref("WhyNight"))),
                 field("chosen", nullable(Ref("WhyChoice"))),
                 field("waits", nullable(Integer)),
+                field("goes_to", nullable(Integer)),
                 field("offers", list(Ref("WhyOffer"))),
                 field("now", nullable(Ref("WhyNow"))),
             ],
@@ -749,7 +751,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyOffer",
-            doc: "An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, without points or mood); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points.",
+            doc: "An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, without points or mood); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points; whether a small child held a place of its object, whether it was a bed outside the person's tier in the night, and whom the object's kind is for.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
@@ -758,6 +760,9 @@ pub fn descriptor() -> Vec<Named> {
                 field("busy", Bool),
                 field("closed", Bool),
                 field("urgent", list(Text)),
+                field("held", Bool),
+                field("outside", Bool),
+                field("bed_for", nullable(Kind::Literal(&["couples", "children"]))),
             ],
         },
         Named {
