@@ -299,8 +299,8 @@ fn mortal(data: &Data, n: u64) -> Option<Run> {
 /// year, the seed by the rule of `SEED_DEATH`. In the death's second the action ends with
 /// reason `left`, caused by the person's `core:moved_out`, caused by its `core:death`; after it
 /// the dead has no needs, whoever holds its place took it by a hold from that
-/// `core:moved_out`, the places hold after every second to the end of the next day, and nothing
-/// of the dead's house life follows (an event of someone gone would panic with
+/// `core:moved_out`, the places hold after every second to the end of the next day, and no
+/// entry names the dead after that second (an event of someone gone would panic with
 /// `house.orphan_event`).
 #[test]
 fn a_death_in_the_middle_of_an_action() {
@@ -382,8 +382,12 @@ fn a_death_in_the_middle_of_an_action() {
     }
     places_hold(&run.world, second);
     run.step((second / D + 2) * D, places_hold);
-    let after = doings(&run, dead.get(), 0);
-    assert!(after.iter().all(|&(at, _)| at <= second), "{after:?}");
+    let mentioned = |entry: &&LogEntry| entry.subjects.contains(&Subject::Sim(dead));
+    let after: Vec<_> = (run.log.iter())
+        .filter(|entry| entry.t.as_secs() > second)
+        .filter(mentioned)
+        .collect();
+    assert!(after.is_empty(), "{after:?}");
 }
 
 /// A stew (hunger +160 an hour for 9 500 s) in the hall, a game (fun +600 an hour for 30 min)

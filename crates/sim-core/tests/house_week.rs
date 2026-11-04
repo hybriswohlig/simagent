@@ -17,8 +17,9 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use common::day::{Run, number, places_hold};
+use common::day::{MORNING, Run, number, places_hold};
 use sim_core::data::Data;
+use sim_core::data_id::DataId;
 use sim_core::house::choice::age;
 use sim_core::house::data::Need;
 use sim_core::house::need::NeedSample;
@@ -65,10 +66,17 @@ fn ages(i: u64) -> [i64; 4] {
     ]
 }
 
-/// Family `i` on `data`, moved in at 23:59:59 of day 0.
+/// Family `i` on `data`, moved in at 23:59:59 of day 0, into the terraced house (the
+/// smallest that holds four, ADR-0025 section 3).
 fn family(data: &Data, i: u64) -> Run {
     let born = ages(i).map(|years| -years * YEAR.as_secs());
-    let (run, _) = Run::family(data.clone(), SEED_WEEK + i, TAG, &born, 0);
+    let (run, home) = Run::family(data.clone(), SEED_WEEK + i, TAG, &born, 0);
+    let house = &run.world.state().house().households[&home].house;
+    assert_eq!(
+        house,
+        &DataId::new("core:terraced").expect("id"),
+        "family {i}"
+    );
     run
 }
 
@@ -224,6 +232,11 @@ struct Duties {
     unexplained: Vec<String>,
 }
 
+/// Whether a family's week has duties and at least 95 percent of them on time (item 3).
+fn punctual(duties: &Duties) -> bool {
+    duties.planned > 0 && duties.on_time * 100 >= duties.planned * ON_TIME_PERCENT
+}
+
 /// Each `core:day_planned` of days 1 to 7 has one outcome: `core:left_home` with `late_secs`
 /// 0 (on time) or more (late), or `core:missed` at its return (not on time). A late departure's
 /// cause is the `core:action_ended` of its second that ended the action it waited for; a
@@ -315,13 +328,15 @@ fn hm(secs: i64) -> String {
 }
 
 /// Items 1, 3 and 4 for the 20 families, each with its numbers (`--nocapture` shows them);
-/// item 4 holds after every second with events (`observe`). The thresholds are the plan's: no
-/// stretch of 60 minutes under hunger 150 next to a free eating place; at least 95 percent of
-/// all departures of the 20 weeks on time, and the reason of each late or missed one in the log.
+/// item 4 holds after every second with events (`observe`). The thresholds are the plan's, for
+/// each family's week: no stretch of 60 minutes under hunger 150 next to a free eating place; at
+/// least 95 percent of its departures on time, and the reason of each late or missed one in
+/// the log.
 #[test]
 fn the_week_of_the_test_family() {
     let data = common::repository_data();
     let (mut failures, mut total, mut worst) = (Vec::new(), Duties::default(), 0);
+    let mut least: Option<(u64, usize, usize)> = None;
     for i in 0..FAMILIES {
         let week = week(&data, i);
         let longest = hungry(&week);
@@ -346,6 +361,19 @@ fn the_week_of_the_test_family() {
             duties.late,
             duties.missed
         );
+        if !punctual(&duties) {
+            failures.push(format!(
+                "family {i}: {} of {} on time",
+                duties.on_time, duties.planned
+            ));
+        }
+        // The family with the smallest share on time: a / b below c / d if a · d < c · b.
+        let below = |(_, on_time, planned): (u64, usize, usize)| {
+            duties.on_time * planned < on_time * duties.planned
+        };
+        if least.is_none_or(below) {
+            least = Some((i, duties.on_time, duties.planned));
+        }
         total.planned += duties.planned;
         total.on_time += duties.on_time;
         total.late += duties.late;
@@ -356,17 +384,13 @@ fn the_week_of_the_test_family() {
             .extend(unexplained.map(|what| format!("family {i}: {what}")));
     }
     println!(
-        "all: worst hunger stretch {}; duties {}/{} on time, {} late, {} missed",
+        "all: worst hunger stretch {}; duties {}/{} on time, {} late, {} missed; the least punctual (family, on time, planned) {least:?}",
         hm(worst),
         total.on_time,
         total.planned,
         total.late,
         total.missed
     );
-    assert!(total.planned > 0, "no duties");
-    if total.on_time * 100 < total.planned * ON_TIME_PERCENT {
-        failures.push(format!("{} of {} on time", total.on_time, total.planned));
-    }
     failures.extend(total.unexplained);
     assert!(failures.is_empty(), "{failures:#?}");
 }
@@ -397,10 +421,7 @@ fn starving_next_to_useless_food_is_red() {
         "{longest:?}"
     );
     let measured = duties(&week);
-    assert!(
-        measured.on_time * 100 < measured.planned * ON_TIME_PERCENT,
-        "{measured:?}"
-    );
+    assert!(!punctual(&measured), "{measured:?}");
     assert!(measured.unexplained.is_empty(), "{measured:?}");
     let blind = Week {
         waited: BTreeMap::new(),
@@ -444,8 +465,9 @@ fn the_week_is_the_same_however_it_is_run() {
 
 /// Item 5: saved in the middle of a walk and of a sleep, the save loads, saves to the same
 /// bytes and runs on as the uninterrupted week, with the same state hash and the same entries.
-/// The walk is the first after the first morning of 10 s or more, saved at its middle; the
-/// sleep the first of two hours or more, saved at its middle.
+/// The walk is the first of 10 s or more that begins after the first morning, saved at its
+/// middle; the sleep the first of two hours or more, saved at its middle. The loaded week also
+/// gives what the week in one call gave from that second on.
 #[test]
 fn a_save_mid_walk_and_mid_sleep_runs_on_the_same() {
     let data = common::repository_data();
@@ -457,6 +479,7 @@ fn a_save_mid_walk_and_mid_sleep_runs_on_the_same() {
         _ => None,
     };
     let walk = (whole.log.iter())
+        .filter(|entry| entry.t.as_secs() > MORNING)
         .find_map(|entry| match entry.payload {
             LogPayload::ActionStarted { walk_secs, .. } if walk_secs >= 10 => {
                 Some((one(entry)?, entry.t.as_secs() + i64::from(walk_secs / 2)))
@@ -519,15 +542,13 @@ fn a_save_mid_walk_and_mid_sleep_runs_on_the_same() {
         run.advance(END);
         assert_eq!(loaded.state_hash(), run.world.state_hash(), "{saved_at}");
         let entries = |log: &[LogEntry]| serde_json::to_value(log).expect("json");
-        assert_eq!(
-            entries(&loaded.take_log()),
-            entries(&run.log[saved..]),
-            "{saved_at}"
-        );
-        assert_eq!(
-            run.world.state_hash(),
-            whole.world.state_hash(),
-            "{saved_at}"
-        );
+        let continued = entries(&loaded.take_log());
+        assert_eq!(continued, entries(&run.log[saved..]), "{saved_at}");
+        let after: Vec<LogEntry> = (whole.log.iter())
+            .filter(|entry| entry.t.as_secs() > saved_at)
+            .cloned()
+            .collect();
+        assert_eq!(continued, entries(&after), "{saved_at}");
+        assert_eq!(loaded.state_hash(), whole.world.state_hash(), "{saved_at}");
     }
 }
