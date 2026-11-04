@@ -192,7 +192,10 @@ fn by_input(entry: &LogEntry, id: u64, second: i64, seq: u64) -> LogPayload {
 /// 6:22:30 (3 600 · 450 / 1 200 s), which the television does not raise: it ends with fun
 /// 1 000 (800 + 448.7 since 6:00:04, capped) and she walks from the den to the pantry for her
 /// critical hunger (10⁹ + 850 · 850 − 50 · 6). A command then is refused, and so is any once
-/// the household has moved out.
+/// the household has moved out. Not here: `end_of_time`, for the second the command would act
+/// in and for a walk whose arrival lies beyond the last second. No world reaches the last
+/// second (a million years, ADR-0023 section 1), and no save there loads: the loader wants a
+/// year hash for every year and a person with needs is at most 130.
 #[test]
 fn command_rejections_and_effect() {
     let mut never = World::new(data());
