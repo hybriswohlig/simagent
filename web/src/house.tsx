@@ -15,6 +15,7 @@ import { plan, spots, timeOfDay, wholeMinutes } from "./render/plan.js";
 import { format } from "./router.js";
 import { readable } from "./contract.js";
 import { CODES, KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
+import { moodWords } from "./why.js";
 
 const HOUSE = { format: "simagent.view.house", version: 3 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
@@ -25,7 +26,7 @@ const HOUSES = { format: "simagent.view.houses", version: 1 } as const;
 const DAY_PAGES = 10;
 /** The most members a household with a house has (ADR-0025 section 3). */
 const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 2 } as const;
+const WHY = { format: "simagent.view.why", version: 3 } as const;
 const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
   hunger: "need_hunger",
   energy: "need_energy",
@@ -168,7 +169,8 @@ function dayLine(layout: HouseLayout, item: EventItem): { text: string; choice: 
 
 /** "Warum?" for a choice: what it chose with its points and what came behind, from the
  * server (ADR-0026 section 6); in the night that the bed comes first, and by day the beds
- * closed until the night (ADR-0026, addendum of 2026-11-04). */
+ * closed until the night (ADR-0026, addendum of 2026-11-04 on the night); beside each points
+ * the mood in them, as the server gives it (the addendum of 2026-11-04 on the mood). */
 function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: number }) {
   const [why, setWhy] = useState<WhyAnswer | null | "failed">(null);
   const ask = () => {
@@ -197,7 +199,8 @@ function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: 
       if (offer.points === null) {
         return TEXT.house_why_closed.replace("{what}", what).replace("{time}", opens);
       }
-      return `${TEXT.house_why_offer.replace("{what}", what).replace("{points}", points(offer.points))}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`;
+      const told = TEXT.house_why_offer.replace("{what}", what).replace("{points}", points(offer.points)).replace("{mood}", moodWords(offer.mood));
+      return `${told}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}`;
     })
     .join(", ");
   // Idle while waiting for a taken object, as its entry says (ADR-0026 section 5).
@@ -214,11 +217,13 @@ function Why({ run, layout, entry }: { run: string; layout: HouseLayout; entry: 
         ? TEXT.house_why_waits
             .replace("{what}", offerWords(layout, waited.object, waited.offer))
             .replace("{points}", waited.points === null ? "" : points(waited.points))
+            .replace("{mood}", moodWords(waited.mood))
         : chosen === null
         ? TEXT.house_why_none.replace("{enough}", points(why.enough))
         : TEXT.house_why_chosen
             .replace("{what}", offerWords(layout, chosen.object, chosen.offer))
-            .replace("{points}", points(chosen.points))}{" "}
+            .replace("{points}", points(chosen.points))
+            .replace("{mood}", moodWords(chosen.mood))}{" "}
       {behind === "" ? "" : TEXT.house_why_behind.replace("{list}", behind)}
     </div>
   );

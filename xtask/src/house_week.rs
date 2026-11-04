@@ -21,7 +21,7 @@ use std::time::Instant;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
-use sim_core::house::choice::{age, score};
+use sim_core::house::choice::{age, mood, score};
 use sim_core::house::day::night;
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::input::{Couple, Founder, Input, MoveIn, PoolStart, Start};
@@ -203,6 +203,7 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
     let secs = started.elapsed().as_secs_f64();
     let log = world.take_log();
     let state = world.state();
+    let seed = state.world_seed().ok_or("the world has not started")?;
     let houses = world.data().houses().ok_or("the data hold no houses")?;
     let mut counted = Counted {
         households: moving.len(),
@@ -243,11 +244,13 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
         counted.choices += 1;
         *choices.entry((sim, today)).or_insert(0) += 1;
         let born = state.born(sim).ok_or("a choice of nobody")?;
+        let key = state.lineage_key(sim).ok_or("a choice of nobody")?;
         let years = age(born, entry.t).ok_or("a choice before the birth")?;
         let house = houses.house(house).ok_or("a choice in no house")?;
         // In the night the offers of sleep are open too (ADR-0026, addendum of 2026-11-04).
         let left = night(houses.day(), born, entry.t).map(|night| night.left(entry.t));
-        let weighed = score(house, houses, years, needs, room, left).len();
+        let moods = |object, offer| mood(seed, key, entry.t, object, offer);
+        let weighed = score(house, houses, years, needs, room, left, moods).len();
         counted.most_offers = counted.most_offers.max(weighed);
     }
     counted.with_needs = with_needs.len();
