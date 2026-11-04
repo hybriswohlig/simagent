@@ -1,7 +1,9 @@
 //! Taken places, waiting and holds (ADR-0026 section 5): who finds the best object fully taken
 //! and nothing free bringing enough waits for it; when a place of it frees, it is held for the
 //! first waiter, who chooses in that second and takes it, or passes it on. The couple of
-//! `common::day` in a test house with a pantry of one place; the values by hand.
+//! `common::day` in a test house with a pantry of one place; the values by hand. The points are
+//! those without the mood (ADR-0026, addendum of 2026-11-04 on the mood); the moods of these
+//! runs turn no choice.
 
 mod common;
 

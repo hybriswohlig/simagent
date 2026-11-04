@@ -8,11 +8,15 @@
 //! The test house: rooms hall 0 (the entrance), living 1, bedroom 2, bath 3; the bedroom 4 s,
 //! the living room 3 s and the bath 2 s from the hall (bath to bedroom 6 s, living room to
 //! bedroom 7 s, 5 s to an object in one's own room). Objects: a bed for two 0 and a cot for one
-//! from 0 to 12 years 1 in the bedroom, a television for two 2 (fun +1 200 an hour for an hour)
+//! from 0 to 12 years 1 in the bedroom, a television for two 2 (fun +180 an hour for an hour)
 //! and the sofa 3 (sleep with energy +50) in the living room, the four other essential kinds 4
 //! to 7 in the hall (each +1 an hour for a minute: a gain of 0), and in some data a loo for two
 //! 8 in the bath (bladder +12 000 an hour until full, at most 5 min). Awake only energy falls,
-//! asleep energy rises 100 an hour and the bladder falls as the data say; the rest stands.
+//! asleep energy rises 100 an hour and the bladder falls as the data say; the rest stands. So
+//! the television never brings enough by itself: fun stands at 800 unless one watches, and it
+//! fills at most 200 · 180 = 36 000, at the best mood (ADR-0026, addendum of 2026-11-04 on the
+//! mood) 39 600, less the walk. The other points here are without the mood; the moods of these
+//! runs turn none of the choices.
 
 mod common;
 
@@ -73,7 +77,7 @@ fn kinds(loo: bool) -> String {
         {"id": "test:cot", "slots": 1, "offers": [
             {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 12}]},
         {"id": "test:tv", "slots": 2, "offers": [
-            {"id": "watch", "rates": {"fun": 1200}, "seconds": 3600, "min_age": 0, "max_age": 130}]},
+            {"id": "watch", "rates": {"fun": 180}, "seconds": 3600, "min_age": 0, "max_age": 130}]},
         {"id": "core:sofa", "slots": 3, "offers": [
             {"id": "sleep", "rates": {"energy": 50}, "sleep": true, "min_age": 0, "max_age": 130}]},
         {"id": "core:dining_table", "slots": 1, "offers": [
@@ -433,13 +437,13 @@ fn a_sleep_ends_with_its_night() {
 }
 
 /// Bedtime (ADR-0026, addendum of 2026-11-04): on Saturday the couple idles all day, nothing
-/// bringing 40 000 (the television 200 · 200 − 50 · 3 = 39 850, the rest −250) and the bed
+/// bringing 40 000 (the television at most 39 600 − 50 · 3 = 39 450, the rest −250) and the bed
 /// closed; energy, 900 at 6:00 and −30 an hour, reaches 700 at 12:40 (another idle choice). At
 /// their bedtime, 22:00, with energy 420 (900 − 480): the bed (energy +100 for the 8 h of the
 /// night, 580 of 580: 580 · 580 − 50 · 4 = 336 200), she on place 0, he on 1; there at 22:00:04
 /// with energy 420 (480.03 truncated). Energy is full at 3:48:04 (⌈3 600 · 580 / 100⌉ s) and
 /// stays at 1 000; the sleep ends with the night at 6:00 (`done`) and, outside it, they idle in
-/// the bedroom (the television 200 · 200 − 50 · 7). Her choice at 22:00 has its bedtime as its
+/// the bedroom (the television at most 39 600 − 50 · 7). Her choice at 22:00 has its bedtime as its
 /// cause, planned by her `core:day_started` of the first morning; Sunday's bedtime comes from
 /// the plan at 5:00, by her `core:moved_in`. On Sunday energy, 1 000 at 6:00, is 700 at 16:00;
 /// at 22:00, 1 000 − 480, the bed again, from the bedroom.
@@ -513,17 +517,17 @@ fn sleep_ends_at_six_with_energy_at_most_full() {
 }
 
 /// A person watching television at bedtime finishes, then goes to bed: told at 21:30 to watch
-/// (energy 435), she is there at 21:30:03, fun full at 21:40:03. Her bedtime at 22:00 finds
-/// her at the television and does nothing; he goes to bed on place 0. At 22:30:03 the
-/// television ends (energy 405: 495.03 truncated; fun 1 000) and her choice, in the night, is
-/// the bed's free place 1, from the living room, 7 s.
+/// (energy 435), she is there at 21:30:03. Her bedtime at 22:00 finds her at the television and
+/// does nothing; he goes to bed on place 0. At 22:30:03 the television ends (energy 405: 495.03
+/// truncated; fun 980, 800 + 180) and her choice, in the night, is the bed's free place 1, from
+/// the living room, 7 s.
 #[test]
 fn a_person_watching_at_bedtime_finishes_then_goes_to_bed() {
     let mut run = family(quiet(), &[], 4);
     run.advance(SATURDAY + TEN_PM - 1_801);
     run.submit(command(1, TV));
     run.advance(SATURDAY + TEN_PM + 1_810);
-    let watched = [600, 405, 500, 700, 1000];
+    let watched = [600, 405, 500, 700, 980];
     let hers = doings(&run, 1, SATURDAY + TEN_PM - 1_800);
     assert_eq!(
         hers,
@@ -666,8 +670,8 @@ fn no_free_bed_means_the_sofa() {
 
 /// Nobody sleeps by day, even with low energy: falling 300 an hour from 900, it is 700 at
 /// 6:40, 400 at 7:40, critical at 150 at 8:30 and at 50 at 8:50, each time a choice, and
-/// nothing raises it while sofa and beds are closed; idle (the television 39 850). At 0 from
-/// 9:00, they go to bed at 22:00, by the critical need (151 · 10⁹ + 1 000 · 800 − 50 · 4).
+/// nothing raises it while sofa and beds are closed; idle (the television at most 39 450). At 0
+/// from 9:00, they go to bed at 22:00, by the critical need (151 · 10⁹ + 1 000 · 800 − 50 · 4).
 #[test]
 fn nobody_sleeps_by_day() {
     let mut run = family(data_with(DAY_FILE, (-300, 0), false), &[], 4);
@@ -704,8 +708,9 @@ fn nobody_sleeps_by_day() {
 /// 22:00:00 is obeyed (energy 420): she sleeps on place 0, and her bedtime in that second finds
 /// her walking. He goes to bed at his bedtime, on place 1; told at 23:00 to watch television he
 /// wakes (energy 420 + 99.9 since 22:00:04), walks from the bedroom, 7 s, and watches until
-/// 0:00:07 (energy 519 − 30.06), then goes back to bed in the night. Her commanded sleep ends
-/// with the night at 6:00; his too, energy full again (489 + 100 an hour from 0:00:14).
+/// 0:00:07 (energy 519 − 30.06, fun 980), then goes back to bed in the night. Her commanded
+/// sleep ends with the night at 6:00; his too, energy full again (489 + 100 an hour from
+/// 0:00:14).
 #[test]
 fn commands_of_sleep_and_in_the_night() {
     let mut run = family(quiet(), &[], 4);
@@ -744,7 +749,7 @@ fn commands_of_sleep_and_in_the_night() {
         ]
     );
     let woken = [600, 519, 500, 700, 800];
-    let watched = [600, 489, 500, 700, 1000];
+    let watched = [600, 489, 500, 700, 980];
     assert_eq!(
         doings(&run, 2, SATURDAY + TEN_PM),
         [
@@ -758,9 +763,9 @@ fn commands_of_sleep_and_in_the_night() {
             (2 * H + 14, reached(BED)),
             (
                 SUNDAY - TEN_PM,
-                ended(BED, EndReason::Done, [600, 1000, 500, 700, 1000])
+                ended(BED, EndReason::Done, [600, 1000, 500, 700, 980])
             ),
-            (SUNDAY - TEN_PM, idle(2, [600, 1000, 500, 700, 1000], &[])),
+            (SUNDAY - TEN_PM, idle(2, [600, 1000, 500, 700, 980], &[])),
         ]
     );
 }

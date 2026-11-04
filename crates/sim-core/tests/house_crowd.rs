@@ -3,7 +3,9 @@
 //! in the second of leaving. Waiting for a taken object, a hold passed on, and leaving the
 //! house on the way are in `house_waiting.rs` and `house_day.rs`; a critical need that ends a
 //! walk in `house_critical.rs`; a departure that waits for an action in `house_rhythm.rs`.
-//! The values by hand, except where a rule finds the seed.
+//! The values by hand, except where a rule finds the seed; the points are those without the
+//! mood (ADR-0026, addendum of 2026-11-04 on the mood), and the moods of these runs turn no
+//! choice.
 
 mod common;
 

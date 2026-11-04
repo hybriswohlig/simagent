@@ -2,7 +2,8 @@
 //! again; leaving the house ends what one does. The expected values are the ADR's, by hand,
 //! for a woman of 30 (sim 1) and a man of 32 (sim 2) in the repository's flat (rooms hall 0,
 //! kitchen 1, living 2, bath 3, bedroom 4, kids 5; the kitchen 4 s from the hall, the bath 3;
-//! objects table 0 with four places, toilet 5 with one).
+//! objects table 0 with four places, toilet 5 with one). The points are those without the mood
+//! (ADR-0026, addendum of 2026-11-04 on the mood); the moods of these runs turn no choice.
 
 mod common;
 
