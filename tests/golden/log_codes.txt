@@ -48,6 +48,7 @@ input 5 separate_partnership
 input 6 time_together
 input 7 move_in
 input 8 move_out
+input 9 command
 reject 0 already_started
 reject 1 clock_not_at_start
 reject 2 founder_not_born_before_start
@@ -91,6 +92,12 @@ reject 39 already_in_house
 reject 40 house_limit
 reject 41 no_house
 reject 42 not_in_house
+reject 43 wrong_age
+reject 44 away
+reject 45 object_unknown
+reject 46 offer_unknown
+reject 47 slot_busy
+reject 48 critical_need
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
@@ -183,3 +190,4 @@ end_reason 1 full
 end_reason 2 left
 end_reason 3 critical
 end_reason 4 obligation
+end_reason 5 command
