@@ -365,8 +365,9 @@ fn a_house_is_saved_and_loaded() {
 /// morning values has 17 thresholds below its needs; each then chooses and walks to it (the
 /// toilet, the table). It plans their day too (ADR-0024 section 4): both working full time
 /// (their draws of `WORK_PLAN` 30 and 3, day 1 a weekday) the wake, the departure and the
-/// return of today; their series of plans at 5:00 came with moving in (addendum of
-/// 2026-11-04). Moving out cancels all of it, the series too.
+/// return of today, and the bedtime of tonight (ADR-0026, addendum of 2026-11-04); their series
+/// of plans at 5:00 came with moving in (addendum of 2026-11-04). Moving out cancels all of
+/// it, the series too.
 #[test]
 fn the_morning_plans_the_crossings() {
     let morning = DAY.as_secs() + SIX;
@@ -381,8 +382,11 @@ fn the_morning_plans_the_crossings() {
     };
     let (mut run, _, before) = moved_in();
     run.advance(morning);
-    // The morning is gone; two adults' crossings, days and walks have come.
-    assert_eq!(run.world.pending_events(), before - 1 + 2 * (17 + 3) + 2);
+    // The morning is gone; two adults' crossings, days, bedtimes and walks have come.
+    assert_eq!(
+        run.world.pending_events(),
+        before - 1 + 2 * (17 + 3 + 1) + 2
+    );
 
     let (mut run, home, before) = moved_in();
     run.advance(morning + 60);

@@ -382,26 +382,52 @@ fn walks_and_rates_are_checked() {
     assert_eq!(bored, Err(Broken::Rate));
     let fed = rate(|s| in_house(s, 2).needs[0] = NeedSample::new(600, t(NOW - 60), 400));
     assert_eq!(fed, Err(Broken::Rate));
-    // Asleep in the bed every need has the sleeping rate of an adult, all from one second.
-    let asleep = |late: usize| {
-        checked(move |s| {
-            s.waits.clear();
-            let one = in_house(s, 1);
-            one.place = Place::Room(4);
-            one.action = Some(Action {
-                object: 7,
-                offer: 0,
-                slot: 0,
-            });
-            let rates = [-40, 85, -40, -10, 0];
-            for (at, need) in one.needs.iter_mut().enumerate() {
-                let since = if at == late { NOW - 60 } else { NOW - 600 };
-                *need = NeedSample::new(need.value(), t(since), rates[at]);
-            }
-        })
+    // Asleep in the bed every need has the sleeping rate of an adult, all from one second,
+    // and only in her night (ADR-0026, addendum of 2026-11-04): from 22:00 to 6:00 at 40, so at
+    // 23:00 of today a sleep begun at 22:50 loads; one begun at 11:50, by day, does not.
+    let night = NOW + 11 * 3_600;
+    let asleep = |now: i64, late: usize| {
+        let mut state = legal();
+        state.waits.clear();
+        let one = in_house(&mut state, 1);
+        one.place = Place::Room(4);
+        one.action = Some(Action {
+            object: 7,
+            offer: 0,
+            slot: 0,
+        });
+        let rates = [-40, 85, -40, -10, 0];
+        for (at, need) in one.needs.iter_mut().enumerate() {
+            let since = if at == late { now - 60 } else { now - 600 };
+            *need = NeedSample::new(need.value(), t(since), rates[at]);
+        }
+        consistent(&state, Some(&houses()), t(now), alive, member)
     };
-    assert_eq!(asleep(5), Ok(()));
-    assert_eq!(asleep(3), Err(Broken::Rate));
+    assert_eq!(asleep(night, 5), Ok(()));
+    assert_eq!(asleep(night, 3), Err(Broken::Rate));
+    assert_eq!(asleep(NOW, 5), Err(Broken::Sleep));
+    // On the way to the bed, from the living room (8 s), only from a second of her night.
+    let to_bed = |depart: i64| {
+        let mut state = legal();
+        state.waits.clear();
+        let one = in_house(&mut state, 1);
+        one.place = Place::Walking {
+            from: 2,
+            to: 4,
+            depart: t(depart),
+            arrive: t(depart + 8),
+        };
+        one.action = Some(Action {
+            object: 7,
+            offer: 0,
+            slot: 0,
+        });
+        consistent(&state, Some(&houses()), t(depart + 3), alive, member)
+    };
+    assert_eq!(to_bed(night - 3), Ok(()));
+    assert_eq!(to_bed(NOW - 3), Err(Broken::Sleep));
+    assert_eq!(to_bed(NOW + 10 * 3_600 - 1), Err(Broken::Sleep));
+    assert_eq!(to_bed(NOW + 10 * 3_600), Ok(()));
 }
 
 #[test]

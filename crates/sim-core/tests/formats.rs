@@ -1201,6 +1201,7 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::OfferUnknown,
         RejectCode::SlotBusy,
         RejectCode::CriticalNeed,
+        RejectCode::NotNight,
     ];
     for code in &codes {
         match code {
@@ -1252,7 +1253,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::ObjectUnknown
             | RejectCode::OfferUnknown
             | RejectCode::SlotBusy
-            | RejectCode::CriticalNeed => {}
+            | RejectCode::CriticalNeed
+            | RejectCode::NotNight => {}
         }
     }
     codes

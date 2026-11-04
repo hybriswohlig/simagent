@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 use sim_cli::house::house_data_from;
 use sim_core::data_id::DataId;
 use sim_core::house::data::{
-    DayRules, Hours, HouseData, HouseError, NeedJumps, SchoolRules, WorkRules, YoungRules,
+    DayRules, Hours, HouseData, HouseError, NeedJumps, NightRules, SchoolRules, WorkRules,
+    YoungRules,
 };
 
 /// The repository's `day.json` (ADR-0024 section 4).
@@ -17,7 +18,8 @@ fn day() -> Value {
     serde_json::from_str(DAY).expect("the day")
 }
 
-/// The rates of ADR-0026 section 1 per age band (6 to 12, 13 to 17, 18 to 66, from 67).
+/// The rates of ADR-0026 section 1 per age band (6 to 12, 13 to 17, 18 to 66, from 67), the
+/// sleeping energy of its addendum of 2026-11-04.
 fn rates() -> Value {
     json!({
         "awake": {
@@ -29,7 +31,7 @@ fn rates() -> Value {
         },
         "asleep": {
             "hunger": [-40, -40, -40, -40],
-            "energy": [60, 70, 85, 80],
+            "energy": [80, 70, 85, 90],
             "bladder": [-40, -40, -40, -40],
             "hygiene": [-10, -10, -10, -10],
             "fun": [0, 0, 0, 0]
@@ -37,12 +39,12 @@ fn rates() -> Value {
     })
 }
 
-/// The kinds of ADR-0025 section 1 with the offers of ADR-0026 section 2.
+/// The kinds of ADR-0025 section 1 with the offers of ADR-0026 section 2; sleep lasts the
+/// night (its addendum of 2026-11-04).
 fn kinds() -> Value {
     let sleep = |energy: Option<i32>| {
         let mut offer = json!({
-            "id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43_200,
-            "min_age": 0, "max_age": 130
+            "id": "sleep", "sleep": true, "min_age": 0, "max_age": 130
         });
         if let Some(energy) = energy {
             offer["rates"] = json!({ "energy": energy });
@@ -231,15 +233,37 @@ fn house_data_loads_and_rejects() {
     });
     assert_eq!(crossed, "house.offer_ages");
     // Full only by a need that the offer raises at every age it is open to: the toilet does
-    // not feed, and sleep leaves fun at 0.
+    // not feed, and the shower does not entertain.
     assert_eq!(
         toilet(|o| o["until_full"] = json!("hunger")),
         "house.offer_full"
     );
-    let full_of_fun = checked(|kinds, _| {
-        kind(kinds, "core:bed")["offers"][0]["until_full"] = json!("fun");
+    let full_of_fun = shower(|o| {
+        o.as_object_mut().expect("an offer").remove("seconds");
+        o["until_full"] = json!("fun");
+        o["max_seconds"] = json!(900);
     });
     assert_eq!(full_of_fun, "house.offer_full");
+    // A sleep lasts the night: no length of its own, neither fixed nor until full.
+    let bed = |change: fn(&mut Value)| {
+        checked(move |kinds, _| change(&mut kind(kinds, "core:bed")["offers"][0]))
+    };
+    assert_eq!(bed(|o| o["seconds"] = json!(3_600)), "house.offer_length");
+    let until_full = bed(|o| {
+        o["until_full"] = json!("energy");
+        o["max_seconds"] = json!(43_200);
+    });
+    assert_eq!(until_full, "house.offer_length");
+    assert_eq!(
+        bed(|o| o["max_seconds"] = json!(43_200)),
+        "house.offer_length"
+    );
+    assert_eq!(
+        bed(|o| o["until_full"] = json!("energy")),
+        "house.offer_length"
+    );
+    // Without `sleep` an offer of no length is refused as before.
+    assert_eq!(bed(|o| o["sleep"] = json!(false)), "house.offer_length");
     // An offer must set a rate, so its action has a second it began at; sleeping sets all.
     let nothing = shower(|o| {
         o.as_object_mut().expect("an offer").remove("rates");
@@ -450,6 +474,12 @@ fn the_repository_day_loads() {
             bed_from: at(19, 0),
             bed_to: at(7, 0),
         },
+        // The night (ADR-0026, addendum of 2026-11-04): from 20:00 for 6 to 17, from 22:00 for
+        // 18 to 66, from 21:30 from 67 on, each until 6:00.
+        night: NightRules {
+            from: [at(20, 0), at(20, 0), at(22, 0), at(21, 30)],
+            until: [at(6, 0); 4],
+        },
     };
     assert_eq!(*data.day(), expected);
 }
@@ -507,7 +537,12 @@ fn the_day_rejects() {
         day_checked(|d| d["wake_before"] = json!(9_600)),
         "house.day_wake"
     );
-    assert_eq!(day_checked(|d| d["wake_before"] = json!(9_599)), "ok");
+    // (With a night that ends at 5:00, before that wake.)
+    let wake_at_five = day_checked(|d| {
+        d["wake_before"] = json!(9_599);
+        d["night"]["until"] = json!([18_000, 18_000, 18_000, 18_000]);
+    });
+    assert_eq!(wake_at_five, "ok");
     // No wake in the second of the departure (review: the departure would come first); one
     // second before is fine.
     assert_eq!(
@@ -580,23 +615,49 @@ fn the_day_rejects() {
         "house.day_jump"
     );
 
-    // The first check that fails decides, in the order time, wake, age, share, jump.
+    // The night (ADR-0026, addendum of 2026-11-04): each bound within the day; each end at or
+    // after the day plan (5:00) and at or before the earliest wake (6:55: school and part time
+    // leave at 7:40); each start after the last return (17:20), so after every end.
+    let night = |band: usize, bound: &'static str, second: u32| {
+        day_checked(move |d| d["night"][bound][band] = json!(second))
+    };
+    assert_eq!(night(2, "from", 86_400), "house.day_night");
+    assert_eq!(night(2, "from", 86_399), "ok");
+    assert_eq!(night(0, "until", 17_999), "house.day_night");
+    assert_eq!(night(0, "until", 18_000), "ok");
+    assert_eq!(night(3, "until", 24_900), "ok");
+    assert_eq!(night(3, "until", 24_901), "house.day_night");
+    assert_eq!(night(1, "from", 62_400), "house.day_night");
+    assert_eq!(night(1, "from", 62_401), "ok");
+    // An earlier departure moves the earliest wake (6:40 to 5:55), a later return the last.
+    let earlier_wake = day_checked(|d| d["work"]["part_time"]["depart"] = json!(24_000));
+    assert_eq!(earlier_wake, "house.day_night");
+    let later_return = day_checked(|d| d["work"]["full_time"]["back"] = json!(72_000));
+    assert_eq!(later_return, "house.day_night");
+    assert!(
+        day_checked(|d| d["night"]["from"] = json!([72_000, 72_000, 79_200]))
+            .contains("invalid length")
+    );
+
+    // The first check that fails decides, in the order time, wake, age, share, jump, night.
     let broken = |checks: usize| {
         day_checked(move |d| {
-            let breaks: [fn(&mut Value); 5] = [
+            let breaks: [fn(&mut Value); 6] = [
                 |d| d["school"]["depart"] = json!(55_200),
                 |d| d["wake_before"] = json!(10_000),
                 |d| d["school"]["until_age"] = json!(19),
                 |d| d["work"]["full_time_below"] = json!(90),
                 |d| d["return_jumps"]["fun"] = json!(1),
+                |d| d["night"]["until"][2] = json!(0),
             ];
-            breaks.iter().skip(5 - checks).for_each(|change| change(d));
+            breaks.iter().skip(6 - checks).for_each(|change| change(d));
         })
     };
-    let codes: Vec<String> = (1..=5).map(broken).collect();
+    let codes: Vec<String> = (1..=6).map(broken).collect();
     assert_eq!(
         codes,
         [
+            "house.day_night",
             "house.day_jump",
             "house.day_share",
             "house.day_age",
@@ -616,13 +677,20 @@ fn the_day_rejects() {
         |d| d["return_jumps"]["thirst"] = json!(-1)
     )));
     assert!(unknown(day_checked(|d| d["young"]["x"] = json!(1))));
+    assert!(unknown(day_checked(|d| d["night"]["x"] = json!(1))));
     let missing = day_checked(|d| {
         d.as_object_mut().expect("the day").remove("wake_before");
     });
     assert!(missing.contains("missing field"), "{missing}");
 
+    let no_night = day_checked(|d| {
+        d.as_object_mut().expect("the day").remove("night");
+    });
+    assert!(no_night.contains("missing field"), "{no_night}");
+
     assert_eq!(HouseError::DayTime.to_string(), "house.day_time");
     assert_eq!(HouseError::DayJump.to_string(), "house.day_jump");
+    assert_eq!(HouseError::DayNight.to_string(), "house.day_night");
 }
 
 /// Four rooms with a tie: hall to bath through the kitchen (doors 0 and 3) or through the

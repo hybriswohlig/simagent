@@ -4,7 +4,8 @@
 //! the log. The thresholds are the plan's. Item 1, nobody starves next to food, with its
 //! canary; item 3, duties on time with their reasons; item 4, places, after every second (the
 //! crowd cases are in `house_crowd.rs`); item 5, the same week however it is run, saved and
-//! loaded mid walk and mid sleep. Item 6, the budget, is `cargo xtask house-week`.
+//! loaded mid walk and mid sleep; item 2, sleep in range. Item 6, the budget, is `cargo xtask
+//! house-week`.
 //!
 //! The family: four founders of `Start`, a woman and a man as its couple and two children, whom
 //! the couple takes in (ADR-0018 section 4: with no relative of 18 or more, a child goes to the
@@ -41,6 +42,11 @@ const HUNGRY: u16 = 150;
 const STARVING: i64 = 3_600;
 /// At least this share of the departures is on time, in percent (item 3).
 const ON_TIME_PERCENT: usize = 95;
+/// The sleep of a night in range (item 2): adults 6.5 to 9 hours, children 8.5 to 11.
+const ADULT_SLEEP: (i64, i64) = (23_400, 32_400);
+const CHILD_SLEEP: (i64, i64) = (30_600, 39_600);
+/// Each person sleeps in range in at least this many of the seven nights.
+const GOOD_NIGHTS: usize = 6;
 
 /// The gate seeds of the families: `SEED_WEEK + i` for family `i` below `FAMILIES` (never
 /// reseeded).
@@ -220,6 +226,61 @@ fn hungry(week: &Week) -> BTreeMap<SimId, i64> {
     longest
 }
 
+/// Item 2 per person: the seconds it slept in each of the seven nights. Asleep is a person
+/// from its `core:reached` of an action whose offer has `sleep` to that action's
+/// `core:action_ended` (the walk to the bed is awake), or to the end of the week. Night `n`
+/// (1 to 7) is the 24 hours from noon of day `n` to noon of day `n + 1`, so that every second
+/// of sleep after the first noon belongs to exactly one night and a nap counts for the next.
+fn slept(week: &Week) -> BTreeMap<SimId, [i64; 7]> {
+    let houses = week.world.data().houses().expect("houses");
+    let sleeps = |house: &DataId, object: u16, offer: u16| {
+        let def = houses.house(house).expect("its house").def();
+        let kind = houses
+            .kind(&def.objects[usize::from(object)].kind)
+            .expect("a kind");
+        kind.offers[usize::from(offer)].sleep
+    };
+    let mut nights: BTreeMap<SimId, [i64; 7]> = BTreeMap::new();
+    let mut add = |sim: SimId, from: i64, to: i64| {
+        for (night, slept) in (1..).zip(nights.entry(sim).or_default().iter_mut()) {
+            let (noon, next) = (night * D + 12 * H, (night + 1) * D + 12 * H);
+            *slept += (to.min(next) - from.max(noon)).max(0);
+        }
+    };
+    let (mut chosen, mut since) = (BTreeMap::new(), BTreeMap::new());
+    for entry in &week.log {
+        let &[Subject::Sim(sim)] = entry.subjects.as_slice() else {
+            continue;
+        };
+        let at = entry.t.as_secs();
+        match &entry.payload {
+            LogPayload::DayStarted { .. } => add(sim, at, at),
+            LogPayload::ActionStarted {
+                house,
+                object,
+                offer,
+                ..
+            } => {
+                chosen.insert(sim, sleeps(house, *object, *offer));
+            }
+            LogPayload::Reached { .. } if chosen.get(&sim) == Some(&true) => {
+                since.insert(sim, at);
+            }
+            LogPayload::ActionEnded { .. } => {
+                chosen.remove(&sim);
+                if let Some(from) = since.remove(&sim) {
+                    add(sim, from, at);
+                }
+            }
+            _ => {}
+        }
+    }
+    for (sim, from) in since {
+        add(sim, from, END);
+    }
+    nights
+}
+
 /// Item 3 over the departures planned for days 1 to 7.
 #[derive(Debug, Default)]
 struct Duties {
@@ -392,6 +453,43 @@ fn the_week_of_the_test_family() {
         total.missed
     );
     failures.extend(total.unexplained);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Item 2 for the 20 families: adults sleep 6.5 to 9 hours and children 8.5 to 11 in at least
+/// 6 of the 7 nights, each night as `slept` counts it.
+#[test]
+fn the_test_family_sleeps_in_range() {
+    let data = common::repository_data();
+    let (mut failures, mut adults, mut children) = (Vec::new(), Vec::new(), Vec::new());
+    for i in 0..FAMILIES {
+        let week = week(&data, i);
+        let mut line = format!("family {i:2}, ages {:?}:", ages(i));
+        for (sim, nights) in slept(&week) {
+            let born = week.world.state().born(sim).expect("born");
+            let adult = age(born, t(END)).expect("an age") >= 18;
+            let (low, high) = if adult { ADULT_SLEEP } else { CHILD_SLEEP };
+            let good = (nights.iter())
+                .filter(|&&slept| (low..=high).contains(&slept))
+                .count();
+            (if adult { &mut adults } else { &mut children }).extend(nights);
+            let hours: Vec<String> = nights.iter().map(|&slept| hm(slept)).collect();
+            line += &format!(" {}: {} ({good} good);", sim.get(), hours.join(" "));
+            if good < GOOD_NIGHTS {
+                failures.push(format!("family {i}, sim {}: {good} good nights", sim.get()));
+            }
+        }
+        println!("{line}");
+    }
+    let range = |nights: &[i64]| {
+        let (low, high) = (nights.iter().min(), nights.iter().max());
+        format!("{} to {}", hm(*low.unwrap_or(&0)), hm(*high.unwrap_or(&0)))
+    };
+    println!(
+        "all: adults {}, children {}",
+        range(&adults),
+        range(&children)
+    );
     assert!(failures.is_empty(), "{failures:#?}");
 }
 

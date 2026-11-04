@@ -1,15 +1,19 @@
 //! "Warum?" recomputes the choice (ADR-0026 section 6, the test `why_recomputes_the_choice`):
-//! from every `core:action_started` of a week the recomputed points give the same choice, the
-//! offer with the most points among the objects with a free place and at least 40 000; from
-//! every `core:idle` no free offer brings that much. A couple of 30 and 32 in the flat of the
-//! repository, with the data `simagent` uses.
+//! from every `core:action_started` of a week the recomputed points give the same choice by
+//! the rule of the second, `house::choice::choose`; by day the offer with the most points
+//! among the objects with a free place and at least 40 000, in the night first what raises a
+//! critical need, then a bed (ADR-0026, addendum of 2026-11-04); from every `core:idle` the
+//! same rule gives idling, or waiting for the object the entry names. The offers of sleep are
+//! closed by day, without points, and open in the night. A couple of 30 and 32 in the flat of
+//! the repository, with the data `simagent` uses.
 
 use sim_cli::data::core_data;
 use sim_cli::why_answer;
 use sim_core::data_id::DataId;
 use sim_core::genome::{LocusAlleles, Sex};
+use sim_core::house::choice::{Choice, Scored, age, choose};
 use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
-use sim_core::log::{LogEntry, LogPayload};
+use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::params::WorldParams;
 use sim_core::time::{DAY, SimTime, YEAR};
 use sim_core::world::{World, YearOut};
@@ -53,34 +57,70 @@ fn why_recomputes_the_choice() {
     let week = SimTime::from_secs(8 * DAY.as_secs());
     world.advance_until(&mut out, week, &mut |_| false);
     log.extend(world.take_log());
-    let (mut starts, mut idles) = (0, 0);
+    let houses = world.state().data().houses().expect("houses");
+    let (mut starts, mut idles, mut nights) = (0, 0, 0);
     for entry in &log {
         let Some(answer) = why_answer(&world, entry, 0).expect("recomputes") else {
             continue;
         };
-        let enough = answer["enough"].as_i64().expect("enough");
+        let number = |value: &serde_json::Value| value.as_i64().expect("a number");
+        let small = |value: &serde_json::Value| u16::try_from(number(value)).expect("small");
         let offers = answer["offers"].as_array().expect("offers");
-        let best = offers.iter().find(|offer| offer["busy"] == false);
-        let points = |offer: &serde_json::Value| offer["points"].as_i64().expect("points");
+        let (open, closed): (Vec<_>, Vec<_>) =
+            offers.iter().partition(|offer| offer["closed"] == false);
+        assert!(
+            closed.iter().all(|offer| offer["points"].is_null()),
+            "{answer}"
+        );
+        let scored: Vec<Scored> = (open.iter())
+            .map(|offer| Scored {
+                object: small(&offer["object"]),
+                offer: small(&offer["offer"]),
+                points: number(&offer["points"]),
+            })
+            .collect();
+        let night = answer["night"]["now"] == true;
+        assert_eq!(night, closed.is_empty(), "{answer}");
+        let (house, needs, busy) = match &entry.payload {
+            LogPayload::ActionStarted {
+                house, needs, busy, ..
+            }
+            | LogPayload::Idle {
+                house, needs, busy, ..
+            } => (house, *needs, busy),
+            other => panic!("no choice: {other:?}"),
+        };
+        let house = houses.house(house).expect("its house");
+        let [Subject::Sim(sim)] = entry.subjects.as_slice() else {
+            panic!("one person");
+        };
+        let born = world.state().born(*sim).expect("born");
+        let years = age(born, entry.t).expect("an age");
+        let choice = choose((house, houses), (years, needs), &scored, busy, night);
         match &entry.payload {
             LogPayload::ActionStarted { object, offer, .. } => {
                 starts += 1;
-                let best = best.expect("a free offer");
-                assert_eq!(
-                    (&best["object"], &best["offer"]),
-                    (&(*object).into(), &(*offer).into())
-                );
-                assert!(points(best) >= enough, "{answer}");
-                assert_eq!(answer["chosen"]["points"], best["points"]);
+                nights += usize::from(night);
+                let chosen = &answer["chosen"];
+                let expected = Scored {
+                    object: *object,
+                    offer: *offer,
+                    points: number(&chosen["points"]),
+                };
+                assert_eq!(choice, Choice::Take(expected), "{answer}");
             }
-            _ => {
+            LogPayload::Idle { waits, .. } => {
                 idles += 1;
-                assert!(best.is_none_or(|best| points(best) < enough), "{answer}");
+                assert_eq!(choice, waits.map_or(Choice::Idle, Choice::Wait), "{answer}");
                 assert!(answer["chosen"].is_null());
+                assert_eq!(answer["waits"], serde_json::json!(waits));
             }
+            other => panic!("no choice: {other:?}"),
         }
     }
-    // About 60 entries a person a day: hundreds of choices in a week.
+    // About 60 entries a person a day: hundreds of choices in a week, each night at least the
+    // two bedtimes.
     assert!(starts > 200, "{starts} starts");
     assert!(idles > 0, "{idles} idles");
+    assert!(nights >= 14, "{nights} choices in the night");
 }

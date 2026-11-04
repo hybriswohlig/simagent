@@ -203,6 +203,10 @@ enum Payload {
     Decide {
         sim: u64,
     },
+    /// The start of a person's night (ADR-0026, addendum of 2026-11-04).
+    Bedtime {
+        sim: u64,
+    },
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -875,8 +879,17 @@ fn holding_in_the_flat(
     holds: Vec<((u64, u16, u8), u64)>,
 ) -> Vec<u8> {
     let mut all = vec![day_plan(clock)];
+    all.extend(bedtime(clock));
     all.extend(events);
     flat_save(data, clock, person, all, holds, SEVEN_SIX)
+}
+
+/// Her bedtime at 20:00 (from 6 to 12, ADR-0026, addendum of 2026-11-04) of the day whose plan
+/// at 5:00 came last at `clock`, if that is still to come.
+fn bedtime(clock: i64) -> Option<QueueEntry> {
+    let day = (clock - 5 * 3_600).div_euclid(DAY);
+    let at = day * DAY + 20 * 3_600;
+    (at > clock).then_some((at, 0, 0, Payload::Bedtime { sim: 1 }, None))
 }
 
 /// Her daily plan, due at the first 5:00 after `clock`.
@@ -1012,6 +1025,107 @@ fn a_save_keeps_the_walk_and_the_action() {
     assert_eq!(loads(six + 2, &slow, vec![arrive(40)]), refused);
     let still = seven(TestPlace::Room(1), fridge, hungry, Some((0, 0)));
     assert_eq!(loads(six + 100, &still, vec![end(300)]), refused);
+}
+
+/// Her night in a save (ADR-0026, addendum of 2026-11-04): at 7 from 20:00 of her Saturday,
+/// `SEVEN_SIX`, to 6:00. Idle at 19:59:59 her bedtime is due at 20:00, exactly once, by
+/// itself and for her alone; at 20:00 itself it has come, and the next is the plan's of
+/// tomorrow. Asleep at 23:00 in the single bed (object 8 in the kids' room) since 22:00, every
+/// need at the sleeping rate of 6 to 12, her sleep ends at 6:00, not when energy is full
+/// (4:15) nor at another second; at 5:59:59 Sunday's bedtime, planned at 5:00, is due as well.
+/// Begun at 19:00, by day, the sleep is refused, and so is a walk to the bed begun by day,
+/// while one begun in the night or by a command acting at 20:00:00 loads.
+#[test]
+fn a_save_keeps_the_night() {
+    let data = common::data().with_houses(common::repository_houses());
+    let event = |at: i64, payload: Payload| (at, 0, 0, payload, None);
+    let eight = SEVEN_SIX + 14 * 3_600;
+    let morning = SEVEN_SIX + DAY;
+    let bed = event(eight, Payload::Bedtime { sim: 1 });
+    let loads = |clock: i64, person: &TestInHouse, events: Vec<QueueEntry>| {
+        let mut all = vec![day_plan(clock)];
+        all.extend(events);
+        let save = flat_save(&data, clock, person.clone(), all, Vec::new(), SEVEN_SIX);
+        load_error_with(data.clone(), &save)
+    };
+    let refused = Some(LoadError::Inconsistent);
+    let idle = seven(TestPlace::Room(0), None, [0; 5], None);
+    let before = eight - 1;
+    assert_eq!(loads(before, &idle, vec![bed.clone()]), None);
+    assert_eq!(loads(before, &idle, vec![]), refused);
+    assert_eq!(
+        loads(before, &idle, vec![bed.clone(), bed.clone()]),
+        refused
+    );
+    let wrong = [
+        event(eight + 1, Payload::Bedtime { sim: 1 }),
+        (eight, 0, 0, Payload::Bedtime { sim: 1 }, Some(DAY)),
+        event(eight, Payload::Bedtime { sim: 2 }),
+    ];
+    for (index, other) in wrong.into_iter().enumerate() {
+        assert_eq!(loads(before, &idle, vec![other]), refused, "{index}");
+    }
+    let tomorrow = event(eight + DAY, Payload::Bedtime { sim: 1 });
+    assert_eq!(loads(eight, &idle, vec![]), None);
+    assert_eq!(loads(eight, &idle, vec![tomorrow.clone()]), refused);
+    assert_eq!(
+        loads(eight, &idle, vec![bed.clone()]),
+        Some(LoadError::InvalidQueue)
+    );
+
+    let slept = |since: i64| TestInHouse {
+        needs: [(0, -40), (500, 80), (0, -40), (0, -10), (0, 0)]
+            .map(|(value, rate)| (value, since, rate)),
+        place: TestPlace::Room(5),
+        action: Some((8, 0, 0)),
+        due: None,
+        decisions: idle.decisions,
+    };
+    let end = |at: i64| event(at, Payload::ActionEnd { sim: 1 });
+    let asleep = slept(eight + 2 * 3_600);
+    let late = eight + 3 * 3_600;
+    assert_eq!(loads(late, &asleep, vec![end(morning)]), None);
+    // After the plan at 5:00 the bedtime of Sunday is due too.
+    let dawn = vec![end(morning), tomorrow];
+    assert_eq!(loads(morning - 1, &asleep, dawn), None);
+    assert_eq!(loads(late, &asleep, vec![end(morning + 1)]), refused);
+    let full = eight + 2 * 3_600 + 22_500;
+    assert_eq!(loads(late, &asleep, vec![end(full)]), refused);
+    assert_eq!(loads(late, &asleep, vec![]), refused);
+    let by_day = slept(eight - 3_600);
+    let evening = eight - 1_800;
+    assert_eq!(
+        loads(evening, &by_day, vec![bed.clone(), end(morning)]),
+        refused
+    );
+    let walking = |depart: i64| TestInHouse {
+        place: TestPlace::Walking {
+            from: 0,
+            to: 5,
+            depart,
+            arrive: depart + 5,
+        },
+        action: Some((8, 0, 0)),
+        ..idle.clone()
+    };
+    let arrive = |depart: i64| event(depart + 5, Payload::Arrive { sim: 1 });
+    let after = eight + 60;
+    assert_eq!(
+        loads(after, &walking(after - 2), vec![arrive(after - 2)]),
+        None
+    );
+    assert_eq!(
+        loads(
+            evening,
+            &walking(evening - 2),
+            vec![bed.clone(), arrive(evening - 2)]
+        ),
+        refused
+    );
+    assert_eq!(
+        loads(before, &walking(eight), vec![bed, arrive(eight)]),
+        None
+    );
 }
 
 /// A held place lasts only the second of the choice it plans (ADR-0026 section 5): she idles in
@@ -1162,6 +1276,7 @@ fn a_save_keeps_the_day() {
     let returns = back(SCHOOL_BACK, 0);
     let loads = |clock: i64, person: &TestInHouse, events: &[QueueEntry]| {
         let mut all = vec![day_plan(clock)];
+        all.extend(bedtime(clock));
         all.extend(events.iter().cloned());
         let save = flat_save(&data, clock, person.clone(), all, Vec::new(), SCHOOL_SIX);
         load_error_with(data.clone(), &save)
@@ -1176,11 +1291,13 @@ fn a_save_keeps_the_day() {
         fewer.remove(missing);
         assert_eq!(loads(early, &home, &fewer), refused, "{missing}");
     }
+    let mut without_plan = day.clone();
+    without_plan.extend(bedtime(early));
     let unplanned = flat_save(
         &data,
         early,
         home.clone(),
-        day.clone(),
+        without_plan,
         Vec::new(),
         SCHOOL_SIX,
     );

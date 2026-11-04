@@ -95,7 +95,7 @@ const BATH_KINDS: &str = r#"
   {"id": "test:shower", "slots": 1, "offers": [
     {"id": "shower", "rates": {"hygiene": 2800}, "seconds": 900, "min_age": 0, "max_age": 130}]},
   {"id": "test:bed", "slots": 4, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]}"#;
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]}"#;
 
 /// Rooms hall 0 (the entrance), bath 1 and bedroom 2, each 3 s from the hall. Objects: toilet
 /// 0 and shower 1 in the bath, bed 2 in the bedroom, the five essential ones 3 to 7 in the hall.
@@ -214,7 +214,7 @@ const OLD_KINDS: &str = r#"
   {"id": "test:gruel", "slots": 2, "offers": [
     {"id": "eat", "rates": {"hunger": 600}, "seconds": 120, "min_age": 0, "max_age": 130}]},
   {"id": "test:cot", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]}"#;
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]}"#;
 
 /// Rooms hall 0 (the entrance) and kitchen 1, 3 s apart. Objects: soup 0 and gruel 1 in the
 /// kitchen, cot 2 and the five essential ones 3 to 7 in the hall.
@@ -398,7 +398,7 @@ const LATE_KINDS: &str = r#"
   {"id": "test:game", "slots": 2, "offers": [
     {"id": "play", "rates": {"fun": 600}, "seconds": 1800, "min_age": 0, "max_age": 130}]},
   {"id": "test:cot", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]}"#;
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]}"#;
 
 /// Rooms hall 0 (the entrance) and den 1, 95 s apart. Objects: stew 0 in the hall, game 1 in
 /// the den, cot 2 and the five essential ones 3 to 7 in the hall.

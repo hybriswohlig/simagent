@@ -579,6 +579,7 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
             },
         ),
         ("decide", EventPayload::Decide { sim }),
+        ("bedtime", EventPayload::Bedtime { sim }),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -602,7 +603,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::Arrive { .. }
                 | EventPayload::ActionEnd { .. }
                 | EventPayload::NeedCrossing { .. }
-                | EventPayload::Decide { .. } => {}
+                | EventPayload::Decide { .. }
+                | EventPayload::Bedtime { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -707,9 +709,9 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
     missing
 }
 
-/// The house events come before their handlers (ADR-0024, addendum of 2026-11-02); no
-/// golden scenario moves in yet, so none of them runs.
-const HOUSE_EVENTS: [&str; 9] = [
+/// The house events (ADR-0024, addendum of 2026-11-02; the bedtime of ADR-0026, addendum of
+/// 2026-11-04): no golden scenario moves in yet, so none of them runs.
+const HOUSE_EVENTS: [&str; 10] = [
     "house_morning",
     "day_plan",
     "return",
@@ -719,6 +721,7 @@ const HOUSE_EVENTS: [&str; 9] = [
     "action_end",
     "need_crossing",
     "decide",
+    "bedtime",
 ];
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
@@ -742,6 +745,7 @@ fn golden_scenarios_cover_every_kind() {
             "event action_end",
             "event need_crossing",
             "event decide",
+            "event bedtime",
             "log core:param_changed",
             "log core:arrived",
             "log core:disease_onset",
@@ -805,7 +809,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 20);
+    assert_eq!(kinds.len(), 21);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -884,6 +888,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event action_end",
             "event need_crossing",
             "event decide",
+            "event bedtime",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",

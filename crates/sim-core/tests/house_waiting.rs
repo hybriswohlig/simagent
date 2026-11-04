@@ -19,7 +19,7 @@ const KINDS: &str = r#"
   {"id": "test:tv", "slots": 2, "offers": [
     {"id": "watch", "rates": {"fun": 1200}, "seconds": 7200, "min_age": 0, "max_age": 130}]},
   {"id": "test:bed", "slots": 2, "offers": [
-    {"id": "sleep", "sleep": true, "until_full": "energy", "max_seconds": 43200, "min_age": 0, "max_age": 130}]},
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]},
   {"id": "test:pantry", "slots": 1, "offers": [
     {"id": "eat", "rates": {"hunger": 6000}, "until_full": "hunger", "max_seconds": 600, "min_age": 0, "max_age": 130}]},
   {"id": "test:larder", "slots": 1, "offers": [
