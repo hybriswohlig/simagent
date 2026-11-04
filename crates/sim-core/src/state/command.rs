@@ -11,9 +11,10 @@ use crate::log::{Causes, EndReason};
 use crate::time::{SimDuration, SimTime};
 use crate::world::SimCtx;
 
-/// Pure check of a command at the stop `closed_through` (ADR-0024 section 5): first who and
-/// whether it lives in its house with needs, then what (object, offer, age), then the person's
-/// state (away, a critical need) and last the place.
+/// Pure check of a command at the stop `closed_through` (ADR-0024 section 5 and its addendum
+/// of 2026-11-04): first who and whether it lives in its house with needs, then what (object,
+/// offer, age), then the person's state (away, a critical need), then the place, and last the
+/// walk itself, which must arrive before the end of time.
 pub(crate) fn check(
     domain: &DomainState,
     data: &Data,
