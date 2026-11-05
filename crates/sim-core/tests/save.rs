@@ -1052,6 +1052,92 @@ fn a_save_keeps_a_time_filler() {
     assert_eq!(saved(watching(true, 6), vec![ends(done)]), refused);
 }
 
+/// A time-filler no choice could have taken (ADR-0026, addendum of 2026-11-05 on the
+/// time-filler's length): its choice is the start of its walk, or at its object its arrival less
+/// the walk from some room of the flat. The girl of 7, every need at 0 but what an offer sets.
+/// On her school day she is told at 7:39:00 to play at the toy chest in the children's room, 5 s
+/// within it: the walk to it, saved at 7:39:01 with her arrival due at 7:39:05, loads; the same
+/// walk as a time-filler is refused, for a choice then would have ended it at her departure at
+/// 7:40, 60 s on, under the 10 minutes. At the toy chest since 7:39:05 (fun +600 an hour), saved
+/// at 7:39:10, the command loads with its end at 8:09:05 (30 min); as a time-filler with its end
+/// at 7:40:00, as it would be planned, it is refused, for from every room of the flat (at most 10
+/// s away) the departure lies under 10 minutes after the choice. On her Saturday told at 23:00:00
+/// to watch television in the living room, in her night (20:00 to 6:00 by the weekday mornings
+/// of these tests): the walk loads, as a time-filler it is refused, as nobody takes one in a
+/// night; at the television since 23:00:05, saved at 23:00:10 with its end at 23:45:05, the same.
+/// A time-filler by day far from the departure loads (`a_save_keeps_a_time_filler`).
+#[test]
+fn a_save_keeps_only_a_time_filler_a_choice_could_take() {
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
+    let event = |at: i64, payload: Payload| (at, 0, 0, payload, None);
+    let refused = Some(LoadError::Inconsistent);
+    let filler = |mut person: TestInHouse| {
+        person.action = person
+            .action
+            .map(|TestAction(object, offer, slot, _)| TestAction(object, offer, slot, true));
+        person
+    };
+    // Her school day: the departure at 7:40 and the return at 15:20 are due.
+    let school = |clock: i64, person: &TestInHouse, events: &[QueueEntry]| {
+        let mut all = vec![day_plan(clock)];
+        all.extend(bedtime(clock));
+        all.push(event(
+            SCHOOL_DEPART,
+            Payload::Depart {
+                sim: 1,
+                place: 0,
+                back: SCHOOL_BACK,
+            },
+        ));
+        all.push(event(SCHOOL_BACK, Payload::Return { sim: 1, place: 0 }));
+        all.extend(events.iter().cloned());
+        let save = flat_save(&data, clock, person.clone(), all, Vec::new(), SCHOOL_SIX);
+        load_error_with(data.clone(), &save)
+    };
+    let told = SCHOOL_DEPART - 60;
+    let chest = Some((9, 0, 0));
+    let walk = TestPlace::Walking {
+        from: 5,
+        to: 5,
+        depart: told,
+        arrive: told + 5,
+    };
+    let walking = schoolgirl(walk, chest, [0; 5]);
+    let arrives = [event(told + 5, Payload::Arrive { sim: 1 })];
+    assert_eq!(school(told + 1, &walking, &arrives), None);
+    assert_eq!(school(told + 1, &filler(walking), &arrives), refused);
+    let mut playing = schoolgirl(TestPlace::Room(5), chest, [0; 5]);
+    playing.needs[4] = (0, told + 5, 600);
+    let commanded = [event(told + 5 + 1_800, Payload::ActionEnd { sim: 1 })];
+    assert_eq!(school(told + 10, &playing, &commanded), None);
+    let planned = [event(SCHOOL_DEPART, Payload::ActionEnd { sim: 1 })];
+    assert_eq!(school(told + 10, &filler(playing), &planned), refused);
+    // Her Saturday night.
+    let night = |clock: i64, person: &TestInHouse, events: Vec<QueueEntry>| {
+        load_error_with(
+            data.clone(),
+            &in_the_flat(&data, clock, person.clone(), events),
+        )
+    };
+    let eleven = SEVEN_SIX + 17 * 3_600;
+    let television = Some((3, 0, 0));
+    let walk = TestPlace::Walking {
+        from: 2,
+        to: 2,
+        depart: eleven,
+        arrive: eleven + 5,
+    };
+    let walking = seven(walk, television, [0; 5], None);
+    let arrives = || vec![event(eleven + 5, Payload::Arrive { sim: 1 })];
+    assert_eq!(night(eleven + 1, &walking, arrives()), None);
+    assert_eq!(night(eleven + 1, &filler(walking), arrives()), refused);
+    let mut watching = seven(TestPlace::Room(2), television, [0; 5], None);
+    watching.needs[4] = (0, eleven + 5, 400);
+    let ends = || vec![event(eleven + 5 + 2_700, Payload::ActionEnd { sim: 1 })];
+    assert_eq!(night(eleven + 10, &watching, ends()), None);
+    assert_eq!(night(eleven + 10, &filler(watching), ends()), refused);
+}
+
 /// One lying on the floor in a save (ADR-0026, addendum of 2026-11-04 on a need at 0): at 7 in
 /// the hall since 7:00 of her Saturday, `SEVEN_SIX` + 1 h, every need written down then at the
 /// sleeping rates of 6 to 12 (hunger, bladder −40, hygiene −10, fun 0) and energy at 0 rising 50

@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
-use sim_core::house::state::consistent;
+use sim_core::house::state::{consistent, fillers_consistent};
 use sim_core::ids::{EventId, HouseholdId, SimId};
 use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
 use sim_core::log::{LogEntry, LogPayload, Subject};
@@ -216,7 +216,8 @@ impl Run {
 
 /// The places of the house part after a second with events, from the public state: no place
 /// holds two persons, no hold outlives its second (the holder's choice comes in it, ADR-0026
-/// section 5), and the state passes the loader's checks, so it could be saved here.
+/// section 5), and the state passes the loader's checks, so it could be saved here, its
+/// time-fillers among them (ADR-0026, addendum of 2026-11-05 on the time-filler's length).
 pub fn places_hold(world: &World, second: i64) {
     let state = world.state();
     let house = state.house();
@@ -238,6 +239,16 @@ pub fn places_hold(world: &World, second: i64) {
     // 2026-11-04): nothing may be due in the next second but what those events planned.
     let checked = consistent(house, world.data().houses(), now, None, alive, member);
     assert_eq!(checked, Ok(()), "the state after {second}");
+    let seed = state.world_seed().expect("started");
+    let keyed = |sim: SimId| {
+        Some((
+            state.household_of(sim)?,
+            state.born(sim)?,
+            state.lineage_key(sim)?,
+        ))
+    };
+    let fillers = fillers_consistent(house, world.data().houses(), seed, keyed);
+    assert_eq!(fillers, Ok(()), "the time-fillers after {second}");
 }
 
 /// An entry's id as the log writes it.

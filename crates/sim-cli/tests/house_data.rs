@@ -296,6 +296,25 @@ fn house_data_loads_and_rejects() {
     assert_eq!(little, "house.offer_fallback");
     assert_eq!(bed(|o| o["fallback"] = json!(true)), "house.offer_fallback");
     assert!(tv(|o| o["fallback"] = json!(1)).contains("invalid type"));
+    // A time-filler has a fixed length of its own (ADR-0026, addendum of 2026-11-05 on the
+    // time-filler's length): the television until fun is full, at most 45 minutes, is refused;
+    // the same as an ordinary offer passes.
+    let filling = tv(|o| {
+        let offer = o.as_object_mut().expect("an offer");
+        offer.remove("seconds");
+        offer.insert("until_full".to_owned(), json!("fun"));
+        offer.insert("max_seconds".to_owned(), json!(2_700));
+        offer.insert("fallback".to_owned(), json!(true));
+    });
+    let ordinary = tv(|o| {
+        let offer = o.as_object_mut().expect("an offer");
+        offer.remove("seconds");
+        offer.insert("until_full".to_owned(), json!("fun"));
+        offer.insert("max_seconds".to_owned(), json!(2_700));
+        offer.insert("fallback".to_owned(), json!(false));
+    });
+    assert_eq!(filling, "house.fallback_length");
+    assert_eq!(ordinary, "ok");
     // A need weighs before it is critical: its comfort above 150, at most 1000.
     let comfort = |at: usize, value: i64| {
         let mut changed = rates();
@@ -325,6 +344,10 @@ fn house_data_loads_and_rejects() {
     assert_eq!(
         HouseError::OfferFallback.to_string(),
         "house.offer_fallback"
+    );
+    assert_eq!(
+        HouseError::FallbackLength.to_string(),
+        "house.fallback_length"
     );
 
     // The houses (ADR-0025 section 2).

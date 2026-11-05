@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { fillerWords, moodWords, pointsText, satedWords, shortWords, urgentWords, weightWords, whyText } from "../dist/why.js";
+import { beforeBed, fillerWords, moodWords, pointsText, satedWords, shortWords, urgentWords, weightWords, whyText } from "../dist/why.js";
 
 test("the mood with its sign, nothing without one", () => {
   assert.equal(moodWords(6), " (Laune +6 %)");
@@ -126,7 +126,7 @@ test("in the night the bed first", () => {
     why({ night: { from: dated(79_200), until: dated(21_600), now: true }, chosen: { object: 4, offer: 0, points: 350_464, mood: 0, urgent: [] }, offers: [offer(4, 350_464, 0)] }),
     LAYOUT,
   );
-  assert.equal(told.told, "Nachtruhe bis 6:00: erst was dringend ist, dann ein Bett. Gewählt: schläft im Bett, 350.464 Punkte (Laune 0 %).");
+  assert.equal(told.told, "Nachtruhe bis 6:00: erst was dringend ist, dann Hunger oder Blase unter 700, dann ein Bett. Gewählt: schläft im Bett, 350.464 Punkte (Laune 0 %).");
 });
 
 // The rules after the playtest (ADR-0026, addendum of 2026-11-04 after the playtest).
@@ -143,7 +143,7 @@ test("a bed a small child holds, and a bed of another tier", () => {
   );
   assert.equal(
     held.told,
-    "Nachtruhe bis 6:00: erst was dringend ist, dann ein Bett. Gewählt: schläft im Bett, 350.464 Punkte (Laune 0 %). " +
+    "Nachtruhe bis 6:00: erst was dringend ist, dann Hunger oder Blase unter 700, dann ein Bett. Gewählt: schläft im Bett, 350.464 Punkte (Laune 0 %). " +
       "Dahinter: schläft im Einzelbett 9.000 (Laune +1 %) (besetzt) (hier schläft ein Kind).",
   );
   const child = whyText(
@@ -156,7 +156,7 @@ test("a bed a small child holds, and a bed of another tier", () => {
   );
   assert.equal(
     child.told,
-    "Nachtruhe bis 6:00: erst was dringend ist, dann ein Bett. Gewählt: schläft im Einzelbett, 300.000 Punkte (Laune 0 %). " +
+    "Nachtruhe bis 6:00: erst was dringend ist, dann Hunger oder Blase unter 700, dann ein Bett. Gewählt: schläft im Einzelbett, 300.000 Punkte (Laune 0 %). " +
       "Dahinter: schläft im Bett 299.000 (Laune −1 %) (das Bett eines Paares).",
   );
 });
@@ -286,5 +286,18 @@ test("a command the departure closes, without points", () => {
   assert.equal(
     told.told,
     "Befohlen: sieht fern vor dem Fernseher. Endet nach dem Aufbruch um 8:40, darum ohne Punkte. Dahinter: ist auf der Toilette auf dem WC 39.850.",
+  );
+});
+
+test("the night looks after hunger and the bladder under their comfort before a bed", () => {
+  assert.equal(beforeBed([700, 1000, 700, 900, 1000]), "Hunger oder Blase unter 700");
+  assert.equal(beforeBed([650, 1000, 700, 900, 1000]), "Hunger unter 650 oder Blase unter 700");
+  const last = whyText(
+    why({ night: { from: dated(79_200), until: null, now: true }, chosen: { object: 4, offer: 0, points: 350_464, mood: 0, urgent: [] }, offers: [offer(4, 350_464, 0)] }),
+    LAYOUT,
+  );
+  assert.equal(
+    last.told,
+    "Nachtruhe bis zum Ende der Zeit: erst was dringend ist, dann Hunger oder Blase unter 700, dann ein Bett. Gewählt: schläft im Bett, 350.464 Punkte (Laune 0 %).",
   );
 });

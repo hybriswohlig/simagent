@@ -797,3 +797,66 @@ fn saves_of_a_time_filler_and_a_meal_before_the_bed_run_on_the_same() {
         });
     }
 }
+
+/// A time-filler chosen by day whose walk ends in the night is one a choice can take when the
+/// least time left for one is 0 (`common::repository_day_any_filler`), and the loader keeps it
+/// (ADR-0026, addendum of 2026-11-05 on the time-filler's length: its choice is the walk's
+/// start, by day, and its end by the bounds the save shows, its arrival in the night, comes 3 s
+/// after it). The working couple in the supper house: at the clock 21:58:54 she is told to use the
+/// loo in the hall, 3 s from the den; full already, she is done after its 60 s at 21:59:58, and
+/// by day nothing brings 40 000: she takes the screen, 3 s back, there at 22:00:01, in her night.
+/// Saved on that walk at 21:59:59 and at 22:00:00, the day loads, saves to the same bytes and runs
+/// on to 7:00 as the whole. With the repository's 10 minutes she takes no time-filler there: she
+/// stays idle in the hall, its end 22:00:01 named.
+#[test]
+fn a_time_filler_walking_into_the_night_is_kept() {
+    let told = |data: &Data| {
+        let mut run = working(data);
+        run.advance(D + 22 * H - 66);
+        run.submit(sim_core::input::Input::Command(sim_core::input::Command {
+            sim: sim(1),
+            object: LOO,
+            offer: 0,
+        }));
+        run
+    };
+    let any = common::repository_day_any_filler();
+    let data = day::house_data_on(&any, &supper_rates(), SUPPER_KINDS, SUPPER);
+    let chosen = D + 22 * H - 2;
+    let mut run = told(&data);
+    run.advance(chosen + 1);
+    let her = &run.world.state().house().sims[&sim(1)];
+    let walk = Place::Walking {
+        from: 0,
+        to: 1,
+        depart: t(chosen),
+        arrive: t(chosen + 3),
+    };
+    assert_eq!(her.place, walk);
+    assert_eq!(
+        her.action.map(|action| (action.object, action.filler)),
+        Some((SCREEN, true))
+    );
+    for saved_at in [chosen + 1, chosen + 2] {
+        runs_on_the_same(&data, saved_at, 2 * D + 7 * H, || {
+            let mut run = told(&data);
+            run.advance(saved_at);
+            run
+        });
+    }
+    let data = supper_data();
+    let mut run = told(&data);
+    run.advance(chosen + 1);
+    let idle = (run.log.iter()).find(|entry| {
+        entry.subjects == [Subject::Sim(sim(1))]
+            && entry.t == t(chosen)
+            && matches!(entry.payload, LogPayload::Idle { .. })
+    });
+    let short = idle.map(|entry| match &entry.payload {
+        LogPayload::Idle {
+            too_short, room, ..
+        } => (*room, *too_short),
+        _ => (0, None),
+    });
+    assert_eq!(short, Some((0, Some(t(chosen + 3)))));
+}
