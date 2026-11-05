@@ -351,3 +351,198 @@ fn the_pause_after_a_birth_the_pool_brought_shows() {
     );
     assert!(waiting >= brought_waiting && free >= 1, "{waiting} {free}");
 }
+
+/// The town of `n` persons of the repository's pool (the game's data), seed 0xa001, no
+/// immigration, run to `until`.
+fn pool_town(n: u64, until: i64) -> (World, Vec<LogEntry>) {
+    const SEED: u64 = 0xa001;
+    let data = common::repository_data();
+    let start = Input::Start(Start {
+        world_seed: SEED,
+        founder_tag: DataId::new("test:pool_gate").expect("valid"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+            nutrition: Vec::new(),
+        },
+        founders: Vec::new(),
+        couples: Vec::new(),
+        capacity: None,
+        pool: PoolStart::drawn(&data, SEED, n, false),
+    });
+    let mut world = World::new(data);
+    world.submit(start).expect("accepted");
+    world.advance_until(
+        &mut YearOut::default(),
+        SimTime::from_secs(until),
+        &mut |_| false,
+    );
+    let log = world.take_log();
+    (world, log)
+}
+
+/// Her children in the pedigree: by her sim for a birth in the town, by her lineage key for a
+/// person of the pool.
+fn children_of<'a>(
+    pedigree: &'a sim_core::pedigree::Pedigree,
+    her: &sim_core::pedigree::Person,
+) -> Vec<&'a sim_core::pedigree::Person> {
+    (pedigree.persons.iter())
+        .filter(|child| {
+            child.mother == Some(her.sim)
+                || child.pool.as_ref().and_then(|pool| pool.mother_key) == Some(her.lineage_key)
+        })
+        .collect()
+}
+
+/// A single living man of the town without children anywhere (in the town or the pool) whose
+/// wish is at least 1, not `except`; his young are 0, below his wish.
+fn childless_man(world: &World, except: &[SimId]) -> SimId {
+    let pedigree = world.pedigree();
+    let pool = world.state().data().pool().expect("a pool");
+    (pedigree.persons.iter())
+        .find(|man| {
+            let fathered = pedigree.persons.iter().any(|child| {
+                child.father == Some(man.sim)
+                    || child.pool.as_ref().and_then(|p| p.father_key) == Some(man.lineage_key)
+            });
+            man.sex == Sex::Male
+                && man.died.is_none()
+                && man.emigrated.is_none()
+                && !except.contains(&man.sim)
+                && !fathered
+                && pool.fathered(man.lineage_key).is_empty()
+                && world.closed_through().as_secs() - man.born.as_secs() >= 20 * Y
+                && (pedigree.partnerships.iter())
+                    .all(|pair| pair.man != man.sim || pair.ended.is_some())
+                && world.wish(man.sim).and_then(|view| view.wish) >= Some(1)
+        })
+        .map(|man| man.sim)
+        .expect("a childless single man")
+}
+
+/// Pairs `woman` with `man`: with the clock at the end of a month, parts her from her
+/// partner if she has one and runs a month on; then pairs the two and runs to the next month
+/// start, the first of their series.
+fn repair(world: &mut World, woman: SimId, man: SimId) {
+    let pedigree = world.pedigree();
+    if let Some(pair) =
+        (pedigree.partnerships.iter()).find(|pair| pair.woman == woman && pair.ended.is_none())
+    {
+        let part = SeparatePartnership {
+            woman,
+            man: pair.man,
+        };
+        world
+            .submit(Input::SeparatePartnership(part))
+            .expect("accepted");
+        let until = world.closed_through().as_secs() + M;
+        world.advance_until(
+            &mut YearOut::default(),
+            SimTime::from_secs(until),
+            &mut |_| false,
+        );
+    }
+    world
+        .submit(Input::ArrangePartnership(ArrangePartnership { woman, man }))
+        .expect("accepted");
+    let until = world.closed_through().as_secs() + 1;
+    world.advance_until(
+        &mut YearOut::default(),
+        SimTime::from_secs(until),
+        &mut |_| false,
+    );
+}
+
+/// A woman of the pool keeps the old gate (ADR-0017, addendum of 2026-11-05, Grok's round 5):
+/// her wish met, paired with a single man without children who wishes for one, she does not
+/// try (no his slot, as a woman born in the town would have); the page names her wish
+/// fulfilled, and she conceives nothing in three years. The town of 300, at the end of month 1: the first
+/// pool woman under 40, not pregnant, whose live births equal her wish of at least 1.
+#[test]
+fn a_pool_woman_whose_wish_is_met_keeps_the_old_gate() {
+    let (mut world, _) = pool_town(300, 2 * M - 1);
+    let pedigree = world.pedigree();
+    let pool = world.state().data().pool().expect("a pool");
+    let now = world.closed_through().as_secs();
+    let her = (pedigree.persons.iter())
+        .find(|p| {
+            let wish = world.wish(p.sim).and_then(|view| view.wish);
+            let births = pool.member(p.lineage_key).map(|(_, record)| record.births);
+            p.sex == Sex::Female
+                && p.pool.is_some()
+                && p.died.is_none()
+                && now - p.born.as_secs() < 40 * Y
+                && world.pregnancy(p.sim).is_none()
+                && wish >= Some(1)
+                && births == wish
+        })
+        .map(|p| p.sim)
+        .expect("a pool woman with her wish met");
+    let man = childless_man(&world, &[]);
+    repair(&mut world, her, man);
+    let shown = world.wish(her).and_then(|view| view.couple);
+    assert_eq!(
+        shown,
+        Some(CoupleWish {
+            woman: her,
+            man,
+            state: WishState::Fulfilled,
+        })
+    );
+    world.take_log();
+    let later = world.closed_through().as_secs() + 3 * Y;
+    world.advance_until(
+        &mut YearOut::default(),
+        SimTime::from_secs(later),
+        &mut |_| false,
+    );
+    let conceived = (world.take_log().iter()).any(|entry| {
+        matches!(entry.payload, LogPayload::Conception { .. })
+            && entry.subjects.contains(&sim_core::log::Subject::Sim(her))
+    });
+    assert!(!conceived, "she conceived");
+}
+
+/// Her daughter born in the town keeps both extras (ADR-0017, addendum of 2026-11-05, Grok's
+/// round 5): the town of 300 after 30 years; the first daughter of a pool woman, born in the
+/// town, under 45, not pregnant, whose live births in the town equal her wish of at least 1,
+/// paired with a single man without children who wishes for one: his slot opens.
+#[test]
+fn her_daughter_born_in_the_town_keeps_both_extras() {
+    let (mut world, _) = pool_town(300, 30 * Y - 1);
+    let pedigree = world.pedigree();
+    let now = world.closed_through().as_secs();
+    let pool_mother = |p: &sim_core::pedigree::Person| {
+        let mother = p
+            .mother
+            .and_then(|m| pedigree.persons.iter().find(|q| q.sim == m));
+        mother.is_some_and(|m| m.pool.is_some())
+    };
+    let daughter = (pedigree.persons.iter())
+        .find(|p| {
+            let wish = world.wish(p.sim).and_then(|view| view.wish);
+            let life = u32::try_from(children_of(&pedigree, p).len()).ok();
+            p.sex == Sex::Female
+                && p.pool.is_none()
+                && pool_mother(p)
+                && p.died.is_none()
+                && p.emigrated.is_none()
+                && now - p.born.as_secs() < 45 * Y
+                && world.pregnancy(p.sim).is_none()
+                && wish >= Some(1)
+                && life == wish
+        })
+        .map(|p| p.sim)
+        .expect("a daughter of a pool woman born in the town with her wish met");
+    let man = childless_man(&world, &[]);
+    repair(&mut world, daughter, man);
+    let shown = world.wish(daughter).and_then(|view| view.couple);
+    assert_eq!(
+        shown,
+        Some(CoupleWish {
+            woman: daughter,
+            man,
+            state: WishState::His,
+        })
+    );
+}
