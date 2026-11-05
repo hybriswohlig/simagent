@@ -1,7 +1,7 @@
-import { objectName, placedOfferWords, whereObject } from "./command.js";
+import { objectName, objectWaitedFor, placedOfferWords, whereObject } from "./command.js";
 import { dateText } from "./dates.js";
-import type { CalendarDate, EventItem, HouseLayout } from "./generated/export.js";
-import { wholeMinutes } from "./render/plan.js";
+import type { CalendarDate, EventItem, HouseLayout, HousePerson } from "./generated/export.js";
+import { timeOfDay, wholeMinutes } from "./render/plan.js";
 import { CODES, FINISHED_WORDS, KIND_WORDS, ROOM_WORDS, TEXT, WEEKDAYS } from "./text.js";
 
 const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
@@ -116,4 +116,47 @@ export function dayGroups<T extends { readonly date: CalendarDate }>(
     }
   }
   return groups;
+}
+
+/** Where a room is, "im Bad", by its number in the drawing. */
+function inRoom(layout: HouseLayout, index: number): string {
+  const id = layout.rooms[index]?.id ?? "";
+  return ROOM_WORDS[id]?.[2] ?? id;
+}
+
+/** What a person does now as one line, all from the house answer: away where and until when, on
+ * the way where to (or out of the house), lying on the floor of its room, at an object what and
+ * until when (the object told apart from others of its kind; an end at today's departure says so,
+ * "bis 8:40 (Aufbruch)"), waiting where for what ("wartet im Bad auf die Dusche"), or nothing
+ * and where (ADR-0021, addendum of 2026-11-05 on the house page). */
+export function doing(layout: HouseLayout, person: HousePerson): string {
+  if (person.collapsed) {
+    return TEXT.house_lies.replace("{room}", inRoom(layout, person.place.room ?? 0));
+  }
+  const away = person.place.away;
+  if (away !== undefined) {
+    const text = away.place === "school" ? TEXT.house_away_school : TEXT.house_away_work;
+    return text.replace("{time}", timeOfDay(away.until.date.second_of_day));
+  }
+  const walking = person.place.walking;
+  if (walking !== undefined) {
+    if (walking.out) {
+      return TEXT.house_leaves;
+    }
+    const id = layout.rooms[walking.to]?.id ?? "";
+    return TEXT.house_walks.replace("{where}", ROOM_WORDS[id]?.[1] ?? id);
+  }
+  const action = person.action;
+  if (action === null) {
+    const room = inRoom(layout, person.place.room ?? 0);
+    return person.waits === null
+      ? TEXT.house_idle.replace("{room}", room)
+      : TEXT.house_waits_for.replace("{room}", room).replace("{object}", objectWaitedFor(layout, person.waits));
+  }
+  const placed = placedOfferWords(layout, action.object, action.offer);
+  // A time-filler says so (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+  const does = action.filler ? TEXT.house_filler.replace("{what}", placed) : placed;
+  const ends = action.departs ? TEXT.house_until_departure : TEXT.house_until;
+  const until = action.until === null ? "" : ` ${ends.replace("{time}", timeOfDay(action.until.date.second_of_day))}`;
+  return `${does}${until}`;
 }

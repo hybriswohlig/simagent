@@ -339,10 +339,14 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
 /// walk without an action leads out or to the room one stays in. Each need's comfort, and per
 /// person how much each need weighs in a choice now, `max(0, comfort − value)`; an action says
 /// whether it is a time-filler, whose end is the one the queue holds (version 7, ADR-0026,
-/// addendum of 2026-11-04 on comfort and the time-filler). `None` for a household without a
+/// addendum of 2026-11-04 on comfort and the time-filler). An action at its object that today's
+/// departure ends (`departure_ends`) ends at that departure and says so; each person names the
+/// object whose waiting list it stands on; and each offer a command may name says whether its
+/// object has no free place for the person, as the core's check of a command finds it (version
+/// 8, ADR-0021, addendum of 2026-11-05 on the house page). `None` for a household without a
 /// house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
-    use sim_core::house::day::{YoungPlace, night, young_place};
+    use sim_core::house::day::{YoungPlace, departure, night, work_draw, young_place};
     use sim_core::house::need::EMERGENCY;
     use sim_core::house::state::{Place, action_end, dwell_walk};
     let state = world.state();
@@ -382,6 +386,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
     let at = world.closed_through();
     // The second a command given at the clock acts in (ADR-0004 section 4).
     let acts = at.checked_add(SimDuration::from_secs(1));
+    let seed = (state.world_seed()).ok_or_else(|| broken("the world has not started"))?;
     let mut persons = Vec::new();
     for (&sim, person) in &state.house().sims {
         if state.household_of(sim) != Some(household) {
@@ -397,20 +402,38 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             // clock alone (ADR-0026, addendum of 2026-11-04 after the playtest); the beds'
             // tiers order a choice, not a command.
             let held = state.held_by_children(household, acts);
+            // The places taken for a command of the person, as the core's check of a command
+            // finds them (ADR-0024, addendum of 2026-11-04 on slice 12): the place of what it
+            // does frees as the command ends it, and goes to the first who waits for that
+            // object (version 8).
+            let mut taken = places_taken(state, household, sim, &held);
+            if let Some(own) = person.action
+                && !state.house().waits.contains_key(&(household, own.object))
+            {
+                taken.remove(&(own.object, own.slot));
+            }
             for (object, def) in (0_u16..).zip(&house.def().objects) {
                 let kind = houses
                     .kind(&def.kind)
                     .ok_or_else(|| broken("an unknown kind"))?;
                 let all_held = (0..kind.slots).all(|slot| held.contains(&(object, slot)));
+                let full = (0..kind.slots).all(|slot| taken.contains(&(object, slot)));
                 for (offer, def) in (0_u16..).zip(&kind.offers) {
                     let open =
                         (def.min_age..=def.max_age).contains(&age) && (!def.sleep || tonight);
                     if open && !all_held {
-                        commands.push(serde_json::json!({"object": object, "offer": offer}));
+                        commands.push(
+                            serde_json::json!({"object": object, "offer": offer, "taken": full}),
+                        );
                     }
                 }
             }
         }
+        // The object whose waiting list the person stands on (version 8).
+        let lists = (household, 0)..=(household, u16::MAX);
+        let waits = (state.house().waits.range(lists))
+            .find(|(_, waiters)| waiters.iter().any(|&(_, waiter)| waiter == sim))
+            .map(|(&(_, object), _)| object);
         let place = match person.place {
             Place::Room(room) => serde_json::json!({"room": room}),
             Place::Walking {
@@ -441,19 +464,29 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
                     .and_then(|object| houses.kind(&object.kind))
                     .and_then(|kind| kind.offers.get(usize::from(action.offer)))
                     .ok_or_else(|| broken("an unknown offer"))?;
-                let until = match (person.place, action.filler) {
-                    (Place::Room(_), true) => world.action_until(sim).map(dated),
-                    (Place::Room(_), false) => {
-                        action_end(person, offer, houses.day(), born).map(dated)
+                let (until, departs) = match (person.place, action.filler) {
+                    (Place::Room(_), filler) => {
+                        let planned = match filler {
+                            true => world.action_until(sim),
+                            false => action_end(person, offer, houses.day(), born),
+                        };
+                        // Today's departure ends it first, unless it waits for it (version 8).
+                        let key =
+                            (state.lineage_key(sim)).ok_or_else(|| broken("an unknown person"))?;
+                        let leaves = departure(houses.day(), born, || work_draw(seed, key), at);
+                        let departs =
+                            departure_ends(houses, offer, (&person.needs, born), (planned, leaves));
+                        (departs.or(planned), departs.is_some())
                     }
-                    _ => None,
+                    _ => (None, false),
                 };
                 serde_json::json!({
                     "object": action.object,
                     "offer": action.offer,
                     "slot": action.slot,
-                    "until": until,
+                    "until": until.map(dated),
                     "filler": action.filler,
+                    "departs": departs,
                 })
             }
         };
@@ -468,6 +501,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             "sim": sim.get(),
             "place": place,
             "action": action,
+            "waits": waits,
             "needs": needs,
             "weights": weights,
             "collapsed": person.collapsed,
@@ -493,7 +527,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
         .collect();
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 7,
+        "version": 8,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,
@@ -503,6 +537,53 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
         "persons": persons,
         "children": children,
     })))
+}
+
+/// The departure that ends what a person does at its object, offer `offer` with the needs
+/// `needs`, born at `born` (version 8 of the house answer, ADR-0021, addendum of 2026-11-05 on the
+/// house page): today's departure still to come, `leaves`, if the action would still run then,
+/// its end `until` at or after it or beyond the end of time, and the departure does not wait for
+/// it (ADR-0024 section 4 and its addendum on slice 8b): the offer raises no need that is
+/// critical in that second, as `house::choice::crosses_departure` closes it for a choice made
+/// there. `None` otherwise, and for an offer of sleep, which the wake before a departure ends.
+fn departure_ends(
+    houses: &sim_core::house::data::HouseData,
+    offer: &sim_core::house::data::OfferDef,
+    (needs, born): (&[sim_core::house::need::NeedSample; 5], SimTime),
+    (until, leaves): (Option<SimTime>, Option<SimTime>),
+) -> Option<SimTime> {
+    use sim_core::house::choice::{age, crosses_departure};
+    let leaves = leaves?;
+    if until.is_some_and(|until| until < leaves) {
+        return None;
+    }
+    let age = age(born, leaves)?;
+    let values = needs.map(|need| need.value_at(leaves.max(need.at())));
+    crosses_departure(offer, houses.rates(), (age, values), 0, Some(0)).then_some(leaves)
+}
+
+/// The places of the house of `household` taken for `sim` (ADR-0026 section 5): each that an
+/// action of a member holds, each held for another than `sim`, and `children`, those small
+/// children hold in their beds then.
+fn places_taken(
+    state: &sim_core::world::WorldState,
+    household: sim_core::ids::HouseholdId,
+    sim: SimId,
+    children: &[(u16, u8)],
+) -> std::collections::BTreeSet<(u16, u8)> {
+    let mut taken = std::collections::BTreeSet::new();
+    for member in state.members(household) {
+        if let Some(action) = state.house().sims.get(&member).and_then(|p| p.action) {
+            taken.insert((action.object, action.slot));
+        }
+    }
+    for (&(of, object, slot), &holder) in &state.house().holds {
+        if of == household && holder != sim {
+            taken.insert((object, slot));
+        }
+    }
+    taken.extend(children.iter().copied());
+    taken
 }
 
 /// "Warum?" for a choice (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6): from an entry
@@ -533,7 +614,10 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
 /// time-filler as it would have ended under `fallback_min_seconds` away, that end and why it lies
 /// there; and for an offer the person was commanded to that today's departure closes, that
 /// departure instead of its points (version 7, ADR-0026, addendum of 2026-11-05 on the
-/// time-filler's length). `None` for any other entry.
+/// time-filler's length). A time-filler that ends at its next choice as planned names what that
+/// choice raised also when the choice waits for a taken object: what the offer it waits for
+/// raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page). `None` for any other
+/// entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
@@ -723,7 +807,7 @@ pub fn why_answer(
     };
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 7,
+        "version": 8,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
@@ -838,9 +922,9 @@ fn filler_ends(
 /// walk; its end, from the log's entry that ended it, else the end the queue holds while the
 /// person does it at its object (none on its way there); why it ends there (`filler_ends`; a
 /// departure that ended it, none for an end of another reason); if it ended at the next choice
-/// as planned (reason `done`) and that choice took an offer, the needs that offer raises at the
-/// person's age, by their codes; its mood, and the other time-fillers free then with theirs, in
-/// the order of the choice.
+/// as planned (reason `done`) and that choice took an offer, or waited for one (version 8,
+/// `waited_offer`), the needs that offer raises at the person's age, by their codes; its mood,
+/// and the other time-fillers free then with theirs, in the order of the choice.
 fn filler_values(
     world: &World,
     (house, houses): (
@@ -873,21 +957,30 @@ fn filler_values(
         _ => None,
     };
     let planned = ended.filter(|_| reason == Some(EndReason::Done) && ends == Some("choice"));
+    // The offer the next choice took, or the one it waits for (version 8, ADR-0021, addendum of
+    // 2026-11-05 on the house page).
+    let raised = match planned.and_then(|ended| ended.next) {
+        Some(next) => match &next.payload {
+            LogPayload::ActionStarted {
+                house,
+                object,
+                offer,
+                commanded: false,
+                filler: false,
+                ..
+            } => Some((house, (*object, *offer))),
+            LogPayload::Idle { house, .. } => {
+                waited_offer(world, houses, next)?.map(|waited| (house, waited))
+            }
+            _ => None,
+        },
+        None => None,
+    };
     let mut then = Vec::new();
-    if let Some(LogPayload::ActionStarted {
-        house: next_house,
-        object,
-        offer,
-        commanded: false,
-        filler: false,
-        ..
-    }) = planned
-        .and_then(|ended| ended.next)
-        .map(|next| &next.payload)
-    {
+    if let Some((next_house, (object, offer))) = raised {
         let broken = || CliError::new("save_rejected", "the choice: an unknown house");
         let next_house = houses.house(next_house).ok_or_else(broken)?;
-        let def = offer_def(next_house, houses, *object, *offer)?;
+        let def = offer_def(next_house, houses, object, offer)?;
         for need in NEEDS {
             if def.raises(houses.rates(), need, fill.age) {
                 then.push(
@@ -912,6 +1005,63 @@ fn filler_values(
         "mood": mood,
         "others": others,
     }))
+}
+
+/// The offer an idle choice `entry` that waits for a taken object waits for (version 8 of
+/// "Warum?", ADR-0021, addendum of 2026-11-05 on the house page): of that object the one with the
+/// most points, recomputed as "Warum?" recomputes the entry (`scored_offers`), as
+/// `house::choice::choose` waits for the best of the objects without a free place
+/// (`house::choice::best`). `None` for an entry that waits for nothing.
+fn waited_offer(
+    world: &World,
+    houses: &sim_core::house::data::HouseData,
+    entry: &sim_core::log::LogEntry,
+) -> Result<Option<(u16, u16)>, CliError> {
+    use sim_core::house::choice::best;
+    use sim_core::house::day::{departure, work_draw};
+    use sim_core::log::{LogPayload, Subject};
+    let LogPayload::Idle {
+        house,
+        room,
+        needs,
+        busy,
+        waits: Some(waited),
+        held,
+        tier,
+        ..
+    } = &entry.payload
+    else {
+        return Ok(None);
+    };
+    let [Subject::Sim(sim)] = entry.subjects.as_slice() else {
+        return Ok(None);
+    };
+    let broken = |what: &str| CliError::new("save_rejected", format!("the choice: {what}"));
+    let state = world.state();
+    let house = houses
+        .house(house)
+        .ok_or_else(|| broken("an unknown house"))?;
+    let born = state
+        .born(*sim)
+        .ok_or_else(|| broken("an unknown person"))?;
+    let seed = (state.world_seed()).ok_or_else(|| broken("the world has not started"))?;
+    let key = (state.lineage_key(*sim)).ok_or_else(|| broken("an unknown person"))?;
+    let choice = ChoiceAt {
+        sim: *sim,
+        at: entry.t,
+        room: *room,
+        needs: *needs,
+        busy,
+        commanded: false,
+        held,
+        tier,
+        leaves: departure(houses.day(), born, || work_draw(seed, key), entry.t),
+    };
+    let scored = scored_offers(world, (house, houses), &choice)?;
+    let of_it: Vec<sim_core::house::choice::Scored> = (scored.into_iter())
+        .filter(|scored| scored.object == *waited)
+        .collect();
+    Ok(best(&of_it, &[]).map(|waited| (waited.object, waited.offer)))
 }
 
 /// A time-filler not taken because it would have ended at `until`, under `fallback_min_seconds`
@@ -1158,21 +1308,10 @@ fn compared_now(
     }
     let at = world.closed_through();
     let needs = person.needs.map(|need| need.value_at(at.max(need.at())));
-    let mut taken = std::collections::BTreeSet::new();
-    for member in state.members(household) {
-        if let Some(action) = state.house().sims.get(&member).and_then(|p| p.action) {
-            taken.insert((action.object, action.slot));
-        }
-    }
-    for (&(of, object, slot), &holder) in &state.house().holds {
-        if of == household && holder != sim {
-            taken.insert((object, slot));
-        }
-    }
-    // And those a small child holds in its bed (ADR-0026, addendum of 2026-11-04 after the
-    // playtest), with the beds of the person's tier in its night.
+    // With those a small child holds in its bed (ADR-0026, addendum of 2026-11-04 after the
+    // playtest), and the beds of the person's tier in its night.
     let children = state.held_by_children(household, at);
-    taken.extend(children.iter().copied());
+    let taken = places_taken(state, household, sim, &children);
     let mut held: Vec<u16> = children.iter().map(|&(object, _)| object).collect();
     held.dedup();
     let busy: Vec<u16> = (0_u16..)

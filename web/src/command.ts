@@ -1,9 +1,10 @@
-import type { HouseLayout, HouseOffer } from "./generated/export.js";
+import type { HouseAction, HouseLayout, HouseOffer } from "./generated/export.js";
 import { KIND_WORDS, OFFER_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 
 /** An offer a person can be told to take (ADR-0024 section 5): the object and the offer by
- * the core's numbers, and how the house page names it. */
-export type CommandChoice = { readonly object: number; readonly offer: number; readonly label: string };
+ * the core's numbers, how the house page names it, and whether its object has no free place
+ * for the person, as the server says. */
+export type CommandChoice = { readonly object: number; readonly offer: number; readonly label: string; readonly taken: boolean };
 
 /** Where object `index` of the drawing is, as its name needs it to be told apart: nothing if
  * the house has no other of its kind; else " im Bad", the room the layout gives, and where that
@@ -29,6 +30,13 @@ export function objectName(layout: HouseLayout, index: number): string {
   return `${KIND_WORDS[kind]?.[0] ?? kind}${whereObject(layout, index)}`;
 }
 
+/** An object as one waits for it, told apart from others of its kind: "die Toilette im Bad",
+ * "die Dusche". */
+export function objectWaitedFor(layout: HouseLayout, index: number): string {
+  const kind = layout.objects[index]?.kind ?? "";
+  return `${KIND_WORDS[kind]?.[2] ?? kind}${whereObject(layout, index)}`;
+}
+
 /** What an offer of an object is, as a person does it: "isst am Esstisch". */
 export function offerWords(layout: HouseLayout, object: number, offer: number): string {
   const drawn = layout.objects[object];
@@ -47,13 +55,16 @@ export function placedOfferWords(layout: HouseLayout, object: number, offer: num
  * does it and in which room: "isst am Esstisch in der Küche". Only those `allowed` lists, as
  * the house answer gives them per person (version 5: open at its age, sleep only in its night);
  * every offer without it. A name that two offers of the drawing share carries their order among
- * them, whether both are allowed or not: "(1)", "(2)". */
-export function commandChoices(layout: HouseLayout, allowed?: readonly HouseOffer[]): CommandChoice[] {
+ * them, whether both are allowed or not: "(1)", "(2)". An offer whose object has no free place
+ * for the person, as the house answer says (version 8), is taken and says so, "(besetzt)"; else
+ * the offer the person does now, `doing`, says that: "(schon dabei)" (ADR-0021, addendum of
+ * 2026-11-05 on the house page). */
+export function commandChoices(layout: HouseLayout, allowed?: readonly HouseOffer[], doing?: HouseAction | null): CommandChoice[] {
   const named = layout.objects.flatMap((drawn, object) =>
     drawn.offers.map((_, offer) => {
       const room = ROOM_WORDS[drawn.room]?.[2] ?? drawn.room;
       const label = TEXT.house_command_choice.replace("{what}", offerWords(layout, object, offer)).replace("{room}", room);
-      return { object, offer, label };
+      return { object, offer, label, taken: false };
     }),
   );
   const count = new Map<string, number>();
@@ -72,5 +83,13 @@ export function commandChoices(layout: HouseLayout, allowed?: readonly HouseOffe
   if (allowed === undefined) {
     return numbered;
   }
-  return numbered.filter((choice) => allowed.some((open) => open.object === choice.object && open.offer === choice.offer));
+  return numbered.flatMap((choice) => {
+    const open = allowed.find((each) => each.object === choice.object && each.offer === choice.offer);
+    if (open === undefined) {
+      return [];
+    }
+    const own = doing !== undefined && doing !== null && doing.object === choice.object && doing.offer === choice.offer;
+    const mark = open.taken ? ` ${TEXT.house_command_taken}` : own ? ` ${TEXT.house_command_own}` : "";
+    return [{ ...choice, label: `${choice.label}${mark}`, taken: open.taken }];
+  });
 }

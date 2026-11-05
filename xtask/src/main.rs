@@ -807,20 +807,57 @@ fn server_answers(
     // time until someone of the three households stands idle in a room, then its last choice,
     // which is idle, compared at the clock. Since a time-filler is taken only with 10 minutes
     // left (ADR-0026, addendum of 2026-11-05 on the time-filler's length) one idles only for
-    // less, or while it waits: an hour at a time would step over it.
-    let mut idle = None;
+    // less, or while it waits: an hour at a time would step over it. And until someone waits for
+    // a taken object, the house answer that names it (version 8 of the house answer, ADR-0021,
+    // addendum of 2026-11-05 on the house page).
+    let compare =
+        |sim: &serde_json::Value, clock: &serde_json::Value| -> Result<serde_json::Value> {
+            let mut after = String::new();
+            let mut last = None;
+            loop {
+                let page = get(
+                    port,
+                    &format!("/api/runs/town/events?subject={sim}&from={morning}{after}"),
+                )?;
+                let rows = page["events"].as_array().into_iter().flatten();
+                for row in rows {
+                    let payload = &row["entry"]["payload"];
+                    if payload.get("core:idle").is_some()
+                        || payload.get("core:action_started").is_some()
+                    {
+                        last = Some(row["entry"]["id"].clone());
+                    }
+                }
+                match page["next"].as_u64() {
+                    Some(next) => after = format!("&after={next}"),
+                    None => break,
+                }
+            }
+            let last = last.ok_or("the idle person never chose")?;
+            let compared = get(port, &format!("/api/runs/town/why/{last}"))?;
+            if &compared["now"]["at"]["t"] != clock {
+                return Err(format!(
+                    "the last choice of {sim} is not compared at the clock {clock}: {compared}"
+                ));
+            }
+            Ok(compared)
+        };
+    let (mut compared, mut waiting) = (None, None);
     for _ in 0..288 {
         for home in [&household, &schooled, &young] {
             let house = get(port, &format!("/api/runs/town/house/{home}"))?;
-            let found = (house["persons"].as_array().into_iter().flatten()).find(|p| {
+            let mut persons = house["persons"].as_array().into_iter().flatten();
+            if waiting.is_none() && persons.clone().any(|p| !p["waits"].is_null()) {
+                waiting = Some(house.clone());
+            }
+            let found = persons.find(|p| {
                 p["action"].is_null() && p["place"]["room"].is_u64() && p["collapsed"] == false
             });
-            if let Some(person) = found {
-                idle = Some((person["sim"].clone(), house["at"]["t"].clone()));
-                break;
+            if let (None, Some(person)) = (&compared, found) {
+                compared = Some(compare(&person["sim"], &house["at"]["t"])?);
             }
         }
-        if idle.is_some() {
+        if compared.is_some() && waiting.is_some() {
             break;
         }
         ask(
@@ -830,33 +867,9 @@ fn server_answers(
             200,
         )?;
     }
-    let (sim, clock) = idle.ok_or("nobody in the town's houses stood idle within two days")?;
-    let mut after = String::new();
-    let mut last = None;
-    loop {
-        let page = get(
-            port,
-            &format!("/api/runs/town/events?subject={sim}&from={morning}{after}"),
-        )?;
-        let rows = page["events"].as_array().into_iter().flatten();
-        for row in rows {
-            let payload = &row["entry"]["payload"];
-            if payload.get("core:idle").is_some() || payload.get("core:action_started").is_some() {
-                last = Some(row["entry"]["id"].clone());
-            }
-        }
-        match page["next"].as_u64() {
-            Some(next) => after = format!("&after={next}"),
-            None => break,
-        }
-    }
-    let last = last.ok_or("the idle person never chose")?;
-    let compared = get(port, &format!("/api/runs/town/why/{last}"))?;
-    if compared["now"]["at"]["t"] != clock {
-        return Err(format!(
-            "the last choice of {sim} is not compared at the clock {clock}: {compared}"
-        ));
-    }
+    let compared = compared.ok_or("nobody in the town's houses stood idle within two days")?;
+    let waiting = waiting.ok_or("nobody in the town's houses waited within two days")?;
+    houses.push(waiting);
     answers.push(("WhyAnswer", compared));
     answers.extend(houses.into_iter().map(|house| ("HouseAnswer", house)));
     // A fork with an override, so that the comparison shows its every shape: the town has

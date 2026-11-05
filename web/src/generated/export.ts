@@ -392,7 +392,7 @@ export type HousesEntry = {
   readonly morning: boolean;
 };
 
-/** `GET /api/runs/{run}/house/{household}`, version 7: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). */
+/** `GET /api/runs/{run}/house/{household}`, version 8: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler; the departure that ends an action, the object a person waits for and the offers taken for a command since version 8, ADR-0021, addendum of 2026-11-05 on the house page). */
 export type HouseAnswer = {
   readonly format: "simagent.view.house";
   readonly version: number;
@@ -443,11 +443,12 @@ export type LayoutObject = {
   readonly offers: string[];
 };
 
-/** A person with needs: where it is, what it does, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), and the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5). */
+/** A person with needs: where it is, what it does, the object whose waiting list it stands on, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), and the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5). */
 export type HousePerson = {
   readonly sim: number;
   readonly place: HousePlace;
   readonly action: HouseAction | null;
+  readonly waits: number | null;
   readonly needs: number[];
   readonly weights: number[];
   readonly collapsed: boolean;
@@ -455,10 +456,11 @@ export type HousePerson = {
   readonly commands: HouseOffer[];
 };
 
-/** An offer of an object of the house, by the core's numbers. */
+/** An offer of an object of the house a command may name, by the core's numbers, and whether its object has no free place for the person, as the core's check of a command finds it: a place another holds is taken, the place of what the person does is free for it unless someone waits for that object (ADR-0024, addendum of 2026-11-04 on slice 12). */
 export type HouseOffer = {
   readonly object: number;
   readonly offer: number;
+  readonly taken: boolean;
 };
 
 /** In a room, walking from one room to another (or out), or away at school or work. */
@@ -502,16 +504,17 @@ export type HouseWalk = {
   readonly out: boolean;
 };
 
-/** The offer a person chose and the place it holds; the planned end at the object, none on the way; whether it is a time-filler, which ends at the person's next choice (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). */
+/** The offer a person chose and the place it holds; the planned end at the object, none on the way; whether it is a time-filler, which ends at the person's next choice (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler); whether today's departure ends it, which does not wait for an action that raises no need critical then, and then its end is that departure (ADR-0024 section 4). */
 export type HouseAction = {
   readonly object: number;
   readonly offer: number;
   readonly slot: number;
   readonly until: DatedSecond | null;
   readonly filler: boolean;
+  readonly departs: boolean;
 };
 
-/** `GET /api/runs/{run}/why/{entry}` (version 7): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05). */
+/** `GET /api/runs/{run}/why/{entry}` (version 8): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05). */
 export type WhyAnswer = {
   readonly format: "simagent.view.why";
   readonly version: number;
@@ -532,7 +535,7 @@ export type WhyAnswer = {
   readonly now: WhyNow | null;
 };
 
-/** A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way) and why it ends there, by its code (`departure`, `bedtime`, `time` for its length or the longest a time-filler lasts, `choice` for the next choice worth it; none for an end of another reason), and if it ended at the next choice as planned the needs that choice raised, by their codes; its mood and the other time-fillers free then with theirs, the highest first (the addendum of 2026-11-05 on the time-filler's length). */
+/** A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way) and why it ends there, by its code (`departure`, `bedtime`, `time` for its length or the longest a time-filler lasts, `choice` for the next choice worth it; none for an end of another reason), and if it ended at the next choice as planned the needs that choice raised, by their codes, or if that choice waited for a taken object those the offer it waited for raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page); its mood and the other time-fillers free then with theirs, the highest first (the addendum of 2026-11-05 on the time-filler's length). */
 export type WhyFiller = {
   readonly walk_secs: number;
   readonly until: DatedSecond | null;

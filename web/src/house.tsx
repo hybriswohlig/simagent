@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
-import { commandChoices, placedOfferWords, type CommandChoice } from "./command.js";
+import { commandChoices, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
-import { dayGroups, dayLine, type DayLine } from "./day.js";
+import { dayGroups, dayLine, doing, type DayLine } from "./day.js";
 import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseChild, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName, surnames } from "./names.js";
@@ -20,7 +20,7 @@ import { readable } from "./contract.js";
 import { KIND_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 import { weightWords, whyText } from "./why.js";
 
-const HOUSE = { format: "simagent.view.house", version: 7 } as const;
+const HOUSE = { format: "simagent.view.house", version: 8 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -32,7 +32,7 @@ const DAY_PAGES = 10;
 const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 7 } as const;
+const WHY = { format: "simagent.view.why", version: 8 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
@@ -86,36 +86,6 @@ function youngLine(layout: HouseLayout, child: HouseChild): string {
   }
   const room = roomWords(layout, child.place.room ?? 0)[2];
   return child.place.asleep === true ? TEXT.house_young_asleep.replace("{room}", room) : room;
-}
-
-/** What a person does as one line: away where and until when, on the way where to (or out
- * of the house), lying on the floor of its room, at an object what and until when (the object
- * told apart from others of its kind), or nothing and where. */
-function doing(layout: HouseLayout, person: HousePerson): string {
-  if (person.collapsed) {
-    return TEXT.house_lies.replace("{room}", roomWords(layout, person.place.room ?? 0)[2]);
-  }
-  const away = person.place.away;
-  if (away !== undefined) {
-    const text = away.place === "school" ? TEXT.house_away_school : TEXT.house_away_work;
-    return text.replace("{time}", timeOfDay(away.until.date.second_of_day));
-  }
-  const walking = person.place.walking;
-  if (walking !== undefined) {
-    if (walking.out) {
-      return TEXT.house_leaves;
-    }
-    return TEXT.house_walks.replace("{where}", roomWords(layout, walking.to)[1]);
-  }
-  const action = person.action;
-  if (action === null) {
-    return TEXT.house_idle.replace("{room}", roomWords(layout, person.place.room ?? 0)[2]);
-  }
-  const placed = placedOfferWords(layout, action.object, action.offer);
-  // A time-filler says so (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
-  const does = action.filler ? TEXT.house_filler.replace("{what}", placed) : placed;
-  const until = action.until === null ? "" : ` ${TEXT.house_until.replace("{time}", timeOfDay(action.until.date.second_of_day))}`;
-  return `${does}${until}`;
 }
 
 /** "Warum?" for a choice: what it chose with its worth and what came behind, from the server
@@ -313,8 +283,10 @@ function choiceKey(choice: CommandChoice): string {
 
 /** A command for a person with needs at home (ADR-0024 section 5): an offer of an object of
  * the house among those the server allows the person now (version 5: by its age, sleep only in
- * its night) and "Befehlen", an input over the server. Once it is taken the house is read
- * again (`given`) and the choice stays; a refusal stands beside it with the core's reason. */
+ * its night) and "Befehlen", an input over the server; one whose object has no free place for
+ * the person stands there marked and cannot be chosen, the one it does now marked too (version
+ * 8). Once it is taken the house is read again (`given`) and the choice stays while it is free;
+ * a refusal stands beside it with the core's reason. */
 function Command({
   run,
   layout,
@@ -329,7 +301,7 @@ function Command({
   given: () => void;
 }) {
   const sim = person.sim;
-  const choices = commandChoices(layout, person.commands);
+  const choices = commandChoices(layout, person.commands, person.action);
   const [chosen, setChosen] = useState("");
   const [sending, setSending] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
@@ -340,7 +312,8 @@ function Command({
       mounted.current = false;
     };
   }, []);
-  const choice = choices.find((each) => choiceKey(each) === chosen) ?? choices[0];
+  const free = choices.filter((each) => !each.taken);
+  const choice = free.find((each) => choiceKey(each) === chosen) ?? free[0];
   if (choice === undefined) {
     return null;
   }
@@ -365,7 +338,7 @@ function Command({
     <div role="group" aria-label={TEXT.house_command_for.replace("{name}", name)}>
       <select aria-label={TEXT.house_command_what} value={choiceKey(choice)} onChange={(event) => setChosen(event.currentTarget.value)}>
         {choices.map((each) => (
-          <option key={choiceKey(each)} value={choiceKey(each)}>
+          <option key={choiceKey(each)} value={choiceKey(each)} disabled={each.taken}>
             {each.label}
           </option>
         ))}
