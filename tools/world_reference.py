@@ -1404,7 +1404,7 @@ class Data:
         if self.pool is not None:
             self.pool_wish = ([number(entry) for entry in extract_wish["fertility_wish_shape"]], number(extract_wish["values"]["core:fertility_wish_tilt"]))
         # The extra child (ADR-0017, addendum of 2026-11-05): None (the rule without it, the
-        # extract and every fixture) or `(count_until years, extra, grown_from)`.
+        # extract and every fixture) or `(count_until years, extra, grown_from, grown_chance)`.
         self.extra = data_reference.extra_child(demography["values"])
         # The table of leaving home (design note of the households, section 1): ten weights
         # for the ages 16 to 25, each in [0, 1], at least one above 0 (data_reference checks
@@ -2151,6 +2151,13 @@ def wish_unit(seed: int, key: int) -> float:
     """`u = unit(draw)` of the wish at the key (FERTILITY_WISH, the woman's lineage key,
     occasion 0, detail 0; 11.7)."""
     return unit(words(chacha_key(seed, FERTILITY_WISH, key, 0, 0))[0])
+
+
+def grown_unit(seed: int, key: int) -> float:
+    """`u = unit(draw)` of whether a grown child may reopen her (FERTILITY_WISH, her lineage
+    key, occasion 1, detail 0; ADR-0017, addendum of 2026-11-05): she may when `u` is below
+    the grown chance."""
+    return unit(words(chacha_key(seed, FERTILITY_WISH, key, 1, 0))[0])
 
 
 SINGLE, IDENTICAL, FRATERNAL = "single", "identical", "fraternal"
@@ -4080,17 +4087,22 @@ class World:
                 count = 1
         return count
 
+    def may_reopen(self, woman: int) -> bool:
+        """Her draw (`grown_unit` with her own seed) is below the grown chance."""
+        return grown_unit(self.own_seed(woman), self.key_of(woman)) < self.data.extra[3]
+
     def gate(self, woman: int, man: int, number_: int, life: int, t: int):
         """The decision at the month start `t` without the pregnancy, the pause and the end
         of fertility (the caller's): "hers", "his", "grown" or None (closed). Without the
-        extra child: "hers" while `life < W`."""
+        extra child: "hers" while `life < W`. The grown path needs her draw below the chance;
+        his slot does not read it."""
         w = self.wish_of(woman)
         if self.data.extra is None:
             return "hers" if life < w else None
-        _, extra, grown_from = self.data.extra
+        _, extra, grown_from, _ = self.data.extra
         if life >= w + extra:
             return None
-        if self.young_of_her(woman, life, t) < w and (life < w or life >= grown_from):
+        if self.young_of_her(woman, life, t) < w and (life < w or (life >= grown_from and self.may_reopen(woman))):
             return "hers" if life < w else "grown"
         if 1 <= w <= life and self.young_of_him(man, t) < self.wish_of(man) and self.ours(woman, man, number_, t) < 1:
             return "his"

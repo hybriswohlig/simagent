@@ -127,9 +127,10 @@ entry a calibrated value with its text) is the overlay of the game: its entries 
 CLI's data hash covers the result in place of the extract's (`repository_hash`;
 `Data::with_calibration` after the pool, the templates and the houses). The three values of
 the extra child, `core:fertility_count_until` (year), `core:fertility_extra` and
-`core:fertility_grown_from` (count), are one group: none of them and exactly 22 values (the
-rule without an extra child), or all three and exactly 25 (`check_demography_values`). A
-directory without the overlay file has none, and its hash is the one before.
+`core:fertility_grown_from` (count) and `core:fertility_grown_chance` (fraction), are one
+group: none of them and exactly 22 values (the rule without an extra child), or all four and
+exactly 26 (`extra_child`). A directory without the overlay file has none, and its hash is the
+one before.
 
 Usage: python3 tools/data_reference.py [DATA_DIR]
        (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool, its
@@ -306,20 +307,24 @@ EXTRA_CHILD = (
     ("core:fertility_extra", "count", 1, 64),
     ("core:fertility_grown_from", "count", 1, 64),
 )
+# The fourth value of the group: the chance of a woman's draw that lets a grown child reopen
+# her, a fraction in [0, 1].
+GROWN_CHANCE = "core:fertility_grown_chance"
 
 
 def extra_child(values) -> "tuple | None":
     """The group of the extra child from a `values` map (text stripped or not): None without
-    any of its three keys, else `(count_until, extra, grown_from)` as whole numbers, each of its
-    unit and in its range. One or two of them is an error (`data.calibration_missing` in the
-    core), as is a count of values other than 22 without the group or 25 with it
-    (`data.calibration_unknown`)."""
-    present = [key for key, _, _, _ in EXTRA_CHILD if key in values]
+    any of its four keys, else `(count_until, extra, grown_from, grown_chance)`, the first three
+    whole numbers, each of its unit and in its range, the chance a fraction in [0, 1]. Some but
+    not all of them is an error (`data.calibration_missing` in the core), as is a count of
+    values other than 22 without the group or 26 with it (`data.calibration_unknown`)."""
+    keys = [key for key, _, _, _ in EXTRA_CHILD] + [GROWN_CHANCE]
+    present = [key for key in keys if key in values]
     if not present:
         assert len(values) == DEMOGRAPHY_VALUES, f"{len(values)} values without the extra child"
         return None
-    assert len(present) == len(EXTRA_CHILD), f"the extra child is a group: only {present}"
-    assert len(values) == DEMOGRAPHY_VALUES + len(EXTRA_CHILD), f"{len(values)} values with the extra child"
+    assert len(present) == len(keys), f"the extra child is a group: only {present}"
+    assert len(values) == DEMOGRAPHY_VALUES + len(keys), f"{len(values)} values with the extra child"
     out = []
     for key, unit, low, high in EXTRA_CHILD:
         entry = values[key]
@@ -327,6 +332,11 @@ def extra_child(values) -> "tuple | None":
         number = float(entry["value"])
         assert number == int(number) and low <= int(number) <= high, (key, number)
         out.append(int(number))
+    entry = values[GROWN_CHANCE]
+    assert entry["unit"] == "fraction", (GROWN_CHANCE, entry["unit"])
+    chance = float(entry["value"])
+    assert 0.0 <= chance <= 1.0, (GROWN_CHANCE, chance)
+    out.append(chance)
     return tuple(out)
 
 

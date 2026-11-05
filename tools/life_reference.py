@@ -174,9 +174,10 @@ cfg["rule"] = "extra"; without it the tool runs exactly as before):
   `young` counts his children with `t < b + 18 years`. `ours` is the live births of the pair
   (children naming both); a founder couple formed at the start has her earlier births as
   theirs (her only partnership).
-- She is open when `young < W`, `life < W + 1` and (`life < W` or `life >= 3`). Otherwise
-  his slot opens when `W >= 1`, `W <= life < W + 1`, his `young` is below his `W` and
-  `ours < 1`. An attempt runs when either is open, she is not pregnant, her fertility has not
+- She is open when `young < W`, `life < W + 1` and (`life < W` or `life >= 3` and her draw
+  TAG_WISH at occasion 1 on her key is below the grown chance, cfg["grown_chance"], 0.20 in
+  the game, 1 when not given). Otherwise his slot opens when `W >= 1`, `W <= life < W + 1`,
+  his `young` is below his `W` and `ours < 1`; it does not read her draw. An attempt runs when either is open, she is not pregnant, her fertility has not
   ended and the pause after her last birth in this partnership has passed (it does not carry
   over from an earlier partnership). Every conception is realized; there is no estimator.
 - alpha alone is fitted by bisection on the realized live births per woman reaching 50, on
@@ -188,7 +189,9 @@ cfg["rule"] = "extra"; without it the tool runs exactly as before):
   within 2 delete-one-town standard errors of 2.20; births under 18 outside 0.001 to 0.005,
   the age gap outside 2.5 to 4 or another target off by more than 4 standard errors stop it.
   The report adds the share of women with a birth conceived at `life >= W`, the share of
-  such births and the completed family sizes 0 to 6.
+  such births and the completed family sizes 0 to 6, and the gates of the shape: size 3 above
+  size 4 above size 5+, 5+ within 0.01 to 0.05, those women within 0.05 to 0.12, childless
+  within 0.12 to 0.18. `--grown-chance X` sets the chance (default 0.20).
 
 Exit status 1 when a target misses by more than 4 standard errors, a check of 11.2 fails
 (per 11.2 the finding then goes back to Grok before the values are used) or the realized
@@ -537,6 +540,7 @@ def simulate(par, seed, cfg):
     fert_until = math.ceil(rule.last_age * MONTHS)
     # The wish of both partners (module docstring); off, the tool runs as before.
     extra_rule = cfg.get("rule") == "extra"
+    grown_chance = cfg.get("grown_chance", 1.0)
     tabs = (search_table(par["c_f"], par["m_f"], market_age, par["rho"]),
             search_table(par.get("c_m", 0.0), par.get("m_m", 30.0), market_age, par["rho"]))
     tab_len = len(tabs[0])
@@ -839,7 +843,8 @@ def simulate(par, seed, cfg):
                     if life >= wish_w + WISH_EXTRA:
                         continue
                     young = life - bisect_right(kids[w], t - COUNT_UNTIL)
-                    if young < wish_w and (life < wish_w or life >= GROWN_FROM):
+                    if young < wish_w and (life < wish_w or (
+                            life >= GROWN_FROM and unit(salt(TAG_WISH, key[w], 1)) < grown_chance)):
                         reason = 0 if life < wish_w else 2
                     elif (1 <= wish_w <= life
                           and len(kids[fa]) - bisect_right(kids[fa], t - COUNT_UNTIL) < wish[fa]
@@ -1852,6 +1857,8 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
 # The refit of alpha under the wish of both partners (`--wish-refit`, module docstring)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GROWN_CHANCE = 0.20  # the play value of the game (ADR-0017, addendum of 2026-11-05)
+SHAPE_GATES = {"size_5plus": (0.01, 0.05), "ext_women": (0.05, 0.12), "size_0": (0.12, 0.18)}
 REFIT = {"founders": 1000, "years": 300, "burn_in": 100, "step_towns": 24,
          "check_towns": 48, "width": 0.0005}
 REFIT_QUICK = {"founders": 1000, "years": 200, "burn_in": 80, "step_towns": 4,
@@ -1916,19 +1923,22 @@ def wish_refit(argv):
     if "--jobs" in argv:
         jobs = int(argv[argv.index("--jobs") + 1])
     cfg = dict(REFIT_QUICK if quick else REFIT)
+    chance = GROWN_CHANCE
+    if "--grown-chance" in argv:
+        chance = float(argv[argv.index("--grown-chance") + 1])
     t0 = time.time()
     held = published()
     base = {k: v for k, v in held.items() if k != "alpha"}
-    log("life_reference --wish-refit: %s; the wish of both partners (extra %d, grown from %d, "
-        "young until %d years); towns of %d founders over %d years (burn-in %d); %d towns per "
-        "step, %d in the check; %d jobs" % (
+    log("life_reference --wish-refit: %s; the wish of both partners (extra %d, grown from %d "
+        "with the chance %g, young until %d years); towns of %d founders over %d years (burn-in "
+        "%d); %d towns per step, %d in the check; %d jobs" % (
             "QUICK smoke test, publishes nothing" if quick else "refit of alpha", WISH_EXTRA,
-            GROWN_FROM, COUNT_UNTIL // MONTHS, cfg["founders"], cfg["years"], cfg["burn_in"],
-            cfg["step_towns"], cfg["check_towns"], jobs))
+            GROWN_FROM, chance, COUNT_UNTIL // MONTHS, cfg["founders"], cfg["years"],
+            cfg["burn_in"], cfg["step_towns"], cfg["check_towns"], jobs))
     log("held at data/calibration/demography.json: %s; published alpha %g" % (
         ", ".join("%s %g" % (k, v) for k, v in base.items()), held["alpha"]))
     sim_cfg = {"founders": cfg["founders"], "years": cfg["years"], "burn_in": cfg["burn_in"],
-               "market": "female", "rule": "extra"}
+               "market": "female", "rule": "extra", "grown_chance": chance}
     runner = Runner(sim_cfg, jobs)
     seeds = REFIT_SEEDS[:cfg["step_towns"]]
     points = {}
@@ -2027,6 +2037,16 @@ def wish_refit(argv):
     checks.append(U18_BAND[0] <= u18 <= U18_BAND[1])
     log("  share of live births to mothers under 18: %.5f +- %.5f (0.001 to 0.005) %s" % (
         u18, se["u18"], "ok" if checks[-1] else "FINDING"))
+    order = m["size_3"] > m["size_4"] > m["size_5plus"]
+    shape = {"size 3 > size 4 > size 5+": order}
+    for k, (low, high) in SHAPE_GATES.items():
+        shape["%s in %g to %g" % (k, low, high)] = low <= m[k] <= high
+    log("  the gates of the shape: " + "; ".join("%s %s" % (name, "held" if ok else "MISSED")
+                                                 for name, ok in shape.items()))
+    if not order or m["size_5plus"] > SHAPE_GATES["size_5plus"][1]:
+        log("  the shape asks for the chance 0.10 next")
+    elif m["ext_women"] < SHAPE_GATES["ext_women"][0] or m["size_5plus"] < SHAPE_GATES["size_5plus"][0]:
+        log("  the shape asks for the chance 0.30 next")
     log("")
     status = 0
     if not all(checks):
@@ -2038,6 +2058,9 @@ def wish_refit(argv):
     if not births_ok:
         log("STOP: the realized births of the check miss 2.20 by more than %g SE." %
             BIRTHS_BIAS_SE)
+        status = 1
+    if not all(shape.values()):
+        log("SHAPE: a gate of the shape missed; no value is published at this chance.")
         status = 1
     if quick:
         log("QUICK: no value is published.")
@@ -2052,7 +2075,12 @@ def wish_refit(argv):
             "as_of": time.strftime("%Y-%m-%d"),
             "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners; "
                     "delete-one-town standard error %.2g" % se_alpha}}
-        log("JSON for the tilt of the game (data/calibration/demography_game.json):")
+        snippet["core:fertility_grown_chance"] = {
+            "value": chance, "unit": "fraction",
+            "source": "ADR-0017, addendum of 2026-11-05: a play value",
+            "as_of": time.strftime("%Y-%m-%d"),
+            "note": "the share of women a grown child reopens; held in the refit of alpha"}
+        log("JSON for the game (data/calibration/demography_game.json):")
         log(json.dumps(snippet, indent=2, ensure_ascii=False))
     log("%d town runs, %.0f s." % (runner.towns, time.time() - t0))
     return status
