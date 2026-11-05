@@ -790,7 +790,8 @@ fn free_fillers(
 /// has (`house::state::filler_end_of`): "departure" at today's departure still to come at the
 /// choice, "bedtime" at the bedtime after its arrival (at its arrival if that lies in a night),
 /// "time" at its length or `fallback_max_seconds` after its arrival, else "choice", the next
-/// worthwhile choice.
+/// worthwhile choice. A time-filler's length is its offer's `seconds`, which the data require of
+/// it (`house.fallback_length`), so it never ends as full.
 fn filler_ends(
     world: &World,
     (house, houses): (

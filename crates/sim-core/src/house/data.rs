@@ -455,6 +455,11 @@ impl OfferDef {
         if self.fallback && (self.sleep || !ages().all(|age| self.raises(rates, Need::Fun, age))) {
             return Err(HouseError::OfferFallback);
         }
+        // A time-filler has its own length, a fixed one (ADR-0026, addendum of 2026-11-05 on the
+        // time-filler's length).
+        if self.fallback && self.seconds.is_none() {
+            return Err(HouseError::FallbackLength);
+        }
         Ok(())
     }
 }
@@ -572,6 +577,9 @@ pub enum HouseError {
     /// does not stay in itself, or that is the entrance; or not one word per room whether one
     /// stays there.
     DwellRoom,
+    /// A time-filler without a fixed length in `seconds` (ADR-0026, addendum of 2026-11-05 on the
+    /// time-filler's length).
+    FallbackLength,
 }
 
 impl fmt::Display for HouseError {
@@ -610,6 +618,7 @@ impl fmt::Display for HouseError {
             HouseError::NeedUnserved => "house.need_unserved",
             HouseError::BedFor => "house.bed_for",
             HouseError::DwellRoom => "house.dwell_room",
+            HouseError::FallbackLength => "house.fallback_length",
         })
     }
 }

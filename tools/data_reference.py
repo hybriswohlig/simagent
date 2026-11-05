@@ -1060,6 +1060,9 @@ def houses_checked(needs, day, kinds, houses):
             # open to (its addendum on comfort and the time-filler).
             if offer.get("fallback", False):
                 assert not sleeps and all(raises(needs, offer, "fun", age) for age in ages), "house.offer_fallback"
+                # Its own length, a fixed one (its addendum of 2026-11-05 on the time-filler's
+                # length).
+                assert "seconds" in offer, "house.fallback_length"
         # A bed only sleeps; only a bed says whom it is for (its addendum after the playtest).
         bed = is_bed(kind)
         sleeps_only = all(offer.get("sleep", False) for offer in kind["offers"])
