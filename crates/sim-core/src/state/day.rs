@@ -205,6 +205,8 @@ pub(crate) fn on_wake(domain: &mut DomainState, data: &Data, sim: SimId, ctx: &m
 /// it wait, the person due at `back`, and so does lying on the floor (ADR-0026, addendum of
 /// 2026-11-04 on a need at 0) until the person gets up; otherwise the person leaves now. A need
 /// whose crossing at 0 falls into this second is settled first: the departure runs before it.
+/// A time-filler it waits for ends at its next choice from now on, which this departure no longer
+/// closes, as a loaded world plans it (review of 2026-11-05).
 pub(crate) fn on_depart(
     domain: &mut DomainState,
     data: &Data,
@@ -217,11 +219,21 @@ pub(crate) fn on_depart(
     let lying = super::zero::settle_first(domain, data, sim, ctx);
     if lying || action::for_critical(domain, data, sim, now) {
         let depart = now;
-        person_mut(domain, sim).due = Some(Due {
+        let person = person_mut(domain, sim);
+        person.due = Some(Due {
             place,
             depart,
             back,
         });
+        let filling = matches!(
+            (person.place, person.action),
+            (Place::Room(_), Some(action)) if action.filler
+        );
+        if filling {
+            let (household, _, _) = home(domain, data, sim);
+            let by = (ctx.planned_by()).unwrap_or_else(|| panic!("invariant house.depart_planned"));
+            action::plan_filler_end(domain, data, (household, sim), by, ctx);
+        }
         return;
     }
     leave(

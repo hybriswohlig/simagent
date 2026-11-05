@@ -8,7 +8,7 @@ use alloc::collections::BTreeSet;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::house::plan_crossings;
+use super::house::{plan_crossings, planned_in};
 use super::{DomainState, Slot};
 use crate::data::Data;
 use crate::house::choice::{CRITICAL, Choice, choose, filler, in_tier, mood, score, tier};
@@ -433,7 +433,9 @@ enum Begun {
 /// household's last entry that changed it; anyone else has no choice planned. A choice already
 /// due in this second stays: it comes anyway, and plans the next. The end of a time-filler at
 /// its object is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
-/// addendum of 2026-11-04 on comfort and the time-filler).
+/// addendum of 2026-11-04 on comfort and the time-filler); in an input at the clock even one due
+/// in its second, which has not come yet, as a loaded world plans it from the clock (review of
+/// 2026-11-05). Each plan is made in `planned_in`.
 pub(crate) fn plan_idle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     for (household, by) in core::mem::take(&mut domain.house_changed) {
         if !domain.house.households.contains_key(&household) {
@@ -484,7 +486,8 @@ fn plan_next(
             };
             let taken = taken(domain, data, household, sim, now);
             let who = (born(domain, sim), key, seed);
-            crate::house::state::next_choice_of((house, houses), who, person, &taken, now)
+            let from = (now, planned_in(ctx));
+            crate::house::state::next_choice_of((house, houses), who, person, &taken, from)
         }
         false => None,
     };
@@ -501,8 +504,9 @@ fn plan_next(
 }
 
 /// The end of the time-filler of `sim` of `household` at its object anew (`plan_idle`): at the
-/// second `filler_end_of` gives from now on, planned by `by`; one due in this second stays.
-fn plan_filler_end(
+/// second `filler_end_of` gives from now on, planned by `by`. One due in this second stays in a
+/// handler; an input acts before the events of its second, so there it is planned anew too.
+pub(super) fn plan_filler_end(
     domain: &mut DomainState,
     data: &Data,
     (household, sim): (HouseholdId, SimId),
@@ -512,10 +516,10 @@ fn plan_filler_end(
     let now = ctx.now();
     let pending = domain.pending.get(&(sim, Slot::End)).copied();
     let due = pending.and_then(|handle| ctx.pending_time(handle));
-    if due == Some(now) {
+    if due == Some(now) && !ctx.in_input() {
         return;
     }
-    let next = filler_end(domain, data, (household, sim), now);
+    let next = filler_end(domain, data, (household, sim), (now, planned_in(ctx)));
     if next == due {
         return;
     }
@@ -528,13 +532,14 @@ fn plan_filler_end(
     }
 }
 
-/// The second the time-filler of `sim` of `household` at its object ends from `now` on
-/// (`house::state::filler_end_of`), with the places of the household taken or held for others.
+/// The second the time-filler of `sim` of `household` at its object ends from `now` on, planned
+/// in the second `after` (`house::state::filler_end_of`), with the places of the household taken
+/// or held for others.
 fn filler_end(
     domain: &DomainState,
     data: &Data,
     (household, sim): (HouseholdId, SimId),
-    now: SimTime,
+    (now, after): (SimTime, SimTime),
 ) -> Option<SimTime> {
     let (_, houses, house) = home(domain, data, sim);
     let seed = (domain.world_seed).unwrap_or_else(|| panic!("invariant seeds.before_start"));
@@ -544,7 +549,7 @@ fn filler_end(
     let person = domain.house.sims.get(&sim)?;
     let taken = taken(domain, data, household, sim, now);
     let who = (born(domain, sim), key, seed);
-    crate::house::state::filler_end_of((house, houses), who, person, &taken, now)
+    crate::house::state::filler_end_of((house, houses), who, person, &taken, (now, after))
 }
 
 /// The person stops waiting before what it does next (ADR-0026 sections 3 and 5): its planned
@@ -920,7 +925,7 @@ pub(crate) fn on_arrive(
         true => {
             let household = (domain.sims.get(&sim)).map(|person| person.household);
             let household = household.unwrap_or_else(|| panic!("invariant house.orphan_event"));
-            filler_end(domain, data, (household, sim), now)
+            filler_end(domain, data, (household, sim), (now, now))
         }
         false => action_end(person, offer, houses.day(), born),
     };

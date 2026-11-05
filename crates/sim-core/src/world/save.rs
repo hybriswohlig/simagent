@@ -2468,7 +2468,8 @@ fn onsets_due(person: &Sim, now: i64) -> impl Iterator<Item = (u64, SimTime)> + 
 
 /// The second the action of a person at its object ends, from its offer and needs, a sleep
 /// at the end of its night; a time-filler at its next choice, recomputed from the second the
-/// loaded world runs next (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+/// loaded world runs next, planned in the clock (ADR-0026, addendum of 2026-11-04 on comfort and
+/// the time-filler; review of 2026-11-05).
 fn action_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
     let data = rules.data;
     let person = loaded.house.sims.get(&sim)?;
@@ -2482,7 +2483,8 @@ fn action_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<Sim
         let start = (loaded.closed_through).checked_add(SimDuration::from_secs(1))?;
         let taken = taken_for(loaded, rules, sim, start)?;
         let who = (me.born, me.lineage_key, rules.seed);
-        return crate::house::state::filler_end_of((house, houses), who, person, &taken, start);
+        let from = (start, loaded.closed_through);
+        return crate::house::state::filler_end_of((house, houses), who, person, &taken, from);
     }
     let object = house.def().objects.get(usize::from(action.object))?;
     let offer = houses
@@ -2537,8 +2539,9 @@ fn taken_for(
 
 /// The next choice of a person idle in a room or on its walk to the room one stays in, not lying
 /// and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest), recomputed from
-/// the second the loaded world runs next with the places of its household taken by an action or
-/// held for others; `None` for anyone else or if nothing comes.
+/// the second the loaded world runs next, planned in the clock (review of 2026-11-05), with the
+/// places of its household taken by an action or held for others; `None` for anyone else or if
+/// nothing comes.
 fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
     let person = loaded.house.sims.get(&sim)?;
     let houses = rules.data.houses()?;
@@ -2554,7 +2557,8 @@ fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<Sim
         .checked_add(SimDuration::from_secs(1))?;
     let taken = taken_for(loaded, rules, sim, start)?;
     let who = (me.born, me.lineage_key, rules.seed);
-    crate::house::state::next_choice_of((house, houses), who, person, &taken, start)
+    let from = (start, loaded.closed_through);
+    crate::house::state::next_choice_of((house, houses), who, person, &taken, from)
 }
 
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at

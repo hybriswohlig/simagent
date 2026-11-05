@@ -286,18 +286,25 @@ pub(super) fn plan_crossings(
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
-    let after = if ctx.in_input() {
-        now - SimDuration::from_secs(1)
-    } else {
-        now
-    };
-    let planned: Vec<(Need, u16, SimTime)> = crossings(person, after).collect();
+    let planned: Vec<(Need, u16, SimTime)> = crossings(person, planned_in(ctx)).collect();
     for (need, level, at) in planned {
         let crossing = EventPayload::NeedCrossing { sim, need, level };
         let handle = ctx.schedule(at, crossing, by);
         domain
             .pending
             .insert((sim, Slot::Crossing(need, level)), handle);
+    }
+}
+
+/// The second a plan made now is made in, whose later seconds it plans: a handler's own; for an
+/// input, which acts before the events of its second, the one before, the clock, from which a
+/// loaded world plans the same (ADR-0024, addendum of 2026-11-04; review of 2026-11-05).
+pub(super) fn planned_in(ctx: &SimCtx<'_, '_>) -> SimTime {
+    let now = ctx.now();
+    if ctx.in_input() {
+        now - SimDuration::from_secs(1)
+    } else {
+        now
     }
 }
 

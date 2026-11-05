@@ -13,7 +13,7 @@ use crate::house::data::{
     AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
 };
 use crate::house::day::{YoungPlace, night, young_place};
-use crate::house::day::{departure, next_night, work_draw};
+use crate::house::day::{day_departure, next_night, work_draw};
 use crate::house::need::{EMPTY, FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
@@ -143,17 +143,19 @@ pub fn child_held(house: &House, data: &HouseData, young: usize, now: SimTime) -
 }
 
 /// The second the idle person `person`, born at `born` with the lineage key `key` in the world
-/// of `seed`, chooses next from `start` on (`house::choice::next_choice`), `taken` the places
-/// of the house taken or held for others: it weighs the objects with a free place from the
-/// room it stands in, or on its walk to the room one stays in from that room, no earlier than
-/// its arrival (ADR-0026, addendum of 2026-11-04 after the playtest), each before today's
-/// departure closes it (its addendum on comfort and the time-filler).
+/// of `seed`, chooses next from `start` on, planned in the second `after`
+/// (`house::choice::next_choice`), `taken` the places of the house taken or held for others: it
+/// weighs the objects with a free place from the room it stands in, or on its walk to the room
+/// one stays in from that room, no earlier than its arrival (ADR-0026, addendum of 2026-11-04
+/// after the playtest), each before today's departure closes it (its addendum on comfort and the
+/// time-filler). A handler plans in its second, an input at the clock and the loader in the
+/// clock, before the second they act in.
 pub fn next_choice_of(
     (house, data): (&House, &HouseData),
     (born, key, seed): (SimTime, crate::lineage::LineageKey, u64),
     person: &InHouse,
     taken: &BTreeSet<(u16, u8)>,
-    start: SimTime,
+    (start, after): (SimTime, SimTime),
 ) -> Option<SimTime> {
     let (room, start) = match person.place {
         Place::Room(room) => (room, start),
@@ -170,29 +172,30 @@ pub fn next_choice_of(
         crate::house::choice::mood(seed, key, at, (object, offer), percent)
     };
     let draw = || work_draw(seed, key);
-    let leaves = |at: SimTime| departure(data.day(), born, draw, at);
+    let leaves = |at: SimTime| day_departure(data.day(), born, draw, at);
     next_choice(
         (house, data),
         (born, &person.needs, room),
         free,
-        start,
+        (start, after),
         moods,
         leaves,
     )
 }
 
 /// The second the time-filler of `person` at its object ends (ADR-0026, addendum of 2026-11-04
-/// on comfort and the time-filler), from `start` on, with the needs at the filler's rates and
-/// `taken` the places taken (its own among them) or held for others: at its next choice
-/// (`next_choice_of` from the object's room), at the latest `fallback_max_seconds` after it began
-/// and at its bedtime, the start of the night after it began; at once if it began in a night.
-/// `None` for anyone not at a time-filler, or if the end lies beyond the end of time.
+/// on comfort and the time-filler), from `start` on, planned in the second `after`, with the
+/// needs at the filler's rates and `taken` the places taken (its own among them) or held for
+/// others: at its next choice (`next_choice_of` from the object's room), at the latest
+/// `fallback_max_seconds` after it began and at its bedtime, the start of the night after it
+/// began; at once if it began in a night. `None` for anyone not at a time-filler, or if the end
+/// lies beyond the end of time.
 pub fn filler_end_of(
     (house, data): (&House, &HouseData),
     who: (SimTime, crate::lineage::LineageKey, u64),
     person: &InHouse,
     taken: &BTreeSet<(u16, u8)>,
-    start: SimTime,
+    (start, after): (SimTime, SimTime),
 ) -> Option<SimTime> {
     let (Place::Room(_), Some(action)) = (person.place, person.action) else {
         return None;
@@ -213,7 +216,7 @@ pub fn filler_end_of(
     let longest = SimDuration::from_secs(i64::from(rules.fallback_max_seconds));
     let cap = begun.checked_add(longest);
     let next = match bedtime.is_none_or(|bedtime| start < bedtime) {
-        true => next_choice_of((house, data), who, person, taken, start),
+        true => next_choice_of((house, data), who, person, taken, (start, after)),
         false => None,
     };
     [next.or(bedtime), bedtime, cap].into_iter().flatten().min()

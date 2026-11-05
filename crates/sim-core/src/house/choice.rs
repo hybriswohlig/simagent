@@ -376,25 +376,29 @@ pub fn choose(
 
 /// The second an idle person chooses next (ADR-0026, addendum of 2026-11-04 after the
 /// playtest), born at `born`, with the needs `needs` standing in `room` and the objects for
-/// which `free` holds having a free place, from `start` on: the first second at which an offer
-/// of one of these objects brings `ENOUGH` with the person's mood of that second,
-/// `moods(second, object, offer)`. In the night it looks from the night's end on. Per offer
-/// only whole minutes are weighed, from the first second it brings `ENOUGH` at the most mood
-/// (`choice_mood_percent`) to the first it surely does at the least, which counts if no
-/// minute before it does; the earliest over the offers. Not at or after the person's next
-/// bedtime, which makes it choose anyway; its next birthday, where the offers and their rates
-/// may change, comes first if it is earlier. An offer is weighed only before the first second
-/// at which it would still run at today's departure (`crosses_departure`), `departure(start)`
-/// the departure still to come after the search's start (ADR-0026, addendum of 2026-11-04 on
-/// comfort and the time-filler); a need it raises turning critical makes the person choose at its
-/// crossing anyway. `None` if nothing comes, or beyond the end of time. The needs keep the rates
-/// of their samples; the sample of a need that rises is weighed at its value at `start` for the
-/// most and full for the least, so both bounds only grow with time.
+/// which `free` holds having a free place, from `start` on, planned in the second `after` (at
+/// most `start`): the first second at which an offer of one of these objects brings `ENOUGH`
+/// with the person's mood of that second, `moods(second, object, offer)`. In the night it looks
+/// from the night's end on. Per offer only whole minutes are weighed, from the first second it
+/// brings `ENOUGH` at the most mood (`choice_mood_percent`) to the first it surely does at the
+/// least, which counts if no minute before it does; the earliest over the offers. Not at or
+/// after the person's next bedtime, which makes it choose anyway; its next birthday, where the
+/// offers and their rates may change, comes first if it is earlier. An offer is weighed only
+/// before the first second at which it could still run at today's departure
+/// (`crosses_departure`), `departure(start)` the departure of the day planned last at or before
+/// the search's start (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler); a need
+/// it raises turning critical makes the person choose at its crossing anyway. The bedtime, the
+/// birthday and the departure are those after `after`, and never before the second before the
+/// search's start: a loaded world plans in its clock what the run planned in its second, and
+/// both see the same bounds (review of 2026-11-05). `None` if nothing comes, or beyond the end of
+/// time. The needs keep the rates of their samples; the sample of a need that rises is weighed
+/// at its value at `start` for the most and full for the least, so both bounds only grow with
+/// time.
 pub fn next_choice(
     (house, data): (&House, &HouseData),
     (born, needs, room): (SimTime, &[NeedSample; 5], u8),
     free: impl Fn(u16) -> bool,
-    start: SimTime,
+    (start, after): (SimTime, SimTime),
     moods: impl Fn(SimTime, u16, u16) -> i8,
     departure: impl Fn(SimTime) -> Option<SimTime>,
 ) -> Option<SimTime> {
@@ -403,10 +407,12 @@ pub fn next_choice(
         Some(night) => night.until?,
         None => start,
     };
-    let depart = departure(start);
-    let age = age(born, start)?;
+    let before = (start.as_secs().checked_sub(1)).and_then(|secs| SimTime::try_from(secs).ok());
+    let after = before.map_or(after, |before| after.max(before));
+    let depart = departure(start).filter(|&depart| depart > after);
+    let age = age(born, after)?;
     let band = age_band(age)?;
-    let bedtime = next_night(rules, born, start).map(|night| night.from);
+    let bedtime = next_night(rules, born, after).map(|night| night.from);
     let birthday = (born.as_secs())
         .checked_add(YEAR.as_secs() * (i64::from(age) + 1))
         .and_then(|secs| SimTime::try_from(secs).ok());

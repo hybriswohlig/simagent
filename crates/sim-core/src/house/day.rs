@@ -105,8 +105,19 @@ pub fn departure(
     draw: impl FnOnce() -> u64,
     at: SimTime,
 ) -> Option<SimTime> {
-    let today = duty(rules, plan_day(rules, at), born, draw)?;
-    (today.depart > at).then_some(today.depart)
+    day_departure(rules, born, draw, at).filter(|&depart| depart > at)
+}
+
+/// The departure of the duty of the day whose plan came last at or before `at` of a person born
+/// at `born`, passed or not (ADR-0024 section 4); the work plan's draw `draw` asked only at
+/// working age.
+pub fn day_departure(
+    rules: &DayRules,
+    born: SimTime,
+    draw: impl FnOnce() -> u64,
+    at: SimTime,
+) -> Option<SimTime> {
+    duty(rules, plan_day(rules, at), born, draw).map(|today| today.depart)
 }
 
 /// A person's night (ADR-0026, addendum of 2026-11-04): from `from` included to `until`

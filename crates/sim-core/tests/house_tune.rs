@@ -21,6 +21,7 @@ use sim_core::house::data::{House, HouseData};
 use sim_core::house::need::NeedSample;
 use sim_core::house::state::{Action, Broken, InHouse, Place, consistent, filler_end_of};
 use sim_core::ids::SimId;
+use sim_core::input::{Command, Input};
 use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, EndReason, LogEntry, LogPayload, Subject};
 use sim_core::time::{DAY, HOUR, SimTime, YEAR};
@@ -389,7 +390,13 @@ fn a_time_filler_ends_at_the_latest_after_four_hours_and_at_bedtime() {
     let taken = BTreeSet::from([(SCREEN, 0)]);
     let end = |begun: i64, start: i64| {
         let person = fun(at_screen(begun), begun);
-        filler_end_of((house, houses), (born, key, 7), &person, &taken, t(start))
+        filler_end_of(
+            (house, houses),
+            (born, key, 7),
+            &person,
+            &taken,
+            (t(start), t(start)),
+        )
     };
     let day = 2 * D;
     assert_eq!(end(day + 7 * H, day + 7 * H), Some(t(day + 11 * H)));
@@ -410,7 +417,7 @@ fn a_time_filler_ends_at_the_latest_after_four_hours_and_at_bedtime() {
         (born, key, 7),
         &chosen,
         &taken,
-        t(day + 7 * H),
+        (t(day + 7 * H), t(day + 7 * H)),
     );
     assert_eq!(none, None);
 }
@@ -685,7 +692,7 @@ fn no_choice_runs_into_the_departure() {
         (house, houses),
         (born, &needs, 1),
         free,
-        eight,
+        (eight, eight),
         moods,
         leaves,
     );
@@ -694,7 +701,7 @@ fn no_choice_runs_into_the_departure() {
         (house, houses),
         (born, &needs, 1),
         free,
-        eight,
+        (eight, eight),
         moods,
         |_| None,
     );
@@ -733,6 +740,273 @@ fn a_save_during_a_time_filler_runs_on_the_same() {
         assert_eq!(entries(&loaded.take_log()), entries(&after), "{saved_at}");
         assert_eq!(loaded.state_hash(), whole.world.state_hash(), "{saved_at}");
     }
+}
+
+/// The run `at_save` gives, saved there at the clock `saved_at`, loads, saves to the same bytes
+/// and runs on to `until` as the same run uninterrupted: the same entries after the save and the
+/// same state hash.
+fn runs_on_the_same(data: &Data, saved_at: i64, until: i64, at_save: impl Fn() -> Run) {
+    let mut whole = at_save();
+    let before = whole.log.len();
+    whole.advance(until);
+    let run = at_save();
+    let bytes = run.world.save(&run.out.year_hashes).expect("saves");
+    let (mut loaded, _) = World::load(&bytes, data.clone()).expect("loads");
+    assert_eq!(
+        loaded.save(&run.out.year_hashes).expect("saves"),
+        bytes,
+        "{saved_at}"
+    );
+    loaded.advance_until(&mut YearOut::default(), t(until), &mut |_| false);
+    let entries = |log: &[LogEntry]| serde_json::to_value(log).expect("json");
+    assert_eq!(
+        entries(&loaded.take_log()),
+        entries(&whole.log[before..]),
+        "{saved_at}"
+    );
+    assert_eq!(loaded.state_hash(), whole.world.state_hash(), "{saved_at}");
+}
+
+/// A bound of the next choice at the second after the clock is the run's bound too (review of
+/// 2026-11-05): the loader recomputes a plan from the clock's next second, with the bounds after
+/// the clock, as the run made it with those after its second. The couple of
+/// `no_choice_runs_into_the_departure` at the screen until their departure at 8:40, which closes
+/// the loo from 8:34:57 on, so that their time-fillers end only at it: saved at 8:39:59, the
+/// departure of the next second still closes it, and the loaded morning runs on as the whole.
+#[test]
+fn a_save_the_second_before_the_departure_runs_on_the_same() {
+    let data = tune_data(-44);
+    let depart = D + 8 * H + 2_400;
+    runs_on_the_same(&data, depart - 1, depart + 600, || {
+        let (mut run, _) = Run::moved_in(data.clone());
+        run.advance(depart - 1);
+        run
+    });
+}
+
+/// The couple of `no_choice_runs_into_the_departure`, the woman born so that she turns 31 at
+/// 7:00 of day 1 (her work by the same draw, full time, as her age at the day's plan, 5:00, is
+/// 30). At the screen from 6:00:03 nothing brings 40 000 before 7:00 (the loo only from 8:28:39 at
+/// the most mood), and her birthday, where her offers and rates may change, comes before her
+/// bedtime: her time-filler ends then, with the bladder 456 (500 − 44) and fun 899 (800 +
+/// ⌊100 · 3 597 / 3 600⌋), and she takes the screen again, 5 s within the den. Saved at 6:59:59,
+/// the loaded morning runs on as the whole.
+#[test]
+fn a_save_the_second_before_a_birthday_that_ends_a_time_filler_runs_on_the_same() {
+    let data = tune_data(-44);
+    let birthday = D + 7 * H;
+    let born = [birthday - 31 * Y, -32 * Y];
+    let family = || Run::family(data.clone(), 7, "test:house", &born, 0).0;
+    let mut whole = family();
+    whole.advance(birthday + 1);
+    let at_seven = [600, 900, 456, 700, 899];
+    assert_eq!(
+        doings(&whole, 1, birthday - 1, birthday + 1),
+        [
+            (1, ended(SCREEN, EndReason::Done, at_seven)),
+            (1, started((SCREEN, 0), (1, 5), at_seven, true)),
+        ]
+    );
+    runs_on_the_same(&data, birthday - 1, D + 9 * H, || {
+        let mut run = family();
+        run.advance(birthday - 1);
+        run
+    });
+}
+
+/// As `a_save_the_second_before_a_birthday_that_ends_a_time_filler_runs_on_the_same` with a
+/// screen that is no time-filler: at 6:00 the woman stands idle, and her next choice is her
+/// birthday at 7:00, where she is idle again. Saved at 6:59:59, the loaded morning runs on as the
+/// whole.
+#[test]
+fn a_save_the_second_before_a_birthday_that_is_a_choice_runs_on_the_same() {
+    let kinds = TUNE_KINDS.replace("\"fallback\": true", "\"fallback\": false");
+    let data = day::house_data(&bladder_rates(-44), &kinds, TUNE);
+    let birthday = D + 7 * H;
+    let born = [birthday - 31 * Y, -32 * Y];
+    let family = || Run::family(data.clone(), 7, "test:house", &born, 0).0;
+    let mut whole = family();
+    whole.advance(birthday + 1);
+    let idle: Vec<i64> = (doings(&whole, 1, MORNING, birthday + 1).into_iter())
+        .filter(|(_, payload)| matches!(payload, LogPayload::Idle { .. }))
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(idle, [0, H]);
+    runs_on_the_same(&data, birthday - 1, D + 9 * H, || {
+        let mut run = family();
+        run.advance(birthday - 1);
+        run
+    });
+}
+
+/// A bath for one in the hall (hygiene +1 000 an hour for 2 332 s), a screen for two in the den
+/// that is the time-filler (fun +1 an hour for 45 min), a bed for two in the den, and the five
+/// essential kinds in the hall, each raising its need by 1 an hour for a minute, the sofa
+/// hygiene: nothing but the screen raises fun.
+const WAIT_KINDS: &str = r#"[
+  {"id": "test:bath", "slots": 1, "offers": [
+    {"id": "soak", "rates": {"hygiene": 1000}, "seconds": 2332, "min_age": 0, "max_age": 130}]},
+  {"id": "test:screen", "slots": 2, "offers": [
+    {"id": "watch", "rates": {"fun": 1}, "seconds": 2700, "min_age": 0, "max_age": 130,
+     "fallback": true}]},
+  {"id": "test:bed", "slots": 2, "offers": [
+    {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]},
+  {"id": "core:dining_table", "slots": 1, "offers": [
+    {"id": "eat", "rates": {"hunger": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:fridge", "slots": 1, "offers": [
+    {"id": "snack", "rates": {"hunger": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:toilet", "slots": 1, "offers": [
+    {"id": "use", "rates": {"bladder": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:shower", "slots": 1, "offers": [
+    {"id": "shower", "rates": {"hygiene": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]},
+  {"id": "core:sofa", "slots": 1, "offers": [
+    {"id": "sit", "rates": {"hygiene": 1}, "seconds": 60, "min_age": 0, "max_age": 130}]}]"#;
+
+/// Rooms hall 0 (the entrance) and den 1, 3 s apart; the bath 0, the screen 1 and the bed 2, the
+/// essential ones 3 to 7 in the hall.
+const WAIT_HOUSE: &str = r#"{
+  "id": "test:wait", "capacity": 2,
+  "rooms": [{"id": "hall", "entrance": true}, {"id": "den"}],
+  "child_day_room": "den", "child_night_room": "den", "dwell_room": "den",
+  "doors": [{"a": "hall", "b": "den", "seconds": 3}],
+  "objects": [{"kind": "test:bath", "room": "hall"}, {"kind": "test:screen", "room": "den"},
+    {"kind": "test:bed", "room": "den"},
+    {"kind": "core:dining_table", "room": "hall"}, {"kind": "core:fridge", "room": "hall"},
+    {"kind": "core:toilet", "room": "hall"}, {"kind": "core:shower", "room": "hall"},
+    {"kind": "core:sofa", "room": "hall"}]
+}"#;
+
+/// A departure that waits for a time-filler ends it at its next choice from the departure on,
+/// which the departure no longer closes (review of 2026-11-05), as a loaded world plans it. The
+/// woman of 30 of `common::day` (full time, here from 6:50) with a man of 70, who has no duty,
+/// in the house `WAIT_HOUSE`: awake only fun falls, 1 000 an hour from 6:00 below 67, and fun
+/// weighs from its comfort 151 on. At 6:00 she takes the bath (5 s within the hall, then 2 332
+/// s; hygiene 700, 300 · 300 − 250), and he waits for it. It ends at 6:38:57 with her fun at 151
+/// (800 − ⌊1 000 · 2 337 / 3 600⌋), where nothing brings her 40 000: she walks the 3 s to the
+/// screen as her time-filler, and arrives with fun 150, critical. The screen would run past her
+/// departure, so nothing ends her filler before it began 4 h ago. At 6:50 her departure waits
+/// for the filler that raises her critical fun; from then the screen's other place, free and
+/// open, brings her the critical points at once: her filler ends at 6:50:00 and she leaves on
+/// time. Saved before, at and after the departure, the morning loads, saves to the same bytes
+/// and runs on as the whole.
+#[test]
+fn a_departure_that_waits_for_a_time_filler_ends_it_at_once() {
+    let day = include_str!("../../../data/house/day.json").replace(
+        "\"full_time\": {\"depart\": 31200",
+        "\"full_time\": {\"depart\": 24600",
+    );
+    let bands = |rate: i32| [rate; 4];
+    let rates = json!({
+        "awake": {"hunger": bands(0), "energy": bands(0), "bladder": bands(0),
+                  "hygiene": bands(0), "fun": [-1000, -1000, -1000, 0]},
+        "asleep": {"hunger": bands(0), "energy": bands(100), "bladder": bands(0),
+                   "hygiene": bands(0), "fun": bands(0)},
+        "comfort": [1000, 1000, 1000, 1000, 151]
+    })
+    .to_string();
+    let houses = common::houses_from(&rates, &day, WAIT_KINDS, &[WAIT_HOUSE]);
+    let data = common::death_data(1e-9, None, json!([])).with_houses(houses);
+    let family = || Run::family(data.clone(), 7, "test:house", &[-30 * Y, -70 * Y], 0).0;
+    let depart = MORNING + 3_000;
+    let mut whole = family();
+    whole.advance(depart + 60);
+    let bathed = [600, 900, 500, 1000, 151];
+    // Object, place, room, walk, needs and whether it is a time-filler.
+    type Start = (u16, u8, u8, u32, [u16; 5], bool);
+    let start_of = |payload: LogPayload| -> Start {
+        match payload {
+            LogPayload::ActionStarted {
+                object,
+                slot,
+                room,
+                walk_secs,
+                needs,
+                filler,
+                ..
+            } => (object, slot, room, walk_secs, needs, filler),
+            _ => panic!("a start"),
+        }
+    };
+    let hers = doings(&whole, 1, MORNING, depart + 60);
+    let starts: Vec<(i64, Start)> = (hers.iter())
+        .filter(|(_, payload)| matches!(payload, LogPayload::ActionStarted { .. }))
+        .map(|(at, payload)| (*at, start_of(payload.clone())))
+        .collect();
+    assert_eq!(
+        starts,
+        [
+            (0, (0, 0, 0, 5, MORNING_VALUES, false)),
+            (2_337, (SCREEN, 0, 0, 3, bathed, true)),
+        ]
+    );
+    let critical = LogPayload::NeedCritical {
+        need: sim_core::house::data::Need::Fun,
+        level: 150,
+    };
+    assert!(hers.contains(&(2_340, critical)));
+    assert!(hers.contains(&(
+        3_000,
+        ended(SCREEN, EndReason::Done, [600, 900, 500, 1000, 150])
+    )));
+    let left = (whole.log.iter()).find(|entry| {
+        entry.subjects == [Subject::Sim(sim(1))]
+            && matches!(entry.payload, LogPayload::LeftHome { .. })
+    });
+    assert_eq!(
+        left.map(|entry| (entry.t.as_secs(), entry.payload.clone())),
+        Some((
+            depart,
+            LogPayload::LeftHome {
+                place: sim_core::house::state::Duty::Work,
+                late_secs: 0
+            }
+        ))
+    );
+    for saved_at in [depart - 1, depart, depart + 1] {
+        runs_on_the_same(&data, saved_at, depart + 600, || {
+            let mut run = family();
+            run.advance(saved_at);
+            run
+        });
+    }
+}
+
+/// An input at the clock plans the end of a time-filler anew in the very second it was due
+/// (review of 2026-11-05), as the loader recomputes it from there. In the tune house of
+/// `a_time_filler_lasts_until_the_next_choice` the woman's time-filler ends at 6:09:00, when the
+/// loo brings enough. At the clock 6:08:59 the man is told to use the loo: he walks there and
+/// takes its one place, so nothing brings her enough while he is in it, and her end moves to
+/// 4 h after it began. When his 5 minutes there end at 6:14:03 the loo is free again, her deficit
+/// 734 above 609 and no whole minute before 6:14:39, where her deficit 744 brings 40 026 at the
+/// least mood: then her time-filler ends, with fun 824 (800 + ⌊100 · 876 / 3 600⌋), and she walks
+/// to the loo. Saved at the clock with the command, the morning loads, saves to the same bytes
+/// and runs on as the whole.
+#[test]
+fn a_command_in_the_second_a_time_filler_ends_is_saved_and_runs_on_the_same() {
+    let data = tune_data(-1_000);
+    let clock = MORNING + 539;
+    let told = || {
+        let (mut run, _) = Run::moved_in(data.clone());
+        run.advance(clock);
+        run.submit(Input::Command(Command {
+            sim: sim(2),
+            object: LOO,
+            offer: 0,
+        }));
+        run
+    };
+    let mut whole = told();
+    whole.advance(MORNING + 900);
+    let at_loo = [600, 900, 256, 700, 824];
+    assert_eq!(
+        doings(&whole, 1, clock + 1, MORNING + 900),
+        [
+            (339, ended(SCREEN, EndReason::Done, at_loo)),
+            (339, started((LOO, 0), (1, 3), at_loo, false)),
+            (342, LogPayload::Reached { object: LOO }),
+        ]
+    );
+    runs_on_the_same(&data, clock, MORNING + H, told);
 }
 
 /// The loader's check of a time-filler (`consistent`): a person of the tune house at the screen as
