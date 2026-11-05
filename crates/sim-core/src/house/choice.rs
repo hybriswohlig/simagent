@@ -157,10 +157,10 @@ fn points(
     filled * (100 + i64::from(mood)) / 100 - walk + critical
 }
 
-/// The seconds offer `def` lasts when chosen with the needs `values` in the age band `band`, as
-/// its action would (`house::state::action_end`): its `seconds`, or until the need it fills is
-/// full from its value in the choice, at least 60 s and at most `max_seconds`. `None` for an
-/// offer of sleep, which lasts its night.
+/// The seconds offer `def` lasts begun with the needs `values` in the age band `band`, as its
+/// action would (`house::state::action_end`): its `seconds`, or until the need it fills is full
+/// from its value in `values`, at least 60 s and at most `max_seconds`. `None` for an offer of
+/// sleep, which lasts its night.
 pub fn lasts(def: &OfferDef, rates: &NeedRates, band: usize, values: [u16; 5]) -> Option<i64> {
     match (def.seconds, def.until_full, def.max_seconds) {
         (Some(seconds), _, _) => Some(i64::from(seconds)),
@@ -178,9 +178,38 @@ pub fn lasts(def: &OfferDef, rates: &NeedRates, band: usize, values: [u16; 5]) -
     }
 }
 
+/// The most seconds offer `def`, chosen in the age band `band` with the needs `values` and
+/// `walk_secs` from its object, runs from its choice to its end: its walk, then its length
+/// (`lasts`) from its arrival, the need it fills lowered first by the most the walk can lower
+/// it. A walk keeps the rates the person had at its choice, awake ones; at the fastest fall of
+/// the awake rates of any age band the need loses at most `⌈fall · walk_secs / 3600⌉` on it
+/// (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler, review of 2026-11-05). `None`
+/// for an offer of sleep, which lasts its night.
+pub fn runs_for(
+    def: &OfferDef,
+    rates: &NeedRates,
+    band: usize,
+    values: [u16; 5],
+    walk_secs: u32,
+) -> Option<i64> {
+    let mut arrival = values;
+    let fills = def
+        .until_full
+        .and_then(|need| NEEDS.iter().position(|&each| each == need));
+    if let Some(at) = fills {
+        let fastest = (0..AGE_BANDS.len())
+            .map(|band| -i64::from(rates.awake.rate(NEEDS[at], band)))
+            .fold(0, i64::max);
+        let fall = (fastest * i64::from(walk_secs) + HOUR.as_secs() - 1) / HOUR.as_secs();
+        let lowered = (i64::from(values[at]) - fall).max(0);
+        arrival[at] = u16::try_from(lowered).unwrap_or(0);
+    }
+    Some(i64::from(walk_secs) + lasts(def, rates, band, arrival)?)
+}
+
 /// Whether offer `def`, chosen at `age` with the needs `values` and `walk_secs` from its object,
-/// would still run at today's departure, `depart_in` seconds after the choice: its walk and its
-/// length (`lasts`) reach it; unless it raises a need critical now (ADR-0026, addendum of
+/// could still run at today's departure, `depart_in` seconds after the choice: the most it runs
+/// (`runs_for`) reaches it; unless it raises a need critical now (ADR-0026, addendum of
 /// 2026-11-04 on comfort and the time-filler). Never without a departure still to come today.
 pub fn crosses_departure(
     def: &OfferDef,
@@ -192,12 +221,12 @@ pub fn crosses_departure(
     let (Some(depart_in), Some(band)) = (depart_in, age_band(age)) else {
         return false;
     };
-    let Some(length) = lasts(def, rates, band, values) else {
+    let Some(runs) = runs_for(def, rates, band, values, walk_secs) else {
         return false;
     };
     let urgent = (NEEDS.into_iter().zip(values))
         .any(|(need, value)| value <= CRITICAL && def.raises(rates, need, age));
-    !urgent && i64::from(walk_secs) + length >= depart_in
+    !urgent && runs >= depart_in
 }
 
 /// The time-filler of one idle by day (ADR-0026, addendum of 2026-11-04 on comfort and the
@@ -450,9 +479,10 @@ pub fn next_choice(
             };
             // Only before the departure closes it; it runs longer the later it is chosen.
             let closes = |at: i64| {
-                let depart_in = depart.map(|depart| depart.as_secs() - at);
-                let lasts = lasts(def, data.rates(), band, values_at(at)).unwrap_or(0);
-                depart_in.is_some_and(|depart_in| i64::from(walk_secs) + lasts >= depart_in)
+                let runs = runs_for(def, data.rates(), band, values_at(at), walk_secs);
+                depart
+                    .zip(runs)
+                    .is_some_and(|(depart, runs)| runs >= depart.as_secs() - at)
             };
             let open = first_at(start.as_secs(), limit, closes).unwrap_or(limit);
             let until = first.unwrap_or(limit).min(limit).min(open);

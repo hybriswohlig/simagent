@@ -16,10 +16,12 @@ use common::day::{self, MORNING, Run, number, places_hold};
 use serde_json::json;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
-use sim_core::house::choice::{ENOUGH, crosses_departure, filler, mood, next_choice, score};
+use sim_core::house::choice::{ENOUGH, crosses_departure, filler, lasts, mood, next_choice, score};
 use sim_core::house::data::{House, HouseData};
 use sim_core::house::need::NeedSample;
-use sim_core::house::state::{Action, Broken, InHouse, Place, consistent, filler_end_of};
+use sim_core::house::state::{
+    Action, Broken, InHouse, Place, action_end, consistent, filler_end_of,
+};
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input};
 use sim_core::lineage::LineageKey;
@@ -620,10 +622,60 @@ fn an_offer_that_runs_into_the_departure_is_closed() {
             Some(depart_in),
         )
     };
-    assert!(!toilet(500, 154) && toilet(500, 153));
+    // Bladder 500: on the walk of 3 s it falls at most ⌈120 · 3 / 3 600⌉ = 1, to 499, and from
+    // there the toilet (+12 000 an hour until full) needs ⌈501 · 3 600 / 12 000⌉ = 151 s: it
+    // still runs 154 s after the choice. At 900 the shortest action, 60 s, outlasts the 31 s.
+    assert!(!toilet(500, 155) && toilet(500, 154));
     assert!(!toilet(900, 64) && toilet(900, 63));
     let dirty = [600, 900, 500, 150, 800];
     assert_eq!(open(dirty, Some(600)), [1, 5, 6]);
+}
+
+/// The departure closes an offer by the end it really has, the walk included (review of
+/// 2026-11-05): an adult's bladder written down at 6:00 at 501, falling 120 an hour (the
+/// repository's awake rate), is 500 at 6:00:57 (501 − ⌊120 · 57 / 3 600⌋). From that value the
+/// repository's toilet (+12 000 an hour until full, at most 5 min) would need 500 · 3 600 /
+/// 12 000 = 150 s, 153 s with its walk of 3 s, and end a second before a departure 154 s away.
+/// But on the walk the bladder falls to 499 by 6:01:00 (501 − 120 · 60 / 3 600), so the action
+/// written down at its arrival ends ⌈501 · 3 600 / 12 000⌉ = 151 s later, at the departure itself
+/// (`action_end`). The walk lowers the need it fills by at most ⌈120 · 3 / 3 600⌉ = 1, the
+/// fastest awake rate of any age band over its seconds: the toilet is closed 154 s before the
+/// departure and open 155 s before it.
+#[test]
+fn the_departure_closes_a_toilet_by_its_end_after_the_walk() {
+    let houses = common::repository_houses();
+    let kind = houses
+        .kind(&DataId::new("core:toilet").expect("id"))
+        .expect("a kind");
+    let offer = &kind.offers[0];
+    let (written, chosen, arrived) = (t(MORNING), t(MORNING + 57), t(MORNING + 60));
+    let falling = NeedSample::new(501, written, -120);
+    assert_eq!(
+        (falling.value_at(chosen), falling.value_at(arrived)),
+        (500, 499)
+    );
+    let values = [1000, 1000, 500, 1000, 1000];
+    assert_eq!(lasts(offer, houses.rates(), 2, values), Some(150));
+    let mut person = InHouse {
+        needs: [1000, 1000, 0, 1000, 1000].map(|value| NeedSample::new(value, arrived, 0)),
+        place: Place::Room(3),
+        action: Some(Action {
+            object: 5,
+            offer: 0,
+            slot: 0,
+            filler: false,
+        }),
+        due: None,
+        decisions: sim_core::house::state::Decisions { day: 1, count: 1 },
+        collapsed: false,
+    };
+    person.needs[2] = falling.with_rate(arrived, 12_000);
+    let born = t(-30 * Y);
+    let ends = action_end(&person, offer, houses.day(), born);
+    assert_eq!(ends, Some(t(MORNING + 57 + 154)));
+    let closed =
+        |depart_in: i64| crosses_departure(offer, houses.rates(), (30, values), 3, Some(depart_in));
+    assert!(closed(154) && !closed(155));
 }
 
 /// The couple in the tune house with the bladder falling only 44 an hour: at 6:00 each takes the
