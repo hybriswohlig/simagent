@@ -1623,7 +1623,7 @@ fn stadt_from_18() -> Run {
 /// town of `stadt.json` with partnerships from 18 brings couples of the pool that paired
 /// before 18. Saved at the end of year 1, after its month starts and an immigration, the save
 /// loads, as an uninterrupted run wrote it (ADR-0006 section 4), saves the same bytes and runs
-/// on to the end of year 3 as the town in one piece: the same year hashes, log and state.
+/// on to the end of year 2 as the town in one piece: the same year hashes, log and state.
 #[test]
 fn a_partnership_the_pool_brought_keeps_the_pools_pairing_age() {
     let mut whole = stadt_from_18();
