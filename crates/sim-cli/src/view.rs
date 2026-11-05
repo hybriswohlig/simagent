@@ -35,9 +35,15 @@ pub const PORT: u16 = 8742;
 /// What the server serves and reads.
 struct Server {
     runs: PathBuf,
-    /// The data of every world this server loads. A `settings.json` in `runs` replaces
-    /// calibration values; otherwise these are the built-in data.
+    /// The data of a run without settings of its own (ADR-0021, addendum of 2026-11-05): a
+    /// `settings.json` in `runs` replaces calibration values; otherwise these are the
+    /// built-in data.
     data: Data,
+    /// The values of that `settings.json` as the server read it at its start, if there is
+    /// one: a new town that brings no values of its own keeps them as its own.
+    folder: Option<BTreeMap<String, f64>>,
+    /// The data of the runs with settings of their own, by the text of their file.
+    own: RefCell<BTreeMap<String, Data>>,
     port: u16,
     /// The files of `web/dist` at start: relative path to type and bytes.
     files: BTreeMap<String, (&'static str, Vec<u8>)>,
@@ -49,6 +55,44 @@ struct Server {
     /// The world loaded last: the reads of a step (world, pedigree, a person) load it once
     /// (the third playtest, K12).
     loaded: RefCell<Option<Loaded>>,
+}
+
+/// What a run opens with (ADR-0021, addendum of 2026-11-05): its data and the values
+/// beside the base game's they are built from, its own or else the folder's; `None` for the
+/// base game without any settings.
+struct Settled {
+    data: Data,
+    values: Option<BTreeMap<String, f64>>,
+}
+
+/// The values a new town may set where it is founded (ADR-0021, addendum of 2026-11-05), in
+/// the order of the page, each with what the base game's towns show of it where the value
+/// was fitted to that: the median age of women at their first partnership, 23.5 years, for
+/// the centre of their search, and the mean age gap, 3.0 years, for the preferred gap
+/// (`tools/life_reference.py` and the notes in `data/calibration/demography.json`).
+const FOUNDING: [(&str, Option<f64>); 3] = [
+    ("core:market_age", None),
+    ("core:market_search_center_female", Some(23.5)),
+    ("core:pairing_age_gap_preferred", Some(3.0)),
+];
+
+/// [`FOUNDING`] as the run list names it, each with the base game's value from the
+/// built-in data; `None` if the data lack one.
+fn founding() -> Option<Value> {
+    let values = (FOUNDING.iter())
+        .map(|(key, outcome)| {
+            let base = crate::data::base_value(key)?;
+            Some(json!({"key": key, "base": base, "outcome": outcome}))
+        })
+        .collect::<Option<Vec<Value>>>()?;
+    Some(Value::from(values))
+}
+
+/// Values by name as the run list names them: `[{"key", "value"}]`.
+fn listed_values(values: &BTreeMap<String, f64>) -> Value {
+    (values.iter())
+        .map(|(key, value)| json!({"key": key, "value": value}))
+        .collect()
 }
 
 /// A run's world with the directory and the bytes of the save it was loaded from.
@@ -107,6 +151,10 @@ struct Found {
     run: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     world_seed: Option<String>,
+    /// The town's own values by calibration name (ADR-0021, addendum of 2026-11-05), the
+    /// numbers as they came, so that the body reads back as it was sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    settings: Option<BTreeMap<String, serde_json::Number>>,
 }
 
 /// A seed as the files write it: 16 lower-case hex digits.
@@ -300,9 +348,12 @@ impl Server {
             ["api", "runs", run, "why", entry] => {
                 self.read(run, |dir| why(dir, || self.world_of(dir), entry))
             }
-            ["api", "runs", a, "diff", b] => {
-                self.read(a, |one| self.read(b, |other| diff((a, b), (one, other))))
-            }
+            ["api", "runs", a, "diff", b] => self.read(a, |one| {
+                self.read(b, |other| match (self.data_of(one), self.data_of(other)) {
+                    (Ok(x), Ok(y)) => diff((a, b), (one, other), (&x, &y)),
+                    (Err(error), _) | (_, Err(error)) => Response::error(500, error.code),
+                })
+            }),
             ["api", "runs", run, "fork"] => self.fork(run, &request.body),
             ["api", "sheet"] => sheet(),
             ["api", "runs", run, "events"] => {
@@ -334,7 +385,14 @@ impl Server {
                 }
                 Some(_) => {}
             }
-            match open(&self.runs.join(run), &self.data) {
+            let dir = self.runs.join(run);
+            // A run whose own values give no data is not opened, and not marked failed:
+            // nothing of it was written.
+            let data = match self.data_of(&dir) {
+                Ok(data) => data,
+                Err(error) => return failure(&error),
+            };
+            match open(&dir, &data) {
                 Ok(opened) => {
                     self.failed.remove(run);
                     self.open.insert(run.to_owned(), opened);
@@ -363,7 +421,10 @@ impl Server {
 
     /// `POST /api/runs`: a new run from a template, made like `run --scenario <template>`
     /// (the template's end: the town stands in its first second) and kept open by the server. The name
-    /// must be free in the runs directory; a seed may replace the template's.
+    /// must be free in the runs directory; a seed may replace the template's. The town keeps
+    /// its own values, those it brings or else the folder's, as its own `settings.json`,
+    /// written before its first stop (ADR-0021, addendum of 2026-11-05); values the data
+    /// refuse make nothing.
     fn create(&mut self, body: &[u8]) -> Response {
         let found = std::str::from_utf8(body)
             .ok()
@@ -388,6 +449,25 @@ impl Server {
         if dir.symlink_metadata().is_ok() {
             return Response::error(409, "run_exists");
         }
+        let (own, data) = match &found.settings {
+            None => (
+                self.folder.as_ref().map(crate::data::settings_text),
+                self.data.clone(),
+            ),
+            Some(given) => {
+                let values = (given.iter())
+                    .map(|(key, number)| Some((key.clone(), number.as_f64()?)))
+                    .collect::<Option<BTreeMap<String, f64>>>();
+                let Some(values) = values else {
+                    return Response::error(400, "body_invalid");
+                };
+                let text = crate::data::settings_text(&values);
+                match crate::data::data_with_settings(&text) {
+                    Ok(data) => (Some(text), data),
+                    Err(error) => return Response::error(409, error.code),
+                }
+            }
+        };
         let lock = match RunLock::acquire(&dir) {
             Ok(lock) => lock,
             Err(error) => return failure(&error),
@@ -400,7 +480,7 @@ impl Server {
             if let Some(seed) = seed {
                 file.start.world_seed = seed;
             }
-            crate::resolve(file, || Ok(self.data.clone()))
+            crate::resolve(file, || Ok(data.clone()))
         });
         let scenario = match scenario {
             Ok(scenario) => scenario,
@@ -409,7 +489,11 @@ impl Server {
         // From here on the directory is this server's: a failure marks it failed.
         let made = (|| {
             // The run stands at the template's end, as `run --scenario` leaves it.
-            let mut session = crate::begin_with(&dir, &scenario, scenario.until, &self.data)?;
+            let mut session = crate::begin_with(&dir, &scenario, scenario.until, &data)?;
+            // Its own values before its first stop: a town that is listed has them.
+            if let Some(text) = &own {
+                files::write(&dir.join(crate::data::SETTINGS_FILE), text.as_bytes())?;
+            }
             session.advance(scenario.until)?;
             session.checkpoint(&scenario)?;
             Ok::<_, CliError>(session)
@@ -423,6 +507,9 @@ impl Server {
                     _lock: lock,
                 };
                 self.open.insert(found.run.clone(), opened);
+                if let Some(text) = own {
+                    self.own.borrow_mut().insert(text, data);
+                }
                 let body =
                     json!({"format": "simagent.view.created", "version": 1, "run": found.run});
                 Response::new(200, JSON, format!("{body}\n").into_bytes())
@@ -470,11 +557,16 @@ impl Server {
         Ok((bytes, manifest))
     }
 
-    /// `GET /api/runs`: the runs in name order, each with its manifest and the core's
-    /// calendar date of its last closed second, or why it has none.
+    /// `GET /api/runs`, version 2 (ADR-0021, addendum of 2026-11-05): the values a new town
+    /// may set, and the runs in name order, each with its manifest, the core's calendar date
+    /// of its last closed second and the values it opens with beside the base game's, or why
+    /// it has none.
     fn runs(&self) -> Response {
         let Some(names) = self.run_names() else {
             return Response::error(500, "runs_unreadable");
+        };
+        let Some(founding) = founding() else {
+            return Response::error(500, "data_rejected");
         };
         let runs: Vec<Value> = (names.iter())
             .map(|name| {
@@ -485,15 +577,26 @@ impl Server {
                     let value = serde_json::from_slice::<Value>(&bytes).ok()?;
                     Some((value, manifest.closed_through))
                 });
-                match read {
-                    Some((manifest, closed)) => {
-                        json!({"run": name, "manifest": manifest, "date": date(closed)})
-                    }
-                    None => json!({"run": name, "error": "manifest_invalid"}),
+                let Some((manifest, closed)) = read else {
+                    return json!({"run": name, "error": "manifest_invalid"});
+                };
+                match self.settled(&self.runs.join(name)) {
+                    Ok(settled) => json!({
+                        "run": name,
+                        "manifest": manifest,
+                        "date": date(closed),
+                        "settings": listed_values(&settled.values.unwrap_or_default()),
+                    }),
+                    Err(_) => json!({"run": name, "error": "settings_invalid"}),
                 }
             })
             .collect();
-        let body = json!({"format": "simagent.view.runs", "version": 1, "runs": runs});
+        let body = json!({
+            "format": "simagent.view.runs",
+            "version": 2,
+            "founding": founding,
+            "runs": runs,
+        });
         Response::new(200, JSON, format!("{body}\n").into_bytes())
     }
 
@@ -502,7 +605,9 @@ impl Server {
     /// `POST /api/runs`. A run the server holds open is closed first, which lets its lock
     /// go; its files are whole since its last write. The fork's directory is the request's
     /// only under its lock and only if it is still absent there; the lock is held through
-    /// the fork and, if it fails, through taking away what it made.
+    /// the fork and, if it fails, through taking away what it made. The fork opens with the
+    /// parent's data and keeps the parent's values as its own (ADR-0021, addendum of
+    /// 2026-11-05).
     fn fork(&mut self, parent: &str, body: &[u8]) -> Response {
         let Some(fork) = std::str::from_utf8(body)
             .ok()
@@ -515,6 +620,11 @@ impl Server {
             Ok(dir) => dir,
             Err(refused) => return refused,
         };
+        let settled = match self.settled(&parent_dir) {
+            Ok(settled) => settled,
+            Err(error) => return failure(&error),
+        };
+        let own = settled.values.as_ref().map(crate::data::settings_text);
         let dir = self.runs.join(&fork.run);
         if dir.symlink_metadata().is_ok() {
             return Response::error(409, "run_exists");
@@ -527,8 +637,14 @@ impl Server {
             return Response::error(409, "run_exists");
         }
         self.open.remove(parent);
-        let made =
-            crate::fork_into_with(&parent_dir, fork.from_year, fork.changes, &dir, &self.data);
+        let made = crate::fork_into_with(
+            &parent_dir,
+            fork.from_year,
+            fork.changes,
+            &dir,
+            &settled.data,
+            own.as_deref(),
+        );
         if made.is_err() {
             discard(&dir, &self.runs.join(format!("{}.repro.json", fork.run)));
         }
@@ -569,6 +685,42 @@ impl Server {
         }
     }
 
+    /// What the run in `dir` opens with (ADR-0021, addendum of 2026-11-05): the data of its
+    /// own `settings.json` if it holds one, else the server's. A file there that is no
+    /// regular file, does not read or gives no data is an error: the run does not open on
+    /// other data instead.
+    fn settled(&self, dir: &Path) -> Result<Settled, CliError> {
+        let path = dir.join(crate::data::SETTINGS_FILE);
+        match path.symlink_metadata() {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Settled {
+                    data: self.data.clone(),
+                    values: self.folder.clone(),
+                });
+            }
+            Err(error) => return Err(CliError::io(&path, &error)),
+            Ok(kind) if !kind.is_file() => {
+                let detail = format!("{} is no regular file", path.display());
+                return Err(CliError::new("data_rejected", detail));
+            }
+            Ok(_) => {}
+        }
+        let text = files::read_text(&path)?;
+        let values = Some(crate::data::settings_values(&text)?);
+        if let Some(data) = self.own.borrow().get(&text) {
+            let data = data.clone();
+            return Ok(Settled { data, values });
+        }
+        let data = crate::data::data_with_settings(&text)?;
+        self.own.borrow_mut().insert(text, data.clone());
+        Ok(Settled { data, values })
+    }
+
+    /// The data the run in `dir` opens with.
+    fn data_of(&self, dir: &Path) -> Result<Data, CliError> {
+        self.settled(dir).map(|settled| settled.data)
+    }
+
     /// The answer of `read` on the directory of `run`, if it is one of the list exactly.
     fn read(&self, run: &str, read: impl FnOnce(&Path) -> Response) -> Response {
         match self.listed(run) {
@@ -577,18 +729,20 @@ impl Server {
         }
     }
 
-    /// The world of the run in `dir`: the one loaded last while it is this run's and its
-    /// save has the same bytes, else loaded from them. The world is the save's alone (the
-    /// server's data), so both give the same answers.
+    /// The world of the run in `dir`: the one loaded last while it is this run's, its save
+    /// has the same bytes and it opens with the same data, else loaded from them. The world
+    /// is the save's alone (the data the run opens with), so both give the same answers.
     fn world_of(&self, dir: &Path) -> Result<Rc<World>, CliError> {
+        let data = self.data_of(dir)?;
         let save = files::read(&dir.join(files::SAVE))?;
         if let Some(loaded) = self.loaded.borrow().as_ref()
             && loaded.dir == dir
             && loaded.save == save
+            && loaded.world.data().hash() == data.hash()
         {
             return Ok(Rc::clone(&loaded.world));
         }
-        let world = Rc::new(crate::world_from_save_with(&save, &self.data)?);
+        let world = Rc::new(crate::world_from_save_with(&save, &data)?);
         let world_kept = Rc::clone(&world);
         *self.loaded.borrow_mut() = Some(Loaded {
             dir: dir.to_path_buf(),
@@ -848,10 +1002,10 @@ fn discard(dir: &Path, kept: &Path) {
 /// `GET /api/runs/{a}/diff/{b}` (the addendum of ADR-0021 section 2, G2): the comparison
 /// of the core, as `simagent diff` prints it, with the names of the runs and each second
 /// with its date; the second compared at and the run recomputed to it (the addendum of
-/// 2026-10-29).
-fn diff((a, b): (&str, &str), (one, other): (&Path, &Path)) -> Response {
+/// 2026-10-29), each run on the data it opens with.
+fn diff((a, b): (&str, &str), (one, other): (&Path, &Path), data: (&Data, &Data)) -> Response {
     let compared = (|| -> Result<(Value, SimTime, Option<crate::Side>), CliError> {
-        let worlds = crate::compared_worlds(one, other)?;
+        let worlds = crate::compared_worlds_with((one, data.0), (other, data.1))?;
         let compared = serde_json::to_value(crate::diff_of_worlds(&worlds.a, &worlds.b))
             .map_err(|error| CliError::new("io", error.to_string()))?;
         Ok((compared, worlds.at, worlds.recomputed))
@@ -1316,11 +1470,13 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         ));
     }
     let settings = runs.join(crate::data::SETTINGS_FILE);
-    let data = if settings.is_file() {
+    let (data, folder) = if settings.is_file() {
         eprintln!("view: settings {}", settings.display());
-        crate::data::data_with_settings(&files::read_text(&settings)?)?
+        let text = files::read_text(&settings)?;
+        let values = crate::data::settings_values(&text)?;
+        (crate::data::data_with_settings(&text)?, Some(values))
     } else {
-        crate::data::core_data()?
+        (crate::data::core_data()?, None)
     };
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
         .map_err(|e| CliError::new("port_unavailable", format!("127.0.0.1:{port}: {e}")))?;
@@ -1330,7 +1486,9 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
         .port();
     let mut server = Server {
         runs: runs.to_path_buf(),
-        data: data.clone(),
+        data,
+        folder,
+        own: RefCell::new(BTreeMap::new()),
         port,
         files: found,
         open: BTreeMap::new(),
@@ -1339,10 +1497,14 @@ pub fn view(runs: &Path, web: &Path, port: u16) -> Result<(), CliError> {
     };
     // A run a process left between two stops goes back to its last stop before the first
     // request (ADR-0021 section 2, addendum 2026-10-27); a run another process holds stays
-    // its, and a run that does not go back is reported by the open as before.
+    // its, and a run that does not go back is reported by the open as before. Each goes back
+    // on the data it opens with (ADR-0021, addendum of 2026-11-05).
     for name in server.run_names().unwrap_or_default() {
         let dir = runs.join(&name);
         let Ok(_lock) = RunLock::acquire(&dir) else {
+            continue;
+        };
+        let Ok(data) = server.data_of(&dir) else {
             continue;
         };
         if let Ok(Some(cut)) = session::recover_with(&dir, &data) {
@@ -1465,6 +1627,8 @@ mod tests {
         let server = Server {
             runs: base.clone(),
             data: crate::data::core_data().expect("data"),
+            folder: None,
+            own: RefCell::new(BTreeMap::new()),
             port: 0,
             files: BTreeMap::new(),
             open: BTreeMap::new(),

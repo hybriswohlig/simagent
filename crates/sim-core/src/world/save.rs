@@ -1012,7 +1012,9 @@ fn input_log_consistent(
 /// IDs from 1 in the order they were formed, and the counter follows them (ADR-0018
 /// section 7): the inputs' in the order of the log; the market's in a closed round second
 /// (a positive multiple of `MONTH`), after the inputs' of that second. Each pairs a woman
-/// and a man of at least the market age with `φ` below the limit; it ended by the first of
+/// and a man with `φ` below the limit, of at least the market age unless the pool brought
+/// it (formed under the pool's rules; `pool_view` checks its second against the pool's
+/// record, ADR-0021, addendum of 2026-11-05); it ended by the first of
 /// its due separation (if that second is closed) and the first death of the two, the
 /// separation first in a tie (ADR-0018 section 3), and is open while neither has come;
 /// never ended before it was formed. A parting of the two by an input ends it in its
@@ -1143,7 +1145,9 @@ fn partnerships_consistent(
                 && in_order
                 && sex_of(&woman) == Some(Sex::Female)
                 && sex_of(&man) == Some(Sex::Male)
-                && of_age
+                // A carried partnership was formed under the pool's rules, at the second
+                // `pool_view` checked against the pool's record.
+                && (carried || of_age)
                 && !related
                 && partnership.ended == ending
                 && first_leave.is_none_or(|(left, _)| left >= formed)

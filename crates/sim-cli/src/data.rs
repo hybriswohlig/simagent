@@ -85,11 +85,16 @@ pub fn offer_names() -> Result<BTreeMap<DataId, Vec<String>>, CliError> {
 const CALIBRATION_TEXT: [&str; 3] = ["source", "as_of", "note"];
 const LOCUS_TEXT: [&str; 1] = ["description"];
 
-/// The file a runs directory may hold (`<runs>/settings.json`). When it is there,
-/// `simagent view` builds its worlds from these numbers instead of the built-in
-/// calibration. Each key is one calibration value (`core:market_age`, `female_ramp`,
-/// the rates, the curve anchors). A new town keeps the data hash of the result. An old
-/// town opens only while the file still produces the hash it was founded with.
+/// The file a runs directory may hold (`<runs>/settings.json`), and a run directory too
+/// (`<runs>/<run>/settings.json`, ADR-0021, addendum of 2026-11-05), a `simagent.settings`
+/// document. Each key is one calibration value (`core:market_age`, `female_ramp`, the
+/// rates, the curve anchors); the data are the base game's with these numbers instead.
+///
+/// `simagent view` opens a run with its own file if it has one, else with the folder's (or
+/// the base game). A new town keeps the values it was founded with as its own file, those
+/// it brings or else the folder's, so it opens with its data hash whatever the folder's file
+/// says later; a town without its own file opens only while the folder's file still
+/// produces the hash it was founded with.
 ///
 /// Adulthood stays 18 and leaving home still starts at 16: both are the household rule
 /// (ADR-0018 section 4), not calibration values.
@@ -106,7 +111,8 @@ pub fn core_data() -> Result<Data, CliError> {
 /// replaced. A key must name exactly one value. The core then checks the ranges, so a
 /// market age of 11 is refused here as it would be in the file.
 pub fn data_with_settings(text: &str) -> Result<Data, CliError> {
-    let (demography, calibration) = apply_settings(DEMOGRAPHY, CALIBRATION, text)?;
+    let values = settings_values(text)?;
+    let (demography, calibration) = apply_settings(DEMOGRAPHY, CALIBRATION, &values)?;
     let base = assemble(DEMOGRAPHY, CALIBRATION)?;
     if demography == DEMOGRAPHY && calibration == CALIBRATION {
         return Ok(base);
@@ -128,13 +134,10 @@ fn assemble(demography: &str, calibration: &str) -> Result<Data, CliError> {
         .map_err(|error| rejected(&error.to_string()))
 }
 
-/// Replaces calibration values in the two built-in documents. The key is the value's
-/// name (`core:market_age` in the demography file, `female_ramp` under fertility).
-fn apply_settings(
-    demography: &str,
-    calibration: &str,
-    text: &str,
-) -> Result<(String, String), CliError> {
+/// The values of a `simagent.settings` document by name, as written: version 1, each value
+/// a number. Whether a name is a calibration value and its number in range is checked when
+/// the data are built from them.
+pub fn settings_values(text: &str) -> Result<BTreeMap<String, f64>, CliError> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct File {
@@ -147,14 +150,61 @@ fn apply_settings(
     if (file.format.as_str(), file.version) != ("simagent.settings", 1) {
         return Err(rejected("settings.json: not simagent.settings version 1"));
     }
-    if file.values.is_empty() {
+    Ok(file.values)
+}
+
+/// The `simagent.settings` document of `values` in one line, as a town keeps its own
+/// values (ADR-0021, addendum of 2026-11-05); [`settings_values`] reads them back.
+pub fn settings_text(values: &BTreeMap<String, f64>) -> String {
+    #[derive(serde::Serialize)]
+    struct File<'a> {
+        format: &'static str,
+        version: u32,
+        values: &'a BTreeMap<String, f64>,
+    }
+    let file = File {
+        format: "simagent.settings",
+        version: 1,
+        values,
+    };
+    let text =
+        serde_json::to_string(&file).unwrap_or_else(|_| panic!("invariant cli.settings_text"));
+    text + "\n"
+}
+
+/// The base game's number of the calibration value `key`, as a settings document names it:
+/// the one object of that name with `value` and `unit` in the two built-in documents; `None`
+/// if there is none or more than one.
+pub fn base_value(key: &str) -> Option<f64> {
+    let mut documents = [DEMOGRAPHY, CALIBRATION]
+        .map(|text| serde_json::from_str::<Value>(text).ok())
+        .into_iter()
+        .collect::<Option<Vec<Value>>>()?;
+    let mut found = Vec::new();
+    for document in &mut documents {
+        calibrated(document, key, &mut found);
+    }
+    match found.as_slice() {
+        [entry] => entry.get("value").and_then(Value::as_f64),
+        _ => None,
+    }
+}
+
+/// Replaces calibration values in the two built-in documents. The key is the value's
+/// name (`core:market_age` in the demography file, `female_ramp` under fertility).
+fn apply_settings(
+    demography: &str,
+    calibration: &str,
+    values: &BTreeMap<String, f64>,
+) -> Result<(String, String), CliError> {
+    if values.is_empty() {
         return Ok((demography.to_owned(), calibration.to_owned()));
     }
     let mut demography: Value = serde_json::from_str(demography)
         .map_err(|error| rejected(&format!("calibration/demography.json: {error}")))?;
     let mut calibration: Value = serde_json::from_str(calibration)
         .map_err(|error| rejected(&format!("calibration/genetics.json: {error}")))?;
-    for (key, number) in &file.values {
+    for (key, number) in values {
         if !number.is_finite() {
             return Err(rejected(&format!(
                 "settings.json: {key} is not a finite number"
@@ -181,37 +231,34 @@ fn apply_settings(
 /// Writes `number` into the one calibrated object named `key`. An object counts when it
 /// has `value` and `unit`. Returns how many it wrote.
 fn replace_calibrated(value: &mut Value, key: &str, number: f64) -> usize {
-    let mut found = 0;
-    fn walk(value: &mut Value, key: &str, number: f64, found: &mut usize) {
-        match value {
-            Value::Array(items) => {
-                for item in items {
-                    walk(item, key, number, found);
-                }
-            }
-            Value::Object(fields) => {
-                let hit = fields.get(key).is_some_and(|entry| {
-                    entry.get("unit").is_some() && entry.get("value").is_some()
-                });
-                if hit {
-                    fields
-                        .get_mut(key)
-                        .and_then(Value::as_object_mut)
-                        .expect("the entry is an object")
-                        .insert("value".to_owned(), serde_json::json!(number));
-                    *found += 1;
-                }
-                for (name, child) in fields {
-                    if name != key {
-                        walk(child, key, number, found);
-                    }
-                }
-            }
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
-        }
+    let mut found = Vec::new();
+    calibrated(value, key, &mut found);
+    for entry in &mut found {
+        entry["value"] = serde_json::json!(number);
     }
-    walk(value, key, number, &mut found);
-    found
+    found.len()
+}
+
+/// Every calibrated object named `key` in `value`, however deep: an object with `value` and
+/// `unit` under that name (not one inside another of that name).
+fn calibrated<'a>(value: &'a mut Value, key: &str, found: &mut Vec<&'a mut Value>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                calibrated(item, key, found);
+            }
+        }
+        Value::Object(fields) => {
+            for (name, child) in fields.iter_mut() {
+                if name != key {
+                    calibrated(child, key, found);
+                } else if child.get("unit").is_some() && child.get("value").is_some() {
+                    found.push(child);
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
 }
 
 /// The shock templates of `shocks.json` (ADR-0023 section 3 and its addendum of
@@ -573,6 +620,58 @@ mod tests {
         ] {
             assert!(data_with_settings(&refused).is_err(), "{refused}");
         }
+    }
+
+    /// The document a town keeps of its own values (ADR-0021, addendum of 2026-11-05): one
+    /// line of `simagent.settings` version 1 with the values by name, read back as written;
+    /// what is no such document is refused as the data refuse it.
+    #[test]
+    fn a_settings_document_is_read_as_it_is_written() {
+        let values = BTreeMap::from([
+            ("core:pairing_age_gap_preferred".to_owned(), 2.5),
+            ("core:market_age".to_owned(), 18.0),
+        ]);
+        let text = settings_text(&values);
+        assert_eq!(
+            text,
+            "{\"format\":\"simagent.settings\",\"version\":1,\"values\":{\"core:market_age\":18.0,\"core:pairing_age_gap_preferred\":2.5}}\n"
+        );
+        assert_eq!(settings_values(&text).expect("reads"), values);
+        let none = settings_text(&BTreeMap::new());
+        assert_eq!(
+            none,
+            "{\"format\":\"simagent.settings\",\"version\":1,\"values\":{}}\n"
+        );
+        assert_eq!(
+            data_with_settings(&none).expect("data").hash(),
+            core_data().expect("data").hash()
+        );
+        for refused in [
+            "{",
+            r#"{"format":"simagent.settings","version":2,"values":{}}"#,
+            r#"{"format":"simagent.other","version":1,"values":{}}"#,
+            r#"{"format":"simagent.settings","version":1,"values":{"core:market_age":"18"}}"#,
+            r#"{"format":"simagent.settings","version":1}"#,
+        ] {
+            let error = settings_values(refused).expect_err(refused);
+            assert_eq!(error.code, "data_rejected", "{refused}");
+        }
+    }
+
+    /// The base game's values a new town may set (ADR-0021, addendum of 2026-11-05), as
+    /// `data/calibration/demography.json` writes them; a value of the other file is found
+    /// too, a name that is no calibration value is not.
+    #[test]
+    fn the_base_game_names_its_values() {
+        assert_eq!(base_value("core:market_age"), Some(16.0));
+        assert_eq!(base_value("core:market_search_center_female"), Some(25.23));
+        assert_eq!(base_value("core:pairing_age_gap_preferred"), Some(4.69));
+        assert_eq!(
+            base_value("female_ramp"),
+            Some(puberty_ramp(&core_data().expect("data")))
+        );
+        assert_eq!(base_value("core:no_such_value"), None);
+        assert_eq!(base_value("values"), None);
     }
 
     /// The houses of `data/house/` (ADR-0025 section 3): one to three members take the flat,
