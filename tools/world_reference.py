@@ -717,7 +717,11 @@ PROJECTION_VERSION = 19
 # the repository's day (no jump of hunger on coming home, the least time left for a time-filler)
 # and runs with a household in a house: a new data hash, no year hash and no log hash of a run
 # without one: core 59, the projection stays 19.
-CORE_VERSION = 59
+# The wish of both partners and the extra child (ADR-0017, addendum of 2026-11-05) change the
+# runs of the game's data (a new data hash) from the first series the gate plans that her wish
+# alone would not; a run on the extract or a fixture keeps its year hashes and its log: core 60,
+# the projection stays 19.
+CORE_VERSION = 60
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -6004,7 +6008,9 @@ def carried_plans(world: World) -> list:
         subject = event.subject[1]
         if event.kind == ATTEMPT_KIND and subject in world.sims and world.is_arrival(subject):
             number_ = world.open_partnership(subject)
-            if number_ is not None and world.series_exempt(subject, number_):
+            # A series she brought; the town's series of a partnership she brought without
+            # one is not a carried plan (ADR-0017, addendum of 2026-11-05).
+            if number_ is not None and world.series_exempt(subject, number_) and world.pool_member(subject)["conception_at"] is not None:
                 found.append((event, subject, 0))
         elif event.kind == BIRTH_KIND and subject in world.pool_fathers:
             found.append((event, subject, 1))
