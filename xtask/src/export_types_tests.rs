@@ -144,7 +144,11 @@ fn the_run_list_names_the_founding_values_and_a_towns_own() {
         conforms(&types, "RunsAnswer", &answer, &mut seen),
         Vec::<String>::new()
     );
-    assert!(missing(&wanted, &seen).iter().all(|mark| !marks.contains(&mark.as_str())));
+    assert!(
+        missing(&wanted, &seen)
+            .iter()
+            .all(|mark| !marks.contains(&mark.as_str()))
+    );
     answer["runs"][0]["settings"][0]["value"] = json!("18");
     assert_eq!(
         conforms(&types, "RunsAnswer", &answer, &mut seen),

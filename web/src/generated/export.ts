@@ -252,19 +252,34 @@ export type Kinship = {
   readonly r_percent: number;
 };
 
-/** `GET /api/runs`: the runs of the server's directory in name order. */
+/** `GET /api/runs`, version 2: the values a new town may set where it is founded, and the runs of the server's directory in name order (ADR-0021, addendum of 2026-11-05). */
 export type RunsAnswer = {
   readonly format: "simagent.view.runs";
   readonly version: number;
+  readonly founding: FoundingValue[];
   readonly runs: RunEntry[];
 };
 
-/** A run of the list: its manifest and the date of its last closed second, or why not. */
+/** A value a new town may set: its calibration name, the base game's value from the built-in data, and what the base game's towns show of it where the value was fitted to that (the median age of women at their first partnership, the mean age gap), else null. */
+export type FoundingValue = {
+  readonly key: string;
+  readonly base: number;
+  readonly outcome: number | null;
+};
+
+/** A run of the list: its manifest, the date of its last closed second and the values beside the base game's it opens with (its own `settings.json`, else the directory's; none for the base game), or why not. */
 export type RunEntry = {
   readonly run: string;
   readonly manifest?: Manifest;
   readonly date?: CalendarDate;
-  readonly error?: "manifest_invalid" | "run_failed";
+  readonly settings?: RunSetting[];
+  readonly error?: "manifest_invalid" | "run_failed" | "settings_invalid";
+};
+
+/** A calibration value a run opens with in place of the base game's, by name. */
+export type RunSetting = {
+  readonly key: string;
+  readonly value: number;
 };
 
 /** The core's calendar date of a second: every unit counted from 0, named by `web/`. */
@@ -287,7 +302,7 @@ export type AdvanceAnswer = {
   readonly date: CalendarDate;
 };
 
-/** `POST /api/runs`: the name of the run made from a template. */
+/** `POST /api/runs`: the name of the run made from a template, with its own values if the body names them (ADR-0021, addendum of 2026-11-05). */
 export type CreatedAnswer = {
   readonly format: "simagent.view.created";
   readonly version: number;
