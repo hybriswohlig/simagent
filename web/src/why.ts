@@ -200,6 +200,16 @@ function goesWords(why: WhyAnswer, layout: HouseLayout): string {
   return ` ${TEXT.house_why_goes.replace("{where}", ROOM_WORDS[id]?.[1] ?? id)}`;
 }
 
+/** What the night looks after before a bed, hunger and the bladder under their comfort as the
+ * server gives it (ADR-0026, addendum of 2026-11-05 on the time-filler's length): "Hunger oder
+ * Blase unter 700", or each with its own where they differ. */
+export function beforeBed(comfort: readonly number[]): string {
+  const [hunger, , bladder] = comfort;
+  return hunger === bladder
+    ? TEXT.house_why_night_comfort.replace("{comfort}", String(hunger ?? ""))
+    : TEXT.house_why_night_comforts.replace("{hunger}", String(hunger ?? "")).replace("{bladder}", String(bladder ?? ""));
+}
+
 /** "Warum?" for a choice as text, all from the server's answer (ADR-0026 section 6 and its
  * addenda of 2026-11-04): in the night that the bed comes first; what was chosen or commanded
  * with its worth, else what was waited for, else that nothing brought enough, and then the
@@ -223,7 +233,7 @@ export function whyText(why: WhyAnswer, layout: HouseLayout): { readonly told: s
   const ends = why.night?.until ?? null;
   const night =
     why.night !== null && why.night.now && !why.commanded
-      ? `${ends === null ? TEXT.house_why_night_last : TEXT.house_why_night.replace("{time}", timeOfDay(ends.date.second_of_day))} `
+      ? `${(ends === null ? TEXT.house_why_night_last : TEXT.house_why_night.replace("{time}", timeOfDay(ends.date.second_of_day))).replace("{comfort}", beforeBed(why.comfort))} `
       : "";
   const said = (text: string, offer: WhyChoice | WhyOffer) =>
     text.replace("{what}", placedOfferWords(layout, offer.object, offer.offer)).replace("{score}", score(offer, why.needs, false));
