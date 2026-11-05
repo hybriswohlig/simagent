@@ -104,13 +104,6 @@ pub struct Market {
 
 /// The number of values without the extra child.
 const VALUES: usize = 22;
-/// The keys of the extra child, one group (ADR-0017, addendum of 2026-11-05).
-const EXTRA_CHILD: [&str; 4] = [
-    "core:fertility_count_until",
-    "core:fertility_extra",
-    "core:fertility_grown_from",
-    "core:fertility_grown_chance",
-];
 /// The ages of leaving home: 16 to 25 (ADR-0018 section 4).
 const LEAVE_AGES: usize = 10;
 /// The most entries of the wish shape: with `α ≤ 10` every `e^(α·n)` stays finite.
@@ -205,8 +198,15 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         )?,
         tau0: positive(value("core:learning_time", Unit::Hour)?, 1e9)?,
     };
-    // The extra child: none of its keys (the rule without it, 22 values), or all of them.
-    let named = EXTRA_CHILD
+    // The extra child (ADR-0017, addendum of 2026-11-05), one group: none of its keys (the
+    // rule without it, 22 values), or all of them.
+    let extra_child = [
+        "core:fertility_count_until",
+        "core:fertility_extra",
+        "core:fertility_grown_from",
+        "core:fertility_grown_chance",
+    ];
+    let named = extra_child
         .iter()
         .filter(|key| {
             let id = DataId::new(key).unwrap_or_else(|_| panic!("invariant data.key"));
@@ -215,11 +215,11 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         .count();
     let extra = match named {
         0 => None,
-        n if n == EXTRA_CHILD.len() => Some(ExtraChild {
-            count_until_years: whole(value(EXTRA_CHILD[0], Unit::Year)?, 1, 120)?,
-            extra: whole(value(EXTRA_CHILD[1], Unit::Count)?, 1, 64)?,
-            grown_from: whole(value(EXTRA_CHILD[2], Unit::Count)?, 1, 64)?,
-            grown_chance: within(value(EXTRA_CHILD[3], Unit::Fraction)?, (0.0, 1.0))?,
+        n if n == extra_child.len() => Some(ExtraChild {
+            count_until_years: whole(value(extra_child[0], Unit::Year)?, 1, 120)?,
+            extra: whole(value(extra_child[1], Unit::Count)?, 1, 64)?,
+            grown_from: whole(value(extra_child[2], Unit::Count)?, 1, 64)?,
+            grown_chance: within(value(extra_child[3], Unit::Fraction)?, (0.0, 1.0))?,
         }),
         _ => return Err(DataError::CalibrationMissing),
     };
