@@ -1,12 +1,13 @@
 // The lines of a person's day on the house page (the playtest of 2026-11-04): a choice and a
 // command with the object told apart from others of its kind, what ended and how ("isst fertig
 // am Esstisch", "wacht auf", cut off with its reason), where an idle person stands, what it
-// waits for; and the day list by calendar day across midnight. Written by hand from the words
-// of `text.ts`.
+// waits for; and the day list by calendar day across midnight. A person's line now: what it
+// waits for and where, and an action the departure ends at its time (ADR-0021, addendum of
+// 2026-11-05 on the house page). Written by hand from the words of `text.ts`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dayGroups, dayLine } from "../dist/day.js";
+import { dayGroups, dayLine, doing } from "../dist/day.js";
 
 function object(kind, room, offers) {
   return { kind, room, x: 0, y: 0, w: 1, h: 1, slots: 1, offers };
@@ -80,4 +81,53 @@ test("the day list by calendar day", () => {
     ],
   );
   assert.deepEqual(dayGroups([]), []);
+});
+
+// A hall, a bath with a toilet and a shower, a living room with a television, a WC with a toilet.
+const HOME = {
+  rooms: [
+    { id: "hall", floor: 0, x: 0, y: 0, w: 2, h: 6 },
+    { id: "bath", floor: 1, x: 0, y: 0, w: 2, h: 3 },
+    { id: "living", floor: 0, x: 2, y: 0, w: 4, h: 4 },
+    { id: "wc", floor: 0, x: 0, y: 6, w: 2, h: 1.5 },
+  ],
+  doors: [],
+  objects: [
+    object("core:toilet", "wc", ["use"]),
+    object("core:toilet", "bath", ["use"]),
+    object("core:shower", "bath", ["shower"]),
+    object("core:tv", "living", ["watch"]),
+  ],
+};
+
+const person = (fields) => ({
+  sim: 1, place: { room: 0 }, action: null, waits: null, needs: [600, 900, 500, 700, 800], weights: [100, 100, 200, 200, 200],
+  collapsed: false, smells: false, commands: [], ...fields,
+});
+const dated = (second_of_day) => ({ t: second_of_day, date: date(1, 6, second_of_day) });
+const watching = (fields) => ({ object: 3, offer: 0, slot: 0, until: dated(32_700), filler: false, departs: false, ...fields });
+
+test("a person's line: waiting for what and where, idle where", () => {
+  assert.equal(doing(HOME, person({ place: { room: 1 }, waits: 2 })), "wartet im Bad auf die Dusche");
+  assert.equal(doing(HOME, person({ waits: 0 })), "wartet im Flur auf die Toilette auf dem WC");
+  assert.equal(doing(HOME, person({ place: { room: 1 }, waits: 1 })), "wartet im Bad auf die Toilette im Bad");
+  assert.equal(doing(HOME, person({})), "tut gerade nichts im Flur");
+});
+
+test("a person's line: until when, the departure that ends it named", () => {
+  const at = { place: { room: 2 } };
+  assert.equal(doing(HOME, person({ ...at, action: watching({}) })), "sieht fern vor dem Fernseher bis 9:05");
+  assert.equal(
+    doing(HOME, person({ ...at, action: watching({ until: dated(31_200), departs: true }) })),
+    "sieht fern vor dem Fernseher bis 8:40 (Aufbruch)",
+  );
+  assert.equal(
+    doing(HOME, person({ ...at, action: watching({ until: dated(31_200), filler: true, departs: true }) })),
+    "Zeitvertreib: sieht fern vor dem Fernseher bis 8:40 (Aufbruch)",
+  );
+  const walking = { walking: { from: 0, to: 2, depart: dated(30_000), arrive: dated(30_003), out: false } };
+  assert.equal(doing(HOME, person({ place: walking, action: watching({ until: null }) })), "geht ins Wohnzimmer");
+  assert.equal(doing(HOME, person({ place: { ...walking, walking: { ...walking.walking, out: true } } })), "geht aus dem Haus");
+  assert.equal(doing(HOME, person({ place: { away: { place: "work", until: dated(62_400) } } })), "bei der Arbeit bis 17:20");
+  assert.equal(doing(HOME, person({ collapsed: true })), "liegt erschöpft am Boden im Flur");
 });

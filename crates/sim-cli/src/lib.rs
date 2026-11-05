@@ -1981,3 +1981,51 @@ pub fn fork_into_with(
     session.advance(end.end)?;
     session.finish(&scenario)
 }
+
+#[cfg(test)]
+mod tests {
+    use sim_core::data_id::DataId;
+    use sim_core::house::need::NeedSample;
+    use sim_core::time::{DAY, SimTime, YEAR};
+
+    /// The departure that ends what a person does at its object (version 8 of the house answer,
+    /// ADR-0021, addendum of 2026-11-05 on the house page; ADR-0024 section 4): someone of
+    /// 30 watches television (fun +400 an hour, `kinds.json`) at 8:30 of day 1, the departure at
+    /// 8:40. With fun at 85 then it is 85 + 400 · 600 / 3 600 = 151 at 8:40, above 150, and no
+    /// other need comes near 150 (the bladder 500 − 120 / 6 = 480): the departure ends the show if
+    /// it would still run then, its end at or after 8:40 or beyond the end of time, not if it ends
+    /// at 8:39:59. With fun at 84 it is 150 at 8:40, critical, and the departure waits for the
+    /// show. A sleep the wake before the departure ends; without a departure nothing ends it.
+    #[test]
+    fn the_departure_ends_what_raises_no_need_critical_then() {
+        let data = crate::data::core_data().expect("the data");
+        let houses = data.houses().expect("the houses");
+        let offer = |kind: &str| {
+            let kind = houses.kind(&DataId::new(kind).expect("valid"));
+            kind.and_then(|kind| kind.offers.first()).expect("an offer")
+        };
+        let at = |secs: i64| SimTime::from_secs(DAY.as_secs() + secs);
+        let (now, leaves) = (at(30_600), at(31_200));
+        let born = SimTime::from_secs(DAY.as_secs() - 30 * YEAR.as_secs());
+        let needs = |fun: u16| {
+            [
+                NeedSample::new(700, now, -100),
+                NeedSample::new(800, now, -40),
+                NeedSample::new(500, now, -120),
+                NeedSample::new(700, now, -30),
+                NeedSample::new(fun, now, 400),
+            ]
+        };
+        let ends = |kind: &str, fun: u16, until: Option<SimTime>, leaves: Option<SimTime>| {
+            super::departure_ends(houses, offer(kind), (&needs(fun), born), (until, leaves))
+        };
+        let tv = "core:tv";
+        assert_eq!(ends(tv, 85, Some(at(32_700)), Some(leaves)), Some(leaves));
+        assert_eq!(ends(tv, 85, Some(leaves), Some(leaves)), Some(leaves));
+        assert_eq!(ends(tv, 85, None, Some(leaves)), Some(leaves));
+        assert_eq!(ends(tv, 85, Some(at(31_199)), Some(leaves)), None);
+        assert_eq!(ends(tv, 84, Some(at(32_700)), Some(leaves)), None);
+        assert_eq!(ends(tv, 85, Some(at(32_700)), None), None);
+        assert_eq!(ends("core:bed", 85, None, Some(leaves)), None);
+    }
+}
