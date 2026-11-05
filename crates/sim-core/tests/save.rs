@@ -974,17 +974,19 @@ fn a_save_keeps_the_next_choice() {
     assert_eq!(saved(vec![decide(due), decide(due)]), refused);
 }
 
-/// A time-filler in a save (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): the
-/// girl of `a_save_keeps_the_next_choice` at the television in the living room since 7:00, its
-/// time-filler (fun written down then at its +400 an hour, full), the other needs as there. Its
-/// end is her next choice from the living room: the table now 7 s away (350), so 40 000 at the
-/// most mood from w = 94 (94 · 394 · 110 / 100 − 350 = 40 039; 93 · 393 · 110 / 100 − 350 =
-/// 39 853), surely at the least again from 110; at her moods +4, +3, −10, −3 at 9:09 to 9:12 the
-/// table brings at most 38 806, at +3 at 9:13 101 · 401 · 103 / 100 − 350 = 41 366. So the end is
-/// due at 9:13:00, before the 4 h the time-filler may last and before her bedtime at 20:00; at
-/// 9:14:00, at 9:13:01, at 7:45:00 (where the television ends as a choice), missing or twice it
-/// is refused. As an ordinary choice the same action ends at 7:45:00, 45 min on, and 9:13:00 is
-/// refused; as a time-filler at the shower, which is none, the save is refused.
+/// A time-filler in a save (ADR-0026, addenda of 2026-11-04 on comfort and the time-filler and of
+/// 2026-11-05 on its length): the girl of `a_save_keeps_the_next_choice` at the television in the
+/// living room since 7:00, its time-filler (fun written down then at its +400 an hour, full), the
+/// other needs as there. Its end is the first of its length, 45 min, at 7:45:00, and her next
+/// choice from the living room: the table now 7 s away (350), so 40 000 at the most mood from w =
+/// 94 (94 · 394 · 110 / 100 − 350 = 40 039; 93 · 393 · 110 / 100 − 350 = 39 853), surely at the
+/// least again from 110; at her moods +4, +3, −10, −3 at 9:09 to 9:12 the table brings at most
+/// 38 806, at +3 at 9:13 101 · 401 · 103 / 100 − 350 = 41 366. So the end is due at 7:45:00, as
+/// the television's as a choice, before her next choice at 9:13:00, the 4 h a time-filler may
+/// last and her bedtime at 20:00, and no departure on her Saturday; at 9:13:00 (where it ended
+/// before its length counted), at 7:45:01, missing or twice it is refused. As an ordinary choice
+/// the same action ends at 7:45:00 too, and 9:13:00 is refused; as a time-filler at the shower,
+/// which is none, the save is refused.
 #[test]
 fn a_save_keeps_a_time_filler() {
     let data = common::data().with_houses(common::repository_houses_on_weekdays());
@@ -1032,14 +1034,13 @@ fn a_save_keeps_a_time_filler() {
         load_error_with(data.clone(), &in_the_flat(&data, seven_am, person, events))
     };
     let (due, done) = (2 * 3_600 + 13 * 60, 2_700);
-    assert_eq!(saved(watching(true, 3), vec![ends(due)]), None);
+    assert_eq!(saved(watching(true, 3), vec![ends(done)]), None);
     let refused = Some(LoadError::Inconsistent);
     for (index, wrong) in [
-        vec![ends(due + 60)],
-        vec![ends(due + 1)],
-        vec![ends(done)],
+        vec![ends(due)],
+        vec![ends(done + 1)],
         vec![],
-        vec![ends(due), ends(due)],
+        vec![ends(done), ends(done)],
     ]
     .into_iter()
     .enumerate()
@@ -1048,7 +1049,7 @@ fn a_save_keeps_a_time_filler() {
     }
     assert_eq!(saved(watching(false, 3), vec![ends(done)]), None);
     assert_eq!(saved(watching(false, 3), vec![ends(due)]), refused);
-    assert_eq!(saved(watching(true, 6), vec![ends(due)]), refused);
+    assert_eq!(saved(watching(true, 6), vec![ends(done)]), refused);
 }
 
 /// One lying on the floor in a save (ADR-0026, addendum of 2026-11-04 on a need at 0): at 7 in

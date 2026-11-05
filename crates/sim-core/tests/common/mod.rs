@@ -410,6 +410,19 @@ pub fn weekday_mornings(day: &str) -> String {
     day.to_string()
 }
 
+/// The repository's `day.json` in which a time-filler is taken however soon it would end, its
+/// `fallback_min_seconds` 0 (ADR-0026, addendum of 2026-11-05 on the time-filler's length): for
+/// the tests of what a time-filler does once taken, which its least time left would hide.
+#[allow(
+    dead_code,
+    reason = "only the tests of a time-filler once taken need it"
+)]
+pub fn repository_day_any_filler() -> String {
+    let mut day: Value = serde_json::from_str(REPOSITORY_DAY).expect("the day");
+    day["fallback_min_seconds"] = serde_json::json!(0);
+    day.to_string()
+}
+
 /// The repository's `day.json` with weekday mornings (`weekday_mornings`).
 #[allow(dead_code, reason = "only the tests that begin on a Saturday need it")]
 pub fn repository_day_on_weekdays() -> String {

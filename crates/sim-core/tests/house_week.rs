@@ -759,7 +759,23 @@ struct Lived {
     /// meals (an offer reached that raises hunger: the table or the fridge), toilet trips (one
     /// that raises the bladder), showers (one that raises hygiene) and choices.
     days: Vec<(bool, [usize; 4])>,
+    /// The seconds at home and awake at a time-filler, on its way or at its object (the third
+    /// playtest of 2026-11-05), over the whole family.
+    filler: i64,
+    /// The longest time-filler of one person, from its choice to its end.
+    longest_filler: i64,
+    /// Per person, its time-fillers by the kind of their object and the offer.
+    fallbacks: BTreeMap<SimId, BTreeMap<String, usize>>,
+    /// The meals chosen in the person's night (a choice of an offer that raises hunger).
+    night_meals: usize,
+    /// The choices of the weekdays (an offer taken or idling), and those of them that another
+    /// weekday of the same person has at the same minute of the day with the same offer.
+    weekday_choices: usize,
+    same_minute: usize,
 }
+
+/// A choice by the minute of its day and the offer it took, none for idling.
+type Chosen = (i64, Option<(u16, u16)>);
 
 /// What `week` lived through, measured as the playtest saw it.
 fn lived(week: &Week) -> Lived {
@@ -793,6 +809,9 @@ fn lived(week: &Week) -> Lived {
             let idle = awake && action.is_none();
             if awake {
                 lived.awake += span;
+            }
+            if awake && action.is_some_and(|action| action.filler) {
+                lived.filler += span;
             }
             if waiting {
                 lived.waiting += span;
@@ -851,20 +870,46 @@ fn lived(week: &Week) -> Lived {
     let mut done: BTreeMap<(SimId, i64), [usize; 3]> = BTreeMap::new();
     let mut persons: BTreeSet<SimId> = BTreeSet::new();
     let state = week.world.state();
+    let mut filling: BTreeMap<SimId, i64> = BTreeMap::new();
+    // Per person and day the choices by minute of the day and offer (none for idling).
+    let mut minutes: BTreeMap<(SimId, i64), Vec<Chosen>> = BTreeMap::new();
     for entry in &week.log {
         let &[Subject::Sim(sim)] = entry.subjects.as_slice() else {
             continue;
         };
         let at = entry.t.as_secs();
+        let minute = at.rem_euclid(D) / 60;
         match &entry.payload {
             LogPayload::DayStarted { .. } => {
                 persons.insert(sim);
             }
-            LogPayload::ActionStarted { object, offer, .. } => {
+            LogPayload::ActionStarted {
+                object,
+                offer,
+                commanded,
+                filler,
+                ..
+            } => {
                 *choices.entry((sim, at.div_euclid(D))).or_default() += 1;
                 let offers = &kind(*object).offers;
                 chosen.insert(sim, offers[usize::from(*offer)].sleep);
                 going.insert(sim, (*object, *offer));
+                let day = minutes.entry((sim, at.div_euclid(D))).or_default();
+                day.push((minute, Some((*object, *offer))));
+                if *filler {
+                    filling.insert(sim, at);
+                    let id = &def.objects[usize::from(*object)].kind;
+                    let named = format!("{}/{offer}", id.as_str());
+                    let taken = lived.fallbacks.entry(sim).or_default();
+                    *taken.entry(named).or_default() += 1;
+                }
+                let born = state.born(sim).expect("born");
+                let years = age(born, entry.t).expect("an age");
+                let feeds = offers[usize::from(*offer)].raises(houses.rates(), Need::Hunger, years);
+                let tonight = sim_core::house::day::night(houses.day(), born, entry.t);
+                if feeds && !*commanded && tonight.is_some() {
+                    lived.night_meals += 1;
+                }
             }
             LogPayload::Reached { .. } => {
                 let (object, offer) = going[&sim];
@@ -881,8 +926,15 @@ fn lived(week: &Week) -> Lived {
                     }
                 }
             }
-            LogPayload::Idle { .. } => *choices.entry((sim, at.div_euclid(D))).or_default() += 1,
+            LogPayload::Idle { .. } => {
+                *choices.entry((sim, at.div_euclid(D))).or_default() += 1;
+                let day = minutes.entry((sim, at.div_euclid(D))).or_default();
+                day.push((minute, None));
+            }
             LogPayload::ActionEnded { .. } => {
+                if let Some(begun) = filling.remove(&sim) {
+                    lived.longest_filler = lived.longest_filler.max(at - begun);
+                }
                 let slept = chosen.remove(&sim) == Some(true);
                 let (day, second) = (at.div_euclid(D), at.rem_euclid(D));
                 if slept && (2..=8).contains(&day) && (4 * H..10 * H).contains(&second) {
@@ -895,6 +947,18 @@ fn lived(week: &Week) -> Lived {
         }
     }
     lived.most_choices = choices.values().copied().max().unwrap_or(0);
+    let weekday = |day: i64| calendar(t(day * D)).weekday < 5;
+    for (&(sim, day), chosen) in minutes.iter().filter(|((_, day), _)| weekday(*day)) {
+        for choice in chosen {
+            lived.weekday_choices += 1;
+            let other = |(&(who, on), list): (&(SimId, i64), &Vec<Chosen>)| {
+                who == sim && on != day && weekday(on) && list.contains(choice)
+            };
+            if minutes.iter().any(other) {
+                lived.same_minute += 1;
+            }
+        }
+    }
     for day in 1..=7 {
         let weekend = calendar(t(day * D)).weekday >= 5;
         for &sim in &persons {
@@ -945,8 +1009,39 @@ fn the_week_the_playtest_saw() {
     let mut mornings: BTreeMap<i64, (i64, i64)> = BTreeMap::new();
     let mut most_choices = 0;
     let (mut all_days, mut waited, mut longest_wait) = (Vec::new(), 0, 0);
+    let (mut filler, mut longest_filler, mut night_meals) = (0, 0, 0);
+    let (mut weekday_choices, mut same_minute) = (0, 0);
+    let mut fallbacks: BTreeMap<SimId, BTreeMap<String, usize>> = BTreeMap::new();
     for i in 0..FAMILIES {
         let lived = lived(&week(&data, i));
+        println!(
+            "family {i:2}: time-fillers {}% of {} awake at home, the longest {}; meals chosen in the night {}; weekday choices at the same minute of another weekday {} of {}; time-fillers {:?}",
+            lived.filler * 100 / lived.awake.max(1),
+            hm(lived.awake),
+            hm(lived.longest_filler),
+            lived.night_meals,
+            lived.same_minute,
+            lived.weekday_choices,
+            (lived.fallbacks.iter())
+                .map(|(sim, taken)| (sim.get(), taken))
+                .collect::<Vec<_>>()
+        );
+        filler += lived.filler;
+        longest_filler = longest_filler.max(lived.longest_filler);
+        night_meals += lived.night_meals;
+        (weekday_choices, same_minute) = (
+            weekday_choices + lived.weekday_choices,
+            same_minute + lived.same_minute,
+        );
+        for (sim, taken) in &lived.fallbacks {
+            for (named, count) in taken {
+                *fallbacks
+                    .entry(*sim)
+                    .or_default()
+                    .entry(named.clone())
+                    .or_default() += count;
+            }
+        }
         println!(
             "family {i:2}: longest idle {}, idle {}% of {} awake at home; idle in the WC or bath {} s, waiting there {} s; couple in the double bed {}/7 nights, father in a single bed {}; most choices of one person in a day {}; mornings {:?}",
             hm(lived.longest_idle),
@@ -1005,6 +1100,18 @@ fn the_week_the_playtest_saw() {
         hm(longest),
         idle * 100 / awake.max(1)
     );
+    println!(
+        "all: time-fillers {}% of the waking time at home, the longest {}; meals chosen in the night {night_meals}; weekday choices at the same minute of another weekday {same_minute} of {weekday_choices} ({}%)",
+        filler * 100 / awake.max(1),
+        hm(longest_filler),
+        same_minute * 100 / weekday_choices.max(1)
+    );
+    for (sim, taken) in &fallbacks {
+        println!(
+            "all: person {} (the woman 1, the man 2, the children 3 and 4) took as time-fillers {taken:?}",
+            sim.get()
+        );
+    }
     let (weekday, weekend) = (
         means(per_day(&all_days, false)),
         means(per_day(&all_days, true)),

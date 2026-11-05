@@ -127,30 +127,37 @@ fn an_adult_at_the_morning_values() {
     assert_eq!(idle, Choice::Idle);
 }
 
-/// The same adult in the night, 8 hours of it left: sofa and beds are open, and a bed wins
-/// though the toilet brings more, nothing being critical. Sofa: energy +50 for 8 h is 400, 100
-/// to full: 100 · 100, 3 s; bed and single bed: +85 for 8 h is 680, 100 · 100, 5 s. The sofa
-/// has more points than the beds, yet it comes only when every bed is taken, and with all
-/// taken the person waits for the best bed, by the smaller object; regardless of 40 000.
+/// The same adult in the night, 8 hours of it left, hunger and the bladder at their comfort 700:
+/// sofa and beds are open, and a bed wins though the shower brings more, nothing being critical.
+/// Table, fridge and toilet weigh nothing at 700: only their walks, 4, 4 and 3 s. Sofa: energy
+/// +50 for 8 h is 400, 100 to full: 100 · 100, 3 s; its `sit` 200 · 60, 3 s; television and
+/// bookshelf 200 · 200, 3 s; the shower 200 · 300, 3 s; bed and single bed: +85 for 8 h is 680,
+/// 100 · 100, 5 s. The sofa has more points than the beds, yet it comes only when every bed is
+/// taken, and with all taken the person waits for the best bed, by the smaller object; regardless
+/// of 40 000. At the morning values, hunger 600 and the bladder 500 under their comfort, what
+/// fills them comes before the bed (ADR-0026, addendum of 2026-11-05 on the time-filler's
+/// length): the toilet (200 · 500 − 150), with it taken the table (100 · 400 − 200), with both
+/// the fridge (100 · 200 − 200), with all three the bed; not the shower, hygiene is no need of
+/// the night.
 #[test]
 fn in_the_night_a_bed_comes_first() {
     let houses = houses();
-    let morning = [600, 900, 500, 700, 800];
+    let comfort = [700, 900, 700, 700, 800];
     let scored = score(
         flat(&houses),
         &houses,
-        (30, morning, 0),
+        (30, comfort, 0),
         (Some(ADULT_NIGHT), None),
         no_mood,
     );
     let expected = [
-        (0, 40_000 - 200),
-        (1, 20_000 - 200),
+        (0, -200),
+        (1, -200),
         (2, 10_000 - 150),
         (2, 12_000 - 150),
         (3, 40_000 - 150),
         (4, 40_000 - 150),
-        (5, 100_000 - 150),
+        (5, -150),
         (6, 60_000 - 150),
         (7, 10_000 - 250),
         (8, 10_000 - 250),
@@ -159,14 +166,8 @@ fn in_the_night_a_bed_comes_first() {
     let any = beds(&houses, Tier::Any);
     assert_eq!(any, [7, 8]);
     let night = Some(any.as_slice());
-    let chose = |busy: &[u16]| {
-        choose(
-            (flat(&houses), &houses),
-            (30, morning),
-            &scored,
-            busy,
-            night,
-        )
+    let chose = |values: [u16; 5], scored: &[Scored], busy: &[u16]| {
+        choose((flat(&houses), &houses), (30, values), scored, busy, night)
     };
     let at = |object: u16, points: i64| {
         Choice::Take(Scored {
@@ -176,11 +177,24 @@ fn in_the_night_a_bed_comes_first() {
             points,
         })
     };
-    assert_eq!(chose(&[]), at(7, 9_750));
-    assert_eq!(chose(&[7]), at(8, 9_750));
-    assert_eq!(chose(&[7, 8]), at(2, 9_850));
-    assert_eq!(chose(&[2, 7, 8]), Choice::Wait(7));
-    assert_eq!(chose(&[0, 1, 2, 3, 4, 5, 6, 7, 8]), Choice::Wait(7));
+    assert_eq!(chose(comfort, &scored, &[]), at(7, 9_750));
+    assert_eq!(chose(comfort, &scored, &[7]), at(8, 9_750));
+    assert_eq!(chose(comfort, &scored, &[7, 8]), at(2, 9_850));
+    assert_eq!(chose(comfort, &scored, &[2, 7, 8]), Choice::Wait(7));
+    let all = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+    assert_eq!(chose(comfort, &scored, &all), Choice::Wait(7));
+    let morning = [600, 900, 500, 700, 800];
+    let hungry = score(
+        flat(&houses),
+        &houses,
+        (30, morning, 0),
+        (Some(ADULT_NIGHT), None),
+        no_mood,
+    );
+    assert_eq!(chose(morning, &hungry, &[]), at(5, 100_000 - 150));
+    assert_eq!(chose(morning, &hungry, &[5]), at(0, 40_000 - 200));
+    assert_eq!(chose(morning, &hungry, &[0, 5]), at(1, 20_000 - 200));
+    assert_eq!(chose(morning, &hungry, &[0, 1, 5]), at(7, 9_750));
 }
 
 /// A child of 8 in the kids' room with fun critical at 100 and the rest at 700: what raises
@@ -553,9 +567,10 @@ fn a_critical_need_wins_whatever_the_mood() {
 /// the morning values in the hall, by day, with all but television and bookshelf taken: at the
 /// mood +1 the television brings 40 000 · 101 / 100 − 150 = 40 250, enough to get up for, where
 /// without a mood it waits for the toilet (`an_adult_at_the_morning_values`). In the night, 8
-/// hours of it left, bed and single bed tie at 9 750 without a mood; the single bed at +1
-/// brings 10 100 − 250 = 9 850 and comes first; the sofa at +10, 11 000 − 150 = 10 850, still
-/// comes only when every bed is taken.
+/// hours of it left, hunger and the bladder at their comfort (else what fills them comes first,
+/// `in_the_night_a_bed_comes_first`), bed and single bed tie at 9 750 without a mood; the single
+/// bed at +1 brings 10 100 − 250 = 9 850 and comes first; the sofa at +10, 11 000 − 150 = 10 850,
+/// still comes only when every bed is taken.
 #[test]
 fn the_floor_and_the_beds_take_the_mood() {
     let houses = houses();
@@ -589,14 +604,19 @@ fn the_floor_and_the_beds_take_the_mood() {
         chose(&by_day, &[0, 1, 2, 5, 6, 7, 8], false),
         at(3, 1, 40_250)
     );
+    let comfort = [700, 900, 700, 700, 800];
     let night = score(
         flat(&houses),
         &houses,
-        (30, morning, 0),
+        (30, comfort, 0),
         (Some(ADULT_NIGHT), None),
         moods,
     );
-    assert_eq!(chose(&night, &[], true), at(8, 1, 9_850));
-    assert_eq!(chose(&night, &[8], true), at(7, 0, 9_750));
-    assert_eq!(chose(&night, &[7, 8], true), at(2, 10, 10_850));
+    let in_bed = |busy: &[u16]| {
+        let beds = Some(any.as_slice());
+        choose((flat(&houses), &houses), (30, comfort), &night, busy, beds)
+    };
+    assert_eq!(in_bed(&[]), at(8, 1, 9_850));
+    assert_eq!(in_bed(&[8]), at(7, 0, 9_750));
+    assert_eq!(in_bed(&[7, 8]), at(2, 10, 10_850));
 }

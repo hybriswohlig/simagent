@@ -1101,6 +1101,7 @@ fn all_payloads() -> Vec<LogPayload> {
             waits: None,
             held: vec![8],
             tier: vec![7],
+            too_short: None,
         },
         LogPayload::NeedCritical {
             need: Need::Hunger,

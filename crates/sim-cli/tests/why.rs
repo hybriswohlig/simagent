@@ -8,14 +8,17 @@
 //! person's mood for it, the addressed draw of the choice's second (ADR-0026, addendum of
 //! 2026-11-04 on the mood), and its points with it; the chosen one the same. A time-filler's start
 //! is a choice that comes to idling by day, and its offer is the one `house::choice::filler`
-//! gives (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). A couple of 30 and
-//! 32 in the flat of the repository, with the data `simagent` uses.
+//! gives (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler), the one with the
+//! highest mood, its mood and the others' in the answer, why it ends there by its code; an idle
+//! choice by day with a time-filler free took none as it would have ended under 600 s on, and the
+//! answer names that end (its addendum of 2026-11-05 on the time-filler's length). A couple of 30
+//! and 32 in the flat of the repository, with the data `simagent` uses.
 
 use sim_cli::data::core_data;
 use sim_cli::why_answer;
 use sim_core::data_id::DataId;
 use sim_core::genome::{LocusAlleles, Sex};
-use sim_core::house::choice::{Choice, Scored, age, choose, filler, mood};
+use sim_core::house::choice::{Choice, Scored, age, choose, filler, fillers, mood};
 use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
 use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, LogPayload, Subject};
@@ -66,9 +69,36 @@ fn why_recomputes_the_choice() {
     world.advance_until(&mut out, week, &mut |_| false);
     log.extend(world.take_log());
     let houses = world.state().data().houses().expect("houses");
-    let (mut starts, mut idles, mut nights, mut fillers) = (0, 0, 0, 0);
-    for entry in &log {
-        let Some(answer) = why_answer(&world, entry, 0, false, None).expect("recomputes") else {
+    let (mut starts, mut idles, mut nights, mut filled_in, mut shorts) = (0, 0, 0, 0, 0);
+    let mut reasons: std::collections::BTreeMap<String, usize> = Default::default();
+    for (at, entry) in log.iter().enumerate() {
+        // A time-filler's end as the server finds it: the person's next `core:action_ended`, and
+        // its choice in that second after it.
+        let mine = |other: &&LogEntry| other.subjects == entry.subjects;
+        let end = (log[at + 1..].iter())
+            .filter(mine)
+            .position(|other| matches!(other.payload, LogPayload::ActionEnded { .. }))
+            .map(|offset| {
+                let later = &log[at + 1..];
+                let ends = (later.iter()).filter(mine).nth(offset).expect("the end");
+                let next = (later.iter())
+                    .filter(mine)
+                    .skip(offset + 1)
+                    .take_while(|other| other.t == ends.t)
+                    .find(|other| {
+                        matches!(
+                            other.payload,
+                            LogPayload::ActionStarted { .. } | LogPayload::Idle { .. }
+                        )
+                    });
+                sim_cli::Ended { ended: ends, next }
+            });
+        let filled = matches!(
+            entry.payload,
+            LogPayload::ActionStarted { filler: true, .. }
+        );
+        let ended = end.filter(|_| filled);
+        let Some(answer) = why_answer(&world, entry, 0, false, ended).expect("recomputes") else {
             continue;
         };
         let number = |value: &serde_json::Value| value.as_i64().expect("a number");
@@ -132,12 +162,29 @@ fn why_recomputes_the_choice() {
                 filler: true,
                 ..
             } => {
-                (starts, fillers) = (starts + 1, fillers + 1);
+                (starts, filled_in) = (starts + 1, filled_in + 1);
                 assert_eq!(choice, Choice::Idle, "{answer}");
                 assert!(night.is_none(), "{answer}");
-                let filled = filler((house, houses), (years, room), busy);
+                let moods = |object, offer| mood(7, founder, entry.t, (object, offer), MOOD);
+                let filled = filler((house, houses), (years, room), busy, moods);
                 assert_eq!(filled, Some((*object, *offer)), "{answer}");
                 assert!(answer["filler"].is_object(), "{answer}");
+                // Its mood and those of the others free then, the highest first (version 7).
+                let free = fillers((house, houses), (years, room), busy, moods);
+                let told = &answer["filler"];
+                assert_eq!(told["mood"], serde_json::json!(free[0].mood), "{answer}");
+                let others: Vec<serde_json::Value> = (free[1..].iter())
+                    .map(|each| {
+                        serde_json::json!({"object": each.object, "offer": each.offer,
+                                           "mood": each.mood})
+                    })
+                    .collect();
+                assert_eq!(told["others"], serde_json::json!(others), "{answer}");
+                let ends = told["ends"].as_str();
+                assert!(ends.is_none_or(|ends| ENDS.contains(&ends)), "{answer}");
+                if let Some(ends) = ends {
+                    *reasons.entry(ends.to_owned()).or_default() += 1;
+                }
             }
             LogPayload::ActionStarted { object, offer, .. } => {
                 starts += 1;
@@ -151,11 +198,30 @@ fn why_recomputes_the_choice() {
                 };
                 assert_eq!(choice, Choice::Take(expected), "{answer}");
             }
-            LogPayload::Idle { waits, .. } => {
+            LogPayload::Idle {
+                waits, too_short, ..
+            } => {
                 idles += 1;
                 assert_eq!(choice, waits.map_or(Choice::Idle, Choice::Wait), "{answer}");
                 assert!(answer["chosen"].is_null());
                 assert_eq!(answer["waits"], serde_json::json!(waits));
+                // By day one idle and waiting for nothing with a time-filler free took none only
+                // as it would have ended too soon (version 7).
+                let moods = |object, offer| mood(7, founder, entry.t, (object, offer), MOOD);
+                let free = fillers((house, houses), (years, room), busy, moods);
+                let by_day = night.is_none() && waits.is_none() && !free.is_empty();
+                assert_eq!(too_short.is_some(), by_day, "{answer}");
+                match too_short {
+                    Some(until) => {
+                        shorts += 1;
+                        let told = &answer["too_short"];
+                        assert_eq!(told["until"]["t"], serde_json::json!(until.as_secs()));
+                        assert!(until.as_secs() - entry.t.as_secs() < 600, "{answer}");
+                        let ends = told["ends"].as_str().expect("why it ends there");
+                        assert!(ENDS.contains(&ends), "{answer}");
+                    }
+                    None => assert!(answer["too_short"].is_null(), "{answer}"),
+                }
             }
             other => panic!("no choice: {other:?}"),
         }
@@ -165,5 +231,12 @@ fn why_recomputes_the_choice() {
     assert!(starts > 200, "{starts} starts");
     assert!(idles > 0, "{idles} idles");
     assert!(nights >= 14, "{nights} choices in the night");
-    assert!(fillers > 14, "{fillers} time-fillers");
+    assert!(filled_in > 14, "{filled_in} time-fillers");
+    // Their ends by their reasons, each but the next choice by its length, the bedtime or the
+    // departure; the idle ones that took none, reported.
+    println!("time-fillers {filled_in}, ends {reasons:?}; too short {shorts}");
+    assert!(reasons.contains_key("time"), "{reasons:?}");
 }
+
+/// Why a time-filler ends where it does, by its codes (version 7 of "Warum?").
+const ENDS: [&str; 4] = ["departure", "bedtime", "time", "choice"];

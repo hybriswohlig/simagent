@@ -81,6 +81,7 @@ fn idle(house: &str, room: u8, needs: [u16; 5], busy: &[u16], waits: Option<u16>
         waits,
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     }
 }
 
@@ -445,7 +446,11 @@ const LATE: &str = r#"{
 /// came while they were busy and did nothing.
 #[test]
 fn an_arrival_in_the_second_of_leaving() {
-    let data = day::house_data(&day::rates(0, 0, -60), LATE_KINDS, LATE);
+    // A time-filler taken however soon it ends, to arrive at the departure (ADR-0026, addendum of
+    // 2026-11-05 on the time-filler's length: with the repository's 10 minutes left she would
+    // idle in the hall until 8:40).
+    let any = common::repository_day_any_filler();
+    let data = day::house_data_on(&any, &day::rates(0, 0, -60), LATE_KINDS, LATE);
     let (mut run, _) = Run::moved_in(data);
     let leaving = MORNING + 9_600;
     run.step(leaving, places_hold);

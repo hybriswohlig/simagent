@@ -120,6 +120,7 @@ fn a_waiter_gets_the_place_that_frees() {
         waits: Some(0),
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     };
     let his = run.doings(2);
     assert_eq!(
@@ -177,6 +178,7 @@ fn a_holder_who_chooses_otherwise_passes_the_place_on() {
         waits: Some(0),
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     };
     assert_eq!(
         run.doings(2),

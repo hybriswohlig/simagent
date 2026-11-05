@@ -566,8 +566,10 @@ fn the_repository_day_loads() {
                 back: at(13, 20),
             },
         },
+        // Coming home lowers hunger no more (ADR-0026, addendum of 2026-11-05 on the
+        // time-filler's length): the away time freezes the needs, lunch was eaten there.
         return_jumps: NeedJumps {
-            hunger: -350,
+            hunger: 0,
             energy: -200,
             bladder: -400,
             hygiene: -100,
@@ -604,6 +606,9 @@ fn the_repository_day_loads() {
         // A time-filler lasts at most 4 h (ADR-0026, addendum of 2026-11-04 on comfort and the
         // time-filler).
         fallback_max_seconds: 14_400,
+        // A time-filler is taken only with 10 minutes left (ADR-0026, addendum of 2026-11-05 on
+        // the time-filler's length).
+        fallback_min_seconds: 600,
     };
     assert_eq!(*data.day(), expected);
 }
@@ -817,12 +822,33 @@ fn the_day_rejects() {
     assert_eq!(mood(51), "house.day_mood");
     assert!(mood(256).contains("invalid value"));
     assert!(zero("stand_up_at", 65_536).contains("invalid value"));
-    // A time-filler lasts at most as long as an offer may, 60 s to 12 h.
-    let fallback = |value: i64| day_checked(move |d| d["fallback_max_seconds"] = json!(value));
+    // A time-filler lasts at most as long as an offer may, 60 s to 12 h; with the least time
+    // left for one at 0 (ADR-0026, addendum of 2026-11-05 on the time-filler's length).
+    let fallback = |value: i64| {
+        day_checked(move |d| {
+            d["fallback_max_seconds"] = json!(value);
+            d["fallback_min_seconds"] = json!(0);
+        })
+    };
     assert_eq!(fallback(60), "ok");
     assert_eq!(fallback(43_200), "ok");
     assert_eq!(fallback(59), "house.day_fallback");
     assert_eq!(fallback(43_201), "house.day_fallback");
+    // The least time left for a time-filler is at most its longest, the repository's 600 s
+    // below its 14 400; 0 takes every one.
+    let longest = |value: i64| day_checked(move |d| d["fallback_max_seconds"] = json!(value));
+    assert_eq!(longest(600), "ok");
+    assert_eq!(longest(599), "house.day_fallback");
+    let least = |value: i64| day_checked(move |d| d["fallback_min_seconds"] = json!(value));
+    assert_eq!(least(0), "ok");
+    assert_eq!(least(14_400), "ok");
+    assert_eq!(least(14_401), "house.day_fallback");
+    let shorter = day_checked(|d| {
+        d["fallback_max_seconds"] = json!(600);
+        d["fallback_min_seconds"] = json!(601);
+    });
+    assert_eq!(shorter, "house.day_fallback");
+    assert!(least(-1).contains("invalid value"));
 
     // The first check that fails decides, in the order time, wake, age, share, jump, night,
     // a need at 0, the mood, the time-filler.
@@ -896,6 +922,12 @@ fn the_day_rejects() {
             .remove("fallback_max_seconds");
     });
     assert!(no_fallback.contains("missing field"), "{no_fallback}");
+    let no_least = day_checked(|d| {
+        d.as_object_mut()
+            .expect("the day")
+            .remove("fallback_min_seconds");
+    });
+    assert!(no_least.contains("missing field"), "{no_least}");
 
     assert_eq!(HouseError::DayTime.to_string(), "house.day_time");
     assert_eq!(HouseError::DayJump.to_string(), "house.day_jump");

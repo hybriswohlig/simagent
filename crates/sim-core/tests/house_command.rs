@@ -128,6 +128,7 @@ fn waits_for_the_pantry() -> LogPayload {
         waits: Some(PANTRY),
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     }
 }
 

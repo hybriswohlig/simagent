@@ -2934,7 +2934,8 @@ fn why_over_http() {
         let (_, _, mood, points) = (scored(sim).into_iter())
             .find(|&(each, offer, _, _)| (each, offer) == (object, 0))
             .expect("scored");
-        json!({"object": object, "offer": 0, "points": points, "mood": mood, "urgent": []})
+        json!({"object": object, "offer": 0, "points": points, "mood": mood, "departs": null,
+               "urgent": []})
     };
     let night = json!({
         "from": dated(MORNING + 16 * 3_600),
@@ -2949,7 +2950,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 6,
+                "version": 7,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -2962,6 +2963,7 @@ fn why_over_http() {
                 "waits": null,
                 "goes_to": null,
                 "filler": null,
+                "too_short": null,
                 "offers": offers(sim, busy),
                 "now": null,
             }),
@@ -3060,7 +3062,8 @@ fn a_command_over_http() {
     assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
     let why = json_of(&body);
     assert_eq!(why["commanded"], json!(true), "{why}");
-    let television = json!({"object": 3, "offer": 0, "points": 39_850, "mood": null, "urgent": []});
+    let television = json!({"object": 3, "offer": 0, "points": 39_850, "mood": null,
+                            "departs": null, "urgent": []});
     assert_eq!(why["chosen"], television, "{why}");
     let offers = why["offers"].as_array().expect("offers");
     let open: Vec<(u64, i64)> = (offers.iter())
@@ -3375,13 +3378,14 @@ fn why_names_what_is_urgent() {
             waits: None,
             held: Vec::new(),
             tier: Vec::new(),
+            too_short: None,
         },
         ..hers
     };
     let why = sim_cli::why_answer(&world, &entry, 7, false, None)
         .expect("answers")
         .expect("a choice");
-    assert_eq!(why["version"], json!(6));
+    assert_eq!(why["version"], json!(7));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -3422,6 +3426,68 @@ fn why_names_what_is_urgent() {
         offers[0]["points"],
         json!(101_000_000_000_i64 + 595_000 * (100 + i64::from(shower)) / 100 - 150)
     );
+}
+
+/// A command to an offer today's departure closes (version 7 of "Warum?", ADR-0026, addendum of
+/// 2026-11-05 on the time-filler's length): she (sim 1 of `couple_in_the_flat`, full time, her
+/// departure at 8:40) is told at the clock 8:19:59 to watch television, acting at 8:20:00. Its 45
+/// minutes from wherever she is would still run at 8:40, 20 minutes on, and fun is not critical,
+/// so the offer is closed for a choice and has no points: "Warum?" names the departure instead,
+/// which the page tells as "Befohlen: sieht fern vor dem Fernseher. Endet nach dem Aufbruch um
+/// 8:40, darum ohne Punkte."; the command still starts the show, and the departure ends it.
+#[test]
+fn why_names_the_departure_of_a_commanded_offer_it_closes() {
+    use sim_core::input::{Command as Order, Input};
+    use sim_core::log::{EndReason, LogPayload, Subject};
+    use sim_core::world::YearOut;
+    let (mut world, _) = couple_in_the_flat(|_, _| {});
+    let depart = MORNING + 9_600;
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(depart - 1_201), &mut |_| false);
+    world.take_log();
+    let her = sim_core::ids::SimId::try_from(1).expect("valid");
+    let television = Order {
+        sim: her,
+        object: 3,
+        offer: 0,
+    };
+    world.submit(Input::Command(television)).expect("accepted");
+    world.advance_until(&mut out, SimTime::from_secs(depart), &mut |_| false);
+    let log = world.take_log();
+    let commanded = (log.iter())
+        .find(|entry| {
+            entry.subjects == [Subject::Sim(her)]
+                && matches!(
+                    entry.payload,
+                    LogPayload::ActionStarted {
+                        commanded: true,
+                        ..
+                    }
+                )
+        })
+        .expect("her commanded walk");
+    assert_eq!(commanded.t, SimTime::from_secs(depart - 1_200));
+    let why = sim_cli::why_answer(&world, commanded, 9, false, None)
+        .expect("answers")
+        .expect("a choice");
+    assert_eq!(why["commanded"], json!(true));
+    assert_eq!(
+        why["chosen"],
+        json!({"object": 3, "offer": 0, "points": null, "mood": null, "departs": dated(depart),
+               "urgent": []})
+    );
+    let ended = (log.iter()).find(|entry| {
+        entry.subjects == [Subject::Sim(her)]
+            && matches!(
+                entry.payload,
+                LogPayload::ActionEnded {
+                    object: 3,
+                    reason: EndReason::Obligation,
+                    ..
+                }
+            )
+    });
+    assert_eq!(ended.map(|entry| entry.t), Some(SimTime::from_secs(depart)));
 }
 
 /// The walk from each room of the flat (hall, kitchen, living room, bath, bedroom, children's
@@ -3513,7 +3579,8 @@ fn why_compares_an_idle_person_at_the_clock() {
     let mut asked = (*last).clone();
     asked["t"] = json!(clock);
     asked["payload"] = json!({"core:idle": {"house": "core:flat", "room": room,
-        "needs": person["needs"], "busy": busy, "waits": null, "held": [], "tier": []}});
+        "needs": person["needs"], "busy": busy, "waits": null, "held": [], "tier": [],
+        "too_short": null}});
     let asked: sim_core::log::LogEntry = serde_json::from_value(asked).expect("an entry");
     let world = sim_cli::load_world(&run).expect("the world");
     let same = sim_cli::why_answer(&world, &asked, 0, false, None)

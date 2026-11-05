@@ -312,6 +312,7 @@ fn idle(house: &str, room: u8, needs: [u16; 5], busy: Vec<u16>) -> LogPayload {
         waits: None,
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     }
 }
 
@@ -346,16 +347,17 @@ fn school_and_work() -> Family {
 /// finds them idle: they choose and idle again, at 6:55 the man and the child (energy 900 − 27.5
 /// truncated), at 7:55 the woman (900 − 57.5). At 7:40 he and the child leave the hall (energy
 /// 850), each with `core:left_home` and no choice; she leaves at 8:40 (energy 820). Back at
-/// 13:20, 15:20 and 17:20 each comes in at the entrance with the jumps and chooses: he and she
-/// the pot (hunger 250: 750 · 300 = 225 000 beats the loo's 400 · 400 = 160 000; she its second
-/// place, he back on its first after the loo at 16:20), the child the loo.
+/// 13:20, 15:20 and 17:20 each comes in at the entrance with the jumps and chooses the loo on its
+/// first place: hunger stays at 600 (it no longer jumps, ADR-0026, addendum of 2026-11-05 on the
+/// time-filler's length), so the pot brings 400 · 300 = 120 000 and the loo, the bladder at 600,
+/// 400 · 400 = 160 000, each less its walk of 5 s; his loo is over at 13:22:05 and the child's at
+/// 15:22:05 (400 to full at +12 000 an hour, 120 s).
 #[test]
 fn a_day_of_school_and_work() {
     let mut family = school_and_work();
     family.advance(MORNING + 40_800);
     let home = "test:home";
     let loo = |slot: u8| started(home, (0, 0, slot), 0, 5);
-    let pot = |slot: u8| started(home, (1, 0, slot), 0, 5);
     let after_loo = [600, 899, 1000, 700, 800];
     let common = |slot: u8| {
         vec![
@@ -386,7 +388,7 @@ fn a_day_of_school_and_work() {
         ),
         (
             after_morning(FULL_BACK),
-            pot(1)([250, 620, 600, 600, 650], Vec::new()),
+            loo(0)([600, 620, 600, 600, 650], Vec::new()),
         ),
     ]);
     assert_eq!(family.day(1)[..hers.len()], hers);
@@ -405,7 +407,7 @@ fn a_day_of_school_and_work() {
         ),
         (
             after_morning(PART_BACK),
-            pot(0)([250, 650, 600, 600, 650], Vec::new()),
+            loo(0)([600, 650, 600, 600, 650], Vec::new()),
         ),
     ]);
     assert_eq!(family.day(2)[..his.len()], his);
@@ -426,7 +428,7 @@ fn a_day_of_school_and_work() {
         ),
         (
             after_morning(SCHOOL_BACK),
-            loo(0)([250, 650, 600, 600, 650], Vec::new()),
+            loo(0)([600, 650, 600, 600, 650], Vec::new()),
         ),
     ]);
     assert_eq!(family.day(3)[..child.len()], child);
@@ -694,9 +696,10 @@ fn far_moods(index: u64, second: i64) -> [i64; 2] {
 /// gruel 10⁹ + 55 590 − 16 500, so she takes the gruel; he finds it taken and takes the feast,
 /// both 330 s away. At 8:40 they walk to it with hunger 139, critical: the departure waits
 /// (`due`). There at 8:41:35 with hunger 135. Her gruel ends at 9:01:35 (135 + 60): she leaves
-/// at once, 1 295 s late, and walks out 335 s; at 17:20 she comes home with hunger 0 and bladder
-/// 100 and takes the gruel (the deeper need: 151 · 10⁹). His feast lasts until 18:41:35: at
-/// 17:20 he has missed work, and eats on (135 + 60).
+/// at once, 1 295 s late, and walks out 335 s; at 17:20 she comes home with hunger 195 (it no
+/// longer jumps, ADR-0026, addendum of 2026-11-05 on the time-filler's length) and the bladder at
+/// 100 and takes the loo in the hall, 5 s away (the only critical need: 51 · 10⁹). His feast
+/// lasts until 18:41:35: at 17:20 he has missed work, and eats on (135 + 60).
 #[test]
 fn a_late_departure_and_a_missed_day() {
     assert_eq!((draw("test:house", 0), draw("test:house", 1)), (30, 3));
@@ -747,7 +750,7 @@ fn a_late_departure_and_a_missed_day() {
         (40_800, LogPayload::CameHome { place: Duty::Work }),
         (
             40_800,
-            started(far, (1, 0, 0), 0, 330)([0, 700, 100, 600, 650], vec![0]),
+            started(far, (3, 0, 0), 0, 5)([195, 700, 100, 600, 650], vec![0]),
         ),
     ]);
     let doings = |id: u64| {
