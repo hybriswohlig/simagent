@@ -8,11 +8,10 @@
 //! override stamped `T_Y − 1 s`.
 //!
 //! Every expected value comes from the independent reference (`tools/p6_reference.py`): the
-//! units below with their heights, the start, state and log hashes. Cohort 0 holds 14 adults: 9
-//! children of the pool's pregnancies born in the town and 2 children of pool couples conceived
-//! in the town, the units of K4 (town-born), and 3 persons born at the arrival second, whose
-//! birth is the pool's history; the rule holds for all 14. Cohort 1 holds the 13 conceived
-//! before `T_Y` (a birth 10 months after its conception).
+//! units below with their heights, the start, state and log hashes. Cohort 0 holds 12 adults: 9
+//! children of the pool's pregnancies born in the town, the units of K4 (town-born), and 3
+//! persons born at the arrival second, whose birth is the pool's history; the rule holds for all
+//! 12. Cohort 1 holds the 9 conceived before `T_Y` (a birth 10 months after its conception).
 //! Negative twin: the override on year 3 (forked at `T_3 − 1 s`) costs cohort 0 only 0.75 cm, so
 //! the 1.50 assertion is red there.
 
@@ -41,7 +40,7 @@ const TOLERANCE: f64 = 1e-9;
 
 /// The units of the reference: cohort, lineage key, birth second, town-born, the pure height
 /// at 18 in the base run and in the fork (bits), the expected difference (bits).
-const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 27] = [
+const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 21] = [
     (
         1,
         0x0d3c71c3d06eb8ea,
@@ -115,15 +114,6 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 27] = [
         0x3fe6276276276276,
     ),
     (
-        0,
-        0x48d484b85617f0de,
-        29030400,
-        true,
-        0x4065a8be2e9ee92a,
-        0x406578be2e9ee92a,
-        0x3ff8000000000000,
-    ),
-    (
         1,
         0x510da8dc47a6ea70,
         41126400,
@@ -133,24 +123,6 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 27] = [
         0x3ff09d89d89d89d9,
     ),
     (
-        1,
-        0x670d70471b10522a,
-        45964800,
-        true,
-        0x4066d7de3d67e6f3,
-        0x4066be059fde0e55,
-        0x3fe9d89d89d89d8a,
-    ),
-    (
-        1,
-        0x6bf38689a351ca26,
-        43545600,
-        true,
-        0x4066fef62c2299e0,
-        0x4066e16c53851007,
-        0x3fed89d89d89d89e,
-    ),
-    (
         0,
         0x6f8ac687cd55eda0,
         4838400,
@@ -158,15 +130,6 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 27] = [
         0x4063e32be1327d59,
         0x4063b32be1327d59,
         0x3ff8000000000000,
-    ),
-    (
-        1,
-        0x743e01d9d274b176,
-        45964800,
-        true,
-        0x406549741e7c201e,
-        0x40652f9b80f24780,
-        0x3fe9d89d89d89d8a,
     ),
     (
         0,
@@ -242,15 +205,6 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 27] = [
     ),
     (
         1,
-        0xd254164fa4b7c424,
-        31449600,
-        true,
-        0x406601828c569a27,
-        0x4065d1828c569a27,
-        0x3ff8000000000000,
-    ),
-    (
-        1,
         0xe847ffc7b775504a,
         38707200,
         true,
@@ -269,15 +223,6 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 27] = [
     ),
     (
         0,
-        0xf6d0ea6f6073ecaa,
-        26611200,
-        true,
-        0x4065a92dcb586ffe,
-        0x4065792dcb586ffe,
-        0x3ff8000000000000,
-    ),
-    (
-        0,
         0xfcf15502e035b615,
         0,
         false,
@@ -287,14 +232,14 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 27] = [
     ),
 ];
 const START_INPUT_HASH: u64 = 0xa1c9d8dc290b704f;
-const BASE_STATE: u64 = 0xd089310b74b7175f;
-const BASE_LOG: u64 = 0x0181e00f3353fc5c;
-const FORK_STATE: u64 = 0x66433d053ddf206d;
-const FORK_LOG: u64 = 0x4b99bc648ee92896;
-const TWIN_LATE_STATE: u64 = 0xbeb7eb646a2fceb0;
-const TWIN_LATE_LOG: u64 = 0xb07a0b34d5c514cc;
-const IDENTICAL: usize = 1026;
-const PERSONS: usize = 1307;
+const BASE_STATE: u64 = 0x01c8b6a63c8e68a6;
+const BASE_LOG: u64 = 0x2f0ea8ac47b08d5c;
+const FORK_STATE: u64 = 0xd1615393bb9a57be;
+const FORK_LOG: u64 = 0x800f2ab2334b1e39;
+const TWIN_LATE_STATE: u64 = 0xeae4509724090c03;
+const TWIN_LATE_LOG: u64 = 0xe691a7517f858fd4;
+const IDENTICAL: usize = 1020;
+const PERSONS: usize = 1295;
 
 fn start(data: &Data) -> Start {
     Start {
@@ -433,9 +378,8 @@ fn the_shortage_cohort_loses_exactly_what_the_rule_says() {
         assert_eq!(cohort(which), units, "cohort {which}");
     }
     // K4 counts the town-born: whoever was not born in the pool (an arrival's birth at the
-    // arrival second is the pool's history). Cohort 0: 9 children of the pool's pregnancies and
-    // 2 children conceived in the town, all born in the town, 3 arrivals; each as the reference
-    // says.
+    // arrival second is the pool's history). Cohort 0: 9 children of the pool's pregnancies
+    // born in the town, 3 arrivals; each as the reference says.
     let pedigree = base.pedigree();
     let born_in_town = |key: u64| {
         pedigree
@@ -455,7 +399,7 @@ fn the_shortage_cohort_loses_exactly_what_the_rule_says() {
     let cohort_0: Vec<_> = UNITS.iter().filter(|unit| unit.0 == 0).collect();
     assert_eq!(
         cohort_0.iter().filter(|unit| born_in_town(unit.1)).count(),
-        11
+        9
     );
     assert_eq!(
         cohort_0.iter().filter(|unit| !born_in_town(unit.1)).count(),
