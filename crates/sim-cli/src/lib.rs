@@ -1581,7 +1581,19 @@ pub struct Compared {
 /// The runs in `a` and `b` from their saves; the one at the later second is rebuilt in
 /// memory up to the earlier (Grok's round 42, D1). Runs at the same second stay as saved.
 pub fn compared_worlds(a: &Path, b: &Path) -> Result<Compared, CliError> {
-    let (mut one, mut other) = (load_world(a)?, load_world(b)?);
+    let data = data::core_data()?;
+    compared_worlds_with((a, &data), (b, &data))
+}
+
+/// [`compared_worlds`] with the data each run opens with (ADR-0021, addendum of
+/// 2026-11-05).
+pub fn compared_worlds_with(
+    (a, data_a): (&Path, &Data),
+    (b, data_b): (&Path, &Data),
+) -> Result<Compared, CliError> {
+    let load =
+        |dir: &Path, data: &Data| world_from_save_with(&files::read(&dir.join(files::SAVE))?, data);
+    let (mut one, mut other) = (load(a, data_a)?, load(b, data_b)?);
     let at = one.closed_through().min(other.closed_through());
     let recomputed = if one.closed_through() > at {
         one = world_at(&one, at)?;
@@ -1601,8 +1613,8 @@ pub fn compared_worlds(a: &Path, b: &Path) -> Result<Compared, CliError> {
 }
 
 /// `world` rebuilt in memory up to `t` from its own input log, the one its save carries and
-/// its load checked (ADR-0001): the start, each input stamped at or before `t` at its
-/// stamp, then on to `t`. Nothing is written.
+/// its load checked (ADR-0001), on its own data: the start, each input stamped at or before
+/// `t` at its stamp, then on to `t`. Nothing is written.
 fn world_at(world: &World, t: SimTime) -> Result<World, CliError> {
     let inconsistent = |detail: String| CliError::new("run_dir_inconsistent", detail);
     let records = world.input_log();
@@ -1617,7 +1629,7 @@ fn world_at(world: &World, t: SimTime) -> Result<World, CliError> {
             "the input log of the save has no start".to_owned(),
         ));
     }
-    let mut rebuilt = World::new(data::core_data()?);
+    let mut rebuilt = World::new(world.data().clone());
     let mut out = sim_core::world::YearOut::default();
     for record in records.iter().take_while(|record| record.t <= t) {
         if record.t > rebuilt.closed_through() {
@@ -1842,9 +1854,13 @@ const PARENT_RUN: Source = Source {
     foreign_data_hash: "fork_foreign_data_hash",
 };
 
-/// The records and the end line of an input log of this core version and data hash.
-/// The whole log is read and checked before anything runs.
-fn read_input_log(log: &Path, source: &Source) -> Result<(Vec<InputRecord>, LogEnd), CliError> {
+/// The records and the end line of an input log of this core version and the data hash
+/// `data_hash`. The whole log is read and checked before anything runs.
+fn read_input_log(
+    log: &Path,
+    source: &Source,
+    data_hash: u64,
+) -> Result<(Vec<InputRecord>, LogEnd), CliError> {
     let invalid = |detail: String| CliError::new("input_log_invalid", detail);
     let text = files::read_text(log)?;
     let mut lines: Vec<&str> = text.lines().collect();
@@ -1865,7 +1881,6 @@ fn read_input_log(log: &Path, source: &Source) -> Result<(Vec<InputRecord>, LogE
         );
         return Err(CliError::new(source.foreign_core_version, detail));
     }
-    let data_hash = data::core_data()?.hash();
     if header.data_hash != data_hash {
         let detail = format!(
             "{subject} has data hash {:016x}, this is {data_hash:016x}",
@@ -1904,7 +1919,7 @@ fn read_manifest(path: &Path) -> Result<Manifest, CliError> {
 fn replay(log: &Path, manifest: Option<&Path>, out: &Path) -> Result<(), CliError> {
     let _lock = lock::RunLock::acquire(out)?;
     let invalid = |detail: String| CliError::new("input_log_invalid", detail);
-    let (records, end) = read_input_log(log, &REPLAYED_LOG)?;
+    let (records, end) = read_input_log(log, &REPLAYED_LOG, data::core_data()?.hash())?;
     let compare = match manifest {
         Some(path) => Compare::Replay(read_manifest(path)?),
         None => Compare::Nothing,
@@ -1980,16 +1995,19 @@ pub fn fork_into(
     changes: Vec<ParamChange>,
     out: &Path,
 ) -> Result<(), CliError> {
-    fork_into_with(parent, from_year, changes, out, &data::core_data()?)
+    fork_into_with(parent, from_year, changes, out, &data::core_data()?, None)
 }
 
-/// [`fork_into`] on `data`.
+/// [`fork_into`] on `data`, the data the parent opens with. The fork keeps `settings`, if
+/// given, as its own `settings.json` before its first stop (ADR-0021, addendum of
+/// 2026-11-05).
 pub fn fork_into_with(
     parent: &Path,
     from_year: i64,
     changes: Vec<ParamChange>,
     out: &Path,
     data: &Data,
+    settings: Option<&str>,
 ) -> Result<(), CliError> {
     // The fork reads its parent: it may not be in use.
     let _parent = lock::RunLock::acquire(parent)?;
@@ -1999,7 +2017,7 @@ pub fn fork_into_with(
         return Err(CliError::new("override_rejected", files::code(&code)));
     }
     let changes = block.changes;
-    let (records, end) = read_input_log(&parent.join(files::INPUT_LOG), &PARENT_RUN)?;
+    let (records, end) = read_input_log(&parent.join(files::INPUT_LOG), &PARENT_RUN, data.hash())?;
     let manifest = read_manifest(&parent.join(files::MANIFEST))?;
     let scenario: Scenario = files::parse_strict(&files::read_text(&parent.join(files::SCENARIO))?)
         .filter(|scenario: &Scenario| scenario.format_version == files::FORMAT_VERSION)
@@ -2104,6 +2122,9 @@ pub fn fork_into_with(
     let (t, seq) = (first.t, first.seq.get());
     let rejected = |code: String| session::replay_rejected(t, seq, &code);
     let mut session = Session::start_with(out, t, first.input.clone(), compare, rejected, data)?;
+    if let Some(text) = settings {
+        files::write(&out.join(crate::data::SETTINGS_FILE), text.as_bytes())?;
+    }
     session.check_stamp(t, seq)?;
     for record in kept {
         if record.t > session.closed_through() {

@@ -14,13 +14,18 @@
 // (ten rows of seven), and founds a town, which stands in its first second with its founders
 // and says when its curves begin; last the server falls silent and loading again ends the
 // message that it does not answer, and once more after a step alone, where the message ends
-// by itself once the server answers.
+// by itself once the server answers; then it moves a household into its house, and at the
+// end founds a town with partnerships from 18 in the folded section of own values, which its
+// page marks, and runs it two decades (smoke/reopen.mjs opens it after a restart).
 // Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
 
 const [url, run] = process.argv.slice(2);
 const STEP_MS = 10_000;
+const DECADE_MS = 60_000;
+/** The town founded with own values, which smoke/reopen.mjs opens again. */
+const OWN = "eigen";
 
 function fail(message) {
   console.error(`smoke: ${message}`);
@@ -72,6 +77,13 @@ if (browser !== undefined) {
       page.waitForFunction(
         (prefix) => document.querySelector("section > h1 + p")?.textContent?.startsWith(prefix) ?? false,
         `Jahr ${year},`,
+      );
+    // A decade of a town of hundreds takes longer than a step of the page.
+    const decadeOn = (year) =>
+      page.waitForFunction(
+        (prefix) => document.querySelector("section > h1 + p")?.textContent?.startsWith(prefix) ?? false,
+        `Jahr ${year},`,
+        { timeout: DECADE_MS },
       );
 
     await step("open the run", page.goto(`${url}#/runs/${run}`));
@@ -504,10 +516,34 @@ if (browser !== undefined) {
     if ((await order.getByRole("combobox").inputValue()) !== television) {
       throw new Error("the command's choice did not stay");
     }
+    // A town founded with own values (ADR-0021, addendum of 2026-11-05): partnerships from 18,
+    // set in the folded section where a new town is founded, whose field starts at the base
+    // game's 16; its page marks it, and it runs two decades. The second drive,
+    // smoke/reopen.mjs, finds it after a restart of the server.
+    await step("the list of runs again", page.goto(`${url}#/`));
+    await step("the own values unfolded", page.locator("summary", { hasText: /^Eigene Werte zum Ausprobieren$/ }).click());
+    const marketAge = page.getByRole("spinbutton", { name: "Partnerschaften ab (Jahre)" });
+    const startsAt = await marketAge.inputValue();
+    if (startsAt !== "16") {
+      throw new Error(`the market age starts at ${startsAt}, not at the base game's 16`);
+    }
+    await step("partnerships from 18", marketAge.fill("18"));
+    await step("the own town's name", page.getByRole("textbox", { name: "Name des Laufs" }).fill(OWN));
+    await step("found it", page.getByRole("button", { name: "Neue Stadt gründen" }).click());
+    await step("its page", page.getByRole("heading", { level: 1, name: `Lauf ${OWN}` }).waitFor());
+    await step("its mark", page.getByText(/^eigene Werte: Partnerschaften ab 18 Jahren$/).waitFor());
+    const decade = page.getByRole("group", { name: "Zeit" }).getByRole("button", { name: "Zehn Jahre", exact: true });
+    await step("a decade", decade.click());
+    await step("the end of year 9", decadeOn(9));
+    await step("another decade", decade.click());
+    await step("the end of year 19", decadeOn(19));
+    if ((await page.getByRole("alert").count()) > 0) {
+      throw new Error(`a refusal: ${await page.getByRole("alert").first().textContent()}`);
+    }
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, the families with children, and a household moved into its house named by its family with its members moving in, an hour on with no name or dot of the plan over another, why a choice was made with the mood in its points, and a command given that shows in its day at once and keeps its choice");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, the families with children, and a household moved into its house named by its family with its members moving in, an hour on with no name or dot of the plan over another, why a choice was made with the mood in its points, and a command given that shows in its day at once and keeps its choice, and a town founded with partnerships from 18, marked, two decades on");
   } catch (error) {
     fail(error.message);
   } finally {

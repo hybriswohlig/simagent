@@ -385,8 +385,10 @@ const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
 /// clock, a rejected input (an error with the core's reason), an accepted pairing and
 /// "Zeit zu zweit" with the woman's person answer, a fork that does not open (an
 /// extra line in its events: an error without one), and then the run list with the town
-/// (manifest and date), the failed fork, a directory whose manifest is broken and a town
-/// founded from the template; a page of the town's log with a next page, and an empty page.
+/// (manifest and date), the failed fork, a directory whose manifest is broken, a town
+/// founded from the template and one founded with own values, and again once the first of
+/// the two holds own values that do not read; a page of the town's log with a next page, and
+/// an empty page.
 fn server_answers(
     root: &Path,
     out: &Path,
@@ -562,7 +564,15 @@ fn server_answers(
         .map_err(|e| format!("{}: {e}", broken.display()))?;
     let found = Some(r#"{"template":"stadt","run":"stadt"}"#);
     answers.push(("CreatedAnswer", ask(port, "/api/runs", found, 200)?));
+    // A town founded with own values (ADR-0021, addendum of 2026-11-05): the list names them.
+    let own = Some(r#"{"template":"stadt","run":"eigen","settings":{"core:market_age":18}}"#);
+    answers.push(("CreatedAnswer", ask(port, "/api/runs", own, 200)?));
     answers.push(("RunsAnswer", get(port, "/api/runs")?));
+    // And once the template's town holds own values that do not read: the list says so.
+    let unread = out.join("stadt").join("settings.json");
+    std::fs::write(&unread, "{").map_err(|e| format!("{}: {e}", unread.display()))?;
+    answers.push(("RunsAnswer", get(port, "/api/runs")?));
+    std::fs::remove_file(&unread).map_err(|e| format!("{}: {e}", unread.display()))?;
     answers.push(("CensusAnswer", get(port, "/api/runs/town/census")?));
     answers.push(("WorldAnswer", get(port, "/api/runs/town/world")?));
     // The house of the open partnership's household (ADR-0021, addendum of 2026-11-03): at

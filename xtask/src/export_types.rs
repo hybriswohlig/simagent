@@ -419,22 +419,41 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "RunsAnswer",
-            doc: "`GET /api/runs`: the runs of the server's directory in name order.",
+            doc: "`GET /api/runs`, version 2: the values a new town may set where it is founded, and the runs of the server's directory in name order (ADR-0021, addendum of 2026-11-05).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.runs"])),
                 field("version", Integer),
+                field("founding", list(Ref("FoundingValue"))),
                 field("runs", list(Ref("RunEntry"))),
             ],
         },
         Named {
+            name: "FoundingValue",
+            doc: "A value a new town may set: its calibration name, the base game's value from the built-in data, and what the base game's towns show of it where the value was fitted to that (the median age of women at their first partnership, the mean age gap), else null.",
+            fields: vec![
+                field("key", Text),
+                field("base", Number),
+                field("outcome", nullable(Number)),
+            ],
+        },
+        Named {
             name: "RunEntry",
-            doc: "A run of the list: its manifest and the date of its last closed second, or why not.",
+            doc: "A run of the list: its manifest, the date of its last closed second and the values beside the base game's it opens with (its own `settings.json`, else the directory's; none for the base game), or why not.",
             fields: vec![
                 field("run", Text),
                 optional("manifest", Ref("Manifest")),
                 optional("date", Ref("CalendarDate")),
-                optional("error", Kind::Literal(&["manifest_invalid", "run_failed"])),
+                optional("settings", list(Ref("RunSetting"))),
+                optional(
+                    "error",
+                    Kind::Literal(&["manifest_invalid", "run_failed", "settings_invalid"]),
+                ),
             ],
+        },
+        Named {
+            name: "RunSetting",
+            doc: "A calibration value a run opens with in place of the base game's, by name.",
+            fields: vec![field("key", Text), field("value", Number)],
         },
         Named {
             name: "CalendarDate",
@@ -462,7 +481,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "CreatedAnswer",
-            doc: "`POST /api/runs`: the name of the run made from a template.",
+            doc: "`POST /api/runs`: the name of the run made from a template, with its own values if the body names them (ADR-0021, addendum of 2026-11-05).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.created"])),
                 field("version", Integer),

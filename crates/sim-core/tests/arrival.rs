@@ -46,7 +46,7 @@ use sim_core::ids::{InputSeq, SimId};
 use sim_core::input::{
     ArrangePartnership, Couple, ForkOverride, Founder, Input, InputRecord, PoolStart, Start,
 };
-use sim_core::log::{LogEntry, log_hash};
+use sim_core::log::{LogEntry, LogPayload, log_hash};
 use sim_core::params::{ParamChange, WorldParams};
 use sim_core::pool::{Candidates, Pool, ranked_households, take_households};
 use sim_core::presentation::card::DiseaseStatus;
@@ -1580,6 +1580,167 @@ fn a_town_loaded_every_year_counts_its_census_as_the_uninterrupted_one() {
         "bodies counted"
     );
     assert_eq!(rows, whole.out.census);
+}
+
+// ---------------------------------------------------------------------------------------
+// A town's pairing age above the pool's
+
+/// The repository's data with partnerships from 18 (ADR-0021, addendum of 2026-11-05).
+fn repository_from_18() -> Data {
+    common::repository_data_with(|demography| {
+        demography["values"]["core:market_age"]["value"] = serde_json::json!(18.0);
+    })
+}
+
+/// The town of `data/scenarios/stadt.json` on the repository's data with partnerships from
+/// 18: seed 0xa001, 300 persons of the repository's pool, capacity 600, immigration, the
+/// switch on.
+fn stadt_from_18() -> Run {
+    let data = repository_from_18();
+    let seed = 0xa001;
+    let start = Start {
+        founder_tag: DataId::new("base:stadt").expect("id"),
+        capacity: Some(600),
+        ..start(
+            seed,
+            Vec::new(),
+            Vec::new(),
+            pool_start(&data, seed, 300, true),
+        )
+    };
+    let mut world = World::new(data);
+    world.submit(Input::Start(start)).expect("accepted");
+    let log = world.take_log();
+    Run {
+        world,
+        out: YearOut::default(),
+        log,
+        data: repository_from_18,
+    }
+}
+
+/// A partnership the pool brought was formed under the pool's rules, not the town's: the
+/// town of `stadt.json` with partnerships from 18 brings couples of the pool that paired
+/// before 18. Saved at the end of year 1, after its month starts and an immigration, the save
+/// loads, as an uninterrupted run wrote it (ADR-0006 section 4), saves the same bytes and runs
+/// on to the end of year 2 as the town in one piece: the same year hashes, log and state.
+#[test]
+fn a_partnership_the_pool_brought_keeps_the_pools_pairing_age() {
+    let mut whole = stadt_from_18();
+    assert_eq!(whole.world.state().data().demography().market.age_years, 18);
+    let pedigree = serde_json::to_value(whole.world.pedigree()).expect("json");
+    let born: BTreeMap<u64, i64> = (pedigree["persons"].as_array().expect("persons").iter())
+        .map(|person| {
+            let sim = person["sim"].as_u64().expect("a sim");
+            (sim, person["born"].as_i64().expect("a second"))
+        })
+        .collect();
+    let young = (pedigree["partnerships"]
+        .as_array()
+        .expect("partnerships")
+        .iter())
+    .any(|pair| {
+        let formed = pair["formed"].as_i64().expect("a second");
+        let at = |key: &str| formed - born[&pair[key].as_u64().expect("a sim")];
+        formed < 0 && (at("woman") < 18 * Y || at("man") < 18 * Y)
+    });
+    assert!(young, "a couple of the pool that paired before 18");
+    whole.play(3 * Y - 1);
+    let mut part = stadt_from_18();
+    part.play(2 * Y - 1);
+    let arrived = (part.log.iter()).any(|entry| {
+        entry.t > SimTime::from_secs(0) && matches!(entry.payload, LogPayload::Arrived { .. })
+    });
+    assert!(arrived, "an immigration after the start");
+    let bytes = part.save();
+    let (world, year_hashes) = World::load(&bytes, repository_from_18()).expect("loads");
+    assert_eq!(world.save(&year_hashes).expect("saves"), bytes);
+    let mut rest = Run {
+        world,
+        out: YearOut {
+            census: Vec::new(),
+            year_hashes,
+            trace: Vec::new(),
+        },
+        log: part.log,
+        data: repository_from_18,
+    };
+    rest.play(3 * Y - 1);
+    assert_eq!(rest.out.year_hashes, whole.out.year_hashes, "year hashes");
+    assert_eq!(log_hash(&rest.log), log_hash(&whole.log), "log");
+    assert_eq!(rest.world.state_hash(), whole.world.state_hash(), "state");
+}
+
+/// The test data with partnerships from `age` and a market in which a single of 17 searches
+/// in about every second round: the search height `c` and the factor of the minors at 1.
+fn minors_data(age: f64) -> Data {
+    let (calibration, genome_map) = common::files();
+    let mut demography = common::demography();
+    let values = &mut demography["values"];
+    values["core:market_age"]["value"] = serde_json::json!(age);
+    values["core:market_search_height_female"]["value"] = serde_json::json!(1.0);
+    values["core:market_search_factor_minor"]["value"] = serde_json::json!(1.0);
+    Data::new(common::definitions_with(demography, calibration, genome_map).expect("definitions"))
+        .expect("checked")
+}
+
+/// `bytes` with the data hash of `from` in its header replaced by the one of `to`: the save
+/// as it would read on `to`'s data.
+fn relabelled(bytes: &[u8], from: &Data, to: &Data) -> Vec<u8> {
+    let old = postcard::to_allocvec(&from.hash()).expect("encodes");
+    let new = postcard::to_allocvec(&to.hash()).expect("encodes");
+    let at = (bytes[..32].windows(old.len()))
+        .position(|window| window == old.as_slice())
+        .expect("the data hash in the header");
+    [&bytes[..at], new.as_slice(), &bytes[at + old.len()..]].concat()
+}
+
+/// A partnership the market formed still needs the town's pairing age (ADR-0018 section 1):
+/// a woman and a man of 17, single, paired by the market of partnerships from 16 before their
+/// 18th birthdays. The save loads on those data, and on the same data with partnerships from
+/// 17, where both were of age; on partnerships from 18 no uninterrupted run could have
+/// written it, and it is refused.
+#[test]
+fn a_partnership_the_market_formed_needs_the_towns_pairing_age() {
+    let data = minors_data(16.0);
+    let founder = |sex: Sex| Founder {
+        born: SimTime::from_secs(-17 * Y),
+        sex,
+        alleles: Vec::new(),
+    };
+    let start = Start {
+        world_seed: 0x17,
+        founder_tag: DataId::new("test:minors").expect("id"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+            nutrition: Vec::new(),
+        },
+        founders: vec![founder(Sex::Female), founder(Sex::Male)],
+        couples: Vec::new(),
+        capacity: None,
+        pool: None,
+    };
+    let mut world = World::new(data.clone());
+    world.submit(Input::Start(start)).expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(Y - 1), &mut |_| false);
+    let pedigree = serde_json::to_value(world.pedigree()).expect("json");
+    let formed = pedigree["partnerships"][0]["formed"]
+        .as_i64()
+        .expect("paired by the market");
+    assert!(formed > 0 && formed < Y, "paired at 17: {formed}");
+    world.take_log();
+    let bytes = world.save(&out.year_hashes).expect("saves");
+    assert!(World::load(&bytes, data.clone()).is_ok(), "from 16");
+    let (from_17, from_18) = (minors_data(17.0), minors_data(18.0));
+    let at_17 = relabelled(&bytes, &data, &from_17);
+    assert!(World::load(&at_17, from_17).is_ok(), "from 17");
+    let at_18 = relabelled(&bytes, &data, &from_18);
+    assert_eq!(
+        World::load(&at_18, from_18).err(),
+        Some(LoadError::Inconsistent),
+        "from 18"
+    );
 }
 
 /// The load checks of the review (design note, sections 5 and 9; D8): the father of a

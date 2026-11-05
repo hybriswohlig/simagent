@@ -680,3 +680,20 @@ pub fn repository_data() -> Data {
     .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }
+
+/// The repository's data with the game's life course data changed by `change`, the pool
+/// sealed to the repository's documents kept, as sim-cli builds a town's own values (ADR-0021
+/// and ADR-0017, addenda of 2026-11-05).
+#[allow(
+    dead_code,
+    reason = "only the tests on the repository's data need them"
+)]
+pub fn repository_data_with(change: impl FnOnce(&mut Value)) -> Data {
+    let (calibration, genome_map) = files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP);
+    let mut demography = game(demography());
+    change(&mut demography);
+    let changed = definitions_with(demography, calibration, genome_map).expect("definitions");
+    repository_data()
+        .with_calibration(changed.demography, changed.calibration)
+        .expect("data")
+}

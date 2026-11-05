@@ -5,7 +5,7 @@ import { added } from "./chronicle.js";
 import { answered, heard, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { CurvesView } from "./curvesview.js";
 import { ForkForm, type Writes } from "./forkform.js";
-import type { AdvanceAnswer, CalendarDate, ForkInfo, InputAnswer, Pedigree, Person, WorldAnswer } from "./generated/export.js";
+import type { AdvanceAnswer, CalendarDate, ForkInfo, InputAnswer, Pedigree, Person, RunSetting, WorldAnswer } from "./generated/export.js";
 import { fullName, namesOf } from "./names.js";
 import { dateText } from "./dates.js";
 import { Chronicle, SCROLLED } from "./lines.js";
@@ -16,6 +16,7 @@ import { hourglass } from "./tree.js";
 import { format } from "./router.js";
 import { useRuns } from "./runs.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
+import { OwnMark } from "./settingsform.js";
 import { HUNGERS, shockInput, switchInput, switchLabel, switchState, world as readWorldOf } from "./shocks.js";
 import { TEXT } from "./text.js";
 
@@ -75,12 +76,14 @@ function Town({
   closed,
   date,
   fork,
+  settings,
   others,
 }: {
   run: string;
   closed: number;
   date: CalendarDate;
   fork: ForkInfo | undefined;
+  settings: readonly RunSetting[];
   others: readonly string[];
 }) {
   const [clock, setClock] = useState<Clock>(() => standing(closed, date));
@@ -292,6 +295,11 @@ function Town({
       </p>
       <h1>{`${TEXT.run} ${run}`}</h1>
       <p>{dateText(clock.date)}</p>
+      {settings.length === 0 ? null : (
+        <p>
+          <OwnMark settings={settings} />
+        </p>
+      )}
       {fork === undefined ? null : <p>{TEXT.fork_origin.replace("{year}", String(fork.from_year))}</p>}
       <p role="group" aria-label={TEXT.steps}>
         {STEPS.map(([step, text]) => (
@@ -410,6 +418,9 @@ export function RunPage({ run }: { run: string }) {
     return back(TEXT.not_found);
   }
   if (entry.manifest === undefined || entry.date === undefined) {
+    if (entry.error === "settings_invalid") {
+      return back(TEXT.run_settings_unread);
+    }
     return back(entry.error === "run_failed" ? TEXT.refused_run_failed : TEXT.run_no_manifest);
   }
   const others = runs.value.runs
@@ -422,6 +433,7 @@ export function RunPage({ run }: { run: string }) {
       closed={entry.manifest.closed_through}
       date={entry.date}
       fork={entry.manifest.fork}
+      settings={entry.settings ?? []}
       others={others}
     />
   );

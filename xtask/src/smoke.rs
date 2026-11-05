@@ -3,8 +3,10 @@
 //! `simagent view` over it with `web/dist`, and `web/smoke/smoke.mjs` driving Chromium
 //! headless through it (run page, curves, a hunger, one year, the switch, a person, a
 //! parent in the pedigree, the comparison of the run with itself, a fork and its
-//! comparison, a pinned family). A canary first: the same drive against a copy of the page whose
-//! `main.js` throws must fail. The browser comes from `cargo xtask browser`, which installs
+//! comparison, a pinned family, a town founded with own values). Then a second drive,
+//! `web/smoke/reopen.mjs`, against a new server over the same runs: the town with own values
+//! opens again with its mark (ADR-0021, addendum of 2026-11-05). A canary first: each drive
+//! against a copy of the page whose `main.js` throws must fail. The browser comes from `cargo xtask browser`, which installs
 //! the Chromium headless shell of the pinned `playwright-core`; the gate itself downloads
 //! nothing.
 
@@ -17,6 +19,9 @@ use crate::{GATE_SCENARIO, Result, Running, cargo, start_view, web};
 
 /// The run the drive opens.
 const RUN: &str = "town";
+/// The scripts of the two drives, each against a server of its own over the same runs: the
+/// second sees the runs after a restart.
+const SCRIPTS: [&str; 2] = ["smoke/smoke.mjs", "smoke/reopen.mjs"];
 /// The last second of year 28 of the gate scenario, a year before its horizon: the drive
 /// steps one year.
 const UNTIL: &str = "912038399";
@@ -82,30 +87,37 @@ pub fn smoke(root: &Path) -> Result {
     let main = broken.join("main.js");
     std::fs::write(&main, "throw new Error(\"canary\");\n")
         .map_err(|e| format!("{}: {e}", main.display()))?;
-    let log = out.join("canary.log");
-    let Err(failure) = drive(root, &runs, &broken, Some(&log)) else {
-        return Err("canary: the smoke test passed a page whose main.js throws".to_string());
-    };
-    // A drive that failed before the script wrote anything (a server that did not start, a
-    // time limit) leaves no log; its own error says why.
-    let said = std::fs::read_to_string(&log).unwrap_or_default();
-    if !said.contains(CANARY_ERROR) {
-        return Err(format!(
-            "canary: the smoke test failed without the page's error: {failure} ({}):\n{said}",
-            log.display()
-        ));
+    for (n, script) in SCRIPTS.iter().enumerate() {
+        let log = out.join(format!("canary-{n}.log"));
+        let Err(failure) = drive(root, &runs, &broken, script, Some(&log)) else {
+            return Err(format!(
+                "canary: {script} passed a page whose main.js throws"
+            ));
+        };
+        // A drive that failed before the script wrote anything (a server that did not start,
+        // a time limit) leaves no log; its own error says why.
+        let said = std::fs::read_to_string(&log).unwrap_or_default();
+        if !said.contains(CANARY_ERROR) {
+            return Err(format!(
+                "canary: {script} failed without the page's error: {failure} ({}):\n{said}",
+                log.display()
+            ));
+        }
     }
-    drive(root, &runs, &dist, None)
+    for script in SCRIPTS {
+        drive(root, &runs, &dist, script, None)?;
+    }
+    Ok(())
 }
 
-/// One drive of the script against `simagent view` over `runs` with the page in `page`; the
+/// One drive of `script` against `simagent view` over `runs` with the page in `page`; the
 /// script's output into `log` if given (the canary's, whose failure is expected), else to
 /// the terminal.
-fn drive(root: &Path, runs: &Path, page: &Path, log: Option<&Path>) -> Result {
+fn drive(root: &Path, runs: &Path, page: &Path, script: &str, log: Option<&Path>) -> Result {
     let (server, port) = start_view(root, runs, page)?;
     let mut command = Command::new("node");
     command
-        .arg("smoke/smoke.mjs")
+        .arg(script)
         .arg(format!("http://127.0.0.1:{port}/"))
         .arg(RUN)
         .current_dir(root.join("web"))
@@ -134,7 +146,7 @@ fn drive(root: &Path, runs: &Path, page: &Path, log: Option<&Path>) -> Result {
             break status;
         }
         if Instant::now() > until {
-            return Err(format!("the smoke test took longer than {DRIVE_TIME:?}"));
+            return Err(format!("{script} took longer than {DRIVE_TIME:?}"));
         }
         std::thread::sleep(Duration::from_millis(100));
     };
@@ -142,7 +154,7 @@ fn drive(root: &Path, runs: &Path, page: &Path, log: Option<&Path>) -> Result {
     if status.success() {
         Ok(())
     } else {
-        Err(format!("the smoke test failed against {}", page.display()))
+        Err(format!("{script} failed against {}", page.display()))
     }
 }
 
