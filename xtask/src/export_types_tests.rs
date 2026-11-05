@@ -103,6 +103,63 @@ fn coverage_names_what_the_output_did_not_show() {
     assert!(seen.contains("Manifest.fork"));
 }
 
+/// The run list of version 2 (ADR-0021, addendum of 2026-11-05): the values a new town may
+/// set with the base game's and what its towns show of it, a town with the values it opens
+/// with, and a town whose own values do not read; each wanted once, a value a number.
+#[test]
+fn the_run_list_names_the_founding_values_and_a_towns_own() {
+    let types = descriptor();
+    let wanted = wanted(&types);
+    let marks = [
+        "RunsAnswer.founding[]",
+        "FoundingValue.outcome",
+        "RunEntry.settings",
+        "RunEntry.settings[]",
+        "RunEntry.error=settings_invalid",
+    ];
+    for mark in marks {
+        assert!(wanted.contains(mark), "{mark}");
+    }
+    let date = json!({
+        "year": 0, "day_of_year": 0, "month": 0, "day_of_month": 0, "week": 0, "weekday": 0,
+        "season": 0, "second_of_day": 0
+    });
+    let manifest = json!({
+        "format_version": 5, "core_version": 41, "data_hash": "0", "build_commit": "",
+        "world_seed": "1", "closed_through": 0, "year_hashes": [], "log_hash": "b"
+    });
+    let mut answer = json!({
+        "format": "simagent.view.runs", "version": 2,
+        "founding": [
+            {"key": "core:market_age", "base": 16.0, "outcome": null},
+            {"key": "core:pairing_age_gap_preferred", "base": 4.69, "outcome": 3.0}
+        ],
+        "runs": [
+            {"run": "eigen", "manifest": manifest, "date": date, "settings": [{"key": "core:market_age", "value": 18.0}]},
+            {"run": "unread", "error": "settings_invalid"}
+        ]
+    });
+    let mut seen = Seen::new();
+    assert_eq!(
+        conforms(&types, "RunsAnswer", &answer, &mut seen),
+        Vec::<String>::new()
+    );
+    assert!(missing(&wanted, &seen).iter().all(|mark| !marks.contains(&mark.as_str())));
+    answer["runs"][0]["settings"][0]["value"] = json!("18");
+    assert_eq!(
+        conforms(&types, "RunsAnswer", &answer, &mut seen),
+        ["$.runs[0].settings[0].value: \"18\" is not Number"]
+    );
+    let ts = generate(&types);
+    for line in [
+        "  readonly founding: FoundingValue[];",
+        "  readonly settings?: RunSetting[];",
+        "  readonly outcome: number | null;",
+    ] {
+        assert!(ts.lines().any(|l| l == line), "{line}");
+    }
+}
+
 #[test]
 fn the_typescript_follows_the_descriptor() {
     let ts = generate(&descriptor());

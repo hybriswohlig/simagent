@@ -575,6 +575,58 @@ mod tests {
         }
     }
 
+    /// The document a town keeps of its own values (ADR-0021, addendum of 2026-11-05): one
+    /// line of `simagent.settings` version 1 with the values by name, read back as written;
+    /// what is no such document is refused as the data refuse it.
+    #[test]
+    fn a_settings_document_is_read_as_it_is_written() {
+        let values = BTreeMap::from([
+            ("core:pairing_age_gap_preferred".to_owned(), 2.5),
+            ("core:market_age".to_owned(), 18.0),
+        ]);
+        let text = settings_text(&values);
+        assert_eq!(
+            text,
+            "{\"format\":\"simagent.settings\",\"version\":1,\"values\":{\"core:market_age\":18.0,\"core:pairing_age_gap_preferred\":2.5}}\n"
+        );
+        assert_eq!(settings_values(&text).expect("reads"), values);
+        let none = settings_text(&BTreeMap::new());
+        assert_eq!(
+            none,
+            "{\"format\":\"simagent.settings\",\"version\":1,\"values\":{}}\n"
+        );
+        assert_eq!(
+            data_with_settings(&none).expect("data").hash(),
+            core_data().expect("data").hash()
+        );
+        for refused in [
+            "{",
+            r#"{"format":"simagent.settings","version":2,"values":{}}"#,
+            r#"{"format":"simagent.other","version":1,"values":{}}"#,
+            r#"{"format":"simagent.settings","version":1,"values":{"core:market_age":"18"}}"#,
+            r#"{"format":"simagent.settings","version":1}"#,
+        ] {
+            let error = settings_values(refused).expect_err(refused);
+            assert_eq!(error.code, "data_rejected", "{refused}");
+        }
+    }
+
+    /// The base game's values a new town may set (ADR-0021, addendum of 2026-11-05), as
+    /// `data/calibration/demography.json` writes them; a value of the other file is found
+    /// too, a name that is no calibration value is not.
+    #[test]
+    fn the_base_game_names_its_values() {
+        assert_eq!(base_value("core:market_age"), Some(16.0));
+        assert_eq!(base_value("core:market_search_center_female"), Some(25.23));
+        assert_eq!(base_value("core:pairing_age_gap_preferred"), Some(4.69));
+        assert_eq!(
+            base_value("female_ramp"),
+            Some(puberty_ramp(&core_data().expect("data")))
+        );
+        assert_eq!(base_value("core:no_such_value"), None);
+        assert_eq!(base_value("values"), None);
+    }
+
     /// The houses of `data/house/` (ADR-0025 section 3): one to three members take the flat,
     /// four and five the terraced house, six to eight the house, nine none.
     #[test]

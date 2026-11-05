@@ -183,6 +183,20 @@ fn code(body: &[u8]) -> String {
     error["code"].as_str().expect("a code").to_owned()
 }
 
+/// The values a new town may set where it is founded (ADR-0021, addendum of 2026-11-05),
+/// each with the base game's value as `data/calibration/demography.json` writes it and what
+/// the base game's towns show of it: nothing more for the market age; the median age of
+/// women at their first partnership, 23.5 years, which the search centre was fitted to; the
+/// mean age gap, 3.0 years, which the preferred gap was fitted to (`tools/life_reference.py`
+/// and the value's note).
+fn founding() -> Value {
+    json!([
+        {"key": "core:market_age", "base": 16.0, "outcome": null},
+        {"key": "core:market_search_center_female", "base": 25.23, "outcome": 23.5},
+        {"key": "core:pairing_age_gap_preferred", "base": 4.69, "outcome": 3.0},
+    ])
+}
+
 #[test]
 fn the_files_of_web_dist_and_nothing_else() {
     let (runs, web) = fixture("files");
@@ -487,16 +501,19 @@ fn the_runs_and_their_manifests() {
         "year": 0, "day_of_year": 363, "month": 12, "day_of_month": 27, "week": 51,
         "weekday": 6, "season": 3, "second_of_day": 86_399,
     });
+    // Version 2 (ADR-0021, addendum of 2026-11-05): the values a new town may set, and per
+    // run the values it opens with beside the base game's, none here.
     assert_eq!(
         list,
         serde_json::json!({
             "format": "simagent.view.runs",
-            "version": 1,
+            "version": 2,
+            "founding": founding(),
             "runs": [
                 {"run": "broken", "error": "manifest_invalid"},
-                {"run": "fork.b", "manifest": manifest("fork.b"), "date": last_of_year_0},
+                {"run": "fork.b", "manifest": manifest("fork.b"), "date": last_of_year_0, "settings": []},
                 {"run": "shaped", "error": "manifest_invalid"},
-                {"run": "town-1", "manifest": manifest("town-1"), "date": last_of_year_0}
+                {"run": "town-1", "manifest": manifest("town-1"), "date": last_of_year_0, "settings": []}
             ]
         })
     );
@@ -1389,6 +1406,18 @@ fn contents(dir: &Path) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// The names in a run directory, sorted.
+fn file_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = (fs::read_dir(dir).expect("a directory"))
+        .map(|entry| {
+            let name = entry.expect("an entry").file_name();
+            name.into_string().expect("a plain name")
+        })
+        .collect();
+    names.sort();
+    names
+}
+
 /// A `POST` as the server's own page sends it.
 fn post(port: u16, path: &str, body: &str) -> (u16, String, Vec<u8>) {
     let raw = format!(
@@ -2007,6 +2036,9 @@ fn founding_a_town_is_the_template_in_its_first_second() {
         contents(&runs.join("neu")) == contents(&twin),
         "the template"
     );
+    // Without own values the town keeps no settings of its own: the files of a run alone.
+    assert_eq!(file_names(&runs.join("neu")), file_names(&twin));
+    assert_eq!(file_names(&twin).len(), RUN_FILES.len());
     // Another seed: the template with that seed.
     let body = r#"{"template":"stadt","run":"neu.2","world_seed":"00000000000000ff"}"#;
     let (status, _, answer) = post(port, "/api/runs", body);
@@ -2073,6 +2105,7 @@ fn founding_a_town_is_the_template_in_its_first_second() {
         .expect("listed");
     assert_eq!(entry["date"], date(0));
     assert_eq!(entry["date"]["year"], 0);
+    assert_eq!(entry["settings"], json!([]));
     // The server holds it.
     let refused = resume_until(&runs.join("neu"), Y - 1, None).expect_err("the server's");
     assert_eq!(first_code(&refused), "run_locked");
@@ -2106,6 +2139,349 @@ fn a_name_founded_again_is_read_again() {
     fs::remove_dir_all(runs.join("neu")).expect("removed");
     assert_eq!(post(port, "/api/runs", found).0, 200);
     assert_eq!(get(port, "/api/runs/neu").0, 200, "read again");
+}
+
+/// The settings a town keeps of its own (ADR-0021, addendum of 2026-11-05): the document
+/// `simagent.settings` version 1 in one line, each value a number with a fraction.
+fn settings_file(values: &str) -> String {
+    format!("{{\"format\":\"simagent.settings\",\"version\":1,\"values\":{{{values}}}}}\n")
+}
+
+/// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
+/// `the_base_game_loads`).
+const BASE_HASH: &str = "dab82f949a78a58f";
+
+/// The data hash in the manifest of the run in `dir`.
+fn data_hash(dir: &Path) -> String {
+    let manifest = json_of(&fs::read(dir.join("manifest.json")).expect("a manifest"));
+    manifest["data_hash"]
+        .as_str()
+        .expect("a data hash")
+        .to_owned()
+}
+
+/// The entry of `run` in the server's run list.
+fn listed(port: u16, run: &str) -> Value {
+    let list = json_of(&get(port, "/api/runs").2);
+    (list["runs"].as_array().expect("runs").iter())
+        .find(|entry| entry["run"] == run)
+        .cloned()
+        .unwrap_or_else(|| panic!("{run} is not listed: {list}"))
+}
+
+/// The partners the person answer of `sim` in `run` offers.
+fn offered(port: u16, run: &str, sim: &Value) -> Value {
+    let (status, _, body) = get(port, &format!("/api/runs/{run}/persons/{sim}"));
+    assert_eq!(status, 200, "{run} {sim}");
+    json_of(&body)["partner_candidates"].clone()
+}
+
+/// A town founded with own values (ADR-0021, addendum of 2026-11-05) keeps them in its own
+/// `settings.json`, written once; its data are the base game's with them, so its data hash is
+/// another than the base game's, and a town without them keeps the base game's. The run list
+/// names them. With a market age of 18 the singles of 16 and 17 whom the base game's town of
+/// the same founders offers partners have none (a partner of the market age, ADR-0018
+/// section 1). After a restart of the server the town opens with them and goes on.
+#[test]
+fn a_town_founded_with_own_values_keeps_them_and_reopens_with_them() {
+    let (runs, web) = fixture("own");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let body = r#"{"template":"stadt","run":"eigen","settings":{"core:market_age":18}}"#;
+    let (status, _, answer) = post(port, "/api/runs", body);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    assert_eq!(
+        json_of(&answer),
+        json!({"format": "simagent.view.created", "version": 1, "run": "eigen"})
+    );
+    let (status, _, _) = post(port, "/api/runs", r#"{"template":"stadt","run":"grund"}"#);
+    assert_eq!(status, 200);
+    let own = runs.join("eigen").join("settings.json");
+    let kept = settings_file(r#""core:market_age":18.0"#);
+    assert_eq!(fs::read_to_string(&own).expect("its own settings"), kept);
+    assert!(!runs.join("grund").join("settings.json").exists());
+    assert_eq!(data_hash(&runs.join("grund")), BASE_HASH);
+    assert_ne!(data_hash(&runs.join("eigen")), BASE_HASH);
+    let eighteen = json!([{"key": "core:market_age", "value": 18.0}]);
+    assert_eq!(listed(port, "eigen")["settings"], eighteen);
+    assert_eq!(listed(port, "grund")["settings"], json!([]));
+    // The same founders, in their first second.
+    let living = |run: &str| -> Vec<(Value, Value)> {
+        let pedigree = json_of(&get(port, &format!("/api/runs/{run}/pedigree")).2);
+        (pedigree["persons"].as_array().expect("persons").iter())
+            .map(|person| (person["sim"].clone(), person["born"].clone()))
+            .collect()
+    };
+    let founders = living("grund");
+    assert_eq!(living("eigen"), founders);
+    // 16 or 17 whole years at second 0: born after -18 years, at or before -16 years.
+    let young: Vec<&Value> = (founders.iter())
+        .filter(|(_, born)| {
+            let born = born.as_i64().expect("a second");
+            born > -18 * Y && born <= -16 * Y
+        })
+        .map(|(sim, _)| sim)
+        .collect();
+    let paired = (young.iter()).filter(|sim| offered(port, "grund", sim) != json!([]));
+    assert!(paired.count() > 0, "a single of 16 or 17 with partners");
+    for sim in &young {
+        assert_eq!(offered(port, "eigen", sim), json!([]), "{sim}");
+    }
+    let year = r#"{"step":"year"}"#;
+    assert_eq!(post(port, "/api/runs/eigen/advance", year).0, 200);
+    drop(server);
+    let server = start(&runs, &web);
+    let port = server.port;
+    assert_eq!(listed(port, "eigen")["settings"], eighteen);
+    assert_eq!(get(port, "/api/runs/eigen/world").0, 200);
+    let (status, _, body) = post(port, "/api/runs/eigen/advance", year);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(listed(port, "eigen")["date"], date(2 * Y - 1));
+    assert_eq!(fs::read_to_string(&own).expect("its own settings"), kept);
+}
+
+/// Own values are checked as the folder's `settings.json` is (ADR-0021, addendum of
+/// 2026-11-05): each must name exactly one calibration value and lie in its range, which the
+/// core checks (a market age of 11 is too young); refused, a town is not made. A body whose
+/// `settings` is no object of numbers is no body of the route.
+#[test]
+fn own_values_the_data_refuse_make_no_town() {
+    let (runs, web) = fixture("own-refused");
+    let server = start(&runs, &web);
+    let port = server.port;
+    for (run, settings, status, expected) in [
+        ("x1", r#"{"core:no_such_value":1}"#, 409, "data_rejected"),
+        ("x2", r#"{"core:market_age":11}"#, 409, "data_rejected"),
+        (
+            "x3",
+            r#"{"core:market_age":18,"core:no_such_value":1}"#,
+            409,
+            "data_rejected",
+        ),
+        ("x4", r#"{"core:market_age":"18"}"#, 400, "body_invalid"),
+        ("x5", "null", 400, "body_invalid"),
+        ("x6", "[18]", 400, "body_invalid"),
+        ("x7", r#"{"core:market_age":1e999}"#, 400, "body_invalid"),
+        ("x8", "18", 400, "body_invalid"),
+    ] {
+        let body = format!(r#"{{"template":"stadt","run":"{run}","settings":{settings}}}"#);
+        let (found, _, answer) = post(port, "/api/runs", &body);
+        assert_eq!(
+            (found, code(&answer).as_str()),
+            (status, expected),
+            "{body}"
+        );
+        assert!(!runs.join(run).exists(), "{run}");
+    }
+    // A name in use stays refused as such.
+    let body = r#"{"template":"stadt","run":"town-1","settings":{"core:market_age":18}}"#;
+    let (status, _, answer) = post(port, "/api/runs", body);
+    assert_eq!((status, code(&answer).as_str()), (409, "run_exists"));
+    assert!(!runs.join("town-1").join("settings.json").exists());
+}
+
+/// The folder's `settings.json` and a town's own (ADR-0021, addendum of 2026-11-05): a town
+/// that brings no values of its own takes the folder's as its own; values it brings are its
+/// own alone, and an empty set is the base game. A town without its own file opens with the
+/// folder's values as before, and only while they give the hash it was founded with. Once a
+/// town has its own, the folder's file does not matter to it: it opens without the file too.
+#[test]
+fn the_folder_settings_seed_a_town_that_brings_none() {
+    let (runs, web) = fixture("own-folder");
+    let folder = runs.join("settings.json");
+    write(
+        &folder,
+        br#"{"format":"simagent.settings","version":1,"values":{"core:market_age":18}}"#,
+    );
+    let server = start(&runs, &web);
+    let port = server.port;
+    for body in [
+        r#"{"template":"stadt","run":"seeded"}"#,
+        r#"{"template":"stadt","run":"own","settings":{"core:market_age":17}}"#,
+        r#"{"template":"stadt","run":"base","settings":{}}"#,
+    ] {
+        let (status, _, answer) = post(port, "/api/runs", body);
+        assert_eq!(status, 200, "{body}: {}", String::from_utf8_lossy(&answer));
+    }
+    let own = |run: &str| fs::read_to_string(runs.join(run).join("settings.json")).expect("own");
+    assert_eq!(own("seeded"), settings_file(r#""core:market_age":18.0"#));
+    assert_eq!(own("own"), settings_file(r#""core:market_age":17.0"#));
+    assert_eq!(own("base"), settings_file(""));
+    assert_eq!(data_hash(&runs.join("base")), BASE_HASH);
+    let hashes = ["seeded", "own", "base"].map(|run| data_hash(&runs.join(run)));
+    assert!(hashes[0] != hashes[1] && hashes[0] != hashes[2] && hashes[1] != hashes[2]);
+    let (eighteen, seventeen) = (
+        json!([{"key": "core:market_age", "value": 18.0}]),
+        json!([{"key": "core:market_age", "value": 17.0}]),
+    );
+    assert_eq!(listed(port, "seeded")["settings"], eighteen);
+    assert_eq!(listed(port, "own")["settings"], seventeen);
+    assert_eq!(listed(port, "base")["settings"], json!([]));
+    // A run without its own file is listed with the values it opens with, the folder's.
+    assert_eq!(listed(port, "town-1")["settings"], eighteen);
+    drop(server);
+    // A town made before towns kept their own values: the seeded one without its file.
+    let old = runs.join("old");
+    for file in RUN_FILES {
+        write(
+            &old.join(file),
+            &fs::read(runs.join("seeded").join(file)).expect("read"),
+        );
+    }
+    let step = r#"{"step":"days28"}"#;
+    let server = start(&runs, &web);
+    let port = server.port;
+    assert_eq!(listed(port, "old")["settings"], eighteen);
+    for run in ["seeded", "own", "base", "old"] {
+        let (status, _, body) = post(port, &format!("/api/runs/{run}/advance"), step);
+        assert_eq!(status, 200, "{run}: {}", String::from_utf8_lossy(&body));
+    }
+    // The base game's run of the fixture does not open on the folder's values, as before.
+    let (status, _, body) = post(port, "/api/runs/town-1/advance", step);
+    assert_eq!((status, code(&body).as_str()), (500, "save_rejected"));
+    drop(server);
+    fs::remove_file(&folder).expect("removed");
+    let server = start(&runs, &web);
+    let port = server.port;
+    assert_eq!(listed(port, "old")["settings"], json!([]));
+    assert_eq!(listed(port, "seeded")["settings"], eighteen);
+    for run in ["seeded", "own", "base", "town-1"] {
+        let (status, _, body) = post(port, &format!("/api/runs/{run}/advance"), step);
+        assert_eq!(status, 200, "{run}: {}", String::from_utf8_lossy(&body));
+    }
+    let (status, _, body) = post(port, "/api/runs/old/advance", step);
+    assert_eq!((status, code(&body).as_str()), (500, "save_rejected"));
+}
+
+/// A town's own values that do not give data (ADR-0021, addendum of 2026-11-05), a file that
+/// is no settings document or names a value out of its range: the run list says so, no read
+/// or write opens the town, and it is not marked failed; once the file reads, it opens.
+#[test]
+fn a_town_whose_own_values_do_not_read_does_not_open() {
+    let (runs, web, _) = writable_fixture("own-unread");
+    let own = runs.join("town").join("settings.json");
+    write(&own, b"{");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let unread = json!({"run": "town", "error": "settings_invalid"});
+    assert_eq!(listed(port, "town"), unread);
+    let (status, _, body) = get(port, "/api/runs/town/world");
+    assert_eq!((status, code(&body).as_str()), (500, "data_rejected"));
+    let year = r#"{"step":"year"}"#;
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!((status, code(&body).as_str()), (500, "data_rejected"));
+    write(&own, settings_file(r#""core:market_age":11.0"#).as_bytes());
+    assert_eq!(listed(port, "town"), unread);
+    write(&own, settings_file("").as_bytes());
+    assert_eq!(listed(port, "town")["settings"], json!([]));
+    let (status, _, body) = post(port, "/api/runs/town/advance", year);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+}
+
+/// The server as a child process with its error output kept, and its port.
+fn start_telling(runs: &Path, web: &Path) -> (Child, u16) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_simagent"))
+        .arg("view")
+        .arg(runs)
+        .args(["--port", "0", "--web"])
+        .arg(web)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("starts");
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().expect("its output"))
+        .read_line(&mut line)
+        .expect("its address");
+    let port: u16 = line
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|rest| rest.strip_suffix("/\n"))
+        .and_then(|port| port.parse().ok())
+        .unwrap_or_else(|| panic!("the address line: {line:?}"));
+    (child, port)
+}
+
+/// What the server said on its error output, once it is ended.
+fn told(mut child: Child) -> String {
+    let _ = child.kill();
+    let _ = child.wait();
+    let mut said = String::new();
+    child
+        .stderr
+        .take()
+        .expect("its error output")
+        .read_to_string(&mut said)
+        .expect("text");
+    said
+}
+
+/// A town founded with own values (ADR-0021, addendum of 2026-11-05) forks with them: the
+/// fork keeps the same settings, a fork without an override is its parent (an empty
+/// comparison), also once the fork is ahead and recomputed to its parent's second. Left
+/// between two stops, the town goes back to its last stop on its own values when the server
+/// starts (ADR-0021 section 2, addendum of 2026-10-27), and runs the year again byte for byte.
+#[test]
+fn a_town_with_own_values_forks_compares_and_goes_back_with_them() {
+    let (runs, web) = fixture("own-fork");
+    let town = runs.join("eigen");
+    let year = r#"{"step":"year"}"#;
+    {
+        let server = start(&runs, &web);
+        let body = r#"{"template":"stadt","run":"eigen","settings":{"core:market_age":18}}"#;
+        assert_eq!(post(server.port, "/api/runs", body).0, 200);
+        assert_eq!(post(server.port, "/api/runs/eigen/advance", year).0, 200);
+    }
+    let first = contents(&town);
+    let server = start(&runs, &web);
+    let port = server.port;
+    assert_eq!(post(port, "/api/runs/eigen/advance", year).0, 200);
+    let second = contents(&town);
+    let fork = r#"{"run":"gabel","from_year":1,"changes":[]}"#;
+    let (status, _, answer) = post(port, "/api/runs/eigen/fork", fork);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    assert_eq!(
+        fs::read(runs.join("gabel").join("settings.json")).expect("the fork's"),
+        fs::read(town.join("settings.json")).expect("the town's")
+    );
+    let compared = |recomputed: Value| {
+        let (status, _, body) = get(port, "/api/runs/eigen/diff/gabel");
+        assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+        let diff = json_of(&body);
+        assert_eq!(
+            (&diff["a_only"], &diff["b_only"], &diff["changed"]),
+            (&json!([]), &json!([]), &json!([]))
+        );
+        assert_eq!(diff["recomputed"], recomputed);
+        assert_eq!(diff["at"]["t"], 2 * Y - 1);
+    };
+    compared(Value::Null);
+    assert_eq!(post(port, "/api/runs/gabel/advance", year).0, 200);
+    compared(json!("gabel"));
+    drop(server);
+    // Between two stops: the second year's events and census written, the input log open,
+    // manifest, save and scenario of the first stop.
+    for (file, bytes) in RUN_FILES.iter().zip(&first) {
+        write(&town.join(file), bytes);
+    }
+    write(&town.join("events.ndjson"), &second[3]);
+    write(&town.join("census.csv"), &second[4]);
+    let log = String::from_utf8(first[2].clone()).expect("text");
+    let (open, _end) = log.trim_end().rsplit_once('\n').expect("an end line");
+    write(&town.join("input.ndjson"), format!("{open}\n").as_bytes());
+    let lines = |bytes: &[u8]| bytes.iter().filter(|b| **b == b'\n').count();
+    let cut = lines(&second[3]) - lines(&first[3]);
+    let (child, port) = start_telling(&runs, &web);
+    assert!(contents(&town) == first, "back at its last stop");
+    let (status, _, body) = post(port, "/api/runs/eigen/advance", year);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert!(contents(&town) == second, "the year again");
+    assert_eq!(
+        told(child),
+        format!(
+            "view: run eigen went back to its last stop at {} (year 0): cut {cut} events, 1 census rows, 0 inputs\n",
+            Y - 1
+        )
+    );
 }
 
 /// The stdout of a call of the binary that must succeed.
@@ -2164,6 +2540,8 @@ fn a_fork_over_http_is_the_fork_of_the_command_line() {
         contents(&runs.join("fork")) == contents(&twin_fork),
         "the fork"
     );
+    // The parent has no own values, nor has its fork.
+    assert_eq!(file_names(&runs.join("fork")), file_names(&twin_fork));
     let (_, _, list) = get(port, "/api/runs");
     let listed: Vec<Value> = (json_of(&list)["runs"].as_array().expect("runs").iter())
         .map(|entry| entry["run"].clone())
@@ -2527,37 +2905,12 @@ fn the_server_brings_an_interrupted_run_back_to_its_last_stop() {
         assert!(contents(&town) == damaged, "a held run is left");
     }
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_simagent"))
-        .arg("view")
-        .arg(&runs)
-        .args(["--port", "0", "--web"])
-        .arg(&web)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("starts");
-    let mut line = String::new();
-    BufReader::new(child.stdout.take().expect("its output"))
-        .read_line(&mut line)
-        .expect("its address");
-    let port: u16 = line
-        .strip_prefix("http://127.0.0.1:")
-        .and_then(|rest| rest.strip_suffix("/\n"))
-        .and_then(|port| port.parse().ok())
-        .unwrap_or_else(|| panic!("the address line: {line:?}"));
+    let (child, port) = start_telling(&runs, &web);
     assert!(contents(&town) == stopped, "back at its last stop");
     let (status, _, body) = post(port, "/api/runs/town/advance", r#"{"step":"year"}"#);
     assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
     assert!(contents(&town) == contents(&twin), "the year again");
-    let _ = child.kill();
-    let _ = child.wait();
-    let mut said = String::new();
-    child
-        .stderr
-        .take()
-        .expect("its error output")
-        .read_to_string(&mut said)
-        .expect("text");
+    let said = told(child);
     let closed = 4 * Y - 1;
     let year = calendar(SimTime::from_secs(closed)).year;
     assert_eq!(
