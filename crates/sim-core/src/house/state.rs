@@ -271,6 +271,98 @@ pub fn filler_end_if(
     filler_end_of((house, data), who, &there, &taken, (arrive, now))
 }
 
+/// The end a time-filler at `offer` would have at most, chosen in the second `chosen` and there at
+/// `arrive`, by the bounds of `filler_end_of` that do not depend on the places (ADR-0026, addendum
+/// of 2026-11-05 on the time-filler's length): its length from the arrival, its bedtime (the
+/// arrival itself if that lies in a night), today's departure if it comes after the choice and
+/// `fallback_max_seconds` after the arrival. The next choice can only make the end earlier.
+/// `None` if every bound lies beyond the end of time.
+fn filler_bound(
+    data: &HouseData,
+    (born, key, seed): (SimTime, crate::lineage::LineageKey, u64),
+    offer: &OfferDef,
+    (chosen, arrive): (SimTime, SimTime),
+) -> Option<SimTime> {
+    let rules = data.day();
+    let length =
+        (offer.seconds).and_then(|secs| arrive.checked_add(SimDuration::from_secs(secs.into())));
+    let bedtime = match night(rules, born, arrive) {
+        Some(_) => Some(arrive),
+        None => next_night(rules, born, arrive).map(|night| night.from),
+    };
+    let draw = || work_draw(seed, key);
+    let depart = day_departure(rules, born, draw, arrive).filter(|&depart| depart > chosen);
+    let longest = SimDuration::from_secs(i64::from(rules.fallback_max_seconds));
+    let cap = arrive.checked_add(longest);
+    [length, bedtime, depart, cap].into_iter().flatten().min()
+}
+
+/// Whether a choice in the second `chosen` could have taken a time-filler at `offer` there at
+/// `arrive` (ADR-0026, addendum of 2026-11-05 on the time-filler's length): by day, and its end by
+/// the fixed bounds (`filler_bound`) at least `fallback_min_seconds` after the choice. The choice
+/// takes none whose end, which those bounds only can make later, comes sooner.
+pub fn filler_possible(
+    data: &HouseData,
+    who: (SimTime, crate::lineage::LineageKey, u64),
+    offer: &OfferDef,
+    (chosen, arrive): (SimTime, SimTime),
+) -> bool {
+    let rules = data.day();
+    if night(rules, who.0, chosen).is_some() {
+        return false;
+    }
+    let shortest = i64::from(rules.fallback_min_seconds);
+    filler_bound(data, who, offer, (chosen, arrive))
+        .is_none_or(|end| (end - chosen).as_secs() >= shortest)
+}
+
+/// The loader's check of the time-fillers in a house part (ADR-0026, addendum of 2026-11-05 on
+/// the time-filler's length), `seed` the world's, `member` a living sim's household, birth and
+/// lineage key: on its walk a time-filler was chosen when the walk began; at its object it
+/// arrived when the needs its offer sets were written down, and was chosen its walk from some
+/// room of the house before. A time-filler no such choice could have taken (`filler_possible`)
+/// is refused (`Broken::Filler`). Which offer a choice took is not checked otherwise.
+pub fn fillers_consistent(
+    house: &HouseState,
+    data: Option<&HouseData>,
+    seed: u64,
+    member: impl Fn(SimId) -> Option<(HouseholdId, SimTime, crate::lineage::LineageKey)>,
+) -> Result<(), Broken> {
+    for (&sim, person) in &house.sims {
+        let Some(action) = person.action.filter(|action| action.filler) else {
+            continue;
+        };
+        let (household, born, key) = member(sim).ok_or(Broken::NotMember)?;
+        let data = data.ok_or(Broken::HouseUnknown)?;
+        let moved = house.households.get(&household).ok_or(Broken::NotMember)?;
+        let home = data.house(&moved.house).ok_or(Broken::HouseUnknown)?;
+        let object =
+            (home.def().objects.get(usize::from(action.object))).ok_or(Broken::ObjectUnknown)?;
+        let kind = data.kind(&object.kind).ok_or(Broken::ObjectUnknown)?;
+        let offer = (kind.offers.get(usize::from(action.offer))).ok_or(Broken::OfferUnknown)?;
+        let who = (born, key, seed);
+        let possible = match person.place {
+            Place::Walking { depart, arrive, .. } => {
+                filler_possible(data, who, offer, (depart, arrive))
+            }
+            Place::Room(_) => {
+                let set = (NEEDS.into_iter().zip(person.needs)).find(|(need, _)| offer.sets(*need));
+                let begun = set.map(|(_, sample)| sample.at()).ok_or(Broken::Filler)?;
+                (0..home.def().rooms).any(|room| {
+                    let walk = SimDuration::from_secs(i64::from(home.walk_to(room, action.object)));
+                    (begun.checked_sub(walk))
+                        .is_some_and(|chosen| filler_possible(data, who, offer, (chosen, begun)))
+                })
+            }
+            Place::Away => true,
+        };
+        if !possible {
+            return Err(Broken::Filler);
+        }
+    }
+    Ok(())
+}
+
 /// The crossings a change of the person's rates at `after` plans (ADR-0026 section 1): per
 /// need and threshold below its value the second it gets there, if that comes after
 /// `after`, in the order of the needs and then of the thresholds.
@@ -401,7 +493,8 @@ pub enum Broken {
     /// (ADR-0026, addendum of 2026-11-04 after the playtest).
     ChildBed,
     /// A time-filler at an offer that is none (ADR-0026, addendum of 2026-11-04 on comfort and
-    /// the time-filler).
+    /// the time-filler), or one no choice could have taken: chosen in a night or ending too soon
+    /// by the bounds the save shows (`fillers_consistent`, its addendum of 2026-11-05).
     Filler,
 }
 
