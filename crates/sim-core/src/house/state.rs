@@ -62,7 +62,8 @@ pub enum Place {
 
 /// The offer a person chose, on the way or doing it; it holds the place `slot` of the
 /// object (ADR-0026 sections 4 and 5). A time-filler, `filler`, ends at the person's next
-/// choice (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+/// choice (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler), at the latest after
+/// its length (its addendum of 2026-11-05 on the time-filler's length).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Action {
     pub object: u16,
@@ -184,12 +185,14 @@ pub fn next_choice_of(
 }
 
 /// The second the time-filler of `person` at its object ends (ADR-0026, addendum of 2026-11-04
-/// on comfort and the time-filler), from `start` on, planned in the second `after`, with the
-/// needs at the filler's rates and `taken` the places taken (its own among them) or held for
-/// others: at its next choice (`next_choice_of` from the object's room), at the latest
-/// `fallback_max_seconds` after it began and at its bedtime, the start of the night after it
-/// began; at once if it began in a night. `None` for anyone not at a time-filler, or if the end
-/// lies beyond the end of time.
+/// on comfort and the time-filler, and of 2026-11-05 on its length), from `start` on, planned in
+/// the second `after`, with the needs at the filler's rates and `taken` the places taken (its own
+/// among them) or held for others: the earliest of its length from when it began, as any action
+/// (`action_end`), its next choice (`next_choice_of` from the object's room), its bedtime, the
+/// start of the night after it began, today's departure if that comes after `after`
+/// (`house::day::day_departure` of the day planned last at or before `start`), and at the latest
+/// `fallback_max_seconds` after it began; at once if it began in a night. `None` for anyone not
+/// at a time-filler, or if the end lies beyond the end of time.
 pub fn filler_end_of(
     (house, data): (&House, &HouseData),
     who: (SimTime, crate::lineage::LineageKey, u64),
@@ -203,7 +206,7 @@ pub fn filler_end_of(
     if !action.filler {
         return None;
     }
-    let born = who.0;
+    let (born, key, seed) = who;
     let rules = data.day();
     let object = house.def().objects.get(usize::from(action.object))?;
     let offer = (data.kind(&object.kind)?.offers).get(usize::from(action.offer))?;
@@ -215,11 +218,57 @@ pub fn filler_end_of(
     let bedtime = next_night(rules, born, begun).map(|night| night.from);
     let longest = SimDuration::from_secs(i64::from(rules.fallback_max_seconds));
     let cap = begun.checked_add(longest);
+    let length = action_end(person, offer, rules, born);
+    let draw = || work_draw(seed, key);
+    let depart = day_departure(rules, born, draw, start).filter(|&depart| depart > after);
     let next = match bedtime.is_none_or(|bedtime| start < bedtime) {
         true => next_choice_of((house, data), who, person, taken, (start, after)),
         false => None,
     };
-    [next.or(bedtime), bedtime, cap].into_iter().flatten().min()
+    [next, bedtime, cap, length, depart]
+        .into_iter()
+        .flatten()
+        .min()
+}
+
+/// The end the time-filler `(object, offer)` would have if the idle `person`, born at `who.0`,
+/// chose it now, `walk_secs` away (ADR-0026, addendum of 2026-11-05 on the time-filler's length):
+/// as `filler_end_of` plans it at the arrival, the needs it sets written down there with its
+/// rates of the age band then and its place among `taken`, but planned in the second of the
+/// choice, `now`, so that a departure on the way bounds it too. `None` beyond the end of time.
+pub fn filler_end_if(
+    (house, data): (&House, &HouseData),
+    who: (SimTime, crate::lineage::LineageKey, u64),
+    (person, taken): (&InHouse, &BTreeSet<(u16, u8)>),
+    (object, offer, walk_secs): (u16, u16, u32),
+    now: SimTime,
+) -> Option<SimTime> {
+    let Place::Room(_) = person.place else {
+        return None;
+    };
+    let def = house.def().objects.get(usize::from(object))?;
+    let kind = data.kind(&def.kind)?;
+    let offered = kind.offers.get(usize::from(offer))?;
+    let arrive = now.checked_add(SimDuration::from_secs(i64::from(walk_secs)))?;
+    let years = (arrive.as_secs() - who.0.as_secs()).div_euclid(YEAR.as_secs());
+    let band = u8::try_from(years).ok().and_then(age_band)?;
+    let slot = (0..kind.slots).find(|slot| !taken.contains(&(object, *slot)))?;
+    let mut there = person.clone();
+    there.place = Place::Room(def.room);
+    there.action = Some(Action {
+        object,
+        offer,
+        slot,
+        filler: true,
+    });
+    for (sample, need) in there.needs.iter_mut().zip(NEEDS) {
+        if offered.sets(need) {
+            *sample = sample.with_rate(arrive, offered.rate(data.rates(), need, band));
+        }
+    }
+    let mut taken = taken.clone();
+    taken.insert((object, slot));
+    filler_end_of((house, data), who, &there, &taken, (arrive, now))
 }
 
 /// The crossings a change of the person's rates at `after` plans (ADR-0026 section 1): per

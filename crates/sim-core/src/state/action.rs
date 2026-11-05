@@ -17,6 +17,7 @@ use crate::house::day::{departure, night, work_draw};
 use crate::house::need::{EMERGENCY, EMPTY, FULL};
 use crate::house::state::{
     Action, Decisions, InHouse, MAX_DECISIONS, Place, action_end, child_held, dwell_walk,
+    filler_end_if,
 };
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
@@ -289,7 +290,8 @@ pub(crate) fn decide(
     let now = ctx.now();
     let (household, houses, house) = home(domain, data, sim);
     let age = age(domain, sim, now);
-    let tonight = night(houses.day(), born(domain, sim), now);
+    let birth = born(domain, sim);
+    let tonight = night(houses.day(), birth, now);
     let seed = (domain.world_seed).unwrap_or_else(|| panic!("invariant seeds.before_start"));
     let Some(key) = domain.sims.get(&sim).map(|person| person.lineage_key) else {
         panic!("invariant unknown_entity_id: sim {}", sim.get());
@@ -325,12 +327,7 @@ pub(crate) fn decide(
     let left = tonight.map(|night| night.left(now));
     let percent = houses.day().choice_mood_percent;
     let moods = |object, offer| mood(seed, key, now, (object, offer), percent);
-    let leaves = departure(
-        houses.day(),
-        born(domain, sim),
-        || work_draw(seed, key),
-        now,
-    );
+    let leaves = departure(houses.day(), birth, || work_draw(seed, key), now);
     let depart_in = leaves.map(|leaves| (leaves - now).as_secs());
     let scored = score(house, houses, (age, needs, room), (left, depart_in), moods);
     let choice = choose(
@@ -340,11 +337,27 @@ pub(crate) fn decide(
         &busy,
         tonight.map(|_| beds.as_slice()),
     );
-    // By day one idle and waiting for nothing takes its time-filler.
-    let filled = match (choice, tonight) {
-        (Choice::Idle, None) => filler((house, houses), (age, room), &busy),
+    // By day one idle and waiting for nothing takes its time-filler, the one with the highest
+    // mood, unless it would end under `fallback_min_seconds` from now (ADR-0026, addendum of
+    // 2026-11-05 on the time-filler's length): then it stays idle, and the entry says when that
+    // filler would have ended.
+    let picked = match (choice, tonight) {
+        (Choice::Idle, None) => filler((house, houses), (age, room), &busy, moods),
         _ => None,
     };
+    let mut too_short = None;
+    let filled = picked.filter(|&(object, offer)| {
+        let walk_secs = house.walk_to(room, object);
+        let who = (birth, key, seed);
+        let person =
+            (domain.house.sims.get(&sim)).unwrap_or_else(|| panic!("invariant house.orphan_event"));
+        let fill = (object, offer, walk_secs);
+        let end = filler_end_if((house, houses), who, (person, &taken), fill, now);
+        let shortest = i64::from(houses.day().fallback_min_seconds);
+        let short = end.filter(|end| (*end - now).as_secs() < shortest);
+        too_short = short;
+        short.is_none()
+    });
     let chosen = match (choice, filled) {
         (Choice::Take(chosen), _) => Some((chosen.object, chosen.offer)),
         (_, Some(filled)) => Some(filled),
@@ -370,6 +383,7 @@ pub(crate) fn decide(
             waits,
             held: children,
             tier: beds,
+            too_short,
         };
         let entry = ctx.emit(idle, vec![Subject::Sim(sim)], causes);
         // One idle and waiting for nothing goes from a room one does not stay in to the room

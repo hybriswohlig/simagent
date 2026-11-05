@@ -109,7 +109,8 @@ xxh3-64 of the definitions, the pool suffix and the templates' suffix.
 The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2, ADR-0024 section 4):
 data/house/needs.json (the rates per need and age band, awake and asleep, and each need's
 comfort), data/house/day.json (the rules of the day: school, work, the small children, the jumps
-on coming home, the night, what a need at 0 does, the mood of a choice, the longest time-filler),
+on coming home, the night, what a need at 0 does, the mood of a choice, the longest time-filler
+and the least time left for one),
 data/house/kinds.json (the kinds of furniture with their offers) and one file per house under
 data/house/houses/, which name rooms and offers. `houses_checked` repeats the checks of the
 reader (sim-cli: names once, one entrance, named rooms there) and of the core, each failure
@@ -895,6 +896,9 @@ DAY_FORMAT = {
     "choice_mood_percent": U8,
     # The longest a time-filler lasts (its addendum on comfort and the time-filler).
     "fallback_max_seconds": U32,
+    # The least time left for a time-filler to be taken (its addendum of 2026-11-05 on the
+    # time-filler's length).
+    "fallback_min_seconds": U32,
 }
 SECONDS_OF_DAY = 86_400
 
@@ -971,7 +975,8 @@ def day_checked(day: dict) -> None:
     of 2026-11-04 on a need at 0: energy rising on the floor, the level to get up at from 1 to
     1000, the accident's hygiene at most 1000, the change of fun at hygiene 0 from -1000 to 0),
     the mood (at most 50 percent either way), the longest time-filler (60 s to 12 h, as an
-    offer's length; its addendum on comfort and the time-filler)."""
+    offer's length; its addendum on comfort and the time-filler) and the least time left for one
+    at most that (its addendum of 2026-11-05 on the time-filler's length)."""
     day_fields(day, DAY_FORMAT)
     school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
     hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
@@ -1006,6 +1011,7 @@ def day_checked(day: dict) -> None:
     ), "house.day_zero"
     assert day["choice_mood_percent"] <= 50, "house.day_mood"
     assert 60 <= day["fallback_max_seconds"] <= 43_200, "house.day_fallback"
+    assert day["fallback_min_seconds"] <= day["fallback_max_seconds"], "house.day_fallback"
 
 
 def houses_checked(needs, day, kinds, houses):
@@ -1151,10 +1157,12 @@ def houses_suffix(files) -> bytes:
     bladder: i32, hygiene: i32, fun: i32 }, young: YoungRules { until_age: u8, kita_from: u32,
     kita_to: u32, bed_from: u32, bed_to: u32 }, night: NightRules { from: [u32; 4], until: [u32;
     4], until_weekend: [u32; 4] }, zero: ZeroRules { collapse_energy_rate: i32, stand_up_at: u16, accident_hygiene_at_most:
-    u16, hygiene_empty_fun: i32 }, choice_mood_percent: u8, fallback_max_seconds: u32 }` (ADR-0024 section 4; the night of
+    u16, hygiene_empty_fun: i32 }, choice_mood_percent: u8, fallback_max_seconds: u32,
+    fallback_min_seconds: u32 }` (ADR-0024 section 4; the night of
     ADR-0026, its addendum of 2026-11-04: a fixed array as its four elements, no length; a need
     at 0 and the mood of its addenda of 2026-11-04; the weekend's end of the night of its addendum
-    after the playtest; the longest time-filler of its addendum on comfort and the time-filler),
+    after the playtest; the longest time-filler of its addendum on comfort and the time-filler,
+    the least time left for one of its addendum of 2026-11-05 on the time-filler's length),
     the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need, i32>,
     seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep: bool,
     min_age: u8, max_age: u8, fallback: bool }], bed_for: Option<BedFor> }` (an
@@ -1183,6 +1191,7 @@ def houses_suffix(files) -> bytes:
     out += zigzag(zero["collapse_energy_rate"]) + varint(zero["stand_up_at"])
     out += varint(zero["accident_hygiene_at_most"]) + zigzag(zero["hygiene_empty_fun"])
     out += u8(day["choice_mood_percent"]) + varint(day["fallback_max_seconds"])
+    out += varint(day["fallback_min_seconds"])
     out += varint(len(kinds))
     for kind in kinds:
         out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))

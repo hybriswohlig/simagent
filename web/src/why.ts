@@ -1,7 +1,12 @@
-import { placedOfferWords } from "./command.js";
+import { objectName, placedOfferWords } from "./command.js";
 import type { HouseLayout, WhyAnswer, WhyChoice, WhyOffer } from "./generated/export.js";
 import { timeOfDay } from "./render/plan.js";
 import { ROOM_WORDS, TEXT } from "./text.js";
+
+/** A mood in percent with its sign, the typographic minus: "+6", "−3", "0". */
+function signed(mood: number): string {
+  return mood > 0 ? `+${mood}` : mood < 0 ? `−${-mood}` : "0";
+}
 
 /** The mood in the points of an offer of "Warum?", the server's number in percent with its sign
  * (ADR-0026, addendum of 2026-11-04 on the mood): " (Laune +6 %)", " (Laune −3 %)", zero as
@@ -10,8 +15,7 @@ export function moodWords(mood: number | null): string {
   if (mood === null) {
     return "";
   }
-  const signed = mood > 0 ? `+${mood}` : mood < 0 ? `−${-mood}` : "0";
-  return TEXT.house_why_mood.replace("{mood}", signed);
+  return TEXT.house_why_mood.replace("{mood}", signed(mood));
 }
 
 /** Points as German numbers read, with the typographic minus: "269.900", "−250". */
@@ -115,24 +119,61 @@ function needNames(codes: readonly string[]): string {
   return codes.map((code) => named[code] ?? code).join(TEXT.house_why_and);
 }
 
-/** A time-filler as "Warum?" tells it, all from the server (ADR-0026, addendum of 2026-11-04 on
- * comfort and the time-filler): "Zeitvertreib: sieht fern vor dem Fernseher, bis 10:24, dann
- * reicht die Blase. 3 s Weg ins Wohnzimmer." */
+/** Why a time-filler ends where it does, as the server says (ADR-0026, addendum of 2026-11-05
+ * on the time-filler's length): ", dann ist die Zeit um", ", dann ist Schlafenszeit", ", dann
+ * ist Aufbruch"; at the next choice what it raised, ", dann reicht die Blase"; nothing else. */
+function fillerEnds(ends: string | null, then: readonly string[]): string {
+  switch (ends) {
+    case "time":
+      return TEXT.house_why_filler_time;
+    case "bedtime":
+      return TEXT.house_why_filler_bedtime;
+    case "departure":
+      return TEXT.house_why_filler_departure;
+    default:
+      return then.length === 0
+        ? ""
+        : (then.length === 1 ? TEXT.house_why_filler_then : TEXT.house_why_filler_then_many).replace("{needs}", needNames(then));
+  }
+}
+
+/** A time-filler as "Warum?" tells it, all from the server (ADR-0026, addenda of 2026-11-04 on
+ * comfort and the time-filler and of 2026-11-05 on its length): "Zeitvertreib: liest am
+ * Bücherregal, Laune +8 % (Fernseher +2 %, Sofa −4 %), bis 19:12, dann ist die Zeit um. 3 s Weg
+ * ins Wohnzimmer." */
 export function fillerWords(why: WhyAnswer, layout: HouseLayout): string {
   const filler = why.filler;
   const chosen = why.chosen;
   if (filler === null || chosen === null) {
     return "";
   }
+  const others = filler.others.map((other) =>
+    TEXT.house_why_filler_other.replace("{what}", objectName(layout, other.object)).replace("{mood}", signed(other.mood)),
+  );
+  const listed = others.length === 0 ? "" : TEXT.house_why_filler_others.replace("{list}", others.join(", "));
+  const mood = filler.mood === null ? "" : `${TEXT.house_why_filler_mood.replace("{mood}", signed(filler.mood))}${listed}`;
   const until = filler.until === null ? "" : TEXT.house_why_filler_until.replace("{time}", timeOfDay(filler.until.date.second_of_day));
-  const then =
-    filler.then.length === 0
-      ? ""
-      : (filler.then.length === 1 ? TEXT.house_why_filler_then : TEXT.house_why_filler_then_many).replace("{needs}", needNames(filler.then));
+  const then = filler.until === null ? "" : fillerEnds(filler.ends, filler.then);
   const room = layout.objects[chosen.object]?.room ?? "";
   const walk = TEXT.house_why_filler_walk.replace("{secs}", String(filler.walk_secs)).replace("{where}", ROOM_WORDS[room]?.[1] ?? room);
   const what = placedOfferWords(layout, chosen.object, chosen.offer);
-  return `${TEXT.house_why_filler.replace("{what}", what).replace("{until}", until).replace("{then}", then)} ${walk}`;
+  return `${TEXT.house_why_filler.replace("{what}", what).replace("{mood}", mood).replace("{until}", until).replace("{then}", then)} ${walk}`;
+}
+
+/** Why an idle choice took no time-filler (ADR-0026, addendum of 2026-11-05 on the time-filler's
+ * length), as the server says: "Zu kurz vor dem Aufbruch um 7:40."; nothing without one. */
+export function shortWords(why: WhyAnswer): string {
+  const short = why.too_short;
+  if (short === null) {
+    return "";
+  }
+  const texts: { readonly [ends: string]: string } = {
+    departure: TEXT.house_why_short_departure,
+    bedtime: TEXT.house_why_short_bedtime,
+    time: TEXT.house_why_short_time,
+  };
+  const text = texts[short.ends] ?? TEXT.house_why_short_choice;
+  return ` ${text.replace("{time}", timeOfDay(short.until.date.second_of_day))}`;
 }
 
 /** Why a bed of "Warum?" was not the person's (ADR-0026, addendum of 2026-11-04 after the
@@ -187,13 +228,24 @@ export function whyText(why: WhyAnswer, layout: HouseLayout): { readonly told: s
   const said = (text: string, offer: WhyChoice | WhyOffer) =>
     text.replace("{what}", placedOfferWords(layout, offer.object, offer.offer)).replace("{score}", score(offer, why.needs, false));
   const none = TEXT.house_why_none.replace("{enough}", pointsText(why.enough));
+  // A command to an offer today's departure closes has no points, its departure instead
+  // (ADR-0026, addendum of 2026-11-05 on the time-filler's length).
+  const departs = chosen?.departs ?? null;
+  const commanded =
+    chosen !== null && departs !== null && chosen.points === null
+      ? TEXT.house_why_commanded_departs
+          .replace("{what}", placedOfferWords(layout, chosen.object, chosen.offer))
+          .replace("{time}", timeOfDay(departs.date.second_of_day))
+      : null;
   const head = filler
     ? `${none} ${fillerWords(why, layout)}`
     : chosen !== null
-      ? said(why.commanded ? TEXT.house_why_commanded : TEXT.house_why_chosen, chosen)
+      ? why.commanded
+        ? (commanded ?? said(TEXT.house_why_commanded, chosen))
+        : said(TEXT.house_why_chosen, chosen)
       : waited !== undefined
         ? said(TEXT.house_why_waits, waited)
-        : `${none}${goesWords(why, layout)}`;
+        : `${none}${shortWords(why)}${goesWords(why, layout)}`;
   const told = `${night}${head}${behind === "" ? "" : ` ${TEXT.house_why_behind.replace("{list}", behind)}`}`;
   const now =
     why.now === null || why.now.offers.length === 0

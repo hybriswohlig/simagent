@@ -528,7 +528,12 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
 /// nothing brought enough, with its walk, its end and, when it ended as planned, the needs the
 /// next choice raised (version 6, ADR-0026, addendum of 2026-11-04 on comfort and the
 /// time-filler): its end from `ended`, the log's entry that ended it with the choice after it in
-/// that second, or, while it still runs, the end the queue holds. `None` for any other entry.
+/// that second, or, while it still runs, the end the queue holds. Why a time-filler ends where it
+/// does, its mood and those of the other time-fillers free then; for an idle choice that took no
+/// time-filler as it would have ended under `fallback_min_seconds` away, that end and why it lies
+/// there; and for an offer the person was commanded to that today's departure closes, that
+/// departure instead of its points (version 7, ADR-0026, addendum of 2026-11-05 on the
+/// time-filler's length). `None` for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
@@ -539,48 +544,50 @@ pub fn why_answer(
     use sim_core::house::choice::ENOUGH;
     use sim_core::house::day::{departure, next_night, night, work_draw};
     use sim_core::log::{LogPayload, Subject};
-    let (house, room, needs, busy, chosen, commanded, waits, (held, tier)) = match &entry.payload {
-        LogPayload::ActionStarted {
-            house,
-            object,
-            offer,
-            room,
-            needs,
-            busy,
-            commanded,
-            held,
-            tier,
-            ..
-        } => (
-            house,
-            *room,
-            *needs,
-            busy,
-            Some((*object, *offer)),
-            *commanded,
-            None,
-            (held, tier),
-        ),
-        LogPayload::Idle {
-            house,
-            room,
-            needs,
-            busy,
-            waits,
-            held,
-            tier,
-        } => (
-            house,
-            *room,
-            *needs,
-            busy,
-            None,
-            false,
-            *waits,
-            (held, tier),
-        ),
-        _ => return Ok(None),
-    };
+    let (house, room, needs, busy, chosen, commanded, (waits, too_short), (held, tier)) =
+        match &entry.payload {
+            LogPayload::ActionStarted {
+                house,
+                object,
+                offer,
+                room,
+                needs,
+                busy,
+                commanded,
+                held,
+                tier,
+                ..
+            } => (
+                house,
+                *room,
+                *needs,
+                busy,
+                Some((*object, *offer)),
+                *commanded,
+                (None, None),
+                (held, tier),
+            ),
+            LogPayload::Idle {
+                house,
+                room,
+                needs,
+                busy,
+                waits,
+                held,
+                tier,
+                too_short,
+            } => (
+                house,
+                *room,
+                *needs,
+                busy,
+                None,
+                false,
+                (*waits, *too_short),
+                (held, tier),
+            ),
+            _ => return Ok(None),
+        };
     let filled = match &entry.payload {
         LogPayload::ActionStarted {
             filler: true,
@@ -589,6 +596,7 @@ pub fn why_answer(
         } => Some(*walk_secs),
         _ => None,
     };
+    let chosen_offer = chosen;
     let [Subject::Sim(sim)] = entry.subjects.as_slice() else {
         return Ok(None);
     };
@@ -624,12 +632,26 @@ pub fn why_answer(
         Some((object, offer)) => {
             let found =
                 (scored.iter()).find(|scored| (scored.object, scored.offer) == (object, offer));
+            let def = offer_def(house, houses, object, offer)?;
+            // An offer today's departure closes has no points: its departure instead (version 7,
+            // ADR-0026, addendum of 2026-11-05 on the time-filler's length).
+            let walk = house.walk_to(room, object);
+            let depart_in = leaves.map(|leaves| (leaves - entry.t).as_secs());
+            let closes = !def.sleep
+                && sim_core::house::choice::crosses_departure(
+                    def,
+                    houses.rates(),
+                    (age, needs),
+                    walk,
+                    depart_in,
+                );
             Some(serde_json::json!({
                 "object": object,
                 "offer": offer,
                 "points": found.map(|scored| scored.points),
                 "mood": found.and_then(|scored| (!commanded).then_some(scored.mood)),
-                "urgent": urgent(houses, offer_def(house, houses, object, offer)?, age, needs)?,
+                "departs": leaves.filter(|_| closes).map(dated),
+                "urgent": urgent(houses, def, age, needs)?,
             }))
         }
     };
@@ -678,13 +700,30 @@ pub fn why_answer(
     // one does (ADR-0026, addendum of 2026-11-04 after the playtest).
     let goes_to =
         (idle && waits.is_none() && !house.dwells(room)).then_some(house.def().dwell_room);
-    let filler = match filled {
-        Some(walk_secs) => Some(filler_values(world, (*sim, age), walk_secs, ended)?),
+    let fill = FillerAt {
+        sim: *sim,
+        at: entry.t,
+        age,
+        room,
+        busy,
+    };
+    let filler = match (filled, chosen_offer) {
+        (Some(walk_secs), Some(offered)) => Some(filler_values(
+            world,
+            (house, houses),
+            &fill,
+            (offered, walk_secs),
+            ended,
+        )?),
+        _ => None,
+    };
+    let too_short = match too_short {
+        Some(until) => Some(short_values(world, (house, houses), &fill, until)?),
         None => None,
     };
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 6,
+        "version": 7,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
@@ -697,6 +736,7 @@ pub fn why_answer(
         "waits": waits,
         "goes_to": goes_to,
         "filler": filler,
+        "too_short": too_short,
         "offers": offers,
         "now": now,
     })))
@@ -710,35 +750,131 @@ pub struct Ended<'a> {
     pub next: Option<&'a sim_core::log::LogEntry>,
 }
 
+/// The choice a time-filler of "Warum?" comes from: who, in which second, at which age, from
+/// which room, with which objects without a free place.
+struct FillerAt<'a> {
+    sim: SimId,
+    at: SimTime,
+    age: u8,
+    room: u8,
+    busy: &'a [u16],
+}
+
+/// The time-fillers free in `fill` with the person's moods in its second, the highest first
+/// (`house::choice::fillers`, ADR-0026, addendum of 2026-11-05 on the time-filler's length).
+fn free_fillers(
+    world: &World,
+    (house, houses): (
+        &sim_core::house::data::House,
+        &sim_core::house::data::HouseData,
+    ),
+    fill: &FillerAt<'_>,
+) -> Result<Vec<sim_core::house::choice::Filler>, CliError> {
+    use sim_core::house::choice::{fillers, mood};
+    let broken = |what: &str| CliError::new("save_rejected", format!("the choice: {what}"));
+    let state = world.state();
+    let seed = (state.world_seed()).ok_or_else(|| broken("the world has not started"))?;
+    let key = (state.lineage_key(fill.sim)).ok_or_else(|| broken("an unknown person"))?;
+    let percent = houses.day().choice_mood_percent;
+    let moods = |object, offer| mood(seed, key, fill.at, (object, offer), percent);
+    Ok(fillers(
+        (house, houses),
+        (fill.age, fill.room),
+        fill.busy,
+        moods,
+    ))
+}
+
+/// Why a time-filler of `fill`, `offered` and `walk_secs` away, ends at `end` (version 7 of
+/// "Warum?", ADR-0026, addendum of 2026-11-05 on the time-filler's length), by the bounds its end
+/// has (`house::state::filler_end_of`): "departure" at today's departure still to come at the
+/// choice, "bedtime" at the bedtime after its arrival (at its arrival if that lies in a night),
+/// "time" at its length or `fallback_max_seconds` after its arrival, else "choice", the next
+/// worthwhile choice.
+fn filler_ends(
+    world: &World,
+    (house, houses): (
+        &sim_core::house::data::House,
+        &sim_core::house::data::HouseData,
+    ),
+    fill: &FillerAt<'_>,
+    ((object, offer), walk_secs): ((u16, u16), u32),
+    end: SimTime,
+) -> Result<&'static str, CliError> {
+    use sim_core::house::day::{departure, next_night, night, work_draw};
+    let broken = |what: &str| CliError::new("save_rejected", format!("the choice: {what}"));
+    let state = world.state();
+    let born = state
+        .born(fill.sim)
+        .ok_or_else(|| broken("an unknown person"))?;
+    let seed = (state.world_seed()).ok_or_else(|| broken("the world has not started"))?;
+    let key = (state.lineage_key(fill.sim)).ok_or_else(|| broken("an unknown person"))?;
+    let rules = houses.day();
+    if departure(rules, born, || work_draw(seed, key), fill.at) == Some(end) {
+        return Ok("departure");
+    }
+    let after = |secs: i64| fill.at.checked_add(SimDuration::from_secs(secs));
+    let arrive = after(i64::from(walk_secs)).ok_or_else(|| broken("beyond the end of time"))?;
+    let bedtime = match night(rules, born, arrive) {
+        Some(_) => Some(arrive),
+        None => next_night(rules, born, arrive).map(|night| night.from),
+    };
+    if bedtime == Some(end) {
+        return Ok("bedtime");
+    }
+    let def = offer_def(house, houses, object, offer)?;
+    let length =
+        (def.seconds).and_then(|secs| arrive.checked_add(SimDuration::from_secs(secs.into())));
+    let longest = SimDuration::from_secs(rules.fallback_max_seconds.into());
+    if length == Some(end) || arrive.checked_add(longest) == Some(end) {
+        return Ok("time");
+    }
+    Ok("choice")
+}
+
 /// A time-filler as "Warum?" tells it (version 6, ADR-0026, addendum of 2026-11-04 on comfort
-/// and the time-filler): its walk; its end, from the log's entry that ended it, else the end the
-/// queue holds while the person does it at its object (none on its way there); and if it ended as
-/// planned (reason `done`) and the choice after it took an offer, the needs that offer raises at
-/// the person's `age`, by their codes.
+/// and the time-filler; version 7, its addendum of 2026-11-05 on the time-filler's length): its
+/// walk; its end, from the log's entry that ended it, else the end the queue holds while the
+/// person does it at its object (none on its way there); why it ends there (`filler_ends`; a
+/// departure that ended it, none for an end of another reason); if it ended at the next choice
+/// as planned (reason `done`) and that choice took an offer, the needs that offer raises at the
+/// person's age, by their codes; its mood, and the other time-fillers free then with theirs, in
+/// the order of the choice.
 fn filler_values(
     world: &World,
-    (sim, age): (SimId, u8),
-    walk_secs: u32,
+    (house, houses): (
+        &sim_core::house::data::House,
+        &sim_core::house::data::HouseData,
+    ),
+    fill: &FillerAt<'_>,
+    (offered, walk_secs): ((u16, u16), u32),
     ended: Option<Ended<'_>>,
 ) -> Result<serde_json::Value, CliError> {
     use sim_core::house::data::NEEDS;
     use sim_core::log::{EndReason, LogPayload};
     let until = match ended {
         Some(ended) => Some(ended.ended.t),
-        None => world.action_until(sim),
+        None => world.action_until(fill.sim),
     };
-    let planned = ended.filter(|ended| {
-        matches!(
-            ended.ended.payload,
-            LogPayload::ActionEnded {
-                reason: EndReason::Done,
-                ..
-            }
-        )
+    let reason = ended.and_then(|ended| match ended.ended.payload {
+        LogPayload::ActionEnded { reason, .. } => Some(reason),
+        _ => None,
     });
+    let ends = match (until, reason) {
+        (_, Some(EndReason::Obligation)) => Some("departure"),
+        (Some(until), None | Some(EndReason::Done)) => Some(filler_ends(
+            world,
+            (house, houses),
+            fill,
+            (offered, walk_secs),
+            until,
+        )?),
+        _ => None,
+    };
+    let planned = ended.filter(|_| reason == Some(EndReason::Done) && ends == Some("choice"));
     let mut then = Vec::new();
     if let Some(LogPayload::ActionStarted {
-        house,
+        house: next_house,
         object,
         offer,
         commanded: false,
@@ -749,22 +885,53 @@ fn filler_values(
         .map(|next| &next.payload)
     {
         let broken = || CliError::new("save_rejected", "the choice: an unknown house");
-        let houses = (world.state().data().houses()).ok_or_else(broken)?;
-        let house = houses.house(house).ok_or_else(broken)?;
-        let def = offer_def(house, houses, *object, *offer)?;
+        let next_house = houses.house(next_house).ok_or_else(broken)?;
+        let def = offer_def(next_house, houses, *object, *offer)?;
         for need in NEEDS {
-            if def.raises(houses.rates(), need, age) {
+            if def.raises(houses.rates(), need, fill.age) {
                 then.push(
                     serde_json::to_value(need).map_err(|e| CliError::new("io", e.to_string()))?,
                 );
             }
         }
     }
+    let free = free_fillers(world, (house, houses), fill)?;
+    let mood = (free.iter())
+        .find(|each| (each.object, each.offer) == offered)
+        .map(|each| each.mood);
+    let others: Vec<serde_json::Value> = (free.iter())
+        .filter(|each| (each.object, each.offer) != offered)
+        .map(|each| serde_json::json!({"object": each.object, "offer": each.offer, "mood": each.mood}))
+        .collect();
     Ok(serde_json::json!({
         "walk_secs": walk_secs,
         "until": until.map(dated),
+        "ends": ends,
         "then": then,
+        "mood": mood,
+        "others": others,
     }))
+}
+
+/// A time-filler not taken because it would have ended at `until`, under `fallback_min_seconds`
+/// after the choice of `fill` (version 7 of "Warum?", ADR-0026, addendum of 2026-11-05 on the
+/// time-filler's length): that end and why it lies there (`filler_ends`), for the time-filler the
+/// choice would have taken, the first of those free then.
+fn short_values(
+    world: &World,
+    (house, houses): (
+        &sim_core::house::data::House,
+        &sim_core::house::data::HouseData,
+    ),
+    fill: &FillerAt<'_>,
+    until: SimTime,
+) -> Result<serde_json::Value, CliError> {
+    let free = free_fillers(world, (house, houses), fill)?;
+    let first = (free.first())
+        .ok_or_else(|| CliError::new("save_rejected", "the choice: no time-filler was free"))?;
+    let walked = ((first.object, first.offer), first.walk_secs);
+    let ends = filler_ends(world, (house, houses), fill, walked, until)?;
+    Ok(serde_json::json!({"until": dated(until), "ends": ends}))
 }
 
 /// The offers of `choice` open at `age` that would still run at today's departure, closed
