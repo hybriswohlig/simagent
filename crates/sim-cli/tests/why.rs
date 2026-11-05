@@ -11,8 +11,10 @@
 //! gives (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler), the one with the
 //! highest mood, its mood and the others' in the answer, why it ends there by its code; an idle
 //! choice by day with a time-filler free took none as it would have ended under 600 s on, and the
-//! answer names that end (its addendum of 2026-11-05 on the time-filler's length). A couple of 30
-//! and 32 in the flat of the repository, with the data `simagent` uses.
+//! answer names that end (its addendum of 2026-11-05 on the time-filler's length). A time-filler
+//! that ends at a next choice that waits names what the offer waited for raises (version 8,
+//! ADR-0021, addendum of 2026-11-05 on the house page). A couple of 30 and 32 in the flat
+//! of the repository, with the data `simagent` uses.
 
 use sim_cli::data::core_data;
 use sim_cli::why_answer;
@@ -70,6 +72,7 @@ fn why_recomputes_the_choice() {
     log.extend(world.take_log());
     let houses = world.state().data().houses().expect("houses");
     let (mut starts, mut idles, mut nights, mut filled_in, mut shorts) = (0, 0, 0, 0, 0);
+    let mut waited_after = 0;
     let mut reasons: std::collections::BTreeMap<String, usize> = Default::default();
     for (at, entry) in log.iter().enumerate() {
         // A time-filler's end as the server finds it: the person's next `core:action_ended`, and
@@ -185,6 +188,16 @@ fn why_recomputes_the_choice() {
                 if let Some(ends) = ends {
                     *reasons.entry(ends.to_owned()).or_default() += 1;
                 }
+                // Ended at its next choice, which waits for a taken object: what the offer it
+                // waits for raises, which brings enough, so at least one need (version 8).
+                let waits = (ended.and_then(|ended| ended.next)).is_some_and(|next| {
+                    matches!(next.payload, LogPayload::Idle { waits: Some(_), .. })
+                });
+                if waits && ends == Some("choice") {
+                    waited_after += 1;
+                    let then = told["then"].as_array();
+                    assert!(then.is_some_and(|then| !then.is_empty()), "{answer}");
+                }
             }
             LogPayload::ActionStarted { object, offer, .. } => {
                 starts += 1;
@@ -234,7 +247,9 @@ fn why_recomputes_the_choice() {
     assert!(filled_in > 14, "{filled_in} time-fillers");
     // Their ends by their reasons, each but the next choice by its length, the bedtime or the
     // departure; the idle ones that took none, reported.
-    println!("time-fillers {filled_in}, ends {reasons:?}; too short {shorts}");
+    println!(
+        "time-fillers {filled_in}, ends {reasons:?}, {waited_after} of them before a wait; too short {shorts}"
+    );
     assert!(reasons.contains_key("time"), "{reasons:?}");
 }
 

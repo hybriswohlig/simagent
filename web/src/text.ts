@@ -313,7 +313,9 @@ export const TEXT = {
   house_walks: "geht {where}",
   house_does: "{offer} {at}",
   house_until: "bis {time}",
+  house_until_departure: "bis {time} (Aufbruch)",
   house_idle: "tut gerade nichts {room}",
+  house_waits_for: "wartet {room} auf {object}",
   house_away_school: "in der Schule bis {time}",
   house_away_work: "bei der Arbeit bis {time}",
   house_leaves: "geht aus dem Haus",
@@ -398,6 +400,8 @@ export const TEXT = {
   house_command: "Befehlen",
   house_command_choice: "{what} {room}",
   house_command_numbered: "{label} ({n})",
+  house_command_taken: "(besetzt)",
+  house_command_own: "(schon dabei)",
   house_commanded: "Befehl: {what}",
   need_hunger: "Hunger",
   need_energy: "Energie",
@@ -426,19 +430,19 @@ export const ROOM_WORDS: { readonly [id: string]: readonly [string, string, stri
   landing: ["Flur oben", "in den Flur oben", "im Flur oben"],
 };
 
-/** The kinds of furniture by their data IDs (`data/house/kinds.json`): the name, and where
- * one is while using it. */
-export const KIND_WORDS: { readonly [id: string]: readonly [string, string] } = {
-  "core:dining_table": ["Esstisch", "am Esstisch"],
-  "core:fridge": ["Kühlschrank", "am Kühlschrank"],
-  "core:sofa": ["Sofa", "auf dem Sofa"],
-  "core:tv": ["Fernseher", "vor dem Fernseher"],
-  "core:bookshelf": ["Bücherregal", "am Bücherregal"],
-  "core:toilet": ["Toilette", "auf der Toilette"],
-  "core:shower": ["Dusche", "unter der Dusche"],
-  "core:bed": ["Bett", "im Bett"],
-  "core:single_bed": ["Einzelbett", "im Einzelbett"],
-  "core:toy_chest": ["Spielzeugkiste", "an der Spielzeugkiste"],
+/** The kinds of furniture by their data IDs (`data/house/kinds.json`): the name, where one is
+ * while using it, and what one waits for ("wartet auf die Dusche"). */
+export const KIND_WORDS: { readonly [id: string]: readonly [string, string, string] } = {
+  "core:dining_table": ["Esstisch", "am Esstisch", "den Esstisch"],
+  "core:fridge": ["Kühlschrank", "am Kühlschrank", "den Kühlschrank"],
+  "core:sofa": ["Sofa", "auf dem Sofa", "das Sofa"],
+  "core:tv": ["Fernseher", "vor dem Fernseher", "den Fernseher"],
+  "core:bookshelf": ["Bücherregal", "am Bücherregal", "das Bücherregal"],
+  "core:toilet": ["Toilette", "auf der Toilette", "die Toilette"],
+  "core:shower": ["Dusche", "unter der Dusche", "die Dusche"],
+  "core:bed": ["Bett", "im Bett", "das Bett"],
+  "core:single_bed": ["Einzelbett", "im Einzelbett", "das Einzelbett"],
+  "core:toy_chest": ["Spielzeugkiste", "an der Spielzeugkiste", "die Spielzeugkiste"],
 };
 
 /** The offers by their names in `kinds.json`, as what a person does there. */

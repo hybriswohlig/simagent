@@ -2594,11 +2594,13 @@ const MORNING: i64 = DAY + 6 * 3_600;
 /// (version 5 of the house answer): every offer of `kinds.json` open from 18 to 66 years, the
 /// table, the fridge, the sofa's `sit` (its second offer), the television, the bookshelf, the
 /// toilet and the shower, but neither the toy chest (6 to 12) nor the sleep of sofa, bed and
-/// single bed outside the night.
-fn by_day() -> Value {
+/// single bed outside the night. Each says whether its object has no free place for the person
+/// (version 8): those of `taken`.
+fn by_day(taken: &[u16]) -> Value {
     json!(
-        [(0, 0), (1, 0), (2, 1), (3, 0), (4, 0), (5, 0), (6, 0)]
-            .map(|(object, offer)| json!({"object": object, "offer": offer}))
+        [(0, 0), (1, 0), (2, 1), (3, 0), (4, 0), (5, 0), (6, 0)].map(|(object, offer)| {
+            json!({"object": object, "offer": offer, "taken": taken.contains(&object)})
+        })
     )
 }
 
@@ -2668,7 +2670,13 @@ fn served(name: &str, scenario_json: &str) -> (Server, Value, PathBuf) {
 /// By day each may be told every offer `by_day` names (version 5). Each need weighs in a choice
 /// as far as it stands below its comfort (700, 1 000, 700, 900, 1 000), at 6:00 100, 100, 200,
 /// 200, 200; no action is a time-filler (version 7, ADR-0026, addendum of 2026-11-04 on comfort
-/// and the time-filler).
+/// and the time-filler). Since version 8 (ADR-0021, addendum of 2026-11-05 on the house
+/// page): no action of theirs runs into the departure (his shower ends 6:15:03, before
+/// 8:40); at 6:10 she waits for the shower (object 6), he for nothing; and an object whose one
+/// place another holds is taken for a command, her toilet and his shower not for their own
+/// command at 6:00, as a command frees the place of what the person does, but at 6:10 his shower
+/// for him too, as its place goes to her, who waits for it (ADR-0024, addendum of 2026-11-04 on
+/// slice 12).
 #[test]
 fn a_house_over_http() {
     let (server, home, _) = couple("house");
@@ -2687,7 +2695,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(7), &dated(at))
+            (&json!("simagent.view.house"), &json!(8), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"], &answer["comfort"]),
@@ -2741,27 +2749,29 @@ fn a_house_over_http() {
         at_six["persons"],
         json!([
             {"sim": 1, "place": walking(3, MORNING + 3),
-             "action": {"object": 5, "offer": 0, "slot": 0, "until": null, "filler": false},
-             "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day()},
+             "action": {"object": 5, "offer": 0, "slot": 0, "until": null, "filler": false,
+                        "departs": false},
+             "waits": null, "needs": morning, "weights": weights,
+             "collapsed": false, "smells": false, "commands": by_day(&[6])},
             {"sim": 2, "place": walking(3, MORNING + 3),
-             "action": {"object": 6, "offer": 0, "slot": 0, "until": null, "filler": false},
-             "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day()},
+             "action": {"object": 6, "offer": 0, "slot": 0, "until": null, "filler": false,
+                        "departs": false},
+             "waits": null, "needs": morning, "weights": weights,
+             "collapsed": false, "smells": false, "commands": by_day(&[5])},
         ])
     );
     step("minutes10", MORNING + 600);
     assert_eq!(
         house(MORNING + 600)["persons"],
         json!([
-            {"sim": 1, "place": {"room": 3}, "action": null,
+            {"sim": 1, "place": {"room": 3}, "action": null, "waits": 6,
              "needs": [584, 894, 986, 695, 790], "weights": [116, 106, 0, 205, 210],
-             "collapsed": false, "smells": false, "commands": by_day()},
+             "collapsed": false, "smells": false, "commands": by_day(&[6])},
             {"sim": 2, "place": {"room": 3},
              "action": {"object": 6, "offer": 0, "slot": 0, "until": dated(MORNING + 903),
-                        "filler": false},
-             "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
-             "collapsed": false, "smells": false, "commands": by_day()},
+                        "filler": false, "departs": false},
+             "waits": null, "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
+             "collapsed": false, "smells": false, "commands": by_day(&[6])},
         ])
     );
     step("hour", MORNING + 4_200);
@@ -2804,7 +2814,7 @@ fn young_children_in_the_house() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["version"], &answer["at"], &answer["house"]),
-            (&json!(7), &dated(at), &json!("core:flat"))
+            (&json!(8), &dated(at), &json!("core:flat"))
         );
         answer
     };
@@ -2950,7 +2960,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 7,
+                "version": 8,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -3012,7 +3022,9 @@ fn why_over_http() {
 /// apart. "Warum?" for her commanded walk says so; a command is no choice and has no mood
 /// (ADR-0026, addendum of 2026-11-04 on the mood), so the points beside it are those of the needs
 /// and the walk alone, at the morning values in the hall as in `why_over_http` without a mood,
-/// every mood `null`.
+/// every mood `null`. After her command the shower he walks to is taken for her, its one place
+/// his; after his the television has two of its three places free, and nothing is taken for him
+/// (version 8).
 #[test]
 fn a_command_over_http() {
     let (server, home, run) = couple("command");
@@ -3044,9 +3056,11 @@ fn a_command_over_http() {
     assert_eq!(
         json_of(&body)["persons"][0],
         json!({"sim": 1, "place": walking,
-               "action": {"object": 3, "offer": 0, "slot": 0, "until": null, "filler": false},
-               "needs": [600, 900, 500, 700, 800], "weights": [100, 100, 200, 200, 200],
-               "collapsed": false, "smells": false, "commands": by_day()})
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null, "filler": false,
+                          "departs": false},
+               "waits": null, "needs": [600, 900, 500, 700, 800],
+               "weights": [100, 100, 200, 200, 200],
+               "collapsed": false, "smells": false, "commands": by_day(&[6])})
     );
     let minutes = r#"{"step":"minutes10"}"#;
     assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
@@ -3097,9 +3111,11 @@ fn a_command_over_http() {
     assert_eq!(
         json_of(&body)["persons"][1],
         json!({"sim": 2, "place": walking,
-               "action": {"object": 3, "offer": 0, "slot": 1, "until": null, "filler": false},
-               "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
-               "collapsed": false, "smells": false, "commands": by_day()})
+               "action": {"object": 3, "offer": 0, "slot": 1, "until": null, "filler": false,
+                          "departs": false},
+               "waits": null, "needs": [584, 894, 480, 1000, 790],
+               "weights": [116, 106, 220, 0, 210],
+               "collapsed": false, "smells": false, "commands": by_day(&[])})
     );
 }
 
@@ -3110,7 +3126,8 @@ fn a_command_over_http() {
 /// 6:01:40 to watch television (object 3) she stops at 6:01:41 with the bladder at 826 (500 +
 /// 326.7), where the clock would give 823 (500 + 323.3), and walks from the bath to the living
 /// room, 6 s; her other needs at the clock: hunger 598 (600 − 2.8), energy 899 (900 − 1.1),
-/// hygiene 700 (700 − 0.8), fun 799 (800 − 1.7).
+/// hygiene 700 (700 − 0.8), fun 799 (800 − 1.7). He showers since 6:00:03, so the shower is
+/// taken for her (version 8).
 #[test]
 fn the_house_answer_after_a_command() {
     use sim_core::input::{Command as Order, Couple, Founder, Input, MoveIn, Start};
@@ -3167,9 +3184,11 @@ fn the_house_answer_after_a_command() {
     assert_eq!(
         answer["persons"][0],
         json!({"sim": 1, "place": walking,
-               "action": {"object": 3, "offer": 0, "slot": 0, "until": null, "filler": false},
-               "needs": [598, 899, 826, 700, 799], "weights": [102, 101, 0, 200, 201],
-               "collapsed": false, "smells": false, "commands": by_day()})
+               "action": {"object": 3, "offer": 0, "slot": 0, "until": null, "filler": false,
+                          "departs": false},
+               "waits": null, "needs": [598, 899, 826, 700, 799],
+               "weights": [102, 101, 0, 200, 201],
+               "collapsed": false, "smells": false, "commands": by_day(&[6])})
     );
 }
 
@@ -3265,7 +3284,7 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
         let answer = sim_cli::house_answer(world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(7));
+        assert_eq!(answer["version"], json!(8));
         (answer["persons"].as_array().expect("persons").iter())
             .map(|person| person[name].clone())
             .collect()
@@ -3299,12 +3318,49 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
 /// acts at 21:59:59, by day, and may name what `by_day` lists; at 21:59:59 it acts at 22:00, in
 /// the night, and may name sofa (object 2), bed (7) and single bed (8) too; at 5:59:58 of day 2
 /// still the night, at 5:59:59, acting at 6:00, the day again. The toy chest (9, 6 to 12)
-/// never; the sofa's `sit` (its second offer) by day and in the night.
+/// never; the sofa's `sit` (its second offer) by day and in the night. Which of them are taken
+/// for the person, `the_offers_a_command_may_name_say_which_are_taken`.
 #[test]
 fn the_offers_a_command_may_name_follow_the_night() {
     use sim_core::world::YearOut;
     let (mut world, household) = couple_in_the_flat(|_, _| {});
-    let in_the_night = json!(
+    // The offers without whether they are taken.
+    let offered = |commands: &Value| -> Vec<Value> {
+        (commands.as_array().expect("commands").iter())
+            .map(|each| json!({"object": each["object"], "offer": each["offer"]}))
+            .collect()
+    };
+    let cases = [
+        (DAY + 79_198, by_day(&[])),
+        (DAY + 79_199, in_the_night(&[])),
+        (2 * DAY + 21_598, in_the_night(&[])),
+        (2 * DAY + 21_599, by_day(&[])),
+    ];
+    for (until, commands) in cases {
+        let mut out = YearOut::default();
+        world.advance_until(&mut out, SimTime::from_secs(until), &mut |_| false);
+        world.take_log();
+        let answer = sim_cli::house_answer(&world, household)
+            .expect("answers")
+            .expect("a house");
+        assert_eq!(answer["version"], json!(8));
+        let persons = answer["persons"].as_array().expect("persons");
+        assert_eq!(persons.len(), 2);
+        for person in persons {
+            assert_eq!(
+                offered(&person["commands"]),
+                offered(&commands),
+                "{until}: {person}"
+            );
+        }
+    }
+}
+
+/// The offers a command may name in the night of the couple of `couple_in_the_flat`, as in
+/// `the_offers_a_command_may_name_follow_the_night`, each with whether its object has no free
+/// place for the person (version 8): those of `taken`.
+fn in_the_night(taken: &[u16]) -> Value {
+    json!(
         [
             (0, 0),
             (1, 0),
@@ -3317,28 +3373,99 @@ fn the_offers_a_command_may_name_follow_the_night() {
             (7, 0),
             (8, 0)
         ]
-        .map(|(object, offer)| json!({"object": object, "offer": offer}))
-    );
-    let cases = [
-        (DAY + 79_198, by_day()),
-        (DAY + 79_199, in_the_night.clone()),
-        (2 * DAY + 21_598, in_the_night),
-        (2 * DAY + 21_599, by_day()),
-    ];
-    for (until, commands) in cases {
-        let mut out = YearOut::default();
-        world.advance_until(&mut out, SimTime::from_secs(until), &mut |_| false);
-        world.take_log();
-        let answer = sim_cli::house_answer(&world, household)
+        .map(|(object, offer)| {
+            json!({"object": object, "offer": offer, "taken": taken.contains(&object)})
+        })
+    )
+}
+
+/// Which offers a command may name have no free place for the person (version 8, ADR-0021,
+/// addendum of 2026-11-05 on the house page), judged as the core judges a command
+/// (ADR-0024, addendum of 2026-11-04 on slice 12): a place another holds is taken; the place of
+/// what the person does is free for it, as the command frees it, unless someone waits for that
+/// object. The couple of `couple_in_the_flat` in its night: first what fills hunger or the
+/// bladder under its comfort 700, then the bed for couples (object 7, two places), and asleep no
+/// need of theirs falls more than 40 an hour, so none reaches 150 by 2:00 of day 2 and both
+/// sleep there (ADR-0026, addenda of 2026-11-04 on the night and of 2026-11-05 on the
+/// time-filler's length). Nothing is taken for either: each holds one place of the bed, and its
+/// own is free for it. Told at 2:00 to sleep in the single bed (object 8, one place), he walks
+/// there; then the single bed is taken for her, the bed not (her own place, and his he left),
+/// and nothing for him.
+#[test]
+fn the_offers_a_command_may_name_say_which_are_taken() {
+    use sim_core::input::{Command as Order, Input};
+    use sim_core::world::YearOut;
+    let (mut world, household) = couple_in_the_flat(|_, _| {});
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(2 * DAY + 7_200), &mut |_| {
+        false
+    });
+    world.take_log();
+    let commands = |world: &sim_core::world::World| -> Vec<Value> {
+        let answer = sim_cli::house_answer(world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(7));
-        let persons = answer["persons"].as_array().expect("persons");
-        assert_eq!(persons.len(), 2);
-        for person in persons {
-            assert_eq!(person["commands"], commands, "{until}: {person}");
-        }
-    }
+        (answer["persons"].as_array().expect("persons").iter())
+            .map(|person| person["commands"].clone())
+            .collect()
+    };
+    assert_eq!(commands(&world), [in_the_night(&[]), in_the_night(&[])]);
+    let single = Order {
+        sim: sim_core::ids::SimId::try_from(2).expect("valid"),
+        object: 8,
+        offer: 0,
+    };
+    world.submit(Input::Command(single)).expect("accepted");
+    assert_eq!(commands(&world), [in_the_night(&[8]), in_the_night(&[])]);
+}
+
+/// The departure that ends what a person does at its object (version 8 of the house answer,
+/// ADR-0021, addendum of 2026-11-05 on the house page): she (sim 1 of
+/// `couple_in_the_flat`, full time, her departure at 8:40) is told at the clock 8:19:59 to watch
+/// television, acting at 8:20:00, as in `why_names_the_departure_of_a_commanded_offer_it_closes`.
+/// Its 45 minutes from her arrival would end after 9:05, but at 8:40 no need of hers is critical
+/// (from the morning values at the awake rates at least: hunger 600 − 100 · 2 2/3, the bladder
+/// 500 − 120 · 2 2/3 = 180, fun 800 − 60 · 2 2/3), so the departure does not wait for it (ADR-0024
+/// section 4) and ends it: at 8:30 the house answer gives that departure as its end, and says so.
+#[test]
+fn the_house_answer_ends_an_action_at_the_departure() {
+    use sim_core::input::{Command as Order, Input};
+    use sim_core::world::YearOut;
+    let (mut world, household) = couple_in_the_flat(|_, _| {});
+    let depart = MORNING + 9_600;
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(depart - 1_201), &mut |_| false);
+    world.take_log();
+    let television = Order {
+        sim: sim_core::ids::SimId::try_from(1).expect("valid"),
+        object: 3,
+        offer: 0,
+    };
+    world.submit(Input::Command(television)).expect("accepted");
+    world.advance_until(&mut out, SimTime::from_secs(depart - 600), &mut |_| false);
+    world.take_log();
+    let answer = sim_cli::house_answer(&world, household)
+        .expect("answers")
+        .expect("a house");
+    assert_eq!(answer["version"], json!(8));
+    let action = &answer["persons"][0]["action"];
+    assert_eq!(
+        (
+            &action["object"],
+            &action["offer"],
+            &action["filler"],
+            &action["until"],
+            &action["departs"]
+        ),
+        (
+            &json!(3),
+            &json!(0),
+            &json!(false),
+            &dated(depart),
+            &json!(true)
+        ),
+        "{answer}"
+    );
 }
 
 /// What is urgent in "Warum?" (version 4, ADR-0026 section 3), for a choice of hers (sim 1 of
@@ -3385,7 +3512,7 @@ fn why_names_what_is_urgent() {
     let why = sim_cli::why_answer(&world, &entry, 7, false, None)
         .expect("answers")
         .expect("a choice");
-    assert_eq!(why["version"], json!(7));
+    assert_eq!(why["version"], json!(8));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -3488,6 +3615,99 @@ fn why_names_the_departure_of_a_commanded_offer_it_closes() {
             )
     });
     assert_eq!(ended.map(|entry| entry.t), Some(SimTime::from_secs(depart)));
+}
+
+/// What a time-filler ends for when a wait follows it (version 8 of "Warum?", ADR-0021, addendum
+/// of 2026-11-05 on the house page): a time-filler that ends at its next choice says why
+/// by the needs that choice raises (version 6), and since version 8 also when that choice waits
+/// for a taken object, by the needs the offer it waits for raises: the best of that object by the
+/// points of the choice, as `house::choice::choose` waits for it. Her (sim 1 of
+/// `couple_in_the_flat`) time-filler at the bookshelf (object 4, 5 s within the living room),
+/// chosen at 18:00 of day 1, home since 17:20, ends done at 18:20: neither at a departure (hers
+/// at 8:40 has passed), nor at the bedtime (22:00), nor after its hour (19:00:05) or the four
+/// hours a time-filler lasts at most, so at the next choice. That choice waits in the living room
+/// for the toilet (object 5), whose one offer raises the bladder, or for the shower (object 6),
+/// whose one offer raises hygiene (`kinds.json`); idle and waiting for nothing it names nothing.
+#[test]
+fn why_names_what_a_time_filler_ends_for_when_a_wait_follows() {
+    use sim_core::log::{EndReason, LogEntry, LogPayload, Subject};
+    use sim_core::world::YearOut;
+    let (mut world, _) = couple_in_the_flat(|_, _| {});
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
+    let her = sim_core::ids::SimId::try_from(1).expect("valid");
+    let first = (world.take_log().into_iter())
+        .find(|entry| {
+            entry.subjects == [Subject::Sim(her)]
+                && matches!(entry.payload, LogPayload::ActionStarted { .. })
+        })
+        .expect("her first choice");
+    let flat = DataId::new("core:flat").expect("valid");
+    let (chosen, ends) = (DAY + 64_800, DAY + 66_000);
+    let filler = LogEntry {
+        t: SimTime::from_secs(chosen),
+        payload: LogPayload::ActionStarted {
+            house: flat.clone(),
+            object: 4,
+            offer: 0,
+            slot: 0,
+            room: 2,
+            walk_secs: 5,
+            needs: [800, 700, 800, 800, 600],
+            busy: Vec::new(),
+            commanded: false,
+            held: Vec::new(),
+            tier: Vec::new(),
+            filler: true,
+        },
+        ..first.clone()
+    };
+    let needs = [767, 687, 760, 790, 700];
+    let ended = LogEntry {
+        t: SimTime::from_secs(ends),
+        payload: LogPayload::ActionEnded {
+            object: 4,
+            offer: 0,
+            reason: EndReason::Done,
+            needs,
+        },
+        ..first.clone()
+    };
+    let cases = [
+        (Some(5), json!(["bladder"])),
+        (Some(6), json!(["hygiene"])),
+        (None, json!([])),
+    ];
+    for (waits, then) in cases {
+        let next = LogEntry {
+            t: SimTime::from_secs(ends),
+            payload: LogPayload::Idle {
+                house: flat.clone(),
+                room: 2,
+                needs,
+                busy: waits.into_iter().collect(),
+                waits,
+                held: Vec::new(),
+                tier: Vec::new(),
+                too_short: None,
+            },
+            ..first.clone()
+        };
+        let end = sim_cli::Ended {
+            ended: &ended,
+            next: Some(&next),
+        };
+        let why = sim_cli::why_answer(&world, &filler, 9, false, Some(end))
+            .expect("answers")
+            .expect("a choice");
+        assert_eq!(why["version"], json!(8));
+        let told = &why["filler"];
+        assert_eq!(
+            (&told["until"], &told["ends"], &told["then"]),
+            (&dated(ends), &json!("choice"), &then),
+            "{waits:?}: {why}"
+        );
+    }
 }
 
 /// The walk from each room of the flat (hall, kitchen, living room, bath, bedroom, children's
