@@ -19,7 +19,7 @@ use sim_core::data_id::DataId;
 use sim_core::house::choice::{Choice, Filler, choose, filler, fillers, mood, score};
 use sim_core::house::data::{House, HouseData};
 use sim_core::house::need::NeedSample;
-use sim_core::house::state::{Decisions, InHouse, Place, filler_end_if};
+use sim_core::house::state::{Decisions, InHouse, Place, filler_end_if, filler_possible};
 use sim_core::ids::SimId;
 use sim_core::lineage::LineageKey;
 use sim_core::log::{EndReason, LogEntry, LogPayload, Subject};
@@ -859,4 +859,38 @@ fn a_time_filler_walking_into_the_night_is_kept() {
         _ => (0, None),
     });
     assert_eq!(short, Some((0, Some(t(chosen + 3)))));
+}
+
+/// A time-filler that arrives in a night ends at once at its arrival, whatever else would end it
+/// (ADR-0026, addenda of 2026-11-04 and 2026-11-05 on the time-filler), and the loader judges it
+/// so too (`filler_possible`): on the repository's day changed so that all work leaves at 21:58
+/// and comes back at 21:59, every one at work (`part_time_below` 100), and every night begins at
+/// 22:00. An adult of 30 (founder 1 of `test:filler`, world seed 7) chooses on day 1, a Tuesday,
+/// with the bookshelf (60 minutes):
+/// - at 21:50:00, there at 22:00:05 in her night: it ends at the arrival, 605 s after the
+///   choice, at least 600: possible, though the departure at 21:58 lies between;
+/// - at 21:50:10, there at 22:00:05: 595 s, under 600: not possible;
+/// - at 21:50:00, there at 21:59:59, by day: the departure at 21:58 ends it 480 s after the
+///   choice: not possible;
+/// - at 21:40:00, there at 21:41:00: the departure, 1 080 s after the choice: possible.
+#[test]
+fn a_time_filler_arriving_in_the_night_ends_at_its_arrival() {
+    let houses = common::repository_houses_with_day(|day| {
+        for hours in ["full_time", "part_time"] {
+            day["work"][hours] = json!({"depart": 79_080, "back": 79_140});
+        }
+        day["work"]["part_time_below"] = json!(100);
+        day["night"]["from"] = json!([79_200, 79_200, 79_200, 79_200]);
+    });
+    let shelf = houses
+        .kind(&DataId::new("core:bookshelf").expect("id"))
+        .expect("the bookshelf");
+    let read = &shelf.offers[0];
+    let who = (t(-30 * Y), founder(1), 7);
+    let at = |h: i64, m: i64, s: i64| t(D + h * H + m * 60 + s);
+    let possible = |chosen, arrive| filler_possible(&houses, who, read, (chosen, arrive));
+    assert!(possible(at(21, 50, 0), at(22, 0, 5)));
+    assert!(!possible(at(21, 50, 10), at(22, 0, 5)));
+    assert!(!possible(at(21, 50, 0), at(21, 59, 59)));
+    assert!(possible(at(21, 40, 0), at(21, 41, 0)));
 }

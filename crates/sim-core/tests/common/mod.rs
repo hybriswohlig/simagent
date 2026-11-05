@@ -475,6 +475,24 @@ pub fn repository_houses_with(change: impl FnOnce(&mut Value)) -> sim_core::hous
     )
 }
 
+/// The houses of `data/house/` with their `day.json` changed by `change` first.
+#[allow(
+    dead_code,
+    reason = "only the tests of a time-filler on another day change the day"
+)]
+pub fn repository_houses_with_day(
+    change: impl FnOnce(&mut Value),
+) -> sim_core::house::data::HouseData {
+    let mut day: Value = serde_json::from_str(REPOSITORY_DAY).expect("json");
+    change(&mut day);
+    houses_from(
+        REPOSITORY_NEEDS,
+        &day.to_string(),
+        REPOSITORY_KINDS,
+        &REPOSITORY_HOUSES,
+    )
+}
+
 /// House data from the texts of a `needs.json`, a `day.json`, a `kinds.json` and house files,
 /// read as sim-cli reads `data/house/`.
 #[allow(dead_code, reason = "only the tests on houses need it")]
