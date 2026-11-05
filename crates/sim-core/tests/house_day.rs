@@ -37,24 +37,43 @@ fn started(object: u16, slot: u8, room: u8, walk_secs: u32, needs: [u16; 5]) -> 
         commanded: false,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
 }
 
 /// The first morning of the couple. At 6:00 both stand in the hall at the morning values; she
-/// chooses first (the smaller SimId) and takes the toilet (249 850 points), he finds it taken
-/// and takes the table (159 800). She is there after 3 s with the bladder at 500 and full
-/// 150 s later at +12 000 an hour; then from the bath with hunger 596 (600 − 4.25 truncated),
-/// energy 899, hygiene 699 and fun 798 the table wins (404 · 404 − 50 · 7), her place 1 next
-/// to his. He eats from 6:00:04 for 20 minutes, hunger full, energy 887, bladder 460, hygiene
-/// 690, fun 780.
+/// chooses first (the smaller SimId) and takes the toilet (bladder 500 weighs 200 from its comfort
+/// 700: 200 · 500 − 150, at her mood +2 101 850 points), he finds it taken and takes the shower
+/// (hygiene 700 weighs 200 from 900: 200 · 300 − 150, at his mood +3 61 650; the table, hunger 600
+/// weighing 100, brings 100 · 400 − 200, at +10 43 800). She is there after 3 s with the bladder at
+/// 500 and full 150 s later at +12 000 an hour; then from the bath with hunger 596 (600 − 4.25
+/// truncated), energy 899, hygiene 699 and fun 798 the best free offer, the table at her mood −4
+/// (104 · 404 · 96 / 100 − 350 = 39 985), brings less than 40 000 and the shower, which he holds,
+/// more (201 · 301 · 95 / 100 − 250 = 57 225): she waits for it in the bath. He showers from
+/// 6:00:03 for 15 minutes, hygiene full, hunger 575, energy 890, bladder 470, fun 785; the shower
+/// is held for her, and she takes it at her mood +2 (207 · 307 · 102 / 100 − 250 = 64 569) once he
+/// has taken the toilet.
 #[test]
 fn the_first_morning_of_a_couple() {
     let (mut run, _) = Run::moved_in(data());
     run.advance(MORNING + 1_204);
     let morning = [600, 900, 500, 700, 800];
     let hers = run.doings(1);
+    let waits = LogPayload::Idle {
+        house: flat(),
+        room: 3,
+        needs: [596, 899, 1000, 699, 798],
+        busy: vec![6],
+        waits: Some(6),
+        held: Vec::new(),
+        tier: Vec::new(),
+    };
+    let mut shower = started(6, 0, 3, 5, [575, 890, 975, 693, 785]);
+    if let LogPayload::ActionStarted { busy, .. } = &mut shower {
+        busy.push(5);
+    }
     assert_eq!(
-        hers[..4],
+        hers[..5],
         [
             (0, started(5, 0, 0, 3, morning)),
             (3, LogPayload::Reached { object: 5 }),
@@ -67,10 +86,11 @@ fn the_first_morning_of_a_couple() {
                     needs: [596, 899, 1000, 699, 798],
                 }
             ),
-            (153, started(0, 1, 3, 7, [596, 899, 1000, 699, 798])),
+            (153, waits),
+            (903, shower),
         ]
     );
-    let mut his_start = started(0, 0, 0, 4, morning);
+    let mut his_start = started(6, 0, 0, 3, morning);
     if let LogPayload::ActionStarted { busy, .. } = &mut his_start {
         busy.push(5);
     }
@@ -79,20 +99,20 @@ fn the_first_morning_of_a_couple() {
         his[..3],
         [
             (0, his_start),
-            (4, LogPayload::Reached { object: 0 }),
+            (3, LogPayload::Reached { object: 6 }),
             (
-                1_204,
+                903,
                 LogPayload::ActionEnded {
-                    object: 0,
+                    object: 6,
                     offer: 0,
                     reason: EndReason::Done,
-                    needs: [1000, 887, 460, 690, 780],
+                    needs: [575, 890, 470, 1000, 785],
                 }
             ),
         ]
     );
     // The causes: the morning's choice planned by her `core:day_started`, the arrival by the
-    // start, the end by the arrival, the next choice in the end's handler.
+    // start, the end by the arrival; her shower by his end, which held its place for her.
     let of = |sim: u64, kind: fn(&LogPayload) -> bool| -> Vec<&LogEntry> {
         (run.log.iter())
             .filter(|e| e.subjects == [Subject::Sim(SimId::try_from(sim).expect("id"))])
@@ -106,8 +126,11 @@ fn the_first_morning_of_a_couple() {
     };
     let starts = of(1, |p| matches!(p, LogPayload::ActionStarted { .. }));
     assert!(matches!(by(starts[0]), LogPayload::DayStarted { .. }));
-    assert!(matches!(starts[1].causes.as_slice(), [Cause::Event(_)]));
-    assert!(matches!(by(starts[1]), LogPayload::ActionEnded { .. }));
+    assert!(matches!(starts[1].causes.as_slice(), [Cause::Plan(_)]));
+    assert!(matches!(
+        by(starts[1]),
+        LogPayload::ActionEnded { object: 6, .. }
+    ));
     let reached = of(1, |p| matches!(p, LogPayload::Reached { .. }));
     assert!(matches!(by(reached[0]), LogPayload::ActionStarted { .. }));
     let ended = of(1, |p| matches!(p, LogPayload::ActionEnded { .. }));
@@ -129,7 +152,7 @@ fn moving_out_ends_what_they_do() {
         .rfind(|entry| matches!(entry.payload, LogPayload::MovedOut { .. }))
         .expect("moved out")
         .id;
-    for (sim, object) in [(1, 5), (2, 0)] {
+    for (sim, object) in [(1, 5), (2, 6)] {
         let last = (run.log.iter())
             .rfind(|e| e.subjects == [Subject::Sim(SimId::try_from(sim).expect("id"))])
             .expect("an entry");

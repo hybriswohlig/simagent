@@ -92,6 +92,7 @@ fn started(house: &str, object: u16, room: u8, walk_secs: u32, needs: [u16; 5]) 
         commanded: false,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
 }
 

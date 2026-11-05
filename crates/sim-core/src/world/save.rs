@@ -2467,22 +2467,31 @@ fn onsets_due(person: &Sim, now: i64) -> impl Iterator<Item = (u64, SimTime)> + 
 }
 
 /// The second the action of a person at its object ends, from its offer and needs, a sleep
-/// at the end of its night.
-fn action_due(loaded: &LoadedState, data: &Data, sim: SimId) -> Option<SimTime> {
+/// at the end of its night; a time-filler at its next choice, recomputed from the second the
+/// loaded world runs next, planned in the clock (ADR-0026, addendum of 2026-11-04 on comfort and
+/// the time-filler).
+fn action_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
+    let data = rules.data;
     let person = loaded.house.sims.get(&sim)?;
-    let born = loaded.sims.get(&sim)?.born;
+    let me = loaded.sims.get(&sim)?;
     let (Place::Room(_), Some(action)) = (person.place, person.action) else {
         return None;
     };
-    let household = loaded.sims.get(&sim)?.household;
     let houses = data.houses()?;
-    let house = houses.house(&loaded.house.households.get(&household)?.house)?;
+    let house = house_of(loaded, data, sim)?;
+    if action.filler {
+        let start = (loaded.closed_through).checked_add(SimDuration::from_secs(1))?;
+        let taken = taken_for(loaded, rules, sim, start)?;
+        let who = (me.born, me.lineage_key, rules.seed);
+        let from = (start, loaded.closed_through);
+        return crate::house::state::filler_end_of((house, houses), who, person, &taken, from);
+    }
     let object = house.def().objects.get(usize::from(action.object))?;
     let offer = houses
         .kind(&object.kind)?
         .offers
         .get(usize::from(action.offer))?;
-    crate::house::state::action_end(person, offer, houses.day(), born)
+    crate::house::state::action_end(person, offer, houses.day(), me.born)
 }
 
 /// The house of a person with needs.
@@ -2496,23 +2505,18 @@ fn house_of<'a>(
         .house(&loaded.house.households.get(&household)?.house)
 }
 
-/// The next choice of a person idle in a room or on its walk to the room one stays in, not lying
-/// and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest), recomputed from
-/// the second the loaded world runs next with the places of its household taken by an action or
-/// held for others; `None` for anyone else or if nothing comes.
-fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
-    let person = loaded.house.sims.get(&sim)?;
+/// The places of the household of `sim` taken by an action of a member or held for another than
+/// `sim`, and after its first morning those its small children hold in their beds at `start`, as
+/// the core's choice counts them (ADR-0026 section 5 and its addenda of 2026-11-04).
+fn taken_for(
+    loaded: &LoadedState,
+    rules: &Rules<'_>,
+    sim: SimId,
+    start: SimTime,
+) -> Option<BTreeSet<(u16, u8)>> {
     let houses = rules.data.houses()?;
     let house = house_of(loaded, rules.data, sim)?;
-    let waits = (loaded.house.waits.values().flatten()).any(|&(_, waiter)| waiter == sim);
-    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(person, house);
-    if !stands || person.action.is_some() || person.collapsed || waits {
-        return None;
-    }
     let me = loaded.sims.get(&sim)?;
-    let start = loaded
-        .closed_through
-        .checked_add(SimDuration::from_secs(1))?;
     let members = (loaded.sims.iter()).filter(|(_, other)| other.household == me.household);
     let mut taken: BTreeSet<(u16, u8)> = (members.clone())
         .filter_map(|(id, _)| loaded.house.sims.get(id)?.action)
@@ -2530,8 +2534,31 @@ fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<Sim
     if morning {
         taken.extend(crate::house::state::child_held(house, houses, young, start));
     }
+    Some(taken)
+}
+
+/// The next choice of a person idle in a room or on its walk to the room one stays in, not lying
+/// and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest), recomputed from
+/// the second the loaded world runs next, planned in the clock (its addendum on comfort and the
+/// time-filler), with the places of its household taken by an action or held for others; `None`
+/// for anyone else or if nothing comes.
+fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
+    let person = loaded.house.sims.get(&sim)?;
+    let houses = rules.data.houses()?;
+    let house = house_of(loaded, rules.data, sim)?;
+    let waits = (loaded.house.waits.values().flatten()).any(|&(_, waiter)| waiter == sim);
+    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(person, house);
+    if !stands || person.action.is_some() || person.collapsed || waits {
+        return None;
+    }
+    let me = loaded.sims.get(&sim)?;
+    let start = loaded
+        .closed_through
+        .checked_add(SimDuration::from_secs(1))?;
+    let taken = taken_for(loaded, rules, sim, start)?;
     let who = (me.born, me.lineage_key, rules.seed);
-    crate::house::state::next_choice_of((house, houses), who, person, &taken, start)
+    let from = (start, loaded.closed_through);
+    crate::house::state::next_choice_of((house, houses), who, person, &taken, from)
 }
 
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at
@@ -2739,7 +2766,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             EventPayload::ActionEnd { sim } => {
                 entry.period.is_none()
                     && ends.insert(*sim)
-                    && action_due(loaded, rules.data, *sim) == Some(entry.time)
+                    && action_due(loaded, rules, *sim) == Some(entry.time)
             }
             // A choice planned by a handler runs in its second (ADR-0026 section 3), so after a
             // run only the next choice of an idle person is pending, at the second it is
@@ -2954,7 +2981,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             .all(|(sim, person)| match (person.place, person.action) {
                 (Place::Walking { .. }, _) => arrivals.contains(sim),
                 (Place::Room(_), Some(_)) => {
-                    ends.contains(sim) || action_due(loaded, rules.data, *sim).is_none()
+                    ends.contains(sim) || action_due(loaded, rules, *sim).is_none()
                 }
                 _ => true,
             });

@@ -247,11 +247,13 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
         let key = state.lineage_key(sim).ok_or("a choice of nobody")?;
         let years = age(born, entry.t).ok_or("a choice before the birth")?;
         let house = houses.house(house).ok_or("a choice in no house")?;
-        // In the night the offers of sleep are open too (ADR-0026, addendum of 2026-11-04).
+        // In the night the offers of sleep are open too (ADR-0026, addendum of 2026-11-04); an
+        // offer today's departure closes is weighed all the same (its addendum on comfort and the
+        // time-filler), so none is closed here.
         let left = night(houses.day(), born, entry.t).map(|night| night.left(entry.t));
         let percent = houses.day().choice_mood_percent;
         let moods = |object, offer| mood(seed, key, entry.t, (object, offer), percent);
-        let weighed = score(house, houses, years, needs, room, left, moods).len();
+        let weighed = score(house, houses, (years, needs, room), (left, None), moods).len();
         counted.most_offers = counted.most_offers.max(weighed);
     }
     counted.with_needs = with_needs.len();

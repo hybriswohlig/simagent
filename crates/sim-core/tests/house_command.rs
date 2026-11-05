@@ -105,6 +105,7 @@ fn started(
         commanded,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
 }
 
@@ -284,6 +285,7 @@ fn command_rejections_and_effect() {
                 object: TV,
                 offer: 0,
                 slot: 0,
+                filler: false,
             })
         )
     );
@@ -426,7 +428,8 @@ fn far() -> Data {
         "awake": {"hunger": bands(-173), "energy": bands(0), "bladder": bands(0),
                   "hygiene": bands(0), "fun": bands(0)},
         "asleep": {"hunger": bands(0), "energy": bands(60), "bladder": bands(0),
-                   "hygiene": bands(0), "fun": bands(0)}
+                   "hygiene": bands(0), "fun": bands(0)},
+        "comfort": [1000, 1000, 1000, 1000, 1000]
     });
     day::house_data(&rates.to_string(), FAR_KINDS, FAR)
 }

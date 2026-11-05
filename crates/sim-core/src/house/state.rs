@@ -13,6 +13,7 @@ use crate::house::data::{
     AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
 };
 use crate::house::day::{YoungPlace, night, young_place};
+use crate::house::day::{day_departure, next_night, work_draw};
 use crate::house::need::{EMPTY, FULL, NeedSample};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
@@ -60,12 +61,14 @@ pub enum Place {
 }
 
 /// The offer a person chose, on the way or doing it; it holds the place `slot` of the
-/// object (ADR-0026 sections 4 and 5).
+/// object (ADR-0026 sections 4 and 5). A time-filler, `filler`, ends at the person's next
+/// choice (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Action {
     pub object: u16,
     pub offer: u16,
     pub slot: u8,
+    pub filler: bool,
 }
 
 /// A departure that waits for the end of an action for a critical need (ADR-0024 section
@@ -140,16 +143,19 @@ pub fn child_held(house: &House, data: &HouseData, young: usize, now: SimTime) -
 }
 
 /// The second the idle person `person`, born at `born` with the lineage key `key` in the world
-/// of `seed`, chooses next from `start` on (`house::choice::next_choice`), `taken` the places
-/// of the house taken or held for others: it weighs the objects with a free place from the
-/// room it stands in, or on its walk to the room one stays in from that room, no earlier than
-/// its arrival (ADR-0026, addendum of 2026-11-04 after the playtest).
+/// of `seed`, chooses next from `start` on, planned in the second `after`
+/// (`house::choice::next_choice`), `taken` the places of the house taken or held for others: it
+/// weighs the objects with a free place from the room it stands in, or on its walk to the room
+/// one stays in from that room, no earlier than its arrival (ADR-0026, addendum of 2026-11-04
+/// after the playtest), each before today's departure closes it (its addendum on comfort and the
+/// time-filler). A handler plans in its second, an input at the clock and the loader in the
+/// clock, before the second they act in.
 pub fn next_choice_of(
     (house, data): (&House, &HouseData),
     (born, key, seed): (SimTime, crate::lineage::LineageKey, u64),
     person: &InHouse,
     taken: &BTreeSet<(u16, u8)>,
-    start: SimTime,
+    (start, after): (SimTime, SimTime),
 ) -> Option<SimTime> {
     let (room, start) = match person.place {
         Place::Room(room) => (room, start),
@@ -165,13 +171,55 @@ pub fn next_choice_of(
     let moods = |at: SimTime, object: u16, offer: u16| {
         crate::house::choice::mood(seed, key, at, (object, offer), percent)
     };
+    let draw = || work_draw(seed, key);
+    let leaves = |at: SimTime| day_departure(data.day(), born, draw, at);
     next_choice(
         (house, data),
         (born, &person.needs, room),
         free,
-        start,
+        (start, after),
         moods,
+        leaves,
     )
+}
+
+/// The second the time-filler of `person` at its object ends (ADR-0026, addendum of 2026-11-04
+/// on comfort and the time-filler), from `start` on, planned in the second `after`, with the
+/// needs at the filler's rates and `taken` the places taken (its own among them) or held for
+/// others: at its next choice (`next_choice_of` from the object's room), at the latest
+/// `fallback_max_seconds` after it began and at its bedtime, the start of the night after it
+/// began; at once if it began in a night. `None` for anyone not at a time-filler, or if the end
+/// lies beyond the end of time.
+pub fn filler_end_of(
+    (house, data): (&House, &HouseData),
+    who: (SimTime, crate::lineage::LineageKey, u64),
+    person: &InHouse,
+    taken: &BTreeSet<(u16, u8)>,
+    (start, after): (SimTime, SimTime),
+) -> Option<SimTime> {
+    let (Place::Room(_), Some(action)) = (person.place, person.action) else {
+        return None;
+    };
+    if !action.filler {
+        return None;
+    }
+    let born = who.0;
+    let rules = data.day();
+    let object = house.def().objects.get(usize::from(action.object))?;
+    let offer = (data.kind(&object.kind)?.offers).get(usize::from(action.offer))?;
+    let (_, sample) = (NEEDS.into_iter().zip(person.needs)).find(|(need, _)| offer.sets(*need))?;
+    let begun = sample.at();
+    if night(rules, born, begun).is_some() {
+        return Some(begun);
+    }
+    let bedtime = next_night(rules, born, begun).map(|night| night.from);
+    let longest = SimDuration::from_secs(i64::from(rules.fallback_max_seconds));
+    let cap = begun.checked_add(longest);
+    let next = match bedtime.is_none_or(|bedtime| start < bedtime) {
+        true => next_choice_of((house, data), who, person, taken, (start, after)),
+        false => None,
+    };
+    [next.or(bedtime), bedtime, cap].into_iter().flatten().min()
 }
 
 /// The crossings a change of the person's rates at `after` plans (ADR-0026 section 1): per
@@ -303,6 +351,9 @@ pub enum Broken {
     /// An action on a place a small child holds in its bed at the clock or in the next second
     /// (ADR-0026, addendum of 2026-11-04 after the playtest).
     ChildBed,
+    /// A time-filler at an offer that is none (ADR-0026, addendum of 2026-11-04 on comfort and
+    /// the time-filler).
+    Filler,
 }
 
 /// The checks on load of the house part (ADR-0024, addendum of 2026-11-02) at `now`, the
@@ -492,11 +543,15 @@ fn person_consistent(
         let object = home.def().objects.get(usize::from(action.object));
         let kind = object.and_then(|object| data?.kind(&object.kind));
         let kind = kind.ok_or(Broken::ObjectUnknown)?;
-        if usize::from(action.offer) >= kind.offers.len() {
-            return Err(Broken::OfferUnknown);
-        }
+        let offer = kind.offers.get(usize::from(action.offer));
+        let offer = offer.ok_or(Broken::OfferUnknown)?;
         if action.slot >= kind.slots {
             return Err(Broken::SlotUnknown);
+        }
+        // Only an offer the data name a time-filler is one (ADR-0026, addendum of 2026-11-04 on
+        // comfort and the time-filler).
+        if action.filler && !offer.fallback {
+            return Err(Broken::Filler);
         }
     }
     let dwelling = dwell_walk(person, home);

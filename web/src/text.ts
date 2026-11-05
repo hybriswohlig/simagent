@@ -365,6 +365,21 @@ export const TEXT = {
   house_why_night: "Nachtruhe bis {time}: erst was dringend ist, dann ein Bett.",
   house_why_night_last: "Nachtruhe bis zum Ende der Zeit: erst was dringend ist, dann ein Bett.",
   house_why_commanded: "Befohlen: {what}, {score}.",
+  house_why_filler: "Zeitvertreib: {what}{until}{then}.",
+  house_why_filler_until: ", bis {time}",
+  house_why_filler_then: ", dann reicht {needs}",
+  house_why_filler_then_many: ", dann reichen {needs}",
+  need_the_hunger: "der Hunger",
+  need_the_energy: "die Energie",
+  need_the_bladder: "die Blase",
+  need_the_hygiene: "die Hygiene",
+  need_the_fun: "der Spaß",
+  house_why_filler_walk: "{secs} s Weg {where}.",
+  house_why_and: " und ",
+  house_why_departs: "{what} endet nach dem Aufbruch um {time}",
+  house_why_sated: "({need} zählt ab {comfort} und steht bei {level}, das bringt nichts)",
+  house_filler: "Zeitvertreib: {what}",
+  house_weight_none: "zählt ab {comfort}",
   house_command_for: "Befehl für {name}",
   house_command_what: "Was tun?",
   house_command: "Befehlen",
@@ -423,6 +438,7 @@ export const OFFER_WORDS: { readonly [id: string]: string } = {
   use: "ist",
   play: "spielt",
   watch: "sieht fern",
+  sit: "sitzt",
 };
 
 /** The offers by their names in `kinds.json`, as a person ends them when they are done: "isst
@@ -435,6 +451,7 @@ export const FINISHED_WORDS: { readonly [id: string]: string } = {
   use: "ist fertig",
   play: "spielt fertig",
   watch: "sieht fertig fern",
+  sit: "sitzt fertig",
 };
 
 /** The days of the week by the core's `weekday`, Monday first. */

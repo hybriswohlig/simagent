@@ -145,7 +145,8 @@ fn rates(energy: i32, bladder: i32) -> String {
         "awake": {"hunger": bands(0), "energy": bands(energy), "bladder": bands(0),
                   "hygiene": bands(0), "fun": bands(0)},
         "asleep": {"hunger": bands(0), "energy": bands(100), "bladder": bands(bladder),
-                   "hygiene": bands(0), "fun": bands(0)}
+                   "hygiene": bands(0), "fun": bands(0)},
+        "comfort": [1000, 1000, 1000, 1000, 1000]
     })
     .to_string()
 }
@@ -211,6 +212,7 @@ fn started(
         commanded,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
 }
 
@@ -406,6 +408,7 @@ fn the_last_night_of_time_lasts_to_its_end() {
         sleep: true,
         min_age: 0,
         max_age: 130,
+        fallback: false,
     };
     assert_eq!(action_end(&asleep, &sleep, &rules, adult), None);
     // The first second of time: whoever lives then was born at it, under 6, without a night.
@@ -437,6 +440,7 @@ fn a_sleep_ends_with_its_night() {
         sleep: true,
         min_age: 0,
         max_age: 130,
+        fallback: false,
     };
     let morning = 2 * D + 6 * H;
     let end = |at: i64| action_end(&person(at), &sleep, &rules, born);

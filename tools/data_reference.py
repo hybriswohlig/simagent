@@ -107,9 +107,9 @@ stays; the pool's check still compares with the hash of the definitions alone
 xxh3-64 of the definitions, the pool suffix and the templates' suffix.
 
 The houses (ADR-0025 sections 1 to 4, ADR-0026 sections 1 and 2, ADR-0024 section 4):
-data/house/needs.json (the rates per need and age band, awake and asleep), data/house/day.json
-(the rules of the day: school, work, the small children, the jumps on coming home, the night,
-what a need at 0 does, the mood of a choice),
+data/house/needs.json (the rates per need and age band, awake and asleep, and each need's
+comfort), data/house/day.json (the rules of the day: school, work, the small children, the jumps
+on coming home, the night, what a need at 0 does, the mood of a choice, the longest time-filler),
 data/house/kinds.json (the kinds of furniture with their offers) and one file per house under
 data/house/houses/, which name rooms and offers. `houses_checked` repeats the checks of the
 reader (sim-cli: names once, one entrance, named rooms there) and of the core, each failure
@@ -860,7 +860,10 @@ OLDEST = 130
 AGE_BANDS = [(6, 12), (13, 17), (18, 66), (67, OLDEST)]
 ESSENTIALS = ["core:dining_table", "core:fridge", "core:toilet", "core:shower", "core:sofa"]
 SOFA = "core:sofa"
-OFFER_FIELDS = {"id", "rates", "seconds", "until_full", "max_seconds", "sleep", "min_age", "max_age"}
+OFFER_FIELDS = {"id", "rates", "seconds", "until_full", "max_seconds", "sleep", "min_age", "max_age", "fallback"}
+# A need's comfort lies above the critical level and at most at full (ADR-0026, addendum of
+# 2026-11-04 on comfort and the time-filler).
+COMFORT = (151, 1000)
 # Whom a bed is for (ADR-0026, addendum of 2026-11-04 after the playtest), in the order of the
 # core's `BedFor`.
 BED_FOR = ["couples", "children"]
@@ -890,6 +893,8 @@ DAY_FORMAT = {
     "zero": {"collapse_energy_rate": I32, "stand_up_at": U16, "accident_hygiene_at_most": U16, "hygiene_empty_fun": I32},
     # The most the mood moves the points of a choice, in percent (its addendum on the mood).
     "choice_mood_percent": U8,
+    # The longest a time-filler lasts (its addendum on comfort and the time-filler).
+    "fallback_max_seconds": U32,
 }
 SECONDS_OF_DAY = 86_400
 
@@ -965,7 +970,8 @@ def day_checked(day: dict) -> None:
     plan and at or before every wake, each start after every return), a need at 0 (its addendum
     of 2026-11-04 on a need at 0: energy rising on the floor, the level to get up at from 1 to
     1000, the accident's hygiene at most 1000, the change of fun at hygiene 0 from -1000 to 0),
-    the mood (at most 50 percent either way)."""
+    the mood (at most 50 percent either way), the longest time-filler (60 s to 12 h, as an
+    offer's length; its addendum on comfort and the time-filler)."""
     day_fields(day, DAY_FORMAT)
     school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
     hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
@@ -999,6 +1005,7 @@ def day_checked(day: dict) -> None:
         and -1000 <= zero["hygiene_empty_fun"] <= 0
     ), "house.day_zero"
     assert day["choice_mood_percent"] <= 50, "house.day_mood"
+    assert 60 <= day["fallback_max_seconds"] <= 43_200, "house.day_fallback"
 
 
 def houses_checked(needs, day, kinds, houses):
@@ -1006,10 +1013,15 @@ def houses_checked(needs, day, kinds, houses):
     format (ADR-0026 section 2), in the order of the reader and the core; a failed one names
     its code. Returns (needs, day, kinds by ID, houses by ID) with the rooms numbered in each
     file's order."""
-    assert isinstance(needs, dict) and set(needs) == {"awake", "asleep"}, "needs fields"
-    for column in needs.values():
+    assert isinstance(needs, dict) and set(needs) == {"awake", "asleep", "comfort"}, "needs fields"
+    for column in (needs["awake"], needs["asleep"]):
         assert set(column) == set(NEEDS), "needs fields"
         assert all(len(rates) == 4 and all(isinstance(r, int) and -(2**31) <= r < 2**31 for r in rates) for rates in column.values()), "needs rates"
+    comfort = needs["comfort"]
+    assert isinstance(comfort, list) and len(comfort) == 5, "needs comfort"
+    assert all(type(value) is int and 0 <= value < 2**16 for value in comfort), "needs comfort"
+    # The core's first check: each comfort above 150 and at most 1000.
+    assert all(COMFORT[0] <= value <= COMFORT[1] for value in comfort), "house.comfort"
     day_checked(day)
     for kind in kinds:
         assert {"id", "slots", "offers"} <= set(kind) <= {"id", "slots", "offers", "bed_for"}, f"kind fields {kind}"
@@ -1035,9 +1047,13 @@ def houses_checked(needs, day, kinds, houses):
                 length = offer["seconds"] if shape[0] else offer["max_seconds"]
                 assert 60 <= length <= 43_200, "house.offer_length"
             assert offer["min_age"] <= offer["max_age"] <= OLDEST, "house.offer_ages"
+            ages = range(max(offer["min_age"], AGE_BANDS[0][0]), offer["max_age"] + 1)
             if shape[1]:
-                ages = range(max(offer["min_age"], AGE_BANDS[0][0]), offer["max_age"] + 1)
                 assert all(raises(needs, offer, offer["until_full"], age) for age in ages), "house.offer_full"
+            # A time-filler passes the day: no sleep, fun rising at every age with needs it is
+            # open to (its addendum on comfort and the time-filler).
+            if offer.get("fallback", False):
+                assert not sleeps and all(raises(needs, offer, "fun", age) for age in ages), "house.offer_fallback"
         # A bed only sleeps; only a bed says whom it is for (its addendum after the playtest).
         bed = is_bed(kind)
         sleeps_only = all(offer.get("sleep", False) for offer in kind["offers"])
@@ -1126,20 +1142,22 @@ def house_checked(needs: dict, kinds: dict, house: dict) -> None:
 
 def houses_suffix(files) -> bytes:
     """The postcard that the data hash appends for the houses: `(rates, day, kinds, houses)`
-    with `NeedRates { awake, asleep }` (each `BandRates` the five needs in order, each four
-    i32), the day as `DayRules { day_plan_at: u32, wake_before: u32, school: SchoolRules {
+    with `NeedRates { awake, asleep, comfort: [u16; 5] }` (each `BandRates` the five needs in
+    order, each four i32; the comfort of ADR-0026, addendum of 2026-11-04 on comfort and the
+    time-filler, a fixed array as its five elements), the day as `DayRules { day_plan_at: u32, wake_before: u32, school: SchoolRules {
     from_age: u8, until_age: u8, depart: u32, back: u32 }, work: WorkRules { from_age: u8,
     until_age: u8, full_time_below: u8, part_time_below: u8, full_time: Hours { depart: u32,
     back: u32 }, part_time: Hours }, return_jumps: NeedJumps { hunger: i32, energy: i32,
     bladder: i32, hygiene: i32, fun: i32 }, young: YoungRules { until_age: u8, kita_from: u32,
     kita_to: u32, bed_from: u32, bed_to: u32 }, night: NightRules { from: [u32; 4], until: [u32;
     4], until_weekend: [u32; 4] }, zero: ZeroRules { collapse_energy_rate: i32, stand_up_at: u16, accident_hygiene_at_most:
-    u16, hygiene_empty_fun: i32 }, choice_mood_percent: u8 }` (ADR-0024 section 4; the night of
+    u16, hygiene_empty_fun: i32 }, choice_mood_percent: u8, fallback_max_seconds: u32 }` (ADR-0024 section 4; the night of
     ADR-0026, its addendum of 2026-11-04: a fixed array as its four elements, no length; a need
     at 0 and the mood of its addenda of 2026-11-04; the weekend's end of the night of its addendum
-    after the playtest), the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates:
-    BTreeMap<Need, i32>, seconds: Option<u32>, until_full: Option<Need>, max_seconds:
-    Option<u32>, sleep: bool, min_age: u8, max_age: u8 }], bed_for: Option<BedFor> }` (an
+    after the playtest; the longest time-filler of its addendum on comfort and the time-filler),
+    the kinds by ID as `KindDef { id, slots: u8, offers: [OfferDef { rates: BTreeMap<Need, i32>,
+    seconds: Option<u32>, until_full: Option<Need>, max_seconds: Option<u32>, sleep: bool,
+    min_age: u8, max_age: u8, fallback: bool }], bed_for: Option<BedFor> }` (an
     offer's `id` is a name, not hashed; `BedFor` the index in `BED_FOR`), and the houses by ID
     as `HouseDef { id, capacity: u8, rooms: u8, entrance: u8, child_day_room: u8,
     child_night_room: u8, dwell_room: u8, dwell: [bool], doors: [DoorDef { a: u8, b: u8,
@@ -1152,6 +1170,7 @@ def houses_suffix(files) -> bytes:
     for column in ("awake", "asleep"):
         for need in NEEDS:
             out += b"".join(zigzag(rate) for rate in needs[column][need])
+    out += b"".join(varint(value) for value in needs["comfort"])
     school, work, jumps, young = day["school"], day["work"], day["return_jumps"], day["young"]
     out += varint(day["day_plan_at"]) + varint(day["wake_before"])
     out += u8(school["from_age"]) + u8(school["until_age"]) + varint(school["depart"]) + varint(school["back"])
@@ -1163,7 +1182,7 @@ def houses_suffix(files) -> bytes:
     zero = day["zero"]
     out += zigzag(zero["collapse_energy_rate"]) + varint(zero["stand_up_at"])
     out += varint(zero["accident_hygiene_at_most"]) + zigzag(zero["hygiene_empty_fun"])
-    out += u8(day["choice_mood_percent"])
+    out += u8(day["choice_mood_percent"]) + varint(day["fallback_max_seconds"])
     out += varint(len(kinds))
     for kind in kinds:
         out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))
@@ -1174,6 +1193,7 @@ def houses_suffix(files) -> bytes:
             out += option(offer.get("until_full"), lambda need: varint(NEEDS.index(need)))
             out += option(offer.get("max_seconds"), varint)
             out += boolean(offer.get("sleep", False)) + u8(offer["min_age"]) + u8(offer["max_age"])
+            out += boolean(offer.get("fallback", False))
         out += option(kind.get("bed_for"), lambda sleepers: varint(BED_FOR.index(sleepers)))
     out += varint(len(houses))
     for house in houses:

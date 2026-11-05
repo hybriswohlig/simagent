@@ -56,8 +56,9 @@ export function dayLine(layout: HouseLayout, item: EventItem): DayLine | null {
   const school = fields["place"] === "school";
   switch (code) {
     case "core:action_started": {
-      // A commanded start says so (ADR-0024 section 5); "Warum?" tells the points beside it.
-      const said = fields["commanded"] === true ? TEXT.house_commanded : TEXT.house_choice;
+      // A commanded start says so (ADR-0024 section 5); "Warum?" tells the points beside it; a
+      // time-filler too (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+      const said = fields["commanded"] === true ? TEXT.house_commanded : fields["filler"] === true ? TEXT.house_filler : TEXT.house_choice;
       return { text: said.replace("{what}", placedOfferWords(layout, number("object"), number("offer"))), choice: true };
     }
     case "core:action_ended":

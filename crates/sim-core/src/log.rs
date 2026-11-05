@@ -232,6 +232,8 @@ pub enum LogPayload {
     /// the choice again; `commanded` if a command chose it. In the person's night the objects
     /// with a place a small child holds, `held`, and the beds of its tier, `tier` (none for a
     /// command; ADR-0026, addendum of 2026-11-04 after the playtest); by day both are empty.
+    /// `filler` if nothing brought enough and the person took a time-filler instead of idling
+    /// (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
     #[serde(rename = "core:action_started")]
     ActionStarted {
         house: DataId,
@@ -245,6 +247,7 @@ pub enum LogPayload {
         commanded: bool,
         held: Vec<u16>,
         tier: Vec<u16>,
+        filler: bool,
     },
     /// A person reached the object of its action and begins it.
     #[serde(rename = "core:reached")]

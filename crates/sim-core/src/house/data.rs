@@ -52,6 +52,9 @@ const MAX_OFFERS: usize = 64;
 const JUMPS: RangeInclusive<i32> = -1000..=0;
 /// The mood moves the points of a choice at most by this many percent either way.
 const MOST_MOOD: u8 = 50;
+/// A need's comfort lies above the critical level 150 and at most at full (ADR-0026, addendum
+/// of 2026-11-04 on comfort and the time-filler).
+const COMFORT: RangeInclusive<u16> = 151..=FULL;
 
 /// Walking to an object in one's own room, and through the entrance out of the house
 /// (ADR-0025 section 4).
@@ -65,12 +68,34 @@ pub fn age_band(age: u8) -> Option<usize> {
         .position(|&(low, high)| (low..=high).contains(&age))
 }
 
-/// The rates of `data/house/needs.json` (ADR-0026 section 1), in points per hour.
+/// The rates of `data/house/needs.json` (ADR-0026 section 1), in points per hour, and per need
+/// in the order of `NEEDS` its comfort (ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler): a need weighs `comfort − value` in the points of a choice, nothing at or above
+/// it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NeedRates {
     pub awake: BandRates,
     pub asleep: BandRates,
+    pub comfort: [u16; 5],
+}
+
+impl NeedRates {
+    /// The comfort of `need`.
+    pub fn comfort(&self, need: Need) -> u16 {
+        let at = NEEDS.iter().position(|&each| each == need);
+        at.map_or(FULL, |at| self.comfort[at])
+    }
+
+    /// Each comfort above the critical level and at most full, so that a need weighs before it
+    /// turns critical and no sum of points comes near the urgent part.
+    fn checked(&self) -> Result<(), HouseError> {
+        if self.comfort.iter().all(|comfort| COMFORT.contains(comfort)) {
+            Ok(())
+        } else {
+            Err(HouseError::Comfort)
+        }
+    }
 }
 
 /// Per need one rate for each age band.
@@ -102,7 +127,8 @@ impl BandRates {
 /// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure; the night
 /// (ADR-0026, addendum of 2026-11-04), what a need at 0 does and the most the mood moves the
 /// points of a choice, in percent either way (its addenda of 2026-11-04 on a need at 0 and on
-/// the mood), last.
+/// the mood), and the longest a time-filler lasts (its addendum on comfort and the time-filler),
+/// last.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DayRules {
@@ -115,6 +141,7 @@ pub struct DayRules {
     pub night: NightRules,
     pub zero: ZeroRules,
     pub choice_mood_percent: u8,
+    pub fallback_max_seconds: u32,
 }
 
 /// School from `from_age` to the day before the birthday of `until_age`.
@@ -215,7 +242,7 @@ impl ZeroRules {
 
 impl DayRules {
     /// The checks of the day, in this order: the times, the wake, the ages, the shares of
-    /// the work plan, the jumps, the night, a need at 0, the mood.
+    /// the work plan, the jumps, the night, a need at 0, the mood, the time-filler.
     fn checked(&self) -> Result<(), HouseError> {
         let (school, work, young) = (&self.school, &self.work, &self.young);
         let hours = [
@@ -273,6 +300,10 @@ impl DayRules {
         // the log.
         if self.choice_mood_percent > MOST_MOOD {
             return Err(HouseError::DayMood);
+        }
+        // A time-filler lasts at most as long as an offer may.
+        if !LENGTH_SECS.contains(&self.fallback_max_seconds) {
+            return Err(HouseError::DayFallback);
         }
         Ok(())
     }
@@ -354,7 +385,9 @@ impl KindDef {
 /// `until_full` is full but at most `max_seconds`. A sleeping offer has neither: it lasts
 /// the night (ADR-0026, addendum of 2026-11-04). It takes the rates of all needs from the
 /// sleep column and `rates` names only what differs; any other sets the rates it names and
-/// leaves the others awake.
+/// leaves the others awake. A `fallback` offer is also a time-filler: one idle by day with
+/// nothing worth it takes it until its next choice (ADR-0026, addendum of 2026-11-04 on comfort
+/// and the time-filler).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct OfferDef {
     pub rates: BTreeMap<Need, i32>,
@@ -364,6 +397,7 @@ pub struct OfferDef {
     pub sleep: bool,
     pub min_age: u8,
     pub max_age: u8,
+    pub fallback: bool,
 }
 
 impl OfferDef {
@@ -405,11 +439,15 @@ impl OfferDef {
             return Err(HouseError::OfferRates);
         }
         // Full only by a need that the offer raises at every age with needs it is open to.
-        if let Some(need) = self.until_full {
-            let ages = self.min_age.max(AGE_BANDS[0].0)..=self.max_age;
-            if !ages.into_iter().all(|age| self.raises(rates, need, age)) {
-                return Err(HouseError::OfferFull);
-            }
+        let ages = || self.min_age.max(AGE_BANDS[0].0)..=self.max_age;
+        if let Some(need) = self.until_full
+            && !ages().all(|age| self.raises(rates, need, age))
+        {
+            return Err(HouseError::OfferFull);
+        }
+        // A time-filler passes the day: no sleep, and fun rising at every age it is open to.
+        if self.fallback && (self.sleep || !ages().all(|age| self.raises(rates, Need::Fun, age))) {
+            return Err(HouseError::OfferFallback);
         }
         Ok(())
     }
@@ -471,6 +509,11 @@ pub enum HouseError {
     DayZero,
     /// A mood of more than 50 percent either way.
     DayMood,
+    /// A time-filler's longest outside 60 s to 12 h (ADR-0026, addendum of 2026-11-04 on comfort
+    /// and the time-filler).
+    DayFallback,
+    /// A need's comfort at or below the critical level 150 or above full.
+    Comfort,
     /// Two kinds with one id.
     KindDuplicate,
     /// A kind with no place or more than eight.
@@ -483,6 +526,8 @@ pub enum HouseError {
     OfferAges,
     /// An offer full by a need it does not raise at every age it is open to.
     OfferFull,
+    /// A time-filler that sleeps or does not raise fun at every age with needs it is open to.
+    OfferFallback,
     /// An offer that sets no rate: not sleeping and naming none.
     OfferRates,
     /// Two houses with one id.
@@ -533,11 +578,14 @@ impl fmt::Display for HouseError {
             HouseError::DayNight => "house.day_night",
             HouseError::DayZero => "house.day_zero",
             HouseError::DayMood => "house.day_mood",
+            HouseError::DayFallback => "house.day_fallback",
+            HouseError::Comfort => "house.comfort",
             HouseError::KindDuplicate => "house.kind_duplicate",
             HouseError::KindSlots => "house.kind_slots",
             HouseError::OfferLength => "house.offer_length",
             HouseError::OfferAges => "house.offer_ages",
             HouseError::OfferFull => "house.offer_full",
+            HouseError::OfferFallback => "house.offer_fallback",
             HouseError::OfferRates => "house.offer_rates",
             HouseError::Duplicate => "house.duplicate",
             HouseError::Capacity => "house.capacity",
@@ -638,14 +686,15 @@ pub struct HouseData {
 }
 
 impl HouseData {
-    /// The checks of the day (ADR-0024 section 4), of ADR-0025 section 2 and of the offers'
-    /// format (ADR-0026 section 2), then the walking tables.
+    /// The checks of the needs' comfort, of the day (ADR-0024 section 4), of ADR-0025 section 2
+    /// and of the offers' format (ADR-0026 section 2), then the walking tables.
     pub fn new(
         rates: NeedRates,
         day: DayRules,
         mut kinds: Vec<KindDef>,
         mut defs: Vec<HouseDef>,
     ) -> Result<HouseData, HouseError> {
+        rates.checked()?;
         day.checked()?;
         kinds.sort_by(|a, b| a.id.cmp(&b.id));
         if kinds.windows(2).any(|pair| pair[0].id == pair[1].id) {

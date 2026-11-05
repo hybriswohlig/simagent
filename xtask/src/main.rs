@@ -687,33 +687,101 @@ fn server_answers(
         get(port, &format!("/api/runs/town/why/{waited}"))?,
     ));
     // An idle choice waiting for nothing in a room one does not stay in, the WC or the bath
-    // (version 5 of "Warum?"): the room the person went to, the first in the town's log from
-    // that morning on.
+    // (version 5 of "Warum?"): the room the person went to. Since the time-filler (ADR-0026,
+    // addendum of 2026-11-04 on comfort and the time-filler) the repository's houses always have
+    // one free by day and a bed in the night, so the town writes no such choice: its last choice
+    // is written once more at the end of its log with the next id, idle in the WC or the bath of
+    // its house and waiting for nothing, asked for, and the log is restored.
+    let went = {
+        let log = out.join("town").join("events.ndjson");
+        let text = std::fs::read_to_string(&log).map_err(|e| format!("{}: {e}", log.display()))?;
+        let entries = (text.lines())
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| format!("{}: {e}", log.display()))?;
+        let next = (entries.last().and_then(|entry| entry["id"].as_u64()))
+            .ok_or("the town's log is empty")?
+            + 1;
+        let choice = |entry: &&serde_json::Value| {
+            let payload = &entry["payload"];
+            payload.get("core:action_started").is_some() || payload.get("core:idle").is_some()
+        };
+        let last = (entries.iter().rev().find(choice)).ok_or("the town's houses made no choice")?;
+        let (code, body) = (last["payload"].as_object().into_iter().flatten())
+            .next()
+            .ok_or("a choice without its payload")?;
+        let house = (houses.iter())
+            .find(|answer| answer["house"] == body["house"])
+            .ok_or(format!("no answer of the house of {code}"))?;
+        let rooms = house["layout"]["rooms"].as_array().into_iter().flatten();
+        let wet = (rooms.clone().position(|room| room["id"] == "wc"))
+            .or_else(|| rooms.clone().position(|room| room["id"] == "bath"))
+            .ok_or("a house without a WC or a bath")?;
+        let payload = serde_json::json!({"core:idle": {
+            "house": body["house"], "room": wet, "needs": body["needs"], "busy": body["busy"],
+            "waits": null, "held": [], "tier": []}});
+        // A line of the log begins with its id (the server finds an entry by it).
+        let (t, subjects, causes) = (&last["t"], &last["subjects"], &last["causes"]);
+        let idle = format!(
+            r#"{{"id":{next},"t":{t},"subjects":{subjects},"causes":{causes},"payload":{payload}}}"#
+        );
+        let forged = format!("{text}{idle}\n");
+        std::fs::write(&log, forged).map_err(|e| format!("{}: {e}", log.display()))?;
+        let why = get(port, &format!("/api/runs/town/why/{next}"));
+        std::fs::write(&log, &text).map_err(|e| format!("{}: {e}", log.display()))?;
+        let why = why?;
+        if why["goes_to"].is_null() {
+            return Err(format!(
+                "an idle choice in the WC or the bath went nowhere: {why}"
+            ));
+        }
+        why
+    };
+    answers.push(("WhyAnswer", went));
+    // A time-filler taken instead of idling, with its end, and an offer today's departure closes
+    // (version 6 of "Warum?", ADR-0026, addendum of 2026-11-04 on comfort and the time-filler):
+    // the first of each in the town's log from that morning on, page by page.
+    let (mut filled, mut closed) = (None, None);
     let mut after = String::new();
-    let went = 'pages: loop {
+    'filled: loop {
         let page = get(
             port,
             &format!("/api/runs/town/events?from={morning}{after}"),
         )?;
         let rows = page["events"].as_array().into_iter().flatten();
         for row in rows {
-            let idle = &row["entry"]["payload"]["core:idle"];
-            if !(idle.is_object() && idle["waits"].is_null()) {
+            let payload = &row["entry"]["payload"];
+            let started = &payload["core:action_started"];
+            let filler = started["filler"] == true;
+            let choice = started.is_object() || payload["core:idle"].is_object();
+            let wanted = (filler && filled.is_none()) || closed.is_none();
+            if !choice || !wanted {
                 continue;
             }
             let why = get(port, &format!("/api/runs/town/why/{}", row["entry"]["id"]))?;
-            if !why["goes_to"].is_null() {
-                break 'pages why;
+            let offers = why["offers"].as_array().into_iter().flatten();
+            let departs = offers.clone().any(|offer| !offer["departs"].is_null());
+            if departs && closed.is_none() {
+                closed = Some(why.clone());
+            }
+            if filler && filled.is_none() && !why["filler"]["until"].is_null() {
+                filled = Some(why);
+            }
+            if filled.is_some() && closed.is_some() {
+                break 'filled;
             }
         }
         match page["next"].as_u64() {
             Some(next) => after = format!("&after={next}"),
             None => {
-                return Err("nobody in the town's houses idled in the WC or the bath".to_owned());
+                return Err(
+                    "the town's houses show no time-filler with its end or no offer the departure closes"
+                        .to_owned(),
+                );
             }
         }
-    };
-    answers.push(("WhyAnswer", went));
+    }
+    answers.extend((filled.into_iter().chain(closed)).map(|why| ("WhyAnswer", why)));
     // An idle entry that is still its person's state (version 4 of "Warum?"): hour by hour
     // until someone of the three households stands idle in a room, then its last choice, which
     // is idle, compared at the clock.

@@ -1084,6 +1084,7 @@ fn all_payloads() -> Vec<LogPayload> {
             commanded: false,
             held: Vec::new(),
             tier: Vec::new(),
+            filler: false,
         },
         LogPayload::Reached { object: 5 },
         LogPayload::ActionEnded {

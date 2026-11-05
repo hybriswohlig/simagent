@@ -561,7 +561,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseAnswer",
-            doc: "`GET /api/runs/{run}/house/{household}`, version 5: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5).",
+            doc: "`GET /api/runs/{run}/house/{household}`, version 7: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.house"])),
                 field("version", Integer),
@@ -569,6 +569,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("household", Integer),
                 field("house", Text),
                 field("morning", Bool),
+                field("comfort", list(Integer)),
                 field("layout", Ref("HouseLayout")),
                 field("persons", list(Ref("HousePerson"))),
                 field("children", list(Ref("HouseChild"))),
@@ -621,12 +622,13 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HousePerson",
-            doc: "A person with needs: where it is, what it does, its five needs at the clock, whether it lies on the floor, whether it smells (hygiene at most 50), and the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5).",
+            doc: "A person with needs: where it is, what it does, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), and the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5).",
             fields: vec![
                 field("sim", Integer),
                 field("place", Ref("HousePlace")),
                 field("action", nullable(Ref("HouseAction"))),
                 field("needs", list(Integer)),
+                field("weights", list(Integer)),
                 field("collapsed", Bool),
                 field("smells", Bool),
                 field("commands", list(Ref("HouseOffer"))),
@@ -692,17 +694,18 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseAction",
-            doc: "The offer a person chose and the place it holds; the planned end at the object, none on the way.",
+            doc: "The offer a person chose and the place it holds; the planned end at the object, none on the way; whether it is a time-filler, which ends at the person's next choice (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
                 field("slot", Integer),
                 field("until", nullable(Ref("DatedSecond"))),
+                field("filler", Bool),
             ],
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}` (version 5): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers of sleep closed outside it; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the needs of the choice, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 6): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -712,12 +715,23 @@ pub fn descriptor() -> Vec<Named> {
                 field("enough", Integer),
                 field("commanded", Bool),
                 field("needs", list(Integer)),
+                field("comfort", list(Integer)),
                 field("night", nullable(Ref("WhyNight"))),
                 field("chosen", nullable(Ref("WhyChoice"))),
                 field("waits", nullable(Integer)),
                 field("goes_to", nullable(Integer)),
+                field("filler", nullable(Ref("WhyFiller"))),
                 field("offers", list(Ref("WhyOffer"))),
                 field("now", nullable(Ref("WhyNow"))),
+            ],
+        },
+        Named {
+            name: "WhyFiller",
+            doc: "A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way), and if it ended as planned the needs the next choice raised, by their codes.",
+            fields: vec![
+                field("walk_secs", Integer),
+                field("until", nullable(Ref("DatedSecond"))),
+                field("then", list(Text)),
             ],
         },
         Named {
@@ -740,18 +754,18 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyChoice",
-            doc: "The offer chosen, its points and the mood in them in percent; no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points.",
+            doc: "The offer chosen, its points and the mood in them in percent; none for an offer the departure closed (a time-filler or a command); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
-                field("points", Integer),
+                field("points", nullable(Integer)),
                 field("mood", nullable(Integer)),
                 field("urgent", list(Text)),
             ],
         },
         Named {
             name: "WhyOffer",
-            doc: "An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, without points or mood); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points; whether a small child held a place of its object, whether it was a bed outside the person's tier in the night, and whom the object's kind is for.",
+            doc: "An offer, its points and the mood in them in percent, whether its object had no free place, and whether it was closed (sleep outside the night, or one that would still run at today's departure, with that departure; without points or mood); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points, and those it raises that stand at or above their comfort and weigh nothing; whether a small child held a place of its object, whether it was a bed outside the person's tier in the night, and whom the object's kind is for.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
@@ -759,7 +773,9 @@ pub fn descriptor() -> Vec<Named> {
                 field("mood", nullable(Integer)),
                 field("busy", Bool),
                 field("closed", Bool),
+                field("departs", nullable(Ref("DatedSecond"))),
                 field("urgent", list(Text)),
+                field("sated", list(Text)),
                 field("held", Bool),
                 field("outside", Bool),
                 field("bed_for", nullable(Kind::Literal(&["couples", "children"]))),

@@ -940,7 +940,9 @@ fn house(world: Result<Rc<World>, CliError>, household: &str) -> Response {
 /// `GET /api/runs/{run}/why/{entry}` (ADR-0021, addendum of 2026-11-03): the entry from the
 /// run's domain log, if it is a choice, recomputed; an idle entry with whether a later choice of
 /// its person follows it in the log (version 4: if none does, "Warum?" adds the comparison at
-/// the clock).
+/// the clock); a time-filler with the entry that ended it and the choice after that in its
+/// second, if the log has them (version 6, ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler).
 fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &str) -> Response {
     use sim_core::log::{LogPayload, Subject};
     let no_choice = || Response::error(404, "not_a_choice");
@@ -963,10 +965,76 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
         },
         _ => false,
     };
-    match world().and_then(|world| crate::why_answer(&world, &found, id, latest)) {
+    let ended = match (&found.payload, found.subjects.as_slice()) {
+        (LogPayload::ActionStarted { filler: true, .. }, [Subject::Sim(sim)]) => {
+            match filler_ended(&log, end, *sim) {
+                Err(()) => return Response::error(500, "events_invalid"),
+                Ok(ended) => ended,
+            }
+        }
+        _ => None,
+    };
+    let ended = (ended.as_ref()).map(|(ended, next)| crate::Ended {
+        ended,
+        next: next.as_ref(),
+    });
+    match world().and_then(|world| crate::why_answer(&world, &found, id, latest, ended)) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => no_choice(),
         Err(error) => Response::error(500, error.code),
+    }
+}
+
+/// The end of a time-filler of `sim` begun before the byte `from` of the domain log at `path`:
+/// the first entry `core:action_ended` about it alone in the complete lines from there, and the
+/// choice about it alone that follows in that second, if one does. `None` if no such end stands
+/// in the log yet; `Err` for a log it cannot read or a line it cannot parse.
+fn filler_ended(
+    path: &Path,
+    from: u64,
+    sim: sim_core::ids::SimId,
+) -> Result<Option<(sim_core::log::LogEntry, Option<sim_core::log::LogEntry>)>, ()> {
+    use sim_core::log::{LogPayload, Subject};
+    use std::io::{BufRead, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).map_err(drop)?;
+    file.seek(SeekFrom::Start(from)).map_err(drop)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = String::new();
+    let mut ended: Option<sim_core::log::LogEntry> = None;
+    loop {
+        line.clear();
+        reader.read_line(&mut line).map_err(drop)?;
+        if !line.ends_with('\n') {
+            return Ok(ended.map(|ended| (ended, None)));
+        }
+        let wanted = match ended {
+            None => line.contains("\"core:action_ended\""),
+            Some(_) => true,
+        };
+        if !wanted {
+            continue;
+        }
+        let entry: sim_core::log::LogEntry = serde_json::from_str(&line).map_err(drop)?;
+        if let Some(end) = ended.as_ref()
+            && entry.t != end.t
+        {
+            return Ok(ended.map(|ended| (ended, None)));
+        }
+        if entry.subjects.as_slice() != [Subject::Sim(sim)] {
+            continue;
+        }
+        match ended.take() {
+            None if matches!(entry.payload, LogPayload::ActionEnded { .. }) => {
+                ended = Some(entry);
+            }
+            None => {}
+            Some(end) => match entry.payload {
+                LogPayload::ActionStarted { .. } | LogPayload::Idle { .. } => {
+                    return Ok(Some((end, Some(entry))));
+                }
+                _ => ended = Some(end),
+            },
+        }
     }
 }
 

@@ -148,6 +148,7 @@ fn houses(root: &Path) -> Result<sim_core::house::data::HouseData> {
                     sleep: offer["sleep"].as_bool().unwrap_or(false),
                     min_age: small(&offer["min_age"], "min_age")?,
                     max_age: small(&offer["max_age"], "max_age")?,
+                    fallback: offer["fallback"].as_bool().unwrap_or(false),
                 })
             })
             .collect::<Result<Vec<_>>>()?;

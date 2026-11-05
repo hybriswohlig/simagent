@@ -18,9 +18,9 @@ import { labels, plan, spots, timeOfDay } from "./render/plan.js";
 import { format } from "./router.js";
 import { readable } from "./contract.js";
 import { KIND_WORDS, ROOM_WORDS, TEXT } from "./text.js";
-import { whyText } from "./why.js";
+import { weightWords, whyText } from "./why.js";
 
-const HOUSE = { format: "simagent.view.house", version: 6 } as const;
+const HOUSE = { format: "simagent.view.house", version: 7 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -32,7 +32,7 @@ const DAY_PAGES = 10;
 const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 5 } as const;
+const WHY = { format: "simagent.view.why", version: 6 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
@@ -111,7 +111,9 @@ function doing(layout: HouseLayout, person: HousePerson): string {
   if (action === null) {
     return TEXT.house_idle.replace("{room}", roomWords(layout, person.place.room ?? 0)[2]);
   }
-  const does = placedOfferWords(layout, action.object, action.offer);
+  const placed = placedOfferWords(layout, action.object, action.offer);
+  // A time-filler says so (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+  const does = action.filler ? TEXT.house_filler.replace("{what}", placed) : placed;
   const until = action.until === null ? "" : ` ${TEXT.house_until.replace("{time}", timeOfDay(action.until.date.second_of_day))}`;
   return `${does}${until}`;
 }
@@ -416,7 +418,7 @@ function Resident({
         </p>
         {person !== null && (
           <>
-            <Needs person={person} name={known?.first_name ?? name} />
+            <Needs person={person} name={known?.first_name ?? name} comfort={house.comfort} />
             <Day run={run} house={house} sim={sim} />
             {commandable(person) && <Command run={run} layout={house.layout} person={person} name={name} given={given} />}
           </>
@@ -443,8 +445,10 @@ function Smell() {
 }
 
 /** A person's five needs as bars; away, that they stand still meanwhile (away every rate is 0,
- * ADR-0024 section 4; the playtest of 2026-11-04). */
-function Needs({ person, name }: { person: HousePerson; name: string }) {
+ * ADR-0024 section 4; the playtest of 2026-11-04). A need below full that weighs nothing in a
+ * choice now, by the server's weights, says from where it counts, its comfort ("zählt ab 700";
+ * ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). */
+function Needs({ person, name, comfort }: { person: HousePerson; name: string; comfort: readonly number[] }) {
   return (
     <>
     {person.place.away !== undefined && <p style={{ margin: 0 }}>{TEXT.house_needs_still.replace("{name}", name)}</p>}
@@ -465,6 +469,7 @@ function Needs({ person, name }: { person: HousePerson; name: string }) {
                 aria-labelledby={`need-${person.sim}-${index}`}
               />{" "}
               {value}
+              {weightWords(person.weights[index], comfort[index])}
             </dd>
           </div>
         );

@@ -708,7 +708,12 @@ FOUNDER_ALLELE = 28
 # a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
 # no year hash and no log hash of a run without one: core 57, the projection stays 19.
 PROJECTION_VERSION = 19
-CORE_VERSION = 57
+# Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler)
+# change the repository's needs, day and kinds (each need's comfort, the longest time-filler,
+# the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
+# new data hash, no year hash and no log hash of a run without one: core 58, the projection stays
+# 19.
+CORE_VERSION = 58
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

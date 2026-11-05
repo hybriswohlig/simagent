@@ -95,6 +95,31 @@ pub fn duty(
     })
 }
 
+/// The departure still to come after `at` of a person born at `born`: that of its duty of the
+/// day whose plan came last at or before `at`, if it lies after `at` (ADR-0024 section 4); the
+/// work plan's draw `draw` asked only at working age. What closes an offer that would run into it
+/// (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
+pub fn departure(
+    rules: &DayRules,
+    born: SimTime,
+    draw: impl FnOnce() -> u64,
+    at: SimTime,
+) -> Option<SimTime> {
+    day_departure(rules, born, draw, at).filter(|&depart| depart > at)
+}
+
+/// The departure of the duty of the day whose plan came last at or before `at` of a person born
+/// at `born`, passed or not (ADR-0024 section 4); the work plan's draw `draw` asked only at
+/// working age.
+pub fn day_departure(
+    rules: &DayRules,
+    born: SimTime,
+    draw: impl FnOnce() -> u64,
+    at: SimTime,
+) -> Option<SimTime> {
+    duty(rules, plan_day(rules, at), born, draw).map(|today| today.depart)
+}
+
 /// A person's night (ADR-0026, addendum of 2026-11-04): from `from` included to `until`
 /// excluded; `until` is `None` for the last night of time, whose end lies beyond the end of
 /// time: it lasts to the end, its last second included, and a sleep in it has no end, as an

@@ -75,6 +75,7 @@ fn started(
         commanded: false,
         held: Vec::new(),
         tier: Vec::new(),
+        filler: false,
     }
 }
 

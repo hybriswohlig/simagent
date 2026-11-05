@@ -19,7 +19,8 @@ fn day() -> Value {
 }
 
 /// The rates of ADR-0026 section 1 per age band (6 to 12, 13 to 17, 18 to 66, from 67), the
-/// sleeping energy of its addendum of 2026-11-04.
+/// sleeping energy of its addendum of 2026-11-04, and each need's comfort of its addendum of
+/// 2026-11-04 on comfort and the time-filler.
 fn rates() -> Value {
     json!({
         "awake": {
@@ -35,7 +36,8 @@ fn rates() -> Value {
             "bladder": [-40, -40, -40, -40],
             "hygiene": [-10, -10, -10, -10],
             "fun": [0, 0, 0, 0]
-        }
+        },
+        "comfort": [700, 1000, 700, 900, 1000]
     })
 }
 
@@ -270,6 +272,60 @@ fn house_data_loads_and_rejects() {
         o.as_object_mut().expect("an offer").remove("rates");
     });
     assert_eq!(nothing, "house.offer_rates");
+    // A time-filler passes the day (ADR-0026, addendum of 2026-11-04 on comfort and the
+    // time-filler): fun rises at every age with needs it is open to, and it does not sleep. The
+    // television is one; the shower raises no fun, the toy chest only from 6, the bed sleeps.
+    let tv = |change: fn(&mut Value)| {
+        checked(move |kinds, _| change(&mut kind(kinds, "core:tv")["offers"][0]))
+    };
+    assert_eq!(tv(|o| o["fallback"] = json!(true)), "ok");
+    assert_eq!(tv(|o| o["fallback"] = json!(false)), "ok");
+    assert_eq!(
+        shower(|o| o["fallback"] = json!(true)),
+        "house.offer_fallback"
+    );
+    let chest =
+        checked(|kinds, _| kind(kinds, "core:toy_chest")["offers"][0]["fallback"] = json!(true));
+    assert_eq!(chest, "ok");
+    let little = checked(|kinds, _| {
+        let play = &mut kind(kinds, "core:toy_chest")["offers"][0];
+        play["fallback"] = json!(true);
+        play["rates"]["hygiene"] = json!(100);
+        play["rates"]["fun"] = json!(0);
+    });
+    assert_eq!(little, "house.offer_fallback");
+    assert_eq!(bed(|o| o["fallback"] = json!(true)), "house.offer_fallback");
+    assert!(tv(|o| o["fallback"] = json!(1)).contains("invalid type"));
+    // A need weighs before it is critical: its comfort above 150, at most 1000.
+    let comfort = |at: usize, value: i64| {
+        let mut changed = rates();
+        changed["comfort"][at] = json!(value);
+        match load(changed, day(), kinds(), vec![house("core:flat", 3)]) {
+            Ok(_) => "ok".to_owned(),
+            Err(error) => error,
+        }
+    };
+    assert_eq!(comfort(0, 151), "ok");
+    assert_eq!(comfort(0, 150), "house.comfort");
+    assert_eq!(comfort(4, 1000), "ok");
+    assert_eq!(comfort(4, 1001), "house.comfort");
+    assert_eq!(comfort(2, 0), "house.comfort");
+    let mut four = rates();
+    four["comfort"] = json!([700, 1000, 700, 900]);
+    let short = load(four, day(), kinds(), vec![house("core:flat", 3)]);
+    assert!(short.expect_err("rejected").contains("invalid length"));
+    let mut without = rates();
+    without
+        .as_object_mut()
+        .expect("the rates")
+        .remove("comfort");
+    let missing = load(without, day(), kinds(), vec![house("core:flat", 3)]);
+    assert!(missing.expect_err("rejected").contains("missing field"));
+    assert_eq!(HouseError::Comfort.to_string(), "house.comfort");
+    assert_eq!(
+        HouseError::OfferFallback.to_string(),
+        "house.offer_fallback"
+    );
 
     // The houses (ADR-0025 section 2).
     let twice = load(
@@ -545,6 +601,9 @@ fn the_repository_day_loads() {
         // The mood of a choice (ADR-0026, addendum of 2026-11-04 on the mood): at most 10
         // percent either way.
         choice_mood_percent: 10,
+        // A time-filler lasts at most 4 h (ADR-0026, addendum of 2026-11-04 on comfort and the
+        // time-filler).
+        fallback_max_seconds: 14_400,
     };
     assert_eq!(*data.day(), expected);
 }
@@ -758,12 +817,18 @@ fn the_day_rejects() {
     assert_eq!(mood(51), "house.day_mood");
     assert!(mood(256).contains("invalid value"));
     assert!(zero("stand_up_at", 65_536).contains("invalid value"));
+    // A time-filler lasts at most as long as an offer may, 60 s to 12 h.
+    let fallback = |value: i64| day_checked(move |d| d["fallback_max_seconds"] = json!(value));
+    assert_eq!(fallback(60), "ok");
+    assert_eq!(fallback(43_200), "ok");
+    assert_eq!(fallback(59), "house.day_fallback");
+    assert_eq!(fallback(43_201), "house.day_fallback");
 
     // The first check that fails decides, in the order time, wake, age, share, jump, night,
-    // a need at 0, the mood.
+    // a need at 0, the mood, the time-filler.
     let broken = |checks: usize| {
         day_checked(move |d| {
-            let breaks: [fn(&mut Value); 8] = [
+            let breaks: [fn(&mut Value); 9] = [
                 |d| d["school"]["depart"] = json!(55_200),
                 |d| d["wake_before"] = json!(10_000),
                 |d| d["school"]["until_age"] = json!(19),
@@ -772,14 +837,16 @@ fn the_day_rejects() {
                 |d| d["night"]["until"][2] = json!(0),
                 |d| d["zero"]["stand_up_at"] = json!(0),
                 |d| d["choice_mood_percent"] = json!(51),
+                |d| d["fallback_max_seconds"] = json!(0),
             ];
-            breaks.iter().skip(8 - checks).for_each(|change| change(d));
+            breaks.iter().skip(9 - checks).for_each(|change| change(d));
         })
     };
-    let codes: Vec<String> = (1..=8).map(broken).collect();
+    let codes: Vec<String> = (1..=9).map(broken).collect();
     assert_eq!(
         codes,
         [
+            "house.day_fallback",
             "house.day_mood",
             "house.day_zero",
             "house.day_night",
@@ -823,12 +890,19 @@ fn the_day_rejects() {
             .remove("choice_mood_percent");
     });
     assert!(no_mood.contains("missing field"), "{no_mood}");
+    let no_fallback = day_checked(|d| {
+        d.as_object_mut()
+            .expect("the day")
+            .remove("fallback_max_seconds");
+    });
+    assert!(no_fallback.contains("missing field"), "{no_fallback}");
 
     assert_eq!(HouseError::DayTime.to_string(), "house.day_time");
     assert_eq!(HouseError::DayJump.to_string(), "house.day_jump");
     assert_eq!(HouseError::DayNight.to_string(), "house.day_night");
     assert_eq!(HouseError::DayZero.to_string(), "house.day_zero");
     assert_eq!(HouseError::DayMood.to_string(), "house.day_mood");
+    assert_eq!(HouseError::DayFallback.to_string(), "house.day_fallback");
     assert_eq!(HouseError::BedFor.to_string(), "house.bed_for");
     assert_eq!(HouseError::DwellRoom.to_string(), "house.dwell_room");
 }

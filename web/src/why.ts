@@ -55,19 +55,84 @@ function score(offer: WhyChoice | WhyOffer, needs: readonly number[], listed: bo
 }
 
 /** The offers of a list of "Warum?", at most `most`, each with its worth and whether its object
- * had no free place, an offer closed by day with the start of the night `opens`. */
-function listed(layout: HouseLayout, offers: readonly WhyOffer[], needs: readonly number[], opens: string, most: number): string {
+ * had no free place, an offer closed by day with the start of the night `opens`, one closed by
+ * the departure with its time; an offer whose needs stand at or above their comfort, `comfort`,
+ * says so (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). */
+function listed(
+  layout: HouseLayout,
+  offers: readonly WhyOffer[],
+  needs: readonly number[],
+  comfort: readonly number[],
+  opens: string,
+  most: number,
+): string {
   return offers
     .slice(0, most)
     .map((offer) => {
       const what = placedOfferWords(layout, offer.object, offer.offer);
       if (offer.closed) {
-        return TEXT.house_why_closed.replace("{what}", what).replace("{time}", opens);
+        return offer.departs === null
+          ? TEXT.house_why_closed.replace("{what}", what).replace("{time}", opens)
+          : TEXT.house_why_departs.replace("{what}", what).replace("{time}", timeOfDay(offer.departs.date.second_of_day));
       }
       const told = TEXT.house_why_offer.replace("{what}", what).replace("{score}", score(offer, needs, true));
-      return `${told}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}${bedWords(offer)}`;
+      return `${told}${offer.busy ? ` ${TEXT.house_why_busy}` : ""}${bedWords(offer)}${satedWords(offer, needs, comfort)}`;
     })
     .join(", ");
+}
+
+/** The needs an offer raises that weigh nothing, at or above their comfort, as the server names
+ * them: " (Hunger zählt ab 700 und steht bei 750, das bringt nichts)", one per need. */
+export function satedWords(offer: WhyOffer, needs: readonly number[], comfort: readonly number[]): string {
+  return offer.sated
+    .map((code) => {
+      const index = NEED_TEXTS.findIndex(([need]) => need === code);
+      const key = NEED_TEXTS[index]?.[1];
+      return ` ${TEXT.house_why_sated
+        .replace("{need}", key === undefined ? code : TEXT[key])
+        .replace("{comfort}", String(comfort[index] ?? ""))
+        .replace("{level}", String(needs[index] ?? ""))}`;
+    })
+    .join("");
+}
+
+/** Where a need that weighs nothing now counts from, its comfort below full, as the server gives
+ * both (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): " · zählt ab 700";
+ * nothing for a need that weighs, or whose comfort is full. */
+export function weightWords(weight: number | undefined, comfort: number | undefined): string {
+  return weight === 0 && comfort !== undefined && comfort < 1000 ? ` · ${TEXT.house_weight_none.replace("{comfort}", String(comfort))}` : "";
+}
+
+/** The needs by their codes with their articles, joined by "und": "der Hunger und die Blase". */
+function needNames(codes: readonly string[]): string {
+  const named: { readonly [code: string]: string } = {
+    hunger: TEXT.need_the_hunger,
+    energy: TEXT.need_the_energy,
+    bladder: TEXT.need_the_bladder,
+    hygiene: TEXT.need_the_hygiene,
+    fun: TEXT.need_the_fun,
+  };
+  return codes.map((code) => named[code] ?? code).join(TEXT.house_why_and);
+}
+
+/** A time-filler as "Warum?" tells it, all from the server (ADR-0026, addendum of 2026-11-04 on
+ * comfort and the time-filler): "Zeitvertreib: sieht fern vor dem Fernseher, bis 10:24, dann
+ * reicht die Blase. 3 s Weg ins Wohnzimmer." */
+export function fillerWords(why: WhyAnswer, layout: HouseLayout): string {
+  const filler = why.filler;
+  const chosen = why.chosen;
+  if (filler === null || chosen === null) {
+    return "";
+  }
+  const until = filler.until === null ? "" : TEXT.house_why_filler_until.replace("{time}", timeOfDay(filler.until.date.second_of_day));
+  const then =
+    filler.then.length === 0
+      ? ""
+      : (filler.then.length === 1 ? TEXT.house_why_filler_then : TEXT.house_why_filler_then_many).replace("{needs}", needNames(filler.then));
+  const room = layout.objects[chosen.object]?.room ?? "";
+  const walk = TEXT.house_why_filler_walk.replace("{secs}", String(filler.walk_secs)).replace("{where}", ROOM_WORDS[room]?.[1] ?? room);
+  const what = placedOfferWords(layout, chosen.object, chosen.offer);
+  return `${TEXT.house_why_filler.replace("{what}", what).replace("{until}", until).replace("{then}", then)} ${walk}`;
 }
 
 /** Why a bed of "Warum?" was not the person's (ADR-0026, addendum of 2026-11-04 after the
@@ -96,20 +161,23 @@ function goesWords(why: WhyAnswer, layout: HouseLayout): string {
 
 /** "Warum?" for a choice as text, all from the server's answer (ADR-0026 section 6 and its
  * addenda of 2026-11-04): in the night that the bed comes first; what was chosen or commanded
- * with its worth, else what was waited for, else that nothing brought enough; what came behind,
- * each offer once; and for an idle choice that is still the person's state, `now`, the same
- * comparison at the clock (the playtest of 2026-11-04). */
+ * with its worth, else what was waited for, else that nothing brought enough, and then the
+ * time-filler taken instead; what came behind, each offer once; and for an idle choice that is
+ * still the person's state, `now`, the same comparison at the clock (the playtest of
+ * 2026-11-04). */
 export function whyText(why: WhyAnswer, layout: HouseLayout): { readonly told: string; readonly now: string | null } {
   const chosen = why.chosen;
   const opens = why.night === null ? "" : timeOfDay(why.night.from.date.second_of_day);
   const waited = why.waits === null ? undefined : why.offers.find((offer) => offer.object === why.waits);
   const first = chosen ?? waited ?? null;
+  const filler = why.filler !== null && chosen !== null;
   const behind = listed(
     layout,
     why.offers.filter((offer) => first === null || offer.object !== first.object || offer.offer !== first.offer),
     why.needs,
+    why.comfort,
     opens,
-    first === null ? 4 : 3,
+    first === null || filler ? 4 : 3,
   );
   const ends = why.night?.until ?? null;
   const night =
@@ -118,18 +186,20 @@ export function whyText(why: WhyAnswer, layout: HouseLayout): { readonly told: s
       : "";
   const said = (text: string, offer: WhyChoice | WhyOffer) =>
     text.replace("{what}", placedOfferWords(layout, offer.object, offer.offer)).replace("{score}", score(offer, why.needs, false));
-  const head =
-    chosen !== null
+  const none = TEXT.house_why_none.replace("{enough}", pointsText(why.enough));
+  const head = filler
+    ? `${none} ${fillerWords(why, layout)}`
+    : chosen !== null
       ? said(why.commanded ? TEXT.house_why_commanded : TEXT.house_why_chosen, chosen)
       : waited !== undefined
         ? said(TEXT.house_why_waits, waited)
-        : `${TEXT.house_why_none.replace("{enough}", pointsText(why.enough))}${goesWords(why, layout)}`;
+        : `${none}${goesWords(why, layout)}`;
   const told = `${night}${head}${behind === "" ? "" : ` ${TEXT.house_why_behind.replace("{list}", behind)}`}`;
   const now =
     why.now === null || why.now.offers.length === 0
       ? null
       : TEXT.house_why_now
           .replace("{time}", timeOfDay(why.now.at.date.second_of_day))
-          .replace("{list}", listed(layout, why.now.offers, why.now.needs, opens, 4));
+          .replace("{list}", listed(layout, why.now.offers, why.now.needs, why.comfort, opens, 4));
   return { told, now };
 }
