@@ -719,7 +719,7 @@ fn server_answers(
             .ok_or("a house without a WC or a bath")?;
         let payload = serde_json::json!({"core:idle": {
             "house": body["house"], "room": wet, "needs": body["needs"], "busy": body["busy"],
-            "waits": null, "held": [], "tier": []}});
+            "waits": null, "held": [], "tier": [], "too_short": null}});
         // A line of the log begins with its id (the server finds an entry by it).
         let (t, subjects, causes) = (&last["t"], &last["subjects"], &last["causes"]);
         let idle = format!(
@@ -738,10 +738,13 @@ fn server_answers(
         why
     };
     answers.push(("WhyAnswer", went));
-    // A time-filler taken instead of idling, with its end, and an offer today's departure closes
-    // (version 6 of "Warum?", ADR-0026, addendum of 2026-11-04 on comfort and the time-filler):
-    // the first of each in the town's log from that morning on, page by page.
-    let (mut filled, mut closed) = (None, None);
+    // A time-filler taken instead of idling, with its end, why it ends there and the moods of the
+    // others free then, and an offer today's departure closes (version 6 of "Warum?", ADR-0026,
+    // addendum of 2026-11-04 on comfort and the time-filler); a time-filler taken though the
+    // departure closes it as a choice, and an idle choice that took none as it would have ended
+    // too soon (version 7, its addendum of 2026-11-05 on the time-filler's length): the first of
+    // each in the town's log from that morning on, page by page.
+    let (mut filled, mut closed, mut cut, mut short) = (None, None, None, None);
     let mut after = String::new();
     'filled: loop {
         let page = get(
@@ -753,8 +756,11 @@ fn server_answers(
             let payload = &row["entry"]["payload"];
             let started = &payload["core:action_started"];
             let filler = started["filler"] == true;
-            let choice = started.is_object() || payload["core:idle"].is_object();
-            let wanted = (filler && filled.is_none()) || closed.is_none();
+            let idle = &payload["core:idle"];
+            let choice = started.is_object() || idle.is_object();
+            let wanted = (filler && (filled.is_none() || cut.is_none()))
+                || closed.is_none()
+                || (!idle["too_short"].is_null() && short.is_none());
             if !choice || !wanted {
                 continue;
             }
@@ -764,29 +770,46 @@ fn server_answers(
             if departs && closed.is_none() {
                 closed = Some(why.clone());
             }
-            if filler && filled.is_none() && !why["filler"]["until"].is_null() {
+            if !why["too_short"].is_null() && short.is_none() {
+                short = Some(why.clone());
+            }
+            if filler && cut.is_none() && !why["chosen"]["departs"].is_null() {
+                cut = Some(why.clone());
+            }
+            let others = why["filler"]["others"]
+                .as_array()
+                .is_some_and(|o| !o.is_empty());
+            let ends = !why["filler"]["ends"].is_null();
+            if filler && filled.is_none() && !why["filler"]["until"].is_null() && others && ends {
                 filled = Some(why);
             }
-            if filled.is_some() && closed.is_some() {
+            if filled.is_some() && closed.is_some() && cut.is_some() && short.is_some() {
                 break 'filled;
             }
         }
         match page["next"].as_u64() {
             Some(next) => after = format!("&after={next}"),
             None => {
-                return Err(
-                    "the town's houses show no time-filler with its end or no offer the departure closes"
-                        .to_owned(),
-                );
+                return Err(format!(
+                    "the town's houses show not every kind of time-filler and closed offer: a time-filler with its end and others free {}, an offer the departure closes {}, a time-filler the departure cuts {}, one too short {}",
+                    filled.is_some(),
+                    closed.is_some(),
+                    cut.is_some(),
+                    short.is_some()
+                ));
             }
         }
     }
-    answers.extend((filled.into_iter().chain(closed)).map(|why| ("WhyAnswer", why)));
-    // An idle entry that is still its person's state (version 4 of "Warum?"): hour by hour
-    // until someone of the three households stands idle in a room, then its last choice, which
-    // is idle, compared at the clock.
+    answers.extend(
+        (filled.into_iter().chain(closed).chain(cut).chain(short)).map(|why| ("WhyAnswer", why)),
+    );
+    // An idle entry that is still its person's state (version 4 of "Warum?"): ten minutes at a
+    // time until someone of the three households stands idle in a room, then its last choice,
+    // which is idle, compared at the clock. Since a time-filler is taken only with 10 minutes
+    // left (ADR-0026, addendum of 2026-11-05 on the time-filler's length) one idles only for
+    // less, or while it waits: an hour at a time would step over it.
     let mut idle = None;
-    for _ in 0..24 {
+    for _ in 0..288 {
         for home in [&household, &schooled, &young] {
             let house = get(port, &format!("/api/runs/town/house/{home}"))?;
             let found = (house["persons"].as_array().into_iter().flatten()).find(|p| {
@@ -803,11 +826,11 @@ fn server_answers(
         ask(
             port,
             "/api/runs/town/advance",
-            Some(r#"{"step":"hour"}"#),
+            Some(r#"{"step":"minutes10"}"#),
             200,
         )?;
     }
-    let (sim, clock) = idle.ok_or("nobody in the town's houses stood idle within a day")?;
+    let (sim, clock) = idle.ok_or("nobody in the town's houses stood idle within two days")?;
     let mut after = String::new();
     let mut last = None;
     loop {

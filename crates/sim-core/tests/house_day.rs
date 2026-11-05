@@ -67,6 +67,7 @@ fn the_first_morning_of_a_couple() {
         waits: Some(6),
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     };
     let mut shower = started(6, 0, 3, 5, [575, 890, 975, 693, 785]);
     if let LogPayload::ActionStarted { busy, .. } = &mut shower {

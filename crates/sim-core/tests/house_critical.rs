@@ -207,6 +207,7 @@ fn critical_ends_a_walk_where_it_began() {
         waits: None,
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     };
     let hers = [
         (0, idle.clone()),
@@ -231,6 +232,7 @@ fn critical_ends_a_walk_where_it_began() {
         waits: None,
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     };
     let walked = [350, 900, 500, 700, 750];
     let mut his = vec![(0, idle), (240, waiting)];

@@ -32,7 +32,7 @@ const DAY_PAGES = 10;
 const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 6 } as const;
+const WHY = { format: "simagent.view.why", version: 7 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 

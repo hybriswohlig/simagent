@@ -141,6 +141,7 @@ fn idle_in(house: &str, room: u8, needs: [u16; 5], busy: &[u16]) -> LogPayload {
         waits: None,
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     }
 }
 

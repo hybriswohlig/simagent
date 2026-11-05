@@ -705,7 +705,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}` (version 6): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 7): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -721,18 +721,36 @@ pub fn descriptor() -> Vec<Named> {
                 field("waits", nullable(Integer)),
                 field("goes_to", nullable(Integer)),
                 field("filler", nullable(Ref("WhyFiller"))),
+                field("too_short", nullable(Ref("WhyShort"))),
                 field("offers", list(Ref("WhyOffer"))),
                 field("now", nullable(Ref("WhyNow"))),
             ],
         },
         Named {
             name: "WhyFiller",
-            doc: "A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way), and if it ended as planned the needs the next choice raised, by their codes.",
+            doc: "A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way) and why it ends there, by its code (`departure`, `bedtime`, `time` for its length or the longest a time-filler lasts, `choice` for the next choice worth it; none for an end of another reason), and if it ended at the next choice as planned the needs that choice raised, by their codes; its mood and the other time-fillers free then with theirs, the highest first (the addendum of 2026-11-05 on the time-filler's length).",
             fields: vec![
                 field("walk_secs", Integer),
                 field("until", nullable(Ref("DatedSecond"))),
+                field("ends", nullable(Text)),
                 field("then", list(Text)),
+                field("mood", nullable(Integer)),
+                field("others", list(Ref("WhyMood"))),
             ],
+        },
+        Named {
+            name: "WhyMood",
+            doc: "Another time-filler free at a choice, with the person's mood for it in percent.",
+            fields: vec![
+                field("object", Integer),
+                field("offer", Integer),
+                field("mood", Integer),
+            ],
+        },
+        Named {
+            name: "WhyShort",
+            doc: "The time-filler an idle choice did not take, as it would have ended under `fallback_min_seconds` after it (ADR-0026, addendum of 2026-11-05 on the time-filler's length): that end and why it lies there, by the codes of a time-filler's end.",
+            fields: vec![field("until", Ref("DatedSecond")), field("ends", Text)],
         },
         Named {
             name: "WhyNow",
@@ -754,12 +772,13 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyChoice",
-            doc: "The offer chosen, its points and the mood in them in percent; none for an offer the departure closed (a time-filler or a command); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points.",
+            doc: "The offer chosen, its points and the mood in them in percent; none for an offer the departure closed (a time-filler or a command), which names that departure instead (version 7); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points.",
             fields: vec![
                 field("object", Integer),
                 field("offer", Integer),
                 field("points", nullable(Integer)),
                 field("mood", nullable(Integer)),
+                field("departs", nullable(Ref("DatedSecond"))),
                 field("urgent", list(Text)),
             ],
         },

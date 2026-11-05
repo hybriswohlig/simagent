@@ -511,7 +511,7 @@ export type HouseAction = {
   readonly filler: boolean;
 };
 
-/** `GET /api/runs/{run}/why/{entry}` (version 6): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04). */
+/** `GET /api/runs/{run}/why/{entry}` (version 7): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05). */
 export type WhyAnswer = {
   readonly format: "simagent.view.why";
   readonly version: number;
@@ -527,15 +527,32 @@ export type WhyAnswer = {
   readonly waits: number | null;
   readonly goes_to: number | null;
   readonly filler: WhyFiller | null;
+  readonly too_short: WhyShort | null;
   readonly offers: WhyOffer[];
   readonly now: WhyNow | null;
 };
 
-/** A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way), and if it ended as planned the needs the next choice raised, by their codes. */
+/** A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way) and why it ends there, by its code (`departure`, `bedtime`, `time` for its length or the longest a time-filler lasts, `choice` for the next choice worth it; none for an end of another reason), and if it ended at the next choice as planned the needs that choice raised, by their codes; its mood and the other time-fillers free then with theirs, the highest first (the addendum of 2026-11-05 on the time-filler's length). */
 export type WhyFiller = {
   readonly walk_secs: number;
   readonly until: DatedSecond | null;
+  readonly ends: string | null;
   readonly then: string[];
+  readonly mood: number | null;
+  readonly others: WhyMood[];
+};
+
+/** Another time-filler free at a choice, with the person's mood for it in percent. */
+export type WhyMood = {
+  readonly object: number;
+  readonly offer: number;
+  readonly mood: number;
+};
+
+/** The time-filler an idle choice did not take, as it would have ended under `fallback_min_seconds` after it (ADR-0026, addendum of 2026-11-05 on the time-filler's length): that end and why it lies there, by the codes of a time-filler's end. */
+export type WhyShort = {
+  readonly until: DatedSecond;
+  readonly ends: string;
 };
 
 /** The comparison of an idle person's choice at the clock: the second, its needs then, and the offers open then with their points, the mood of that second, whether their object has no free place, and the critical needs they raise, the most first. */
@@ -552,12 +569,13 @@ export type WhyNight = {
   readonly now: boolean;
 };
 
-/** The offer chosen, its points and the mood in them in percent; none for an offer the departure closed (a time-filler or a command); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points. */
+/** The offer chosen, its points and the mood in them in percent; none for an offer the departure closed (a time-filler or a command), which names that departure instead (version 7); no mood for a command, which is no choice; the needs critical then that it raises, by their codes, which put the urgent part into its points. */
 export type WhyChoice = {
   readonly object: number;
   readonly offer: number;
   readonly points: number | null;
   readonly mood: number | null;
+  readonly departs: DatedSecond | null;
   readonly urgent: string[];
 };
 

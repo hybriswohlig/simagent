@@ -429,7 +429,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && conceptions_consistent(loaded, &rules)
         && births_consistent(loaded, &rules)
         && households_consistent(loaded, &rules)
-        && house_consistent(loaded, data, now, rules.opened)
+        && house_consistent(loaded, data, now, (rules.opened, seed))
         && queue_consistent(loaded, now, &rules)
         && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)
         && exceptions.plan_refs.iter().all(|plan| {
@@ -1253,8 +1253,14 @@ pub(super) fn member_index(sims: &BTreeMap<SimId, Sim>) -> BTreeMap<HouseholdId,
 /// share a household only as the two partners of an open partnership (a village's persons
 /// arrive alone, ADR-0020 section 8; nothing else joins two who left home).
 /// The house part (ADR-0024, addendum of 2026-11-02): its checks on the living households
-/// and sims of the save, at the second it runs next; `opened` if an input acted at the clock.
-fn house_consistent(loaded: &LoadedState, data: &Data, now: i64, opened: bool) -> bool {
+/// and sims of the save, at the second it runs next; `opened` if an input acted at the clock,
+/// `seed` the world's (the work plans of the time-fillers' departures).
+fn house_consistent(
+    loaded: &LoadedState,
+    data: &Data,
+    now: i64,
+    (opened, seed): (bool, u64),
+) -> bool {
     let alive = |id: HouseholdId| (loaded.households.get(&id)).is_some_and(|h| h.ended.is_none());
     let member = |id: SimId| loaded.sims.get(&id).map(|sim| (sim.household, sim.born));
     // At the last second of time there is no next one (review); every bound of the checks
@@ -1281,7 +1287,13 @@ fn house_consistent(loaded: &LoadedState, data: &Data, now: i64, opened: bool) -
     };
     let children =
         crate::house::state::children_consistent(&loaded.house, data.houses(), now, young, member);
-    checked.is_ok() && children.is_ok()
+    // A time-filler only where a choice could have taken it (ADR-0026, addendum of 2026-11-05 on
+    // the time-filler's length).
+    let keyed =
+        |id: SimId| (loaded.sims.get(&id)).map(|sim| (sim.household, sim.born, sim.lineage_key));
+    let fillers =
+        crate::house::state::fillers_consistent(&loaded.house, data.houses(), seed, keyed);
+    checked.is_ok() && children.is_ok() && fillers.is_ok()
 }
 
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {

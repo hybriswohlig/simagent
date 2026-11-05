@@ -207,7 +207,8 @@ pub(crate) fn on_wake(domain: &mut DomainState, data: &Data, sim: SimId, ctx: &m
 /// whose crossing at 0 falls into this second is settled first: the departure runs before it.
 /// A time-filler it waits for ends at its next choice from now on, which this departure no longer
 /// closes, as a loaded world plans it (ADR-0026, addendum of 2026-11-04 on comfort and the
-/// time-filler).
+/// time-filler): its end, planned for this second as the departure bounded it, is planned anew
+/// (its addendum of 2026-11-05 on the time-filler's length).
 pub(crate) fn on_depart(
     domain: &mut DomainState,
     data: &Data,
@@ -233,6 +234,11 @@ pub(crate) fn on_depart(
         if filling {
             let (household, _, _) = home(domain, data, sim);
             let by = (ctx.planned_by()).unwrap_or_else(|| panic!("invariant house.depart_planned"));
+            // Its end planned for this departure is planned anew without it (ADR-0026, addendum
+            // of 2026-11-05 on the time-filler's length).
+            if let Some(handle) = domain.pending.remove(&(sim, Slot::End)) {
+                ctx.cancel(handle);
+            }
             action::plan_filler_end(domain, data, (household, sim), by, ctx);
         }
         return;

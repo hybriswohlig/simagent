@@ -4,8 +4,10 @@
 //! person's tier, then any bed (ADR-0026, addenda of 2026-11-04). The second an idle person
 //! chooses next (its addendum after the playtest). A need weighs below its comfort, an offer that
 //! would run into today's departure is closed, and one idle by day takes a time-filler (its
-//! addendum on comfort and the time-filler). Pure functions, so that "Why?" can compute a choice
-//! again from its entry and the loader the next choice from a save.
+//! addendum on comfort and the time-filler), the one with the highest mood; in the night what
+//! fills hunger or the bladder under its comfort comes before a bed (its addendum of 2026-11-05 on
+//! the time-filler's length). Pure functions, so that "Why?" can compute a choice again from its
+//! entry and the loader the next choice from a save.
 
 use alloc::vec::Vec;
 
@@ -229,36 +231,70 @@ pub fn crosses_departure(
     !urgent && runs >= depart_in
 }
 
-/// The time-filler of one idle by day (ADR-0026, addendum of 2026-11-04 on comfort and the
-/// time-filler): among the `fallback` offers open at `age` of the objects not in `busy`, the one
-/// whose fun rises most in the age band, then the one with the shortest walk from `room`, then
-/// the smaller object and the smaller offer; the mood does not reorder them, and today's
-/// departure does not close them. None if no such offer is free.
-pub fn filler(
+/// A time-filler free for one idle by day, with the person's mood for it and its walk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Filler {
+    pub object: u16,
+    pub offer: u16,
+    pub mood: i8,
+    pub walk_secs: u32,
+}
+
+/// The time-fillers free for one idle by day (ADR-0026, addendum of 2026-11-05 on the
+/// time-filler's length): the `fallback` offers open at `age` of the objects not in `busy`, each
+/// with the person's mood for it in the second of the choice, `moods(object, offer)` (the same
+/// draw its points take), and its walk from `room`; the highest mood first, then the shortest
+/// walk, then the smaller object and the smaller offer. Today's departure closes none of them.
+pub fn fillers(
     (house, data): (&House, &HouseData),
     (age, room): (u8, u8),
     busy: &[u16],
-) -> Option<(u16, u16)> {
-    let band = age_band(age)?;
-    let mut best: Option<((i64, u32), (u16, u16))> = None;
+    moods: impl Fn(u16, u16) -> i8,
+) -> Vec<Filler> {
+    let mut free = Vec::new();
     for (object, _) in (0_u16..).zip(&house.def().objects) {
         if busy.contains(&object) {
             continue;
         }
         let kind = kind_of(house, data, object);
-        let walk = house.walk_to(room, object);
+        let walk_secs = house.walk_to(room, object);
         for (offer, def) in (0_u16..).zip(&kind.offers) {
             if !def.fallback || def.sleep || !(def.min_age..=def.max_age).contains(&age) {
                 continue;
             }
-            let fun = i64::from(def.rate(data.rates(), Need::Fun, band));
-            let rank = (-fun, walk);
-            if best.is_none_or(|(best, _)| rank < best) {
-                best = Some((rank, (object, offer)));
-            }
+            free.push(Filler {
+                object,
+                offer,
+                mood: moods(object, offer),
+                walk_secs,
+            });
         }
     }
-    best.map(|(_, chosen)| chosen)
+    free.sort_by_key(|filler| {
+        (
+            core::cmp::Reverse(filler.mood),
+            filler.walk_secs,
+            filler.object,
+            filler.offer,
+        )
+    });
+    free
+}
+
+/// The time-filler of one idle by day (ADR-0026, addendum of 2026-11-05 on the time-filler's
+/// length): the first of `fillers`, the one with the highest mood; none if no such offer is free
+/// or at an age without needs.
+pub fn filler(
+    (house, data): (&House, &HouseData),
+    (age, room): (u8, u8),
+    busy: &[u16],
+    moods: impl Fn(u16, u16) -> i8,
+) -> Option<(u16, u16)> {
+    age_band(age)?;
+    let first = fillers((house, data), (age, room), busy, moods)
+        .into_iter()
+        .next()?;
+    Some((first.object, first.offer))
 }
 
 /// The offer with the most points among the objects not in `busy`; a tie goes to the smaller
@@ -344,11 +380,13 @@ pub fn in_tier(house: &House, data: &HouseData, tier: Tier, object: u16) -> bool
 /// day, `night` `None`: the best free offer if it brings `ENOUGH`, else waiting for the best of a
 /// fully taken object if that would, else idle. In the night, `night` the beds of the person's
 /// tier (`in_tier`; ADR-0026, addenda of 2026-11-04 on the night and after the playtest): the best free offer
-/// that raises a need critical now, if any; else the best free bed of the tier; else the best
-/// free bed, any furniture but the sofa that sleeps, regardless of `ENOUGH`; else the best free
-/// sleeping place on the sofa (ADR-0025: who finds no free bed sleeps on the sofa); else
-/// waiting for the best bed with no free place; else idle. The mood ranks within each of these
-/// alone. Ties as in `best`.
+/// that raises a need critical now, if any; else the best free offer that fills hunger or the
+/// bladder while that need is under its comfort (`comforts`, by its points without the critical
+/// part; its addendum of 2026-11-05 on the time-filler's length); else the best free bed of the
+/// tier; else the best free bed, any furniture but the sofa that sleeps, regardless of `ENOUGH`;
+/// else the best free sleeping place on the sofa (ADR-0025: who finds no free bed sleeps on the
+/// sofa); else waiting for the best bed with no free place; else idle. The mood ranks within
+/// each of these alone. Ties as in `best`.
 pub fn choose(
     (house, data): (&House, &HouseData),
     (age, values): (u8, [u16; 5]),
@@ -375,6 +413,16 @@ pub fn choose(
         (NEEDS.into_iter().zip(values))
             .any(|(need, value)| value <= CRITICAL && offer.raises(rates, need, age))
     };
+    // Before the bed, what fills hunger or the bladder under its comfort, ranked without the
+    // part a critical need adds (the critical ones came first).
+    let comforting: Vec<Scored> = (scored.iter())
+        .filter(|scored| comforts(offer_of(house, data, scored), rates, (age, values)))
+        .map(|scored| Scored {
+            points: scored.points
+                - urgent_part(offer_of(house, data, scored), rates, (age, values)),
+            ..*scored
+        })
+        .collect();
     let sofa = |scored: &Scored| kind_of(house, data, scored.object).is_sofa();
     let sleeps = |sofa_too: bool| {
         move |scored: &&Scored| offer_of(house, data, scored).sleep && sofa(scored) == sofa_too
@@ -385,6 +433,7 @@ pub fn choose(
     };
     let first_free = [
         among(&critical),
+        comforting,
         among(&tiered),
         among(&sleeps(false)),
         among(&sleeps(true)),
@@ -392,7 +441,10 @@ pub fn choose(
     .into_iter()
     .find_map(|candidates| best(&candidates, busy));
     if let Some(chosen) = first_free {
-        return Choice::Take(chosen);
+        // The points as scored, with the critical part.
+        let scored = (scored.iter())
+            .find(|scored| (scored.object, scored.offer) == (chosen.object, chosen.offer));
+        return Choice::Take(scored.copied().unwrap_or(chosen));
     }
     let beds: Vec<Scored> = (among(&sleeps(false)).into_iter())
         .filter(|scored| busy.contains(&scored.object))
@@ -401,6 +453,45 @@ pub fn choose(
         Some(waited) => Choice::Wait(waited.object),
         None => Choice::Idle,
     }
+}
+
+/// The needs the night's choice looks after before the bed (ADR-0026, addendum of 2026-11-05 on
+/// the time-filler's length): hunger and the bladder, not hygiene.
+pub const BEFORE_BED: [Need; 2] = [Need::Hunger, Need::Bladder];
+
+/// Whether offer `def`, open at `age`, fills a need of `BEFORE_BED` that stands under its comfort
+/// in `values` (ADR-0026, addendum of 2026-11-05 on the time-filler's length): no offer of sleep,
+/// and its gain for that need over its length (`score`) is above 0, so a choice of it brings the
+/// need up.
+pub fn comforts(def: &OfferDef, rates: &NeedRates, (age, values): (u8, [u16; 5])) -> bool {
+    let (Some(band), false) = (age_band(age), def.sleep) else {
+        return false;
+    };
+    if !(def.min_age..=def.max_age).contains(&age) {
+        return false;
+    }
+    let length = def.seconds.or(def.max_seconds);
+    let length = i64::from(length.unwrap_or_else(|| panic!("invariant house.offer_length")));
+    (NEEDS.into_iter().zip(values))
+        .filter(|(need, _)| BEFORE_BED.contains(need))
+        .any(|(need, value)| {
+            let rate = i64::from(def.rate(rates, need, band));
+            let missing = i64::from(FULL.saturating_sub(value));
+            let gain = (rate * length / HOUR.as_secs()).min(missing);
+            value < rates.comfort(need) && rate > 0 && gain > 0
+        })
+}
+
+/// The part of the points of offer `def` for the needs `values` at `age` that critical needs add
+/// (`score`): `(151 − v) · 10⁹` for each need at or below `CRITICAL` it raises.
+pub fn urgent_part(def: &OfferDef, rates: &NeedRates, (age, values): (u8, [u16; 5])) -> i64 {
+    let Some(band) = age_band(age) else {
+        return 0;
+    };
+    (NEEDS.into_iter().zip(values))
+        .filter(|&(need, value)| value <= CRITICAL && def.rate(rates, need, band) > 0)
+        .map(|(_, value)| i64::from(CRITICAL + 1 - value) * PER_CRITICAL_POINT)
+        .sum()
 }
 
 /// The second an idle person chooses next (ADR-0026, addendum of 2026-11-04 after the

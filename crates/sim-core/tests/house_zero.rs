@@ -342,6 +342,7 @@ fn idle(room: u8, needs: [u16; 5], busy: &[u16], waits: Option<u16>) -> LogPaylo
         waits,
         held: Vec::new(),
         tier: Vec::new(),
+        too_short: None,
     }
 }
 
@@ -598,8 +599,9 @@ fn weary(day: &str) -> Data {
 /// hour reaches 700, 400, 150, 50 and 0 after 720, 1 800, 2 700, 3 060 and 3 240 s; she lies in
 /// the hall from 6:54. The wake finds her there and does nothing; the departure waits, due at
 /// 13:20. She gets up at 11:54 (21 240 s) and leaves at once, 15 240 s late. Away every need
-/// stands; at 13:20 she comes home and the jumps take [600, 250, 500, 700, 800] to [250, 50,
-/// 100, 600, 650]: the bladder at 100 is critical, so the toilet (critical, 2 s away).
+/// stands; at 13:20 she comes home and the jumps take [600, 250, 500, 700, 800] to [600, 50,
+/// 100, 600, 650] (hunger no longer jumps, ADR-0026, addendum of 2026-11-05 on the time-filler's
+/// length): the bladder at 100 is critical, so the toilet (critical, 2 s away).
 #[test]
 fn a_departure_waits_for_one_lying_and_leaves_late() {
     let tag = part_time();
@@ -642,7 +644,7 @@ fn a_departure_waits_for_one_lying_and_leaves_late() {
             (BACK, LogPayload::CameHome { place: Duty::Work }),
             (
                 BACK,
-                started((TOILET, 0), (HALL, 2), [250, 50, 100, 600, 650], &[], false)
+                started((TOILET, 0), (HALL, 2), [600, 50, 100, 600, 650], &[], false)
             ),
         ]
     );

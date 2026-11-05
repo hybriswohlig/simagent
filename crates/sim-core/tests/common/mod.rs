@@ -410,6 +410,19 @@ pub fn weekday_mornings(day: &str) -> String {
     day.to_string()
 }
 
+/// The repository's `day.json` in which a time-filler is taken however soon it would end, its
+/// `fallback_min_seconds` 0 (ADR-0026, addendum of 2026-11-05 on the time-filler's length): for
+/// the tests of what a time-filler does once taken, which its least time left would hide.
+#[allow(
+    dead_code,
+    reason = "only the tests of a time-filler once taken need it"
+)]
+pub fn repository_day_any_filler() -> String {
+    let mut day: Value = serde_json::from_str(REPOSITORY_DAY).expect("the day");
+    day["fallback_min_seconds"] = serde_json::json!(0);
+    day.to_string()
+}
+
 /// The repository's `day.json` with weekday mornings (`weekday_mornings`).
 #[allow(dead_code, reason = "only the tests that begin on a Saturday need it")]
 pub fn repository_day_on_weekdays() -> String {
@@ -458,6 +471,24 @@ pub fn repository_houses_with(change: impl FnOnce(&mut Value)) -> sim_core::hous
         REPOSITORY_NEEDS,
         REPOSITORY_DAY,
         &kinds.to_string(),
+        &REPOSITORY_HOUSES,
+    )
+}
+
+/// The houses of `data/house/` with their `day.json` changed by `change` first.
+#[allow(
+    dead_code,
+    reason = "only the tests of a time-filler on another day change the day"
+)]
+pub fn repository_houses_with_day(
+    change: impl FnOnce(&mut Value),
+) -> sim_core::house::data::HouseData {
+    let mut day: Value = serde_json::from_str(REPOSITORY_DAY).expect("json");
+    change(&mut day);
+    houses_from(
+        REPOSITORY_NEEDS,
+        &day.to_string(),
+        REPOSITORY_KINDS,
         &REPOSITORY_HOUSES,
     )
 }

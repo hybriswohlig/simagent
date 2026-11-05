@@ -127,8 +127,9 @@ impl BandRates {
 /// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure; the night
 /// (ADR-0026, addendum of 2026-11-04), what a need at 0 does and the most the mood moves the
 /// points of a choice, in percent either way (its addenda of 2026-11-04 on a need at 0 and on
-/// the mood), and the longest a time-filler lasts (its addendum on comfort and the time-filler),
-/// last.
+/// the mood), the longest a time-filler lasts (its addendum on comfort and the time-filler) and
+/// the least time left for one to be taken (its addendum of 2026-11-05 on the time-filler's
+/// length), last.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DayRules {
@@ -142,6 +143,7 @@ pub struct DayRules {
     pub zero: ZeroRules,
     pub choice_mood_percent: u8,
     pub fallback_max_seconds: u32,
+    pub fallback_min_seconds: u32,
 }
 
 /// School from `from_age` to the day before the birthday of `until_age`.
@@ -301,8 +303,12 @@ impl DayRules {
         if self.choice_mood_percent > MOST_MOOD {
             return Err(HouseError::DayMood);
         }
-        // A time-filler lasts at most as long as an offer may.
-        if !LENGTH_SECS.contains(&self.fallback_max_seconds) {
+        // A time-filler lasts at most as long as an offer may, and one taken lasts at least
+        // `fallback_min_seconds`, no longer than that (ADR-0026, addendum of 2026-11-05 on the
+        // time-filler's length).
+        if !LENGTH_SECS.contains(&self.fallback_max_seconds)
+            || self.fallback_min_seconds > self.fallback_max_seconds
+        {
             return Err(HouseError::DayFallback);
         }
         Ok(())
@@ -387,7 +393,7 @@ impl KindDef {
 /// sleep column and `rates` names only what differs; any other sets the rates it names and
 /// leaves the others awake. A `fallback` offer is also a time-filler: one idle by day with
 /// nothing worth it takes it until its next choice (ADR-0026, addendum of 2026-11-04 on comfort
-/// and the time-filler).
+/// and the time-filler), at most for its length (its addendum of 2026-11-05).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct OfferDef {
     pub rates: BTreeMap<Need, i32>,
@@ -448,6 +454,11 @@ impl OfferDef {
         // A time-filler passes the day: no sleep, and fun rising at every age it is open to.
         if self.fallback && (self.sleep || !ages().all(|age| self.raises(rates, Need::Fun, age))) {
             return Err(HouseError::OfferFallback);
+        }
+        // A time-filler has its own length, a fixed one (ADR-0026, addendum of 2026-11-05 on the
+        // time-filler's length).
+        if self.fallback && self.seconds.is_none() {
+            return Err(HouseError::FallbackLength);
         }
         Ok(())
     }
@@ -510,7 +521,8 @@ pub enum HouseError {
     /// A mood of more than 50 percent either way.
     DayMood,
     /// A time-filler's longest outside 60 s to 12 h (ADR-0026, addendum of 2026-11-04 on comfort
-    /// and the time-filler).
+    /// and the time-filler), or its least time left above its longest (the addendum of
+    /// 2026-11-05 on the time-filler's length).
     DayFallback,
     /// A need's comfort at or below the critical level 150 or above full.
     Comfort,
@@ -565,6 +577,9 @@ pub enum HouseError {
     /// does not stay in itself, or that is the entrance; or not one word per room whether one
     /// stays there.
     DwellRoom,
+    /// A time-filler without a fixed length in `seconds` (ADR-0026, addendum of 2026-11-05 on the
+    /// time-filler's length).
+    FallbackLength,
 }
 
 impl fmt::Display for HouseError {
@@ -603,6 +618,7 @@ impl fmt::Display for HouseError {
             HouseError::NeedUnserved => "house.need_unserved",
             HouseError::BedFor => "house.bed_for",
             HouseError::DwellRoom => "house.dwell_room",
+            HouseError::FallbackLength => "house.fallback_length",
         })
     }
 }

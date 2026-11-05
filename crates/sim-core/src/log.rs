@@ -262,7 +262,9 @@ pub enum LogPayload {
     },
     /// A person chose nothing: no free offer brought enough points (ADR-0026 section 5). The
     /// house, the room, the needs and the objects without a free place as for a start;
-    /// `waits` the object it waits for; `held` and `tier` as for a start.
+    /// `waits` the object it waits for; `held` and `tier` as for a start; `too_short` by day the
+    /// end its time-filler would have had, under `fallback_min_seconds` away, so it took none
+    /// (ADR-0026, addendum of 2026-11-05 on the time-filler's length).
     #[serde(rename = "core:idle")]
     Idle {
         house: DataId,
@@ -272,6 +274,7 @@ pub enum LogPayload {
         waits: Option<u16>,
         held: Vec<u16>,
         tier: Vec<u16>,
+        too_short: Option<SimTime>,
     },
     /// A person's need fell to `level`, 150 or 50 (ADR-0026 section 4).
     #[serde(rename = "core:need_critical")]

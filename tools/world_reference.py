@@ -713,7 +713,11 @@ PROJECTION_VERSION = 19
 # the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
 # new data hash, no year hash and no log hash of a run without one: core 58, the projection stays
 # 19.
-CORE_VERSION = 58
+# The time-filler's length (ADR-0026, addendum of 2026-11-05 on the time-filler's length) changes
+# the repository's day (no jump of hunger on coming home, the least time left for a time-filler)
+# and runs with a household in a house: a new data hash, no year hash and no log hash of a run
+# without one: core 59, the projection stays 19.
+CORE_VERSION = 59
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
