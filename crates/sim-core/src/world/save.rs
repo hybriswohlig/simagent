@@ -2124,6 +2124,7 @@ fn pair_facts(
         brought_births: (rules.pool.carried.get(&id))
             .is_some_and(|(record, _)| record.partnerships == 1 && record.births >= 1),
         may_reopen: conception::may_reopen(data, lot_of(rules, &her), her.lineage_key, chance),
+        her_pool: lot_of(rules, &her) == conception::Lot::Pool,
     })
 }
 

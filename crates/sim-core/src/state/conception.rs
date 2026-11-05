@@ -219,12 +219,12 @@ pub(crate) enum Held {
     Fulfilled,
 }
 
-/// The decision at a month start (ADR-0017, addendum of 2026-11-05), in the order the
-/// person page reads it: her fertility over, pregnant, the pause, then the gate. She is open
-/// when `young < W`, `life < W + extra` and (`life < W`, or `life >= grown_from` and her draw
-/// lets a grown child reopen her); otherwise his slot when `W >= 1`, `W <= life < W + extra`,
-/// his young below his wish and no live birth of the pair yet. Without the extra child she
-/// is open while `life < W`.
+/// The decision at a month start (ADR-0017, addendum of 2026-11-05): her fertility over,
+/// pregnant, the pause, then the gate. She is open when `young < W`, `life < W + extra` and
+/// (`life < W`, or `life >= grown_from` and her draw lets a grown child reopen her); otherwise
+/// his slot when `W >= 1`, `W <= life < W + extra`, his young below his wish and no live birth
+/// of the pair yet. Without the extra child (none in the data, or she has a pool origin,
+/// `PairFacts::rule`) she is open while `life < W`.
 pub(crate) fn decide(c: &Couple) -> Result<Opening, Held> {
     if c.her_age >= c.fertility_end {
         return Err(Held::FertilityOver);
@@ -430,9 +430,23 @@ pub(crate) struct PairFacts {
     /// She brought this partnership with only it and live births: they are theirs.
     pub(crate) brought_births: bool,
     pub(crate) may_reopen: bool,
+    /// She has a pool origin (a person of the pool, a child of a pool pregnancy; the cut of
+    /// her wish, `Lot::Pool`).
+    pub(crate) her_pool: bool,
 }
 
 impl PairFacts {
+    /// The extra child her gate reads (ADR-0017, addendum of 2026-11-05, Grok's round 5):
+    /// none for a woman with a pool origin, who keeps the extract's wish and its gate (open
+    /// while her live births are below her wish), the data's for everyone else.
+    fn rule(&self, data: &Data) -> Option<ExtraChild> {
+        if self.her_pool {
+            None
+        } else {
+            data.demography().fertility.extra
+        }
+    }
+
     /// The couple at `t` with her live births `life` by then.
     pub(crate) fn couple(
         &self,
@@ -441,7 +455,7 @@ impl PairFacts {
         life: u32,
         (pregnant, paused): (bool, bool),
     ) -> Couple {
-        let rule = data.demography().fertility.extra;
+        let rule = self.rule(data);
         let years = rule.map_or(0, |rule| rule.count_until_years);
         let ours = ours(&self.hers, self.him, self.pool_ours, t);
         Couple {
@@ -466,8 +480,7 @@ impl PairFacts {
 
     /// The month starts from `start` on at which the gate can open (`candidates`).
     pub(crate) fn candidates(&self, data: &Data, start: SimTime) -> Vec<SimTime> {
-        let rule = data.demography().fertility.extra;
-        candidates(start, &[&self.hers, &self.his], rule)
+        candidates(start, &[&self.hers, &self.his], self.rule(data))
     }
 }
 
@@ -583,6 +596,7 @@ pub(crate) fn pair_facts(
         pool_ours: u32::try_from(pool_ours).unwrap_or(u32::MAX),
         brought_births,
         may_reopen: may_reopen(data, her_lot, her, chance),
+        her_pool: her_lot == Lot::Pool,
     }
 }
 

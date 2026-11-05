@@ -4091,6 +4091,13 @@ class World:
                 count = 1
         return count
 
+    def extra_of(self, woman: int):
+        """The extra child's values her gate reads (ADR-0017, addendum of 2026-11-05, Grok's
+        round 5): none for a woman with a pool origin (a person of the pool, a child of a pool
+        pregnancy; the cut of her wish), who keeps the extract's wish and its gate: open while
+        `life < W`; the data's for everyone else."""
+        return None if self.is_pool_person(woman) else self.data.extra
+
     def may_reopen(self, woman: int) -> bool:
         """Her draw (`grown_unit` with her own seed) is below the grown chance."""
         return grown_unit(self.own_seed(woman), self.key_of(woman)) < self.data.extra[3]
@@ -4098,12 +4105,13 @@ class World:
     def gate(self, woman: int, man: int, number_: int, life: int, t: int):
         """The decision at the month start `t` without the pregnancy, the pause and the end
         of fertility (the caller's): "hers", "his", "grown" or None (closed). Without the
-        extra child: "hers" while `life < W`. The grown path needs her draw below the chance;
+        extra child (the data's, or hers as a woman of the pool): "hers" while `life < W`. The grown path needs her draw below the chance;
         his slot does not read it."""
         w = self.wish_of(woman)
-        if self.data.extra is None:
+        rule = self.extra_of(woman)
+        if rule is None:
             return "hers" if life < w else None
-        _, extra, grown_from, _ = self.data.extra
+        _, extra, grown_from, _ = rule
         if life >= w + extra:
             return None
         if self.young_of_her(woman, life, t) < w and (life < w or (life >= grown_from and self.may_reopen(woman))):
@@ -4117,7 +4125,7 @@ class World:
         `start`, and each later one at which a child of either turns `count_until` or an
         arrived pool child starts to count (the first month start after its arrival)."""
         out = {start}
-        if self.data.extra is not None:
+        if self.extra_of(woman) is not None:
             for sim, side in ((woman, 0), (man, 1)):
                 for born, arrived in self.children_in_run(sim, side):
                     out.add(month_start_at_or_after(born + self.data.extra[0] * YEAR))
