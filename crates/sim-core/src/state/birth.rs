@@ -148,6 +148,7 @@ pub(crate) fn on_birth(
                 pool,
             },
         );
+        conception::note_child(domain, child);
         onset::on_creation(domain, data, child, born, switch_on, ctx);
         household::born_into(domain, child, mother, ctx);
         children.push((child, born));
@@ -175,5 +176,21 @@ pub(crate) fn on_birth(
         let pause = data.demography().fertility.pause_months;
         let start = conception::series_after_birth(now, pause);
         conception::plan_attempts(domain, data, mother, born, start, ctx);
+    }
+    // The father's young rose (ADR-0017, addendum of 2026-11-05): the woman of his open
+    // partnership, if she is not the mother, by the creation entry of the first child.
+    let father = pregnancy.father.or_else(|| {
+        pregnancy
+            .pool_father
+            .and_then(|key| domain.keys.get(&key).copied())
+    });
+    let partner = father
+        .filter(|father| domain.sims.contains_key(father))
+        .and_then(|father| partnership::open_partnership(domain, father))
+        .and_then(|id| domain.partnerships.get(&id))
+        .map(|pair| pair.woman)
+        .filter(|woman| *woman != mother);
+    if let Some(woman) = partner {
+        conception::replan(domain, data, woman, born, ctx);
     }
 }

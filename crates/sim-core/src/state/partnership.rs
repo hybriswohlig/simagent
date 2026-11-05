@@ -202,7 +202,8 @@ pub(crate) fn apply_arrange(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let causes = Causes::new(ctx.trigger());
-    pair_and_move(domain, data, (pair.woman, pair.man), causes, ctx);
+    let id = pair_and_move(domain, data, (pair.woman, pair.man), causes, ctx);
+    domain.arranged.insert(id);
 }
 
 /// A partnership formed now after `Start` (an input or the market): `pair_up_with`, then
@@ -213,9 +214,10 @@ pub(crate) fn pair_and_move(
     couple: (SimId, SimId),
     causes: Causes,
     ctx: &mut SimCtx<'_, '_>,
-) {
-    let (_, entry) = pair_up_with(domain, data, couple, causes, ctx);
+) -> PartnershipId {
+    let (id, entry) = pair_up_with(domain, data, couple, causes, ctx);
     household::pair_moves(domain, couple, entry, ctx);
+    id
 }
 
 /// A new partnership of two living sims, formed now, with its creation entry caused

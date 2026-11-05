@@ -118,6 +118,20 @@ export type PersonAnswer = {
   readonly card: GeneticsCard;
   readonly kinship?: Kinship;
   readonly ages: Age[];
+  readonly wish: WishShown;
+};
+
+/** The wish for children by the core: the drawn wish of the person (null below the market age) and the couple of its open partnership with where its wish stands. */
+export type WishShown = {
+  readonly wish: number | null;
+  readonly couple: CoupleWish | null;
+};
+
+/** The woman and the man of an open partnership and where their wish stands: her fertility over, she is pregnant, the pause after a birth, they try by her wish, by his or by a grown child of hers, or her wish is fulfilled. */
+export type CoupleWish = {
+  readonly woman: number;
+  readonly man: number;
+  readonly state: "fertility_over" | "pregnant" | "pause" | "hers" | "his" | "grown" | "fulfilled";
 };
 
 /** `GET /api/runs/{run}/people`: the living persons for finding them, each with its body now and its looks in words. */

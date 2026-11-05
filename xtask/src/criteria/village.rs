@@ -72,7 +72,8 @@ pub fn village_plan(seed: u64, years: i64) -> Plan {
 }
 
 /// The repository's data: the documents under `data/`, the pool and its frequencies, the
-/// shock templates and the houses, as the CLI builds its own.
+/// shock templates and the houses, and the game's life course data, as the CLI builds its
+/// own.
 pub fn repository_data(root: &Path) -> Result<Data> {
     let demography = crate::map4::read(root, "data/calibration/demography.json")?;
     let (calibration, map) = crate::prerun::read_files(&root.join("data"))?;
@@ -99,10 +100,13 @@ pub fn repository_data(root: &Path) -> Result<Data> {
     let frequencies = crate::pool_file::finite(frequencies)?;
     let shocks = shocks(root)?;
     let houses = houses(root)?;
-    Data::with_pool(definitions, &pool, frequencies)
+    let data = Data::with_pool(definitions, &pool, frequencies)
         .and_then(|data| data.with_shocks(shocks))
         .map(|data| data.with_houses(houses))
-        .map_err(|e| format!("the repository's data: {e}"))
+        .map_err(|e| format!("the repository's data: {e}"))?;
+    // The game's life course data in place of the extract's (ADR-0017, addendum of
+    // 2026-11-05).
+    crate::prerun::with_game(root, data, &calibration, &map)
 }
 
 /// The houses of `data/house/` as sim-cli reads them (ADR-0025): the rates, the day, the kinds
