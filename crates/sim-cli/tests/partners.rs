@@ -35,11 +35,11 @@ fn the_dummy_runs_partners_by_hand() {
     assert_eq!(world.closed_through().as_secs(), 943_487_999);
     let sim = |n: u64| SimId::try_from(n).expect("an id");
     let cases: [(u64, &[u64]); 13] = [
-        (8, &[4]),
+        (8, &[10, 12, 4, 2]),
         (4, &[8]),
-        (2, &[]),
-        (10, &[]),
-        (12, &[]),
+        (2, &[8]),
+        (10, &[8]),
+        (12, &[8]),
         (13, &[]),
         (1, &[]),
         (3, &[]),

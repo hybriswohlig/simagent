@@ -1518,6 +1518,33 @@ fn load_rejects_a_state_changed_in_one_field() {
     }
 }
 
+#[test]
+fn an_arrangement_of_close_kin_with_an_arrival_is_a_save_the_run_writes() {
+    let (name, label, base_pin, hunks, expected) = ARRANGED_CLOSE_KIN;
+    let (base, data) = base_save(label);
+    assert_eq!(sized(&base), base_pin, "{name}");
+    let mut bytes = base.clone();
+    for (offset, removed, put) in hunks.iter().rev() {
+        bytes.splice(*offset..offset + removed, hex(put));
+    }
+    assert_eq!(sized(&bytes), expected, "{name}");
+    let (loaded, _) = World::load(&bytes, data()).expect("loads");
+    let acts = loaded.closed_through().as_secs() + 1;
+    let pedigree = loaded.pedigree();
+    let couple = (pedigree.partnerships.iter())
+        .find(|couple| couple.formed.as_secs() == acts)
+        .expect("the arranged partnership");
+    assert!(couple.kinship >= 0.125, "{}", couple.kinship);
+    let (mut world, years) = World::load(&base, data()).expect("loads");
+    world
+        .submit(Input::ArrangePartnership(ArrangePartnership {
+            woman: couple.woman,
+            man: couple.man,
+        }))
+        .expect("accepted");
+    assert_eq!(world.save(&years).expect("saves"), bytes);
+}
+
 /// "arrival" saved at the end of year 2, loaded and run on, ends as the run without the
 /// save (ADR-0004 test 4): the same year hashes, log, save and state.
 #[test]
@@ -1740,6 +1767,71 @@ fn a_partnership_the_market_formed_needs_the_towns_pairing_age() {
         World::load(&at_18, from_18).err(),
         Some(LoadError::Inconsistent),
         "from 18"
+    );
+}
+
+fn minors_start() -> Start {
+    let founder = |sex: Sex| Founder {
+        born: SimTime::from_secs(-17 * Y),
+        sex,
+        alleles: Vec::new(),
+    };
+    Start {
+        world_seed: 0x17,
+        founder_tag: DataId::new("test:minors").expect("id"),
+        world_params: WorldParams {
+            hereditary_diseases: false,
+            nutrition: Vec::new(),
+        },
+        founders: vec![founder(Sex::Female), founder(Sex::Male)],
+        couples: Vec::new(),
+        capacity: None,
+        pool: None,
+    }
+}
+
+#[test]
+fn a_partnership_an_input_formed_needs_the_towns_pairing_age() {
+    let data = minors_data(16.0);
+    let mut world = World::new(data.clone());
+    world
+        .submit(Input::Start(minors_start()))
+        .expect("accepted");
+    world
+        .submit(Input::ArrangePartnership(ArrangePartnership {
+            woman: SimId::try_from(1).expect("an id"),
+            man: SimId::try_from(2).expect("an id"),
+        }))
+        .expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(Y - 1), &mut |_| false);
+    world.take_log();
+    let bytes = world.save(&out.year_hashes).expect("saves");
+    assert!(World::load(&bytes, data.clone()).is_ok(), "from 16");
+    let (from_17, from_18) = (minors_data(17.0), minors_data(18.0));
+    let at_17 = relabelled(&bytes, &data, &from_17);
+    assert!(World::load(&at_17, from_17).is_ok(), "from 17");
+    let at_18 = relabelled(&bytes, &data, &from_18);
+    assert_eq!(
+        World::load(&at_18, from_18).err(),
+        Some(LoadError::Inconsistent),
+        "from 18"
+    );
+}
+
+#[test]
+fn the_market_pairs_nobody_under_the_towns_pairing_age() {
+    let mut world = World::new(minors_data(18.0));
+    world
+        .submit(Input::Start(minors_start()))
+        .expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(2 * Y - 1), &mut |_| false);
+    let pedigree = world.pedigree();
+    assert!(
+        (pedigree.partnerships.iter()).all(|couple| couple.formed.as_secs() >= Y),
+        "{:?}",
+        pedigree.partnerships
     );
 }
 
@@ -2960,8 +3052,32 @@ const TIE_COUNTED_BIRTH: (&[Hunk], (usize, u64)) = (
     (17399, 0x79cf_4e03_c562_e27a),
 );
 
+const ARRANGED_CLOSE_KIN: Hunks = (
+    "arrival_partnership_close_kin",
+    "orphans_save_end",
+    (14595, 0x86c7_1863_785a_ecb1),
+    &[
+        (31, 3, "0a1a8b"),
+        (1511, 0, "baaea9961300e902050900"),
+        (2446, 1, "ea"),
+        (2693, 1, "19"),
+        (3235, 2, "0219"),
+        (6242, 1, "19"),
+        (6362, 1, "19"),
+        (6555, 1, "09"),
+        (6650, 7, "090a0280a8fb9501001901000002000180a8fb9501"),
+        (6691, 1, "0180a8fb9501"),
+        (6771, 0, "01001980a8fb95"),
+        (9004, 1, "8b"),
+        (9374, 0, "b00280a8fb9501"),
+        (9516, 3, "b60202"),
+        (14542, 0, "fea7fb950102020a02"),
+    ],
+    (14648, 0x63a4_60eb_b580_4b45),
+);
+
 /// The reference's states changed in one field (out4, its notes' section 5b).
-const LOAD_REJECTED_FIELDS: [Hunks; 32] = [
+const LOAD_REJECTED_FIELDS: [Hunks; 31] = [
     (
         "arrival_arrived_one_second_late",
         "orphans_save_end",
@@ -3241,29 +3357,6 @@ const LOAD_REJECTED_FIELDS: [Hunks; 32] = [
         (14595, 0x86c7_1863_785a_ecb1),
         &[(4582, 1, "15")],
         (14595, 0x1a79_13d1_02c7_f18c),
-    ),
-    (
-        "arrival_partnership_close_kin",
-        "orphans_save_end",
-        (14595, 0x86c7_1863_785a_ecb1),
-        &[
-            (31, 3, "0a1a8b"),
-            (1511, 0, "baaea9961300e902050900"),
-            (2446, 1, "ea"),
-            (2693, 1, "19"),
-            (3235, 2, "0219"),
-            (6242, 1, "19"),
-            (6362, 1, "19"),
-            (6555, 1, "09"),
-            (6650, 7, "090a0280a8fb9501001901000002000180a8fb9501"),
-            (6691, 1, "0180a8fb9501"),
-            (6771, 0, "01001980a8fb95"),
-            (9004, 1, "8b"),
-            (9374, 0, "b00280a8fb9501"),
-            (9516, 3, "b60202"),
-            (14542, 0, "fea7fb950102020a02"),
-        ],
-        (14648, 0x63a4_60eb_b580_4b45),
     ),
     (
         "arrival_moved_out_by_town_partnership_flag_false",

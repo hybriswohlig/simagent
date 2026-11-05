@@ -141,8 +141,8 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         return Err(DataError::Demography);
     }
     let market = Market {
-        // The base game publishes 16. A settings file may set any whole year from 12.
-        age_years: whole(value("core:market_age", Unit::Year)?, 12, 120)?,
+        // The base game publishes 16.
+        age_years: whole(value("core:market_age", Unit::Year)?, 16, 120)?,
         search_height: within(
             value("core:market_search_height_female", Unit::Fraction)?,
             (0.0, 1.0),

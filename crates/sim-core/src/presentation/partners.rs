@@ -1,4 +1,4 @@
-//! The partners a pairing input would be accepted with now (ADR-0018 sections 1 and 8,
+//! The partners a pairing input would be accepted with now (ADR-0018 section 1,
 //! ADR-0021 section 6, "ein Paar stiften"): the viewer offers only them, nearest in age
 //! first, so it judges neither age nor kinship itself. Read only, like the rest of the
 //! presentation state.
@@ -15,10 +15,9 @@ use super::whole_years;
 
 impl World {
     /// The living sims an `ArrangePartnership` of `sim` with them would pair in the next
-    /// second: the other sex, both single and of the market age, not in direct line, not
-    /// too closely related. Nearest in age first: by the difference of their whole years at
-    /// the last closed second, then the smaller id (Grok's round 33, P3). Empty for a sim
-    /// that is not alive or cannot be paired itself.
+    /// second: the other sex, both single and of the market age. Nearest in age first: by
+    /// the difference of their whole years at the last closed second, then the smaller id
+    /// (Grok's round 33, P3). Empty for a sim that is not alive or cannot be paired itself.
     pub fn partner_candidates(&self, sim: SimId) -> Vec<SimId> {
         let state = self.state();
         let domain = state.domain();
