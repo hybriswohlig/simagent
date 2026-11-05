@@ -43,7 +43,7 @@ const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 
 // The data and the pool (the reference's `village_<seed>_config`).
-const DATA_HASH: u64 = 0xc1d4_68d5_44a4_665f;
+const DATA_HASH: u64 = 0xdab8_2f94_9a78_a58f;
 const POOL_HASH: u64 = 0x5cc9_dc3e_b6db_8524;
 const POOL_SEED: u64 = 0x11b0_19a2;
 const FROZEN_AT: i64 = 23_587_200_000;
@@ -171,7 +171,7 @@ const VILLAGES: [Village; 2] = [
         start_input: (9742, 0x0184_8c0b_393c_fb29),
         entries: 161,
         state_hash: 0x9830_19d4_4d5f_51f2,
-        save: (24706, 0x5598_deac_3142_1567),
+        save: (24706, 0x48a3_36c0_578f_e1cf),
         kin: &[
             (9, 59, 1.0 / 256.0),
             (18, 61, 1.0 / 128.0),
@@ -192,7 +192,7 @@ const VILLAGES: [Village; 2] = [
         start_input: (9732, 0xfe72_2ea4_8554_8193),
         entries: 161,
         state_hash: 0xe199_e659_2d5c_dd90,
-        save: (24703, 0x959a_f652_4d1f_8d37),
+        save: (24703, 0xb4ec_581d_7eb3_7be7),
         kin: &[
             (6, 32, 1.0 / 128.0),
             (6, 50, 1.0 / 128.0),
@@ -573,7 +573,7 @@ fn a_village_start_is_rejected_as_the_reference_rejects_it() {
 // The village of seed 2 to the end of year 29 (the reference's `village_<seed>_run`).
 const RUN_END: i64 = 30 * Y - 1;
 const RUN_LOG: (usize, u64) = (2856, 0xdddb_91f3_e62e_c3a8);
-const RUN_SAVE_END: (usize, u64) = (30395, 0xc750_a0a9_ada1_390c);
+const RUN_SAVE_END: (usize, u64) = (30395, 0x48de_b0f6_b514_be6a);
 const RUN_STATE_HASH: u64 = 0xe6e5_3c10_7b19_2feb;
 const RUN_ARCHIVED: u64 = 36;
 const RUN_YEAR_HASHES: [u64; 30] = [
@@ -631,9 +631,9 @@ type Hunk = (usize, usize, &'static str);
 /// The save of year 9 as (length, xxh3), the hunks of the reference's forged save and that
 /// save.
 const VILLAGE_MOVED_IN: ((usize, u64), &[Hunk], (usize, u64)) = (
-    (28647, 0x10ba_e263_16d9_3168),
+    (28647, 0x3a2b_6de2_a8b0_8ec6),
     &[(8902, 1, "06"), (14657, 1, "01fecff6ab02")],
-    (28652, 0x42e5_faeb_557c_92c0),
+    (28652, 0x605b_0e09_8b3b_179b),
 );
 
 /// The village of seed 2 over 30 years (`K` = 80): the year hashes, the living at each year
