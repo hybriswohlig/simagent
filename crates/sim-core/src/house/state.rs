@@ -273,8 +273,9 @@ pub fn filler_end_if(
 
 /// The end a time-filler at `offer` would have at most, chosen in the second `chosen` and there at
 /// `arrive`, by the bounds of `filler_end_of` that do not depend on the places (ADR-0026, addendum
-/// of 2026-11-05 on the time-filler's length): its length from the arrival, its bedtime (the
-/// arrival itself if that lies in a night), today's departure if it comes after the choice and
+/// of 2026-11-05 on the time-filler's length): the arrival itself if that lies in a night, as
+/// `filler_end_of` ends it there at once whatever else would; else the earliest of its length
+/// from the arrival, its bedtime, today's departure if it comes after the choice and
 /// `fallback_max_seconds` after the arrival. The next choice can only make the end earlier.
 /// `None` if every bound lies beyond the end of time.
 fn filler_bound(
@@ -284,12 +285,12 @@ fn filler_bound(
     (chosen, arrive): (SimTime, SimTime),
 ) -> Option<SimTime> {
     let rules = data.day();
+    if night(rules, born, arrive).is_some() {
+        return Some(arrive);
+    }
     let length =
         (offer.seconds).and_then(|secs| arrive.checked_add(SimDuration::from_secs(secs.into())));
-    let bedtime = match night(rules, born, arrive) {
-        Some(_) => Some(arrive),
-        None => next_night(rules, born, arrive).map(|night| night.from),
-    };
+    let bedtime = next_night(rules, born, arrive).map(|night| night.from);
     let draw = || work_draw(seed, key);
     let depart = day_departure(rules, born, draw, arrive).filter(|&depart| depart > chosen);
     let longest = SimDuration::from_secs(i64::from(rules.fallback_max_seconds));
