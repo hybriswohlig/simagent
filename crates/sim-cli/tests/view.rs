@@ -926,7 +926,7 @@ fn a_person_is_the_cores_presentation_state() {
         let mut expected = serde_json::to_value(&view).expect("JSON");
         let fields = expected.as_object_mut().expect("an object");
         fields.insert("format".into(), "simagent.view.person".into());
-        fields.insert("version".into(), 2.into());
+        fields.insert("version".into(), 3.into());
         fields.insert(
             "contract_version".into(),
             sim_core::body_contract::CONTRACT_VERSION.into(),
@@ -974,6 +974,11 @@ fn a_person_is_the_cores_presentation_state() {
             .collect();
         assert_eq!(kinds[..3], ["hair", "eyes", "skin"], "{sim}");
         fields.insert("origin".into(), serde_json::to_value(origin).expect("JSON"));
+        // The wish for children by the core (ADR-0017, addendum of 2026-11-05).
+        fields.insert(
+            "wish".into(),
+            serde_json::to_value(world.wish(id)).expect("JSON"),
+        );
         assert_eq!(shown, expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
@@ -1243,7 +1248,7 @@ fn a_person_with_its_kinship_to_another() {
     // and P4): 2 born −794 880 000, 4 −628 992 000, 8 41 126 400, 10 101 606 400, 12
     // 203 212 800, 13 662 860 800.
     let answer = json_of(&get(server.port, "/api/runs/dummy/persons/13").2);
-    assert_eq!(answer["version"], 2);
+    assert_eq!(answer["version"], 3);
     assert_eq!(
         answer["ages"],
         json!([

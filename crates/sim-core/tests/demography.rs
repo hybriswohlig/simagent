@@ -6,7 +6,7 @@ mod common;
 
 use serde_json::{Value, json};
 use sim_core::data::Data;
-use sim_core::demography::{Fertility, Market, Twins};
+use sim_core::demography::{ExtraChild, Fertility, Market, Twins};
 use sim_core::learning::LearningParams;
 
 /// The check of the repository's definitions with the life course data changed by
@@ -44,6 +44,7 @@ fn the_repository_values_are_those_of_the_specification() {
             pregnancy_months: 10,
             wish_tilt: 0.311,
             wish_shape: vec![0.10, 0.15, 0.40, 0.25, 0.10],
+            extra: None,
         }
     );
     assert_eq!(
@@ -297,4 +298,92 @@ fn the_life_course_data_count_in_the_hash() {
     .expect("checked");
     assert_eq!(without.demography().separation_rate, 0.0);
     assert_ne!(without.hash(), common::data().hash());
+}
+
+/// The extra child (ADR-0017, addendum of 2026-11-05): the game's overlay sets the tilt 0.224
+/// and the four values of the group; the extract without them keeps 22 values and the rule
+/// without the extra child.
+#[test]
+fn the_game_overlays_the_extra_child() {
+    let (calibration, genome_map) = common::files();
+    let game =
+        common::definitions_with(common::game(common::demography()), calibration, genome_map)
+            .expect("definitions");
+    assert_eq!(game.demography.values.len(), 26);
+    let data = Data::new(game).expect("checked");
+    let fertility = &data.demography().fertility;
+    assert_eq!(fertility.wish_tilt, 0.224);
+    assert_eq!(
+        fertility.extra,
+        Some(ExtraChild {
+            count_until_years: 18,
+            extra: 1,
+            grown_from: 3,
+            grown_chance: 0.2,
+        })
+    );
+    assert_eq!(common::data().demography().fertility.extra, None);
+}
+
+/// The group of the extra child: all four keys or none; each of its unit and range; a fifth
+/// unknown key is refused as before.
+#[test]
+fn the_extra_child_is_one_group() {
+    let with_game = |change: Box<dyn FnOnce(&mut Value)>| {
+        checked(move |demography| {
+            *demography = common::game(demography.clone());
+            change(demography);
+        })
+    };
+    let remove = |key: &'static str| -> Box<dyn FnOnce(&mut Value)> {
+        Box::new(move |d: &mut Value| {
+            d["values"].as_object_mut().expect("values").remove(key);
+        })
+    };
+    assert_eq!(with_game(Box::new(|_| {})), "ok");
+    for key in [
+        "core:fertility_count_until",
+        "core:fertility_extra",
+        "core:fertility_grown_from",
+        "core:fertility_grown_chance",
+    ] {
+        assert_eq!(with_game(remove(key)), "data.calibration_missing", "{key}");
+    }
+    let value = |key: &'static str, value: f64| -> Box<dyn FnOnce(&mut Value)> {
+        Box::new(move |d: &mut Value| set(d, key, value))
+    };
+    for (key, wrong) in [
+        ("core:fertility_count_until", 0.0),
+        ("core:fertility_count_until", 121.0),
+        ("core:fertility_count_until", 17.5),
+        ("core:fertility_extra", 0.0),
+        ("core:fertility_extra", 65.0),
+        ("core:fertility_grown_from", 0.0),
+        ("core:fertility_grown_chance", -0.01),
+        ("core:fertility_grown_chance", 1.01),
+    ] {
+        assert_eq!(
+            with_game(value(key, wrong)),
+            "data.demography",
+            "{key} {wrong}"
+        );
+    }
+    for (key, edge) in [
+        ("core:fertility_count_until", 1.0),
+        ("core:fertility_count_until", 120.0),
+        ("core:fertility_extra", 64.0),
+        ("core:fertility_grown_from", 64.0),
+        ("core:fertility_grown_chance", 0.0),
+        ("core:fertility_grown_chance", 1.0),
+    ] {
+        assert_eq!(with_game(value(key, edge)), "ok", "{key} {edge}");
+    }
+    let unit = Box::new(|d: &mut Value| {
+        d["values"]["core:fertility_extra"]["unit"] = json!("year");
+    });
+    assert_eq!(with_game(unit), "data.calibration_unit");
+    let fifth = Box::new(|d: &mut Value| {
+        d["values"]["core:fertility_more"] = json!({"value": 1.0, "unit": "count"});
+    });
+    assert_eq!(with_game(fifth), "data.calibration_unknown");
 }

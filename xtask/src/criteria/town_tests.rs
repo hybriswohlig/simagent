@@ -260,6 +260,37 @@ fn the_towns_data_take_the_pool_frequencies() {
     }
 }
 
+/// The criteria town runs the game (ADR-0017, addendum of 2026-11-05): its data are the
+/// town's data with the game's life course data, the tilt 0.224 and the extra child, while the
+/// pool's persons keep the extract's wish (0.311); the town's data without the overlay keep
+/// the rule without the extra child.
+#[test]
+fn the_criteria_town_runs_the_game() {
+    let dir = std::env::temp_dir().join(format!("simagent-town-game-{}", std::process::id()));
+    frozen_template(&dir, POOL_D);
+    let town = town_data(&root(), &dir, POOL_D);
+    let game = game_town_data(&root(), &dir, POOL_D);
+    std::fs::remove_dir_all(&dir).expect("removed");
+    let (town, game) = (town.expect("the town's data"), game.expect("the game's data"));
+    assert_eq!(town.demography().fertility.extra, None);
+    assert_eq!(town.demography().fertility.wish_tilt, 0.311);
+    let fertility = &game.demography().fertility;
+    assert_eq!(fertility.wish_tilt, 0.224);
+    assert_eq!(
+        fertility.extra,
+        Some(sim_core::demography::ExtraChild {
+            count_until_years: 18,
+            extra: 1,
+            grown_from: 3,
+            grown_chance: 0.2,
+        })
+    );
+    let pool = game.pool().expect("a pool");
+    assert_eq!(pool.wish().1, 0.311);
+    assert_eq!(pool.frequencies(), town.pool().expect("a pool").frequencies());
+    assert_ne!(game.hash(), town.hash());
+}
+
 /// Grok GH-1: the open town is the criteria town without capacity, and it alone decides
 /// `h²_T`; the criteria town decides every other check.
 #[test]

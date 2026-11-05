@@ -70,11 +70,18 @@ fn frequencies() -> BTreeMap<DataId, FiniteF64> {
 }
 
 /// The repository's data as the CLI builds them: the life course data, the calibration and
-/// the map of `data/` without their text, with the pool and its frequencies. (Here and not
+/// the map of `data/` without their text, with the pool and its frequencies, then the game's
+/// life course data (ADR-0017, addendum of 2026-11-05). (Here and not
 /// in `common`, like `clamp_pool.rs`: the pool file is 8 MB, and every test crate compiles
 /// `common`.)
 fn repository_data() -> Data {
     let (calibration, genome_map) = common::files_from(CALIBRATION, GENOME_MAP);
+    let game = common::definitions_with(
+        common::game(common::demography()),
+        calibration.clone(),
+        genome_map.clone(),
+    )
+    .expect("definitions");
     Data::with_pool(
         common::definitions(calibration, genome_map).expect("definitions"),
         POOL,
@@ -82,6 +89,7 @@ fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(common::repository_shocks()))
     .map(|data| data.with_houses(common::repository_houses()))
+    .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }
 
