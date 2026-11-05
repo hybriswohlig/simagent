@@ -20,7 +20,7 @@ use sim_core::house::choice::{ENOUGH, crosses_departure, filler, lasts, mood, ne
 use sim_core::house::data::{House, HouseData};
 use sim_core::house::need::NeedSample;
 use sim_core::house::state::{
-    Action, Broken, InHouse, Place, action_end, consistent, filler_end_of,
+    Action, Broken, InHouse, Place, action_end, consistent, filler_end_of, next_choice_of,
 };
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input};
@@ -631,14 +631,14 @@ fn an_offer_that_runs_into_the_departure_is_closed() {
     assert_eq!(open(dirty, Some(600)), [1, 5, 6]);
 }
 
-/// The departure closes an offer by the end it really has, the walk included (review of
-/// 2026-11-05): an adult's bladder written down at 6:00 at 501, falling 120 an hour (the
-/// repository's awake rate), is 500 at 6:00:57 (501 − ⌊120 · 57 / 3 600⌋). From that value the
-/// repository's toilet (+12 000 an hour until full, at most 5 min) would need 500 · 3 600 /
-/// 12 000 = 150 s, 153 s with its walk of 3 s, and end a second before a departure 154 s away.
-/// But on the walk the bladder falls to 499 by 6:01:00 (501 − 120 · 60 / 3 600), so the action
-/// written down at its arrival ends ⌈501 · 3 600 / 12 000⌉ = 151 s later, at the departure itself
-/// (`action_end`). The walk lowers the need it fills by at most ⌈120 · 3 / 3 600⌉ = 1, the
+/// The departure closes an offer by the end it really has, the walk included (ADR-0026, addendum of
+/// 2026-11-04 on comfort and the time-filler): an adult's bladder written down at 6:00 at 501,
+/// falling 120 an hour (the repository's awake rate), is 500 at 6:00:57 (501 − ⌊120 · 57 / 3 600⌋).
+/// From that value the repository's toilet (+12 000 an hour until full, at most 5 min) would need
+/// 500 · 3 600 / 12 000 = 150 s, 153 s with its walk of 3 s, and end a second before a departure
+/// 154 s away. But on the walk the bladder falls to 499 by 6:01:00 (501 − 120 · 60 / 3 600), so the
+/// action written down at its arrival ends ⌈501 · 3 600 / 12 000⌉ = 151 s later, at the departure
+/// itself (`action_end`). The walk lowers the need it fills by at most ⌈120 · 3 / 3 600⌉ = 1, the
 /// fastest awake rate of any age band over its seconds: the toilet is closed 154 s before the
 /// departure and open 155 s before it.
 #[test]
@@ -819,12 +819,13 @@ fn runs_on_the_same(data: &Data, saved_at: i64, until: i64, at_save: impl Fn() -
     assert_eq!(loaded.state_hash(), whole.world.state_hash(), "{saved_at}");
 }
 
-/// A bound of the next choice at the second after the clock is the run's bound too (review of
-/// 2026-11-05): the loader recomputes a plan from the clock's next second, with the bounds after
-/// the clock, as the run made it with those after its second. The couple of
-/// `no_choice_runs_into_the_departure` at the screen until their departure at 8:40, which closes
-/// the loo from 8:34:57 on, so that their time-fillers end only at it: saved at 8:39:59, the
-/// departure of the next second still closes it, and the loaded morning runs on as the whole.
+/// A bound of the next choice at the second after the clock is the run's bound too (ADR-0026,
+/// addendum of 2026-11-04 on comfort and the time-filler): the loader recomputes a plan from the
+/// clock's next second, with the bounds after the clock, as the run made it with those after its
+/// second. The couple of `no_choice_runs_into_the_departure` at the screen until their departure at
+/// 8:40, which closes the loo from 8:34:57 on, so that their time-fillers end only at it: saved at
+/// 8:39:59, the departure of the next second still closes it, and the loaded morning runs on as the
+/// whole.
 #[test]
 fn a_save_the_second_before_the_departure_runs_on_the_same() {
     let data = tune_data(-44);
@@ -891,6 +892,214 @@ fn a_save_the_second_before_a_birthday_that_is_a_choice_runs_on_the_same() {
     });
 }
 
+/// A search that would start in a night that begins after the second it is planned in finds
+/// nothing: that night's start, the bedtime, still bounds it and makes the person choose
+/// (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). The woman of 30 in the den
+/// of the tune house, her night from 22:00 of day 2, a Wednesday, to 6:00 of the Thursday; her
+/// bladder 400 at 21:59:59, falling 30 an hour, every other need still. The loo brings 40 000 at
+/// the most mood only from the deficit 609 (609 · 66 − 150 = 40 044; 608: 39 978), 1 080 s on
+/// (600 + ⌊30 · 1 080 / 3 600⌋), at 22:17:59: planned at 21:59:59 from then, nothing comes before
+/// her bedtime. Planned in that second from 22:00:00, as a world saved at 21:59:59 plans it,
+/// nothing either. Planned in her night, at 22:00:00 from then or from 22:00:01 as a world saved
+/// then, the search looks from the night's end on: at 6:00:00 her bladder is 400 − ⌊30 · 28 801 /
+/// 3 600⌋ = 160, and the loo brings 840 · 60 · 90 / 100 − 150 = 45 210 even at the least mood.
+#[test]
+fn a_plan_made_before_the_night_ends_at_its_bedtime() {
+    let data = tune_data(-30);
+    let (houses, house) = tune_house(&data);
+    let born = t(-30 * Y);
+    let day = 2 * D;
+    let bedtime = day + 22 * H;
+    let mut needs = MORNING_VALUES.map(|value| NeedSample::new(value, t(bedtime - 1), 0));
+    needs[2] = NeedSample::new(400, t(bedtime - 1), -30);
+    let planned = |start: i64, after: i64| {
+        next_choice(
+            (house, houses),
+            (born, &needs, 1),
+            |_| true,
+            (t(start), t(after)),
+            |_, _, _| 0,
+            |_| None,
+        )
+    };
+    assert!(loo(608, 10) < ENOUGH && loo(609, 10) >= ENOUGH);
+    assert_eq!(
+        (600 + 30 * 1_079 / 3_600, 600 + 30 * 1_080 / 3_600),
+        (608, 609)
+    );
+    assert_eq!((400 - 30 * 28_801 / 3_600, loo(840, -10)), (160, 45_210));
+    assert_eq!(planned(bedtime - 1, bedtime - 1), None);
+    assert_eq!(planned(bedtime, bedtime - 1), None);
+    let morning = Some(t(day + D + 6 * H));
+    assert_eq!(planned(bedtime, bedtime), morning);
+    assert_eq!(planned(bedtime + 1, bedtime), morning);
+}
+
+/// The couple of 70 and 72 (retired: no duty takes them out) in the tune house without its
+/// time-filler (the screen no `fallback`) and with its hall a room one does not stay in, so that
+/// one idle there walks the 3 s to the den; their bladder falling 7 an hour, every other need
+/// still; their night from 21:30 to 6:00 of a weekday.
+fn retired_data() -> Data {
+    let kinds = TUNE_KINDS.replace("\"fallback\": true", "\"fallback\": false");
+    let hall = "\"entrance\": true}";
+    assert!(TUNE.contains(hall));
+    let house = TUNE.replace(hall, "\"entrance\": true, \"dwell\": false}");
+    day::house_data(&bladder_rates(-7), &kinds, &house)
+}
+
+fn retired(data: &Data) -> Run {
+    Run::family(data.clone(), 7, "test:house", &[-70 * Y, -72 * Y], 0).0
+}
+
+/// Their bedtime on day 1, a Tuesday: 21:30, 55 800 s after their first morning.
+const RETIRED_BEDTIME: i64 = D + 21 * H + 1_800;
+
+/// Idle in `room` of the tune house with `needs`, waiting for nothing, by day.
+fn idle(room: u8, needs: [u16; 5]) -> LogPayload {
+    LogPayload::Idle {
+        house: DataId::new("test:tune").expect("id"),
+        room,
+        needs,
+        busy: Vec::new(),
+        waits: None,
+        held: Vec::new(),
+        tier: Vec::new(),
+    }
+}
+
+/// One idle whose search finds nothing before its bedtime has no choice planned: the bedtime
+/// makes it choose. Saved in the second before it, the loaded world plans the same (ADR-0026,
+/// addendum of 2026-11-04 on comfort and the time-filler): its search would start in the night,
+/// which begins after the clock, so the bedtime still bounds it and nothing is planned, where from
+/// the night's end on it would find the loo the next morning, a choice the run never planned. The
+/// couple of `retired_data`: at 6:00 of day 1 nothing brings 40 000 (the loo 500 · 66 − 250 =
+/// 32 750 at most), so each idles in the hall and walks the 3 s to the den. Their bladder reaches
+/// the deficit 609 the loo needs from the den at the most mood only ⌈109 · 3 600 / 7⌉ = 56 058 s
+/// on, at 21:34:18, after their bedtime at 21:30:00: no choice is planned. At 400, ⌈100 · 3 600 /
+/// 7⌉ = 51 429 s on (20:17:09), each chooses again and idles in the den, with nothing planned
+/// again. At 21:30:00, with the bladder 392 (500 − ⌊7 · 55 800 / 3 600⌋), each takes the bed, 5 s
+/// within the den, she its first place, he its second. Saved at 21:29:59, the world loads, saves
+/// to the same bytes and runs on to 9:00 of the next day as the whole.
+#[test]
+fn an_idle_person_saved_before_its_bedtime_runs_on_the_same() {
+    let data = retired_data();
+    let bedtime = RETIRED_BEDTIME;
+    assert_eq!(bedtime - MORNING, 55_800);
+    assert_eq!((109 * 3_600 + 6) / 7, 56_058);
+    assert_eq!(MORNING + 56_058, D + 21 * H + 34 * 60 + 18);
+    assert_eq!((100 * 3_600 + 6) / 7, 51_429);
+    assert_eq!(MORNING + 51_429, D + 20 * H + 17 * 60 + 9);
+    assert_eq!(500 - 7 * 55_800 / 3_600, 392);
+    assert!(loo(608, 10) < ENOUGH && 500 * 66 - 250 < ENOUGH);
+    let mut whole = retired(&data);
+    whole.advance(bedtime + 1);
+    let low = [600, 900, 400, 700, 800];
+    let night = [600, 900, 392, 700, 800];
+    for (id, slot) in [(1, 0), (2, 1)] {
+        assert_eq!(
+            doings(&whole, id, MORNING, bedtime + 1),
+            [
+                (0, idle(0, MORNING_VALUES)),
+                (51_429, idle(1, low)),
+                (55_800, started((2, slot), (1, 5), night, false)),
+            ],
+            "{id}"
+        );
+    }
+    runs_on_the_same(&data, bedtime - 1, 2 * D + 9 * H, || {
+        let mut run = retired(&data);
+        run.advance(bedtime - 1);
+        run
+    });
+}
+
+/// A walk's search starts at its arrival, and its bounds are those after the second before it,
+/// whenever the walk's plan is made (ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler): a walk to the room one stays in that arrives in the night looks from the night's
+/// end on, planned before the night, in the clock before the night or in it, as a loaded world
+/// plans it; one that arrives at the bedtime itself plans nothing, as the bedtime comes first. The
+/// couple of `retired_data`: at the clock 21:24:54, 306 s before their bedtime, she is told to use
+/// the loo and he to watch the screen in the den for 45 min. She walks the 3 s from the den, and
+/// the loo's 5 minutes end at 21:29:58 (21:24:55 + 3 + 300) with her bladder 453: 393 at her
+/// arrival (500 − ⌊7 · 55 498 / 3 600⌋) and 60 more. Nothing brings her 40 000 (the loo 547 · 66
+/// − 250 = 35 852 at most), so she idles in the hall and walks the 3 s to the den, through the
+/// bedtime, which changes nothing for either; she arrives at 21:30:01, in her night, and takes the
+/// bed's first place. Saved at 21:29:59 and at 21:30:00, while she walks, the world loads, saves
+/// to the same bytes and runs on to 9:00 of the next day as the whole. By hand, on that walk with
+/// her bladder 453 at 21:29:58 falling 30 an hour, so that from the night's end the loo surely
+/// brings enough at 6:00:00 (453 − ⌊30 · 30 602 / 3 600⌋ = 198, 802 · 54 − 150 = 43 158 at the
+/// least mood): planned in her second, in the clock before the night and in it, her next choice
+/// is 6:00:00; arriving at 21:30:00, none.
+#[test]
+fn a_walk_into_the_night_saved_on_its_way_runs_on_the_same() {
+    let data = retired_data();
+    let bedtime = RETIRED_BEDTIME;
+    assert_eq!(500 - 7 * (55_800 - 302) / 3_600, 393);
+    assert_eq!(393 + 720 * 300 / 3_600, 453);
+    assert_eq!(547 * 66 - 250, 35_852);
+    assert_eq!((453 - 30 * 30_602 / 3_600, loo(802, -10)), (198, 43_158));
+    let clock = bedtime - 306;
+    let told = || {
+        let mut run = retired(&data);
+        run.advance(clock);
+        for (id, object) in [(1, LOO), (2, SCREEN)] {
+            run.submit(Input::Command(Command {
+                sim: sim(id),
+                object,
+                offer: 0,
+            }));
+        }
+        run
+    };
+    let mut whole = told();
+    whole.advance(bedtime + 2);
+    let washed = [600, 900, 453, 700, 800];
+    assert_eq!(
+        doings(&whole, 1, bedtime - 2, bedtime + 2),
+        [
+            (0, ended(LOO, EndReason::Done, washed)),
+            (0, idle(0, washed)),
+            (3, started((2, 0), (1, 5), washed, false)),
+        ]
+    );
+    assert!(doings(&whole, 2, bedtime - 2, bedtime + 2).is_empty());
+    // Her next choice on her walk, planned in her second, in the clock before the night and in it.
+    let key = LineageKey::founder(&DataId::new("test:house").expect("id"), 0);
+    let mut needs = washed.map(|value| NeedSample::new(value, t(bedtime - 2), 0));
+    needs[2] = NeedSample::new(453, t(bedtime - 2), -30);
+    let walking = |arrive: i64| InHouse {
+        needs,
+        place: Place::Walking {
+            from: 0,
+            to: 1,
+            depart: t(bedtime - 2),
+            arrive: t(bedtime + arrive),
+        },
+        action: None,
+        due: None,
+        decisions: sim_core::house::state::Decisions { day: 1, count: 4 },
+        collapsed: false,
+    };
+    let (houses, house) = tune_house(&data);
+    let who = (t(-70 * Y), key, 7);
+    let none = BTreeSet::new();
+    let next = |arrive: i64, (start, after): (i64, i64)| {
+        let from = (t(bedtime + start), t(bedtime + after));
+        next_choice_of((house, houses), who, &walking(arrive), &none, from)
+    };
+    for planned in [(-2, -2), (0, -1), (1, 0)] {
+        assert_eq!(next(1, planned), Some(t(2 * D + 6 * H)), "{planned:?}");
+    }
+    assert_eq!((next(0, (-2, -2)), next(0, (0, -1))), (None, None));
+    for saved_at in [bedtime - 1, bedtime] {
+        runs_on_the_same(&data, saved_at, 2 * D + 9 * H, || {
+            let mut run = told();
+            run.advance(saved_at);
+            run
+        });
+    }
+}
+
 /// A bath for one in the hall (hygiene +1 000 an hour for 2 332 s), a screen for two in the den
 /// that is the time-filler (fun +1 an hour for 45 min), a bed for two in the den, and the five
 /// essential kinds in the hall, each raising its need by 1 an hour for a minute, the sofa
@@ -928,19 +1137,19 @@ const WAIT_HOUSE: &str = r#"{
     {"kind": "core:sofa", "room": "hall"}]
 }"#;
 
-/// A departure that waits for a time-filler ends it at its next choice from the departure on,
-/// which the departure no longer closes (review of 2026-11-05), as a loaded world plans it. The
-/// woman of 30 of `common::day` (full time, here from 6:50) with a man of 70, who has no duty,
-/// in the house `WAIT_HOUSE`: awake only fun falls, 1 000 an hour from 6:00 below 67, and fun
-/// weighs from its comfort 151 on. At 6:00 she takes the bath (5 s within the hall, then 2 332
-/// s; hygiene 700, 300 · 300 − 250), and he waits for it. It ends at 6:38:57 with her fun at 151
-/// (800 − ⌊1 000 · 2 337 / 3 600⌋), where nothing brings her 40 000: she walks the 3 s to the
-/// screen as her time-filler, and arrives with fun 150, critical. The screen would run past her
-/// departure, so nothing ends her filler before it began 4 h ago. At 6:50 her departure waits
-/// for the filler that raises her critical fun; from then the screen's other place, free and
-/// open, brings her the critical points at once: her filler ends at 6:50:00 and she leaves on
-/// time. Saved before, at and after the departure, the morning loads, saves to the same bytes
-/// and runs on as the whole.
+/// A departure that waits for a time-filler ends it at its next choice from the departure on, which
+/// the departure no longer closes, as a loaded world plans it (ADR-0026, addendum of 2026-11-04 on
+/// comfort and the time-filler). The woman of 30 of `common::day` (full time, here from 6:50) with
+/// a man of 70, who has no duty, in the house `WAIT_HOUSE`: awake only fun falls, 1 000 an hour
+/// from 6:00 below 67, and fun weighs from its comfort 151 on. At 6:00 she takes the bath (5 s
+/// within the hall, then 2 332 s; hygiene 700, 300 · 300 − 250), and he waits for it. It ends at
+/// 6:38:57 with her fun at 151 (800 − ⌊1 000 · 2 337 / 3 600⌋), where nothing brings her 40 000:
+/// she walks the 3 s to the screen as her time-filler, and arrives with fun 150, critical. The
+/// screen would run past her departure, so nothing ends her filler before it began 4 h ago. At 6:50
+/// her departure waits for the filler that raises her critical fun; from then the screen's other
+/// place, free and open, brings her the critical points at once: her filler ends at 6:50:00 and she
+/// leaves on time. Saved before, at and after the departure, the morning loads, saves to the same
+/// bytes and runs on as the whole.
 #[test]
 fn a_departure_that_waits_for_a_time_filler_ends_it_at_once() {
     let day = include_str!("../../../data/house/day.json").replace(
@@ -1023,16 +1232,16 @@ fn a_departure_that_waits_for_a_time_filler_ends_it_at_once() {
     }
 }
 
-/// An input at the clock plans the end of a time-filler anew in the very second it was due
-/// (review of 2026-11-05), as the loader recomputes it from there. In the tune house of
-/// `a_time_filler_lasts_until_the_next_choice` the woman's time-filler ends at 6:09:00, when the
-/// loo brings enough. At the clock 6:08:59 the man is told to use the loo: he walks there and
-/// takes its one place, so nothing brings her enough while he is in it, and her end moves to
-/// 4 h after it began. When his 5 minutes there end at 6:14:03 the loo is free again, her deficit
-/// 734 above 609 and no whole minute before 6:14:39, where her deficit 744 brings 40 026 at the
-/// least mood: then her time-filler ends, with fun 824 (800 + ⌊100 · 876 / 3 600⌋), and she walks
-/// to the loo. Saved at the clock with the command, the morning loads, saves to the same bytes
-/// and runs on as the whole.
+/// An input at the clock plans the end of a time-filler anew in the very second it was due, as the
+/// loader recomputes it from there (ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler). In the tune house of `a_time_filler_lasts_until_the_next_choice` the woman's
+/// time-filler ends at 6:09:00, when the loo brings enough. At the clock 6:08:59 the man is told to
+/// use the loo: he walks there and takes its one place, so nothing brings her enough while he is in
+/// it, and her end moves to 4 h after it began. When his 5 minutes there end at 6:14:03 the loo is
+/// free again, her deficit 734 above 609 and no whole minute before 6:14:39, where her deficit 744
+/// brings 40 026 at the least mood: then her time-filler ends, with fun 824 (800 + ⌊100 · 876 / 3
+/// 600⌋), and she walks to the loo. Saved at the clock with the command, the morning loads, saves
+/// to the same bytes and runs on as the whole.
 #[test]
 fn a_command_in_the_second_a_time_filler_ends_is_saved_and_runs_on_the_same() {
     let data = tune_data(-1_000);

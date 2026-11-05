@@ -321,7 +321,8 @@ fn the_search_stops_at_bedtime_and_at_a_birthday() {
     assert_eq!(next(eleven_pm, &still, at(11, 0, 0), 10), None);
     // Planned in the second before the search's start, as a loaded world plans in its clock, a
     // birthday at that start is still to come and is the choice; planned in the start itself it
-    // has passed, and the next is a year on (review of 2026-11-05).
+    // has passed, and the next is a year on (ADR-0026, addendum of 2026-11-04 on comfort and the
+    // time-filler).
     let eleven_am = t(at(11, 0, 0).as_secs() - 30 * Y);
     let from = |after: SimTime| (at(11, 0, 0), after);
     assert_eq!(

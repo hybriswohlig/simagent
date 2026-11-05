@@ -2469,7 +2469,7 @@ fn onsets_due(person: &Sim, now: i64) -> impl Iterator<Item = (u64, SimTime)> + 
 /// The second the action of a person at its object ends, from its offer and needs, a sleep
 /// at the end of its night; a time-filler at its next choice, recomputed from the second the
 /// loaded world runs next, planned in the clock (ADR-0026, addendum of 2026-11-04 on comfort and
-/// the time-filler; review of 2026-11-05).
+/// the time-filler).
 fn action_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
     let data = rules.data;
     let person = loaded.house.sims.get(&sim)?;
@@ -2539,9 +2539,9 @@ fn taken_for(
 
 /// The next choice of a person idle in a room or on its walk to the room one stays in, not lying
 /// and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest), recomputed from
-/// the second the loaded world runs next, planned in the clock (review of 2026-11-05), with the
-/// places of its household taken by an action or held for others; `None` for anyone else or if
-/// nothing comes.
+/// the second the loaded world runs next, planned in the clock (its addendum on comfort and the
+/// time-filler), with the places of its household taken by an action or held for others; `None`
+/// for anyone else or if nothing comes.
 fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
     let person = loaded.house.sims.get(&sim)?;
     let houses = rules.data.houses()?;

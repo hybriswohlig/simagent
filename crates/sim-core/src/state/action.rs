@@ -434,8 +434,8 @@ enum Begun {
 /// due in this second stays: it comes anyway, and plans the next. The end of a time-filler at
 /// its object is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
 /// addendum of 2026-11-04 on comfort and the time-filler); in an input at the clock even one due
-/// in its second, which has not come yet, as a loaded world plans it from the clock (review of
-/// 2026-11-05). Each plan is made in `planned_in`.
+/// in its second, which has not come yet, as a loaded world plans it from the clock. Each plan is
+/// made in `planned_in`.
 pub(crate) fn plan_idle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     for (household, by) in core::mem::take(&mut domain.house_changed) {
         if !domain.house.households.contains_key(&household) {

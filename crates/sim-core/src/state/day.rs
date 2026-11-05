@@ -206,7 +206,8 @@ pub(crate) fn on_wake(domain: &mut DomainState, data: &Data, sim: SimId, ctx: &m
 /// 2026-11-04 on a need at 0) until the person gets up; otherwise the person leaves now. A need
 /// whose crossing at 0 falls into this second is settled first: the departure runs before it.
 /// A time-filler it waits for ends at its next choice from now on, which this departure no longer
-/// closes, as a loaded world plans it (review of 2026-11-05).
+/// closes, as a loaded world plans it (ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler).
 pub(crate) fn on_depart(
     domain: &mut DomainState,
     data: &Data,

@@ -1328,13 +1328,15 @@ fn a_save_keeps_the_walk_and_the_action() {
 }
 
 /// Her night in a save (ADR-0026, addendum of 2026-11-04): at 7 from 20:00 of her Saturday,
-/// `SEVEN_SIX`, to 6:00. Idle at 19:59:59 her bedtime is due at 20:00, exactly once, by
-/// itself and for her alone; at 20:00 itself it has come, and the next is the plan's of
-/// tomorrow. Idle with every need at 0, her next choice is due at the end of the night she is
-/// in from 20:00 (ADR-0026, addendum of 2026-11-04 after the playtest), without it refused. Asleep at 23:00 in the single bed (object 8 in the kids' room) since 22:00, every
-/// need at the sleeping rate of 6 to 12, her sleep ends at 6:00, not when energy is full
-/// (4:15) nor at another second; at 5:59:59 Sunday's bedtime, planned at 5:00, is due as well.
-/// Begun at 19:00, by day, the sleep is refused, and so is a walk to the bed begun by day,
+/// `SEVEN_SIX`, to 6:00. Idle at 19:59:59 her bedtime is due at 20:00, exactly once, by itself and
+/// for her alone; at 20:00 itself it has come, and the next is the plan's of tomorrow. Idle with
+/// every need at 0, at 20:00 in her night her next choice is due at its end (ADR-0026, addendum of
+/// 2026-11-04 after the playtest), without it refused; at 19:59:59 her night begins after the
+/// clock, so her bedtime makes her choose, and a choice at the night's end is refused (its addendum
+/// on comfort and the time-filler). Asleep at 23:00 in the single bed (object 8 in the kids' room)
+/// since 22:00, every need at the sleeping rate of 6 to 12, her sleep ends at 6:00, not when energy
+/// is full (4:15) nor at another second; at 5:59:59 Sunday's bedtime, planned at 5:00, is due as
+/// well. Begun at 19:00, by day, the sleep is refused, and so is a walk to the bed begun by day,
 /// while one begun in the night loads, and one begun by a command acting at 20:00:00 with that
 /// command in the input log.
 #[test]
@@ -1353,13 +1355,17 @@ fn a_save_keeps_the_night() {
     let refused = Some(LoadError::Inconsistent);
     let idle = seven(TestPlace::Room(0), None, [0; 5], None);
     // Idle with needs at 0, critical, from 20:00 in her night: her next choice is due at its
-    // end (ADR-0026, addendum of 2026-11-04 after the playtest).
+    // end (ADR-0026, addendum of 2026-11-04 after the playtest). Before it her bedtime chooses.
     let next = event(morning, Payload::Decide { sim: 1 });
     let before = eight - 1;
-    assert_eq!(loads(before, &idle, vec![bed.clone(), next.clone()]), None);
-    assert_eq!(loads(before, &idle, vec![next.clone()]), refused);
+    assert_eq!(loads(before, &idle, vec![bed.clone()]), None);
     assert_eq!(
-        loads(before, &idle, vec![bed.clone(), bed.clone(), next.clone()]),
+        loads(before, &idle, vec![bed.clone(), next.clone()]),
+        refused
+    );
+    assert_eq!(loads(before, &idle, vec![]), refused);
+    assert_eq!(
+        loads(before, &idle, vec![bed.clone(), bed.clone()]),
         refused
     );
     let wrong = [
@@ -1368,11 +1374,7 @@ fn a_save_keeps_the_night() {
         event(eight, Payload::Bedtime { sim: 2 }),
     ];
     for (index, other) in wrong.into_iter().enumerate() {
-        assert_eq!(
-            loads(before, &idle, vec![other, next.clone()]),
-            refused,
-            "{index}"
-        );
+        assert_eq!(loads(before, &idle, vec![other]), refused, "{index}");
     }
     let tomorrow = event(eight + DAY, Payload::Bedtime { sim: 1 });
     assert_eq!(loads(eight, &idle, vec![next.clone()]), None);

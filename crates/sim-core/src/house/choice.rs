@@ -183,8 +183,8 @@ pub fn lasts(def: &OfferDef, rates: &NeedRates, band: usize, values: [u16; 5]) -
 /// (`lasts`) from its arrival, the need it fills lowered first by the most the walk can lower
 /// it. A walk keeps the rates the person had at its choice, awake ones; at the fastest fall of
 /// the awake rates of any age band the need loses at most `⌈fall · walk_secs / 3600⌉` on it
-/// (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler, review of 2026-11-05). `None`
-/// for an offer of sleep, which lasts its night.
+/// (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler). `None` for an offer of
+/// sleep, which lasts its night.
 pub fn runs_for(
     def: &OfferDef,
     rates: &NeedRates,
@@ -407,22 +407,23 @@ pub fn choose(
 /// playtest), born at `born`, with the needs `needs` standing in `room` and the objects for
 /// which `free` holds having a free place, from `start` on, planned in the second `after` (at
 /// most `start`): the first second at which an offer of one of these objects brings `ENOUGH`
-/// with the person's mood of that second, `moods(second, object, offer)`. In the night it looks
-/// from the night's end on. Per offer only whole minutes are weighed, from the first second it
-/// brings `ENOUGH` at the most mood (`choice_mood_percent`) to the first it surely does at the
-/// least, which counts if no minute before it does; the earliest over the offers. Not at or
-/// after the person's next bedtime, which makes it choose anyway; its next birthday, where the
-/// offers and their rates may change, comes first if it is earlier. An offer is weighed only
-/// before the first second at which it could still run at today's departure
-/// (`crosses_departure`), `departure(start)` the departure of the day planned last at or before
-/// the search's start (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler); a need
-/// it raises turning critical makes the person choose at its crossing anyway. The bedtime, the
-/// birthday and the departure are those after `after`, and never before the second before the
-/// search's start: a loaded world plans in its clock what the run planned in its second, and
-/// both see the same bounds (review of 2026-11-05). `None` if nothing comes, or beyond the end of
-/// time. The needs keep the rates of their samples; the sample of a need that rises is weighed
-/// at its value at `start` for the most and full for the least, so both bounds only grow with
-/// time.
+/// with the person's mood of that second, `moods(second, object, offer)`. Per offer only whole
+/// minutes are weighed, from the first second it brings `ENOUGH` at the most mood
+/// (`choice_mood_percent`) to the first it surely does at the least, which counts if no minute
+/// before it does; the earliest over the offers. Not at or after the person's next bedtime, which
+/// makes it choose anyway; its next birthday, where the offers and their rates may change, comes
+/// first if it is earlier. An offer is weighed only before the first second at which it could
+/// still run at today's departure (`crosses_departure`), `departure(start)` the departure of the
+/// day planned last at or before the search's start; a need it raises turning critical makes the
+/// person choose at its crossing anyway. The plan's second is `after`, but never before the
+/// second before the search's start, and the bedtime, the birthday and the departure are those
+/// after it: a loaded world plans in its clock what the run planned in its second, and both see
+/// the same bounds. A search that would start in a night looks from the night's end on if the
+/// plan's second lies in that night; if the night begins after it, its start is the bedtime,
+/// which comes first, and nothing is planned (ADR-0026, addendum of 2026-11-04 on comfort and the
+/// time-filler). `None` if nothing comes, or beyond the end of time. The needs keep the rates of
+/// their samples; the sample of a need that rises is weighed at its value at `start` for the most
+/// and full for the least, so both bounds only grow with time.
 pub fn next_choice(
     (house, data): (&House, &HouseData),
     (born, needs, room): (SimTime, &[NeedSample; 5], u8),
@@ -432,12 +433,17 @@ pub fn next_choice(
     departure: impl Fn(SimTime) -> Option<SimTime>,
 ) -> Option<SimTime> {
     let rules = data.day();
+    let planned = |start: SimTime| {
+        let before = (start.as_secs().checked_sub(1)).and_then(|secs| SimTime::try_from(secs).ok());
+        before.map_or(after, |before| after.max(before))
+    };
     let start = match night(rules, born, start) {
+        // A night that begins after the plan's second: its bedtime comes first.
+        Some(night) if night.from > planned(start) => return None,
         Some(night) => night.until?,
         None => start,
     };
-    let before = (start.as_secs().checked_sub(1)).and_then(|secs| SimTime::try_from(secs).ok());
-    let after = before.map_or(after, |before| after.max(before));
+    let after = planned(start);
     let depart = departure(start).filter(|&depart| depart > after);
     let age = age(born, after)?;
     let band = age_band(age)?;

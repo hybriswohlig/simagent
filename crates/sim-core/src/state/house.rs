@@ -298,7 +298,8 @@ pub(super) fn plan_crossings(
 
 /// The second a plan made now is made in, whose later seconds it plans: a handler's own; for an
 /// input, which acts before the events of its second, the one before, the clock, from which a
-/// loaded world plans the same (ADR-0024, addendum of 2026-11-04; review of 2026-11-05).
+/// loaded world plans the same (ADR-0024, addendum of 2026-11-04; ADR-0026, addendum of
+/// 2026-11-04 on comfort and the time-filler).
 pub(super) fn planned_in(ctx: &SimCtx<'_, '_>) -> SimTime {
     let now = ctx.now();
     if ctx.in_input() {
