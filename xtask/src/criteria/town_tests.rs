@@ -271,7 +271,10 @@ fn the_criteria_town_runs_the_game() {
     let town = town_data(&root(), &dir, POOL_D);
     let game = game_town_data(&root(), &dir, POOL_D);
     std::fs::remove_dir_all(&dir).expect("removed");
-    let (town, game) = (town.expect("the town's data"), game.expect("the game's data"));
+    let (town, game) = (
+        town.expect("the town's data"),
+        game.expect("the game's data"),
+    );
     assert_eq!(town.demography().fertility.extra, None);
     assert_eq!(town.demography().fertility.wish_tilt, 0.311);
     let fertility = &game.demography().fertility;
@@ -287,7 +290,10 @@ fn the_criteria_town_runs_the_game() {
     );
     let pool = game.pool().expect("a pool");
     assert_eq!(pool.wish().1, 0.311);
-    assert_eq!(pool.frequencies(), town.pool().expect("a pool").frequencies());
+    assert_eq!(
+        pool.frequencies(),
+        town.pool().expect("a pool").frequencies()
+    );
     assert_ne!(game.hash(), town.hash());
 }
 

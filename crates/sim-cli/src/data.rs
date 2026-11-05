@@ -137,8 +137,7 @@ pub fn game_demography() -> Result<String, CliError> {
 /// refused here as it would be in the file.
 pub fn data_with_settings(text: &str) -> Result<Data, CliError> {
     let values = settings_values(text)?;
-    let (demography, calibration) =
-        apply_settings(&game_demography()?, CALIBRATION, &values)?;
+    let (demography, calibration) = apply_settings(&game_demography()?, CALIBRATION, &values)?;
     on_the_extract(&demography, &calibration)
 }
 
@@ -629,6 +628,16 @@ mod tests {
         assert_eq!(fertility.extra.map(|extra| extra.grown_chance), Some(0.5));
         assert_eq!(set.pool().expect("the pool").wish().1, 0.311);
         assert_ne!(set.hash(), data.hash());
+        // A town's own value of the founding page acts on the game's documents: the tilt and
+        // the extra child stay the game's.
+        let own = data_with_settings(
+            r#"{"format":"simagent.settings","version":1,"values":{"core:market_age":18}}"#,
+        )
+        .expect("reads");
+        let fertility = &own.demography().fertility;
+        assert_eq!(own.demography().market.age_years, 18);
+        assert_eq!(fertility.wish_tilt, 0.224);
+        assert_eq!(fertility.extra, data.demography().fertility.extra);
     }
 
     fn puberty_ramp(data: &Data) -> f64 {
@@ -732,6 +741,11 @@ mod tests {
         );
         assert_eq!(base_value("core:no_such_value"), None);
         assert_eq!(base_value("values"), None);
+        // The game's overlay (ADR-0017, addendum of 2026-11-05): its tilt and the values of
+        // the extra child are the base game's.
+        assert_eq!(base_value("core:fertility_wish_tilt"), Some(0.224));
+        assert_eq!(base_value("core:fertility_count_until"), Some(18.0));
+        assert_eq!(base_value("core:fertility_grown_chance"), Some(0.2));
     }
 
     /// The houses of `data/house/` (ADR-0025 section 3): one to three members take the flat,
