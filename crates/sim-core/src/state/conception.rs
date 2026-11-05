@@ -609,23 +609,80 @@ pub(crate) fn brought_start(
     data: &Data,
     hers: &[(SimTime, Option<SimTime>)],
     arrived: SimTime,
-    (formed_pool, delta): (SimTime, i64),
+    pool: (SimTime, i64),
 ) -> Option<SimTime> {
     let first = month_start_after(arrived)?;
+    Some(match brought_pause(data, hers, pool)? {
+        Some(after) => first.max(after),
+        None => first,
+    })
+}
+
+/// The end of the pause after her last birth before the freeze in the partnership she
+/// brought (formed at `formed_pool` in the pool, her household shifted by `delta`): the first
+/// month start at or after it; `Some(None)` without such a birth.
+fn brought_pause(
+    data: &Data,
+    hers: &[(SimTime, Option<SimTime>)],
+    (formed_pool, delta): (SimTime, i64),
+) -> Option<Option<SimTime>> {
     let last = hers
         .iter()
         .filter_map(|(_, born_pool)| *born_pool)
         .filter(|born| *born > formed_pool)
         .max();
     let Some(last) = last else {
-        return Some(first);
+        return Some(None);
     };
     let pause = data.demography().fertility.pause_months;
-    let after = series_after_birth(
+    series_after_birth(
         SimTime::from_secs(last.as_secs().checked_add(delta)?),
         pause,
-    )?;
-    Some(first.max(after))
+    )
+    .map(Some)
+}
+
+/// The pool's side of the partnership `id` she brought: her children in the run by their
+/// arrival and their birth second in the pool, her arrival, and the partnership's forming in
+/// the pool with the shift of her household (what `brought_start` reads).
+#[allow(
+    clippy::type_complexity,
+    reason = "the three parts `brought_start` takes, named there"
+)]
+fn brought_side(
+    domain: &DomainState,
+    data: &Data,
+    woman: SimId,
+    id: PartnershipId,
+) -> Option<(Vec<(SimTime, Option<SimTime>)>, SimTime, (SimTime, i64))> {
+    let key = domain.key_of(woman);
+    let (household, _) = data.pool()?.member(key)?;
+    let formed_pool = household.partnership?.formed;
+    let (_, delta) = brought(domain, data, id)?;
+    let origin = domain.pool_origin(woman)?;
+    let hers: Vec<(SimTime, Option<SimTime>)> = (domain.offspring.get(&key).into_iter())
+        .flatten()
+        .filter_map(|child| domain.pool_origin(*child))
+        .map(|origin| (origin.arrived, origin.born_pool))
+        .collect();
+    Some((hers, origin.arrived, (formed_pool, delta)))
+}
+
+/// The end of the pause after her last birth in her open partnership `id` (ADR-0017
+/// section 4 and its addendum of 2026-11-05): after her last birth in the town in it, else,
+/// for a partnership she brought, after her last birth in it before the freeze (pool
+/// seconds, shifted, as `brought_start` reads it); `None` without one.
+pub(crate) fn pause_end(
+    domain: &DomainState,
+    data: &Data,
+    woman: SimId,
+    id: PartnershipId,
+) -> Option<SimTime> {
+    if let Some(born) = last_town_birth(domain, woman, id) {
+        return series_after_birth(born, data.demography().fertility.pause_months);
+    }
+    let (hers, _, pool) = brought_side(domain, data, woman, id)?;
+    brought_pause(data, &hers, pool)?
 }
 
 /// Where the town's rule begins her series in her open partnership `id`: after its forming,
@@ -639,18 +696,9 @@ pub(crate) fn series_start(
     id: PartnershipId,
 ) -> Option<SimTime> {
     let pair = domain.partnerships.get(&id)?;
-    let key = domain.key_of(woman);
     if carried(domain, data, woman, id) == Some(false) {
-        let (household, _) = data.pool()?.member(key)?;
-        let formed_pool = household.partnership?.formed;
-        let (_, delta) = brought(domain, data, id)?;
-        let origin = domain.pool_origin(woman)?;
-        let hers: Vec<(SimTime, Option<SimTime>)> = (domain.offspring.get(&key).into_iter())
-            .flatten()
-            .filter_map(|child| domain.pool_origin(*child))
-            .map(|origin| (origin.arrived, origin.born_pool))
-            .collect();
-        return brought_start(data, &hers, origin.arrived, (formed_pool, delta));
+        let (hers, arrived, pool) = brought_side(domain, data, woman, id)?;
+        return brought_start(data, &hers, arrived, pool);
     }
     match last_town_birth(domain, woman, id) {
         Some(born) => series_after_birth(born, data.demography().fertility.pause_months),

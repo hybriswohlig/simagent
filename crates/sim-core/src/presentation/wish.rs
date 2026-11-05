@@ -13,8 +13,9 @@ use crate::world::World;
 use super::whole_years;
 
 /// Where the wish of a couple stands at the last closed second, in the order the page reads
-/// it: her fertility over, she is pregnant, the pause after a birth of the partnership, they
-/// try (by her wish, by his, by a grown child of hers), her wish is fulfilled.
+/// it: she is pregnant (then the page shows no sentence of the couple, whatever else holds),
+/// her fertility over, the pause after a birth of the partnership, they try (by her wish, by
+/// his, by a grown child of hers), her wish is fulfilled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WishState {
@@ -75,20 +76,25 @@ impl World {
                 let (woman, man) = (pair.woman, pair.man);
                 let facts = conception::pair_facts(domain, data, (woman, man, id));
                 let life = domain.sims.get(&woman)?.births;
-                let pause = data.demography().fertility.pause_months;
-                let paused = conception::last_town_birth(domain, woman, id)
-                    .and_then(|born| conception::series_after_birth(born, pause))
-                    .is_some_and(|end| end > now);
+                // The pause after her last birth in it, in the town or brought from the pool.
+                let paused =
+                    conception::pause_end(domain, data, woman, id).is_some_and(|end| end > now);
                 let pregnant = domain.pregnancies.contains_key(&woman);
                 let couple = facts.couple(data, now, life, (pregnant, paused));
-                let state = match conception::decide(&couple) {
-                    Ok(Opening::Hers) => WishState::Hers,
-                    Ok(Opening::His) => WishState::His,
-                    Ok(Opening::Grown) => WishState::Grown,
-                    Err(Held::FertilityOver) => WishState::FertilityOver,
-                    Err(Held::Pregnant) => WishState::Pregnant,
-                    Err(Held::Pause) => WishState::Pause,
-                    Err(Held::Fulfilled) => WishState::Fulfilled,
+                // While she is pregnant the page shows no sentence of the couple, also past the
+                // end of her fertility (which `decide` reads first, for the plan).
+                let state = if pregnant {
+                    WishState::Pregnant
+                } else {
+                    match conception::decide(&couple) {
+                        Ok(Opening::Hers) => WishState::Hers,
+                        Ok(Opening::His) => WishState::His,
+                        Ok(Opening::Grown) => WishState::Grown,
+                        Err(Held::FertilityOver) => WishState::FertilityOver,
+                        Err(Held::Pregnant) => WishState::Pregnant,
+                        Err(Held::Pause) => WishState::Pause,
+                        Err(Held::Fulfilled) => WishState::Fulfilled,
+                    }
                 };
                 Some(CoupleWish { woman, man, state })
             })
