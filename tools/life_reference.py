@@ -17,6 +17,9 @@ Usage:
                                                partners (below), every other value held at
                                                data/calibration/demography.json; with
                                                --quick a smoke test that publishes nothing
+  python3 tools/life_reference.py --wish-refit --accept --market FILE
+                                               the refit of alpha under 11.2a, the market
+                                               values from the --accept fit's snippet FILE
   python3 tools/life_reference.py --accept     Schnitt 1 (11.2a): the man's answer and the
                                                target ages; the fit adds w_a. Without the
                                                flag the tool runs as before
@@ -2181,16 +2184,32 @@ def wish_refit(argv):
     t0 = time.time()
     held = published()
     base = {k: v for k, v in held.items() if k != "alpha"}
+    # Under --accept (11.2a) the market values come from the snippet of the --accept fit
+    # (`--market FILE`): the held market values and her w_a, rounded as published.
+    accept = "--accept" in argv
+    if accept:
+        with open(argv[argv.index("--market") + 1]) as f:
+            market = json.load(f)
+        for key, name in HELD.items():
+            if name != "alpha":
+                base[name] = market[key]["value"]
+        base["w_a"] = market["core:pairing_weight_age"]["value"]
+        assert market["core:pairing_weight_age_male"]["value"] == W_AM
+        assert market["core:pairing_taste_sd"]["value"] == TASTE_SD
     log("life_reference --wish-refit: %s; the wish of both partners (extra %d, grown from %d "
         "with the chance %g, young until %d years); towns of %d founders over %d years (burn-in "
         "%d); %d towns per step, %d in the check; %d jobs" % (
             "QUICK smoke test, publishes nothing" if quick else "refit of alpha", WISH_EXTRA,
             GROWN_FROM, chance, COUNT_UNTIL // MONTHS, cfg["founders"], cfg["years"],
             cfg["burn_in"], cfg["step_towns"], cfg["check_towns"], jobs))
-    log("held at data/calibration/demography.json: %s; published alpha %g" % (
+    log("held at %s: %s; published alpha %g" % (
+        "the --accept fit's snippet (11.2a, the man's answer)" if accept else
+        "data/calibration/demography.json",
         ", ".join("%s %g" % (k, v) for k, v in base.items()), held["alpha"]))
     sim_cfg = {"founders": cfg["founders"], "years": cfg["years"], "burn_in": cfg["burn_in"],
                "market": "female", "rule": "extra", "grown_chance": chance}
+    if accept:
+        sim_cfg["accept"] = True
     runner = Runner(sim_cfg, jobs)
     seeds = REFIT_SEEDS[:cfg["step_towns"]]
     points = {}
