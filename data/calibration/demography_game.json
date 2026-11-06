@@ -36,9 +36,9 @@
       "note": "A grown child reopens her only if her draw FERTILITY_WISH at occasion 1 (her key, the seed of her wish) is below this; his slot does not read it."
     },
     "core:pairing_taste_sd": {
-      "value": 3.0,
+      "value": 1.0,
       "unit": "year",
-      "source": "genetics specification 11.2a [K11.2j]; ADR-0018, addendum of 2026-11-06",
+      "source": "genetics specification 11.2a [K11.2j]; ADR-0018, addendum of 2026-11-06 (third round: 1 year)",
       "as_of": "2026-11-06",
       "note": "sigma_nu: every person draws one taste nu ~ normal(0, sigma_nu) from PAIRING_TASTE, a pure function of its lineage key (pool persons with the pool seed, town-born with the world seed). It stands only in the target ages. A play value for both sexes, not fitted."
     },
@@ -73,9 +73,9 @@
     "core:pairing_weight_age_male": {
       "value": 0.02,
       "unit": "logit",
-      "source": "genetics specification 11.2a (w_am, start value 0.02); ADR-0018, addendum of 2026-11-06",
+      "source": "genetics specification 11.2a [K11.2p]; ADR-0018, addendum of 2026-11-06 (third round)",
       "as_of": "2026-11-06",
-      "note": "w_am, utility per squared year of the distance between her age and his target age in his answer, the same unit as core:pairing_weight_age. A start value until the refit: w_am is fitted together with c, m, rho, mu_a, alpha, w_K, w_H and the separation rate against the stock share of couples with the older woman, 0.18 (band 0.14 to 0.22)."
+      "note": "w_am, utility per squared year of the distance between her age and his target age in his answer, the same unit as core:pairing_weight_age. His answer has no trait term: U_m = -w_am * (a_f - t_m)^2 + G_m > 0. A play value, not fitted (third round of 2026-11-06); the stock share of couples with the older woman, 0.18, is carried by her weight w_a."
     }
   }
 }

@@ -324,13 +324,20 @@ fn the_game_overlays_the_extra_child() {
         })
     );
     assert_eq!(common::data().demography().fertility.extra, None);
-    // The six values of the man's answer (11.2a) come with it: the spec's start values.
-    assert_eq!(data.demography().market.male, Some(MALE));
+    // The six values of the man's answer (11.2a) come with it: the spec's values, the taste's
+    // spread 1 year (third round of 2026-11-06).
+    assert_eq!(
+        data.demography().market.male,
+        Some(MaleAnswer {
+            taste_sd: 1.0,
+            ..MALE
+        })
+    );
     assert_eq!(common::data().demography().market.male, None);
 }
 
-/// The man's answer and the target ages (11.2a, ADR-0018 addendum of 2026-11-06): the spec
-/// values, with his weight 0.02 as a start value of the refit.
+/// The man's answer and the target ages (11.2a, ADR-0018 addendum of 2026-11-06): the spec's
+/// first values (taste 3), used for the group's loader rules.
 const MALE: MaleAnswer = MaleAnswer {
     taste_sd: 3.0,
     target_slope: 0.4,
