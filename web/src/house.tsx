@@ -24,7 +24,7 @@ const HOUSE = { format: "simagent.view.house", version: 9 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
-const HOUSES = { format: "simagent.view.houses", version: 1 } as const;
+const HOUSES = { format: "simagent.view.houses", version: 2 } as const;
 /** How many pages of a person's day the page reads at most (a day has some hundred entries). */
 const DAY_PAGES = 10;
 /** How far back a person's day list reaches from the clock, in seconds: the last 24 hours, so
@@ -200,17 +200,24 @@ function Plan({ house, names }: { house: HouseAnswer; names: ReadonlyMap<number,
   // Who is away at school, work or the kindergarten is not in the house.
   const inside = house.persons.filter((person) => person.place.away === undefined);
   const young = house.children.filter((child) => child.place.away === undefined);
-  const placed = spots(layout, [...inside, ...young], house.at.t);
-  const dots = [
-    ...inside.map((person) => ({ sim: person.sim, fill: person.action === null ? "#8a6d3b" : "#2f6f73", line: doing(layout, person) })),
-    ...young.map((child) => ({ sim: child.sim, fill: "#9a5a8c", line: youngLine(layout, child) })),
-  ];
   const named = labels(
     layout,
     drawn,
     layout.objects.map((object) => KIND_WORDS[object.kind]?.[0] ?? object.kind),
     layout.rooms.map((room) => (ROOM_WORDS[room.id] ?? [room.id])[0]),
   );
+  // Who stands in front of a thing stands past its name.
+  const placed = spots(
+    layout,
+    [...inside, ...young],
+    house.at.t,
+    named.objects.map((label) => label.box),
+    [...named.objects, ...named.rooms].map((label) => label.box),
+  );
+  const dots = [
+    ...inside.map((person) => ({ sim: person.sim, fill: person.action === null ? "#8a6d3b" : "#2f6f73", line: doing(layout, person) })),
+    ...young.map((child) => ({ sim: child.sim, fill: "#9a5a8c", line: youngLine(layout, child) })),
+  ];
   const pad = 0.6;
   const view = `${-pad} ${-pad - 0.8} ${drawn.width + 2 * pad} ${drawn.height + 2 * pad + 0.8}`;
   return (
@@ -637,16 +644,25 @@ export function HousePage({ run, household }: { run: string; household: string }
   );
 }
 
-/** The households of a run with a house, from the server, asked again for each `again`: `null`
- * while asked, "failed" without an answer. The list of houses, not each house: a household
- * without one is no error. */
-export function useHouses(run: string, again = ""): ReadonlySet<number> | null | "failed" {
-  const [houses, setHouses] = useState<ReadonlySet<number> | null | "failed">(null);
+/** The households of a run with a house and the age a child has no needs under, from the
+ * server. */
+export type Houses = { readonly households: ReadonlySet<number>; readonly youngUntil: number | null };
+
+/** The houses of a run, from the server, asked again for each `again`: `null` while asked,
+ * "failed" without an answer. The list of houses, not each house: a household without one is no
+ * error. */
+export function useHouses(run: string, again = ""): Houses | null | "failed" {
+  const [houses, setHouses] = useState<Houses | null | "failed">(null);
   useEffect(() => {
     let live = true;
     setHouses(null);
     getJson(`/api/runs/${run}/houses`, HOUSES)
-      .then((json) => live && setHouses(new Set((json as unknown as HousesAnswer).households.map((entry) => entry.household))))
+      .then((json) => {
+        const answer = json as unknown as HousesAnswer;
+        if (live) {
+          setHouses({ households: new Set(answer.households.map((entry) => entry.household)), youngUntil: answer.young_until });
+        }
+      })
       .catch(() => live && setHouses("failed"));
     return () => {
       live = false;
@@ -706,7 +722,7 @@ export function HouseLink({ run, household, members }: { run: string; household:
   if (houses === "failed") {
     return <p>{TEXT.failed_network}</p>;
   }
-  if (houses.has(household)) {
+  if (houses.households.has(household)) {
     return (
       <p>
         <a href={format({ page: "house", run, household: String(household) })}>{TEXT.house_to_house}</a>
@@ -725,12 +741,14 @@ export function HouseLink({ run, household, members }: { run: string; household:
 
 /** The families of a run for finding one to move into a house (the playtest of 2026-11-04):
  * each household a house can hold with its members and their ages now, from the pedigree and
- * the people answer, by default only those with children; each with the way to its house, or
- * "Ins Haus". */
+ * the people answer, by default only those with children, on request only those with a child
+ * under the age the server names; each with the way to its house, or "Ins Haus". */
 export function Families({ run, pedigree, people }: { run: string; pedigree: Pedigree; people: PeopleAnswer }) {
   const [children, setChildren] = useState(true);
+  const [small, setSmall] = useState(false);
   const houses = useHouses(run);
-  const kept = families(pedigree, people.people, children, LARGEST);
+  const young = houses === null || houses === "failed" ? null : houses.youngUntil;
+  const kept = families(pedigree, people.people, children, LARGEST, small ? young : null);
   return (
     <>
       <h2>{TEXT.families}</h2>
@@ -738,6 +756,15 @@ export function Families({ run, pedigree, people }: { run: string; pedigree: Ped
         <label>
           <input type="checkbox" checked={children} onChange={() => setChildren(!children)} /> {TEXT.families_children}
         </label>
+        {young === null ? null : (
+          <>
+            {" "}
+            <label>
+              <input type="checkbox" checked={small} onChange={() => setSmall(!small)} />{" "}
+              {TEXT.families_young.replace("{n}", String(young))}
+            </label>
+          </>
+        )}
       </p>
       <p role="status">{TEXT.families_found.replace("{n}", String(kept.length))}</p>
       {kept.length === 0 ? <p>{TEXT.families_none}</p> : null}
@@ -753,7 +780,7 @@ export function Families({ run, pedigree, people }: { run: string; pedigree: Ped
                 {` ${member.age} ${TEXT.years}`}
               </span>
             ))}{" "}
-            {houses === null || houses === "failed" ? null : houses.has(family.household) ? (
+            {houses === null || houses === "failed" ? null : houses.households.has(family.household) ? (
               <a href={format({ page: "house", run, household: String(family.household) })}>{TEXT.house_to_house}</a>
             ) : (
               <MoveIn run={run} household={family.household} />

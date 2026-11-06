@@ -313,14 +313,22 @@ pub fn world_answer(world: &World) -> Result<serde_json::Value, CliError> {
 }
 
 /// The households with a house (ADR-0021, addendum of 2026-11-03), in ascending id, each with
-/// its house and whether its first morning has come.
+/// its house and whether its first morning has come; and the age a child has no needs under,
+/// `young.until_age` of the house data, for finding a family with a small child (version 2);
+/// `null` for data without houses.
 pub fn houses_answer(world: &World) -> serde_json::Value {
     let households: Vec<serde_json::Value> = (world.state().house().households.iter())
         .map(|(id, moved)| {
             serde_json::json!({"household": id.get(), "house": moved.house, "morning": moved.morning})
         })
         .collect();
-    serde_json::json!({"format": "simagent.view.houses", "version": 1, "households": households})
+    let young = (world.data().houses()).map(|houses| houses.day().young.until_age);
+    serde_json::json!({
+        "format": "simagent.view.houses",
+        "version": 2,
+        "households": households,
+        "young_until": young,
+    })
 }
 
 /// A person's reserve at the clock `at` (ADR-0026, addendum of 2026-11-06 on hunger at 0): its

@@ -314,6 +314,7 @@ export const TEXT = {
   people_none: "Niemand passt zu diesem Filter.",
   families: "Familien",
   families_children: "nur mit Kindern",
+  families_young: "nur mit Kind unter {n}",
   families_found: "{n} Familien",
   families_none: "Keine Familie passt.",
   people_failed: "Die Personen kamen nicht.",

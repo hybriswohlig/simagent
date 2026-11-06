@@ -592,11 +592,12 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HousesAnswer",
-            doc: "`GET /api/runs/{run}/houses`: the households with a house, each with its house and whether its first morning has come.",
+            doc: "`GET /api/runs/{run}/houses`: the households with a house, each with its house and whether its first morning has come; the age a child has no needs under (null for data without houses).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.houses"])),
                 field("version", Integer),
                 field("households", list(Ref("HousesEntry"))),
+                field("young_until", nullable(Integer)),
             ],
         },
         Named {

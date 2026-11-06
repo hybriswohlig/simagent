@@ -4339,8 +4339,11 @@ fn houses_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"]),
-            (&json!("simagent.view.houses"), &json!(1))
+            (&json!("simagent.view.houses"), &json!(2))
         );
+        // The age a child is under while it has no needs, `young.until_age` of
+        // `data/house/day.json` (version 2).
+        assert_eq!(answer["young_until"], json!(6));
         answer["households"].clone()
     };
     assert_eq!(houses(), json!([]));

@@ -56,28 +56,130 @@ export function objectMiddle(layout: HouseLayout, drawn: Plan, index: number): P
   return { x: offset + object.x + object.w / 2, y: object.y + object.h / 2 };
 }
 
+/** The radius of a person's dot, in metres, and how far it stands from a thing it is too large
+ * for. */
+const DOT = 0.3;
+const FRONT = 0.05;
+/** The step of the places in a room tried for one who does nothing where none around its place
+ * is free, in metres. */
+const GRID = 0.05;
+
+/** The places a dot can stand in `room`, on a grid of `GRID`, the nearest to `point` first, then
+ * from the top and the left. */
+function grid(room: Box, point: Point): Point[] {
+  const count = (span: number) => Math.max(0, Math.floor((span - 2 * DOT) / GRID + 1e-9)) + 1;
+  const places: Point[] = [];
+  for (let row = 0; row < count(room.bottom - room.top); row += 1) {
+    for (let column = 0; column < count(room.right - room.left); column += 1) {
+      places.push({ x: room.left + DOT + column * GRID, y: room.top + DOT + row * GRID });
+    }
+  }
+  const away = (spot: Point) => Math.hypot(spot.x - point.x, spot.y - point.y);
+  return places.sort((a, b) => away(a) - away(b) || a.y - b.y || a.x - b.x);
+}
+
+/** Whether a dot at `point` lies inside `room`. */
+function within(point: Point, room: Box): boolean {
+  return point.x - DOT >= room.left - 1e-9 && point.x + DOT <= room.right + 1e-9 && point.y - DOT >= room.top - 1e-9 && point.y + DOT <= room.bottom + 1e-9;
+}
+
+/** Whether a dot at `point` keeps clear of `box` (its nearest point at least the dot's radius
+ * away). */
+function clear(point: Point, box: Box): boolean {
+  const dx = Math.max(box.left - point.x, 0, point.x - box.right);
+  const dy = Math.max(box.top - point.y, 0, point.y - box.bottom);
+  return Math.hypot(dx, dy) >= DOT - 1e-9;
+}
+
+/** Of `places` (the nearest first), the one farthest from every point of `others`, the first of
+ * equals; `undefined` for no place. */
+function roomiest(places: readonly Point[], others: readonly Point[]): Point | undefined {
+  let best: Point | undefined;
+  let room = -1;
+  for (const place of places) {
+    const near = Math.min(Infinity, ...others.map((other) => Math.hypot(other.x - place.x, other.y - place.y)));
+    if (near > room + 1e-9) {
+      best = place;
+      room = near;
+    }
+  }
+  return best;
+}
+
+/** Where someone at object `index` stands: on its middle where the dot fits on it (a bed, the
+ * sofa, the table), else in front of it (the fourth playtest: dots over the television and the
+ * wall): on the side toward the middle of its room, across the thin side (the height first),
+ * `FRONT` from it or, where its name `name` stands on that side, from its name, and the dot's
+ * radius further. */
+function atObject(layout: HouseLayout, drawn: Plan, index: number, name: Box | undefined): Point {
+  const middle = objectMiddle(layout, drawn, index);
+  const box = objectBox(layout, drawn, index);
+  const roomIndex = layout.rooms.findIndex((room) => room.id === layout.objects[index]?.room);
+  const centre = roomMiddle(layout, drawn, roomIndex);
+  const thinY = box.bottom - box.top < 2 * DOT;
+  const thinX = box.right - box.left < 2 * DOT;
+  if (!thinY && !thinX) {
+    return middle;
+  }
+  // The name counts where it stands across the dot's way out on that side.
+  const named = name === undefined ? null : name;
+  if (thinY) {
+    const across = named !== null && named.left < middle.x + DOT && named.right > middle.x - DOT;
+    if (centre.y >= middle.y) {
+      const past = across && named.top >= box.top ? named.bottom : box.bottom;
+      return { x: middle.x, y: Math.max(box.bottom, past) + FRONT + DOT };
+    }
+    const past = across && named.bottom <= box.bottom ? named.top : box.top;
+    return { x: middle.x, y: Math.min(box.top, past) - FRONT - DOT };
+  }
+  const across = named !== null && named.top < middle.y + DOT && named.bottom > middle.y - DOT;
+  if (centre.x >= middle.x) {
+    const past = across && named.left >= box.left ? named.right : box.right;
+    return { x: Math.max(box.right, past) + FRONT + DOT, y: middle.y };
+  }
+  const past = across && named.right <= box.right ? named.left : box.left;
+  return { x: Math.min(box.left, past) - FRONT - DOT, y: middle.y };
+}
+
 /** Where each person is drawn at the second `at`, only for the picture (ADR-0025 section 5):
- * at its object while it does something there, in the middle of its room while it does
- * nothing (a child always), on the way along the straight line between the middles of the
- * two rooms by the share of the walk gone. Nobody covers another (the playtest of 2026-11-04):
- * one who would stand nearer than `SPREAD` to one drawn before stands at the first place around
- * its own that is not, to the right, the left, below, above, then at the corners, then twice as
- * far. */
-export function spots(layout: HouseLayout, persons: readonly Drawn[], at: number): Point[] {
+ * at its object while it does something there (`atObject`, with the object names `names`
+ * where `labels` put them), in the middle of its room while it does nothing (a child always),
+ * on the way along the straight line between the middles of the two rooms by the share of the
+ * walk gone. Nobody covers another (the playtest of 2026-11-04): one who would stand nearer
+ * than `SPREAD` to one drawn before stands at the first place around its own that is not, to
+ * the right, the left, below, above, then at the corners, then twice as far. One in a room
+ * stays inside it, and one who does nothing or stands in front of a thing stays off the
+ * furniture and off every name in `shown` (the fourth playtest), where no place around is so at
+ * the nearest such place of the room (`grid`); failing that, the same without the names. One in
+ * a room where no place inside it covers nobody stands inside it where it is farthest from the
+ * others; one on the way, at the first place around that covers nobody. */
+export function spots(
+  layout: HouseLayout,
+  persons: readonly Drawn[],
+  at: number,
+  names: readonly (Box | undefined)[] = [],
+  shown: readonly Box[] = [],
+): Point[] {
   const drawn = plan(layout);
-  const placed = persons.map((person): Point => {
+  const things = layout.objects.map((_, index) => ({ room: layout.objects[index]?.room, box: objectBox(layout, drawn, index) }));
+  const placed = persons.map((person): { point: Point; room: number | null; floor: boolean } => {
     const { room, walking } = person.place;
     if (walking !== undefined) {
       const from = roomMiddle(layout, drawn, walking.from);
       const to = roomMiddle(layout, drawn, walking.to);
       const length = walking.arrive.t - walking.depart.t;
       const share = length <= 0 ? 1 : Math.min(1, Math.max(0, (at - walking.depart.t) / length));
-      return { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share };
+      return { point: { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share }, room: null, floor: false };
     }
     if (person.action !== undefined && person.action !== null) {
-      return objectMiddle(layout, drawn, person.action.object);
+      const object = person.action.object;
+      const roomIndex = layout.rooms.findIndex((each) => each.id === layout.objects[object]?.room);
+      const point = atObject(layout, drawn, object, names[object]);
+      // In front of a thing, not on it: on the floor.
+      const floor = point.x !== objectMiddle(layout, drawn, object).x || point.y !== objectMiddle(layout, drawn, object).y;
+      return { point, room: roomIndex < 0 ? null : roomIndex, floor };
     }
-    return roomMiddle(layout, drawn, room ?? 0);
+    return { point: roomMiddle(layout, drawn, room ?? 0), room: room ?? 0, floor: true };
   });
   const ring = [
     [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1],
@@ -85,10 +187,28 @@ export function spots(layout: HouseLayout, persons: readonly Drawn[], at: number
     [1, 2], [-1, 2], [1, -2], [-1, -2], [2, 2], [-2, 2], [2, -2], [-2, -2],
   ] as const;
   const out: Point[] = [];
-  for (const point of placed) {
+  for (const { point, room, floor } of placed) {
     const free = (spot: Point) => out.every((other) => Math.hypot(other.x - spot.x, other.y - spot.y) >= SPREAD - 1e-9);
+    const box = room === null ? null : roomBox(layout, drawn, room);
+    const id = room === null ? null : layout.rooms[room]?.id;
+    const fits = (spot: Point) =>
+      box === null || (within(spot, box) && (!floor || things.every((thing) => thing.room !== id || clear(spot, thing.box))));
+    // The names count only for one on the floor (idle or in front of a thing).
+    const unnamed = (spot: Point) => !floor || shown.every((name) => clear(spot, name));
     const around = ring.map(([dx, dy]) => ({ x: point.x + dx * SPREAD, y: point.y + dy * SPREAD }));
-    out.push(around.find(free) ?? around[around.length - 1] ?? point);
+    const roomy = (spot: Point) => free(spot) && fits(spot);
+    const best = (spot: Point) => roomy(spot) && unnamed(spot);
+    const elsewhere = (good: (spot: Point) => boolean) => (floor && box !== null ? grid(box, point).find(good) : undefined);
+    out.push(
+      around.find(best) ??
+        elsewhere(best) ??
+        around.find(roomy) ??
+        elsewhere(roomy) ??
+        (box === null ? undefined : roomiest(grid(box, point), out)) ??
+        around.find(free) ??
+        around[around.length - 1] ??
+        point,
+    );
   }
   return out;
 }
