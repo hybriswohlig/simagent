@@ -4,7 +4,7 @@ import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { commandChoices, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
-import { dayGroups, dayLine, doing, type DayLine } from "./day.js";
+import { dayGroups, dayLine, doing, reserveWord, type DayLine } from "./day.js";
 import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseChild, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName, surnames } from "./names.js";
@@ -377,6 +377,9 @@ function Resident({
   const shown = people !== null && readable(people.contract_version)
     ? people.people.find((p) => p.sim === sim)?.shown
     : undefined;
+  // The worst band of the reserve beside what the person does (ADR-0026, addendum of 2026-11-06
+  // on hunger at 0).
+  const status = person === null ? null : reserveWord(person.reserve);
   return (
     <li style={{ display: "flex", gap: "1em", alignItems: "flex-start", listStyle: "none", marginBottom: "1em" }}>
       {shown !== undefined && known !== undefined && (
@@ -387,6 +390,7 @@ function Resident({
           <a href={format({ page: "person", run, sim: String(sim) })}>{name}</a>
           {": "}
           {line}
+          {status !== null && `, ${status}`}
           {person !== null && person.smells && <Smell />}
         </p>
         {person !== null && (

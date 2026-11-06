@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { beforeBed, fillerWords, moodWords, pointsText, satedWords, shortWords, urgentWords, weightWords, whyText } from "../dist/why.js";
+import { beforeBed, fillerWords, moodWords, pointsText, reserveWords, satedWords, shortWords, urgentWords, weightWords, whyText } from "../dist/why.js";
 
 test("the mood with its sign, nothing without one", () => {
   assert.equal(moodWords(6), " (Laune +6 %)");
@@ -63,7 +63,7 @@ function why(fields) {
   return {
     format: "simagent.view.why", version: 7, entry: 1, sim: 1, at: dated(61_200), enough: 40_000, commanded: false,
     needs: [600, 900, 500, 50, 800], comfort: [700, 1000, 700, 900, 1000], night, chosen: null, waits: null, goes_to: null,
-    filler: null, too_short: null, offers: [], now: null, ...fields,
+    filler: null, too_short: null, offers: [], now: null, reserve: null, ...fields,
   };
 }
 
@@ -86,6 +86,30 @@ test("an urgent choice by its need, the others by their points", () => {
       "ist auf der Toilette im Bad −250 (Laune +3 %) (besetzt), schläft im Bett zu, ab 22:00.",
     now: null,
   });
+});
+
+test("the reserve of the latest choice, one sentence after it", () => {
+  // ADR-0026, addendum of 2026-11-06 on hunger at 0: Grok's sentences by the server's band.
+  const reserve = (value, band) => ({ value, capacity: 1000, band });
+  assert.equal(reserveWords(null), null);
+  assert.equal(reserveWords(reserve(1000, "none")), null);
+  assert.equal(reserveWords(reserve(730, "draws")), "Vorrat noch 730 von 1000.");
+  assert.equal(
+    reserveWords(reserve(400, "weak")),
+    "Geschwächt, Vorrat 400 von 1000: Befehle nur noch zum Essen, der Weg dauert doppelt.",
+  );
+  assert.equal(
+    reserveWords(reserve(0, "wasted")),
+    "Ausgezehrt, Vorrat 0 von 1000: Befehle nur noch zum Essen, der Weg dauert doppelt, die Energie fällt schneller.",
+  );
+  const told = whyText(
+    why({ commanded: true, chosen: { object: 3, offer: 0, points: -250, mood: null, urgent: [] }, offers: [], reserve: reserve(400, "weak") }),
+    LAYOUT,
+  );
+  assert.equal(
+    told.told,
+    "Befohlen: sieht fern vor dem Fernseher, −250 Punkte. Geschwächt, Vorrat 400 von 1000: Befehle nur noch zum Essen, der Weg dauert doppelt.",
+  );
 });
 
 test("a command is told so, its points without a mood", () => {

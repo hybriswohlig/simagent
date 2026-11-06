@@ -1094,7 +1094,7 @@ fn house(world: Result<Rc<World>, CliError>, household: &str) -> Response {
 /// `GET /api/runs/{run}/why/{entry}` (ADR-0021, addendum of 2026-11-03): the entry from the
 /// run's domain log, if it is a choice, recomputed; an idle entry with whether a later choice of
 /// its person follows it in the log (version 4: if none does, "Warum?" adds the comparison at
-/// the clock); a time-filler with the entry that ended it and the choice after that in its
+/// the clock), and any choice so with its person's reserve at the clock (version 9); a time-filler with the entry that ended it and the choice after that in its
 /// second, if the log has them (version 6, ADR-0026, addendum of 2026-11-04 on comfort and the
 /// time-filler).
 fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &str) -> Response {
@@ -1113,10 +1113,12 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
         return Response::error(500, "events_invalid");
     };
     let latest = match (&found.payload, found.subjects.as_slice()) {
-        (LogPayload::Idle { .. }, [Subject::Sim(sim)]) => match later_choice(&log, end, *sim) {
-            Err(()) => return Response::error(500, "events_invalid"),
-            Ok(later) => !later,
-        },
+        (LogPayload::Idle { .. } | LogPayload::ActionStarted { .. }, [Subject::Sim(sim)]) => {
+            match later_choice(&log, end, *sim) {
+                Err(()) => return Response::error(500, "events_invalid"),
+                Ok(later) => !later,
+            }
+        }
         _ => false,
     };
     let ended = match (&found.payload, found.subjects.as_slice()) {
