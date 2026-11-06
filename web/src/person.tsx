@@ -25,6 +25,7 @@ import { Portrait } from "./portrait.js";
 import { KIN_DY, layout, MARK_DY, NAME_DY, RADIUS } from "./render/tree.js";
 import { format } from "./router.js";
 import { TEXT } from "./text.js";
+import { wishLines } from "./wish.js";
 import { currentPartner, hourglass, nodeMark, parentsOf, type Hourglass } from "./tree.js";
 
 /** The format of `pedigree.json` this viewer reads (`simagent export`). */
@@ -56,7 +57,7 @@ function usePersonView(run: string, sim: string, at: string): Loaded<PersonAnswe
   useEffect(() => {
     let live = true;
     setLoaded({ state: "loading", key });
-    getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 2 })
+    getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 3 })
       .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
       .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
@@ -93,6 +94,16 @@ function Life({ view }: { view: PersonAnswer }) {
       )}
     </p>
   );
+}
+
+/** The wish for children, as the core decides it (ADR-0017, addendum of 2026-11-05). */
+function Wish({ view, person, pedigree }: { view: PersonAnswer; person: string; pedigree: Pedigree }) {
+  const name = (sim: number) => {
+    const found = pedigree.persons.find((p) => p.sim === sim);
+    return found === undefined ? TEXT.unknown : fullName(found);
+  };
+  const lines = wishLines(person, view.wish, name);
+  return lines.length === 0 ? null : <p>{lines.join(" ")}</p>;
 }
 
 /** The portraits at the ages a person reached. */
@@ -256,7 +267,7 @@ function KinForm({
     }
     let live = true;
     setLoaded({ state: "loading", key });
-    getJson(`/api/runs/${run}/persons/${sim}?to=${other}`, { format: "simagent.view.person", version: 2 })
+    getJson(`/api/runs/${run}/persons/${sim}?to=${other}`, { format: "simagent.view.person", version: 3 })
       .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
       .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
@@ -601,6 +612,7 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
         <div>
           <Portrait params={shown.shown.body} sex={person.sex} label={fullName(person)} />
           <Life view={shown} />
+          <Wish view={shown} person={fullName(person)} pedigree={pedigree} />
         </div>
       ) : view.state === "ready" ? (
         <p>{TEXT.failed_contract}</p>

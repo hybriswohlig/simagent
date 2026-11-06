@@ -261,6 +261,15 @@ pub(crate) struct DomainState {
     /// The open partnership of each sim in one (ADR-0018 section 2). Not part of the
     /// projection: loading builds it again from the partnerships.
     pub(crate) open: BTreeMap<SimId, PartnershipId>,
+    /// The children in the run (living or archived) of each parent, by the parent's lineage
+    /// key: a town child under both parents' keys, a pool person under the keys its origin
+    /// names (ADR-0017, addendum of 2026-11-05: the gate counts them). Not part of the
+    /// projection: loading builds it again from the sims.
+    pub(crate) offspring: BTreeMap<LineageKey, Vec<SimId>>,
+    /// The partnerships an input formed (`Start` or `ArrangePartnership`): a birth in the
+    /// second of such a pairing comes after it (ADR-0018 section 1), so it is a birth of the
+    /// partnership. Not part of the projection: loading builds it again from the input log.
+    pub(crate) arranged: BTreeSet<PartnershipId>,
     /// The working memory of the φ queries (ADR-0018 section 2), empty at each query
     /// (ADR-0020 section 4). Not part of the projection and not saved.
     pub(crate) kinship: KinshipCache<LineageKey>,
@@ -413,6 +422,8 @@ impl DomainState {
             keys: BTreeMap::new(),
             pending: BTreeMap::new(),
             open: BTreeMap::new(),
+            offspring: BTreeMap::new(),
+            arranged: BTreeSet::new(),
             kinship: KinshipCache::new(),
             members: BTreeMap::new(),
             house_mornings: BTreeMap::new(),

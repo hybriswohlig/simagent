@@ -1,0 +1,39 @@
+{
+  "values": {
+    "core:fertility_wish_tilt": {
+      "value": 0.224,
+      "unit": "logit",
+      "source": "tools/life_reference.py --wish-refit (grown chance 0.20): bisection of alpha on the realized live births per woman reaching 50 in 24 closed towns of 1000 founders over 300 years (burn-in 100, seeds 1-24, every other value held at calibration/demography.json), bracket [0.223531, 0.223835]; checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-05",
+      "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners and the extra child; delete-one-town standard error 0.0042. Trace (alpha -> births): 0 -> 1.9530,0.311 -> 2.2888, 0.1555 -> 2.1302, 0.23325 -> 2.2117, 0.194375 -> 2.1670, 0.213813 -> 2.1915, 0.223531 -> 2.1998, 0.228391 -> 2.2064, 0.225961 -> 2.2044, 0.224746 -> 2.2026, 0.224139 -> 2.2017, 0.223835 -> 2.2013. Check: 2.1965 +- 0.0054 live births, under 18 0.00226, age gap 2.967, every other target within 4 standard errors; women with a birth conceived at or above the wish 0.083, such births 0.038 (his slot 0.014, a grown child 0.024). Completed sizes 0/1/2/3/4/5+: 0.156/0.101/0.332/0.236/0.152/0.023 (the rule without the extra child at alpha 0.311: 0.145/0.095/0.328/0.281/0.150/0.002; the extra child without the grown chance at alpha 0.063: 0.179/0.122/0.347/0.088/0.192/0.072). The pool's persons keep the wish of calibration/demography.json (alpha 0.311)."
+    },
+    "core:fertility_count_until": {
+      "value": 18.0,
+      "unit": "year",
+      "source": "ADR-0017, addendum of 2026-11-05",
+      "as_of": "2026-11-05",
+      "note": "A child with a town birth second counts as young until the first month start of its 18 whole years, alive or not; a birth with no person in the town never leaves."
+    },
+    "core:fertility_extra": {
+      "value": 1.0,
+      "unit": "count",
+      "source": "ADR-0017, addendum of 2026-11-05",
+      "as_of": "2026-11-05",
+      "note": "She starts an attempt only while her live births are below her wish plus this: one extra child in her life, by a new partner's wish or a grown child; twins may finish one over."
+    },
+    "core:fertility_grown_from": {
+      "value": 3.0,
+      "unit": "count",
+      "source": "ADR-0017, addendum of 2026-11-05",
+      "as_of": "2026-11-05",
+      "note": "A grown child reopens her only with at least this many live births (the smallest whole number above the target of 2.20)."
+    },
+    "core:fertility_grown_chance": {
+      "value": 0.2,
+      "unit": "fraction",
+      "source": "ADR-0017, addendum of 2026-11-05: a play value, held in the refit of alpha",
+      "as_of": "2026-11-05",
+      "note": "A grown child reopens her only if her draw FERTILITY_WISH at occasion 1 (her key, the seed of her wish) is below this; his slot does not read it."
+    }
+  }
+}

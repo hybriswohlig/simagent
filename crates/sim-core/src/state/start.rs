@@ -368,7 +368,8 @@ pub(crate) fn apply_start(
         .map(|couple| (place(couple.woman), place(couple.man)))
         .collect();
     for &(woman, man) in &couples {
-        partnership::pair_up(domain, data, ids[woman].0, ids[man].0, ctx);
+        let id = partnership::pair_up(domain, data, ids[woman].0, ids[man].0, ctx);
+        domain.arranged.insert(id);
     }
     household::start_households(domain, data, &ids, &couples, ctx);
     // The founders from the pool (ADR-0020 section 5), after every series.

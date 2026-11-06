@@ -113,6 +113,7 @@ fn arrive_household(
         domain
             .sims
             .insert(id, arrival_state(data, member, delta, now, year, switch_on));
+        super::conception::note_child(domain, id);
         super::onset::on_creation(domain, data, id, entry, switch_on, ctx);
         by_key.insert(member.lineage_key, id);
         arrived.push((id, entry));
@@ -207,6 +208,14 @@ fn arrive_household(
                 entry,
             );
             domain.pending.insert((id, Slot::Conception), handle);
+        } else if let Some(pair) = partnership.filter(|pair| {
+            domain.partnerships.get(pair).is_some_and(|p| p.woman == id)
+                && !domain.pregnancies.contains_key(&id)
+        }) {
+            // A partnership brought without a series: the town's rule from the first month
+            // start after the arrival (ADR-0017, addendum of 2026-11-05).
+            let start = super::conception::series_start(domain, data, id, pair);
+            super::conception::plan_attempts(domain, data, id, entry, start, ctx);
         }
         if let Some(t) = member.birth_at {
             let at = shifted(t, delta, now);
@@ -230,6 +239,30 @@ fn arrive_household(
         let handle = ctx.schedule(next, EventPayload::Birthday { sim: id }, entry);
         domain.pending.insert((id, Slot::Birthday), handle);
         super::death::plan_deaths(domain, data, id, entry, ctx);
+    }
+    // 6. The women of the town whose gate the household may open (ADR-0017, addendum of
+    // 2026-11-05): the mother of a member, or the woman of its father's open partnership,
+    // living and not of this household, ascending SimId; each by the creation entry of the
+    // first member naming her or her partner.
+    let mut touched: BTreeMap<SimId, EventId> = BTreeMap::new();
+    for (member, &(_, entry)) in household.members.iter().zip(&arrived) {
+        for parent in [member.mother, member.father].into_iter().flatten() {
+            let Some(&other) = domain.keys.get(&parent) else {
+                continue;
+            };
+            if !domain.sims.contains_key(&other) || ids.contains(&other) {
+                continue;
+            }
+            let woman = super::partnership::open_partnership(domain, other)
+                .and_then(|pair| domain.partnerships.get(&pair))
+                .map(|pair| pair.woman);
+            if let Some(woman) = woman {
+                touched.entry(woman).or_insert(entry);
+            }
+        }
+    }
+    for (woman, by) in touched {
+        super::conception::replan(domain, data, woman, by, ctx);
     }
 }
 

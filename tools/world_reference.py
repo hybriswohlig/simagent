@@ -717,7 +717,11 @@ PROJECTION_VERSION = 19
 # the repository's day (no jump of hunger on coming home, the least time left for a time-filler)
 # and runs with a household in a house: a new data hash, no year hash and no log hash of a run
 # without one: core 59, the projection stays 19.
-CORE_VERSION = 59
+# The wish of both partners and the extra child (ADR-0017, addendum of 2026-11-05) change the
+# runs of the game's data (a new data hash) from the first series the gate plans that her wish
+# alone would not; a run on the extract or a fixture keeps its year hashes and its log: core 60,
+# the projection stays 19.
+CORE_VERSION = 60
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1337,9 +1341,17 @@ class Data:
     shock is unknown. With `houses` (`(needs, day, kinds, houses)` as
     `data_reference.house_files` reads them; ADR-0025, ADR-0024 section 4) the data hash ends
     with their postcard (`data_reference.houses_suffix`) after the templates'; without, nothing
-    is appended."""
+    is appended. With `game` (the overlay of data/calibration/demography_game.json,
+    `data_reference.overlaid`; ADR-0017, addendum of 2026-11-05) the pool is checked against
+    the definitions of `demography` (the extract), and everything else, the data hash
+    included, reads the overlaid life course data (`Data::with_calibration` after the pool,
+    the templates and the houses); a pool person keeps the extract's wish (`pool_wish`)."""
 
-    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None):
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None, game=None):
+        extract = data_reference.definitions_bytes(demography, calibration, genome_map)
+        extract_wish = data_reference.strip(demography)
+        if game is not None:
+            demography = data_reference.overlaid(demography, game)
         definitions = data_reference.definitions_bytes(demography, calibration, genome_map)
         self.hash = xxhash.xxh3_64_intdigest(definitions, seed=0)
         assert self.hash == data_reference.documents_hash(demography, calibration, genome_map)
@@ -1351,7 +1363,8 @@ class Data:
         self.pool_frequencies = None
         hashed = definitions
         if pool is not None:
-            self.pool = DataPool(pool, self.loci, self.hash, {} if frequencies is None else dict(frequencies))
+            extract_hash = xxhash.xxh3_64_intdigest(extract, seed=0)
+            self.pool = DataPool(pool, self.loci, extract_hash, {} if frequencies is None else dict(frequencies))
             self.pool_frequencies = self.pool.frequencies
             self.hash = data_reference.data_hash_with_pool(definitions, self.pool.seed, self.pool.hash, self.pool.frequencies)
             hashed += data_reference.pool_suffix(self.pool.seed, self.pool.hash, self.pool.frequencies)
@@ -1389,6 +1402,14 @@ class Data:
         assert self.pregnancy_months >= 1
         self.wish_tilt = number(life["values"]["core:fertility_wish_tilt"])
         self.wish_shape = [number(entry) for entry in life["fertility_wish_shape"]]
+        # The wish of a pool person: the shape and tilt of the definitions the pool was
+        # checked against (the extract), whatever the overlay or a setting sets.
+        self.pool_wish = None
+        if self.pool is not None:
+            self.pool_wish = ([number(entry) for entry in extract_wish["fertility_wish_shape"]], number(extract_wish["values"]["core:fertility_wish_tilt"]))
+        # The extra child (ADR-0017, addendum of 2026-11-05): None (the rule without it, the
+        # extract and every fixture) or `(count_until years, extra, grown_from, grown_chance)`.
+        self.extra = data_reference.extra_child(demography["values"])
         # The table of leaving home (design note of the households, section 1): ten weights
         # for the ages 16 to 25, each in [0, 1], at least one above 0 (data_reference checks
         # the same when it hashes the documents).
@@ -1537,7 +1558,8 @@ def repository_data() -> Data:
     shocks = data_reference.shock_templates(ROOT / "data")
     assert shocks, "the repository's data hold the shock templates (data/shocks.json)"
     houses = data_reference.house_files(ROOT / "data")
-    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses)
+    game = data_reference.game_overlay(ROOT / "data")
+    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, game=game)
 
 
 # The map 3 fixture (design note of the switch, section 4): tests/golden/map3 holds the map 3
@@ -2133,6 +2155,13 @@ def wish_unit(seed: int, key: int) -> float:
     """`u = unit(draw)` of the wish at the key (FERTILITY_WISH, the woman's lineage key,
     occasion 0, detail 0; 11.7)."""
     return unit(words(chacha_key(seed, FERTILITY_WISH, key, 0, 0))[0])
+
+
+def grown_unit(seed: int, key: int) -> float:
+    """`u = unit(draw)` of whether a grown child may reopen her (FERTILITY_WISH, her lineage
+    key, occasion 1, detail 0; ADR-0017, addendum of 2026-11-05): she may when `u` is below
+    the grown chance."""
+    return unit(words(chacha_key(seed, FERTILITY_WISH, key, 1, 0))[0])
 
 
 SINGLE, IDENTICAL, FRATERNAL = "single", "identical", "fraternal"
@@ -2919,6 +2948,16 @@ class World:
                 by = self.arrived_by[sim]
                 carried = {}
                 born = self.sims[sim][0]
+                # A partnership she brought without a series and without a pregnancy: the
+                # town's rule from the first month start after the arrival, where the carried
+                # series would be planned (ADR-0017, addendum of 2026-11-05).
+                if (
+                    member["conception_at"] is None
+                    and partnership_number is not None
+                    and self.partnerships[partnership_number][0] == sim
+                    and sim not in self.pregnancies
+                ):
+                    self._plan_series(sim, self.brought_start(sim, partnership_number), by, arrival)
                 for name in ("conception_at", "birth_at", "separation_at", "leave_home_at"):
                     if member[name] is None:
                         continue
@@ -2943,6 +2982,21 @@ class World:
                 self.carried[sim] = carried
                 self._plan_birthday(sim, first_birthday(born, arrival), by, arrival)
                 self._plan_deaths(sim, by, arrival)
+            # 6. The women of the town whose gate the household may open (ADR-0017, addendum of
+            # 2026-11-05): the mother of a member, or the woman of its father's open
+            # partnership, living and not of this household, ascending SimId; each by the
+            # `core:arrived` of the first member that names her or her partner.
+            touched = {}
+            for member, sim in zip(members, sims):
+                for parent in (member["mother"], member["father"]):
+                    other = self.by_key.get(parent)
+                    if other is None or other not in self.sims or other in sims:
+                        continue
+                    number_ = self.open_partnership(other)
+                    if number_ is not None:
+                        touched.setdefault(self.partnerships[number_][0], self.arrived_by[sim])
+            for woman in sorted(touched):
+                self._replan(woman, touched[woman], arrival)
             record["entries"] = list(range(before, self.next_event_id))
             self.arrivals.append(record)
 
@@ -3900,14 +3954,17 @@ class World:
         """The lineage key of a living or archived sim."""
         return self.sims[sim][1] if sim in self.sims else self.archive[sim][3]
 
-    def wish_of(self, woman: int) -> int:
-        """Her wish (genetics specification 11.3, design note section 3): `wish(u, shape,
-        tilt)` with `u` the draw FERTILITY_WISH at her lineage key; pure, not held. The
-        draw keeps `DRAW_MARGIN` from every threshold."""
+    def wish_of(self, sim: int) -> int:
+        """The wish of a woman or a man (genetics specification 11.3, design note section 3;
+        his since ADR-0017, addendum of 2026-11-05): `wish(u, shape, tilt)` with `u` the draw
+        FERTILITY_WISH at its lineage key; pure, not held. A pool person draws with the pool
+        seed and the extract's shape and tilt (`Data.pool_wish`), everyone else with the world
+        seed and the data's. The draw keeps `DRAW_MARGIN` from every threshold."""
         data = self.data
-        u = wish_unit(self.own_seed(woman), self.key_of(woman))
-        assert all(abs(u - acc) > DRAW_MARGIN for acc in wish_thresholds(data.wish_shape, data.wish_tilt)), u
-        return wish(u, data.wish_shape, data.wish_tilt)
+        shape, tilt = data.pool_wish if self.is_pool_person(sim) else (data.wish_shape, data.wish_tilt)
+        u = wish_unit(self.own_seed(sim), self.key_of(sim))
+        assert all(abs(u - acc) > DRAW_MARGIN for acc in wish_thresholds(shape, tilt)), u
+        return wish(u, shape, tilt)
 
     def theta_of(self, sim: int, now=None) -> float:
         """`θ_i` of a sim: the curve of its sex with `z_p` = 0 without a trait of the puberty
@@ -3959,24 +4016,197 @@ class World:
             rate = float(self.data.shocks[TIME_TOGETHER_TEMPLATE]["rate"])
         return chance(rate, f_w, f_m)
 
-    def series_allowed(self, woman: int, s: int) -> bool:
-        """Whether her series may be planned at `s` now (design note section 4): an open
-        partnership, not pregnant, `births < wish`, `age(w, s) < E`."""
-        her = self.sims[woman]
-        return (
-            self.partner_of(woman) is not None
-            and woman not in self.pregnancies
-            and her[6] < self.wish_of(woman)
-            and as_years(s - her[0]) < self.data.fertility_end
+    # The wish of both partners (ADR-0017, addendum of 2026-11-05). `life` is her live births
+    # (any partner, the pool's included); a child "has a town birthday at t" if it was born in
+    # the town at or before t, or arrived from the pool before t; it is young at t until
+    # `t >= born + count_until years` (dead or gone or not). Births without a person (the
+    # pool's, not in the run) never leave her `young`; his `young` counts the pool's persons
+    # naming him who have not arrived. `ours` is the pair's live births by the children
+    # naming both, and at least 1 if she brought this partnership with only it and births.
+
+    def children_in_run(self, sim: int, side: int) -> list:
+        """`(born, arrived)` of each living or archived sim whose mother (`side` 0) or father
+        (1) `sim` is, by its parents or by its PoolOrigin key; `arrived` the arrival second of
+        a pool member that came (`born_pool` given), None for a child born in the town."""
+        key = self.key_of(sim)
+        out = []
+        for child in set(self.sims) | set(self.archive):
+            parents = self.sims[child][7] if child in self.sims else self.archive[child][9]
+            if parents is not None:
+                if parents[side] == sim:
+                    out.append((self.born_of(child), None))
+            elif child in self.origins and self.is_pool_person(child) and self.origins[child]["mother" if side == 0 else "father"] == key:
+                origin = self.origins[child]
+                out.append((self.born_of(child), None if origin["born_pool"] is None else origin["arrived"]))
+        return sorted(out)
+
+    def pool_children_of(self, father_key: int) -> list:
+        """The pool's members naming `father_key` as father: `(their key, their mother's
+        key)` (an index of the pool file, not of the run)."""
+        if not hasattr(self, "_fathered"):
+            fathered = {}
+            if self.data.pool is not None:
+                for key, (_, member) in self.data.pool.members.items():
+                    if member["father"] is not None:
+                        fathered.setdefault(member["father"], []).append((key, member["mother"]))
+            self._fathered = fathered
+        return self._fathered.get(father_key, []) if self.pool_start is not None else []
+
+    def grown_at(self, born: int, t: int) -> bool:
+        return t >= born + self.data.extra[0] * YEAR
+
+    def young_of_her(self, woman: int, life: int, t: int) -> int:
+        grown = sum(
+            1
+            for born, arrived in self.children_in_run(woman, 0)
+            if (born <= t if arrived is None else arrived < t) and self.grown_at(born, t)
         )
+        return life - grown
+
+    def young_of_him(self, man: int, t: int) -> int:
+        young = 0
+        for born, arrived in self.children_in_run(man, 1):
+            if arrived is None:
+                young += born <= t and not self.grown_at(born, t)
+            else:
+                young += arrived >= t or not self.grown_at(born, t)
+        key = self.key_of(man)
+        young += sum(1 for child, _ in self.pool_children_of(key) if child not in self.by_key)
+        return young
+
+    def ours(self, woman: int, man: int, number_: int, t: int) -> int:
+        her, his = self.key_of(woman), self.key_of(man)
+        count = 0
+        for child in set(self.sims) | set(self.archive):
+            parents = self.sims[child][7] if child in self.sims else self.archive[child][9]
+            if parents is not None:
+                count += parents[:2] == (woman, man) and self.born_of(child) <= t
+            elif child in self.origins and self.is_pool_person(child) and self.origins[child]["born_pool"] is None:
+                origin = self.origins[child]
+                count += (origin["mother"], origin["father"]) == (her, his) and self.born_of(child) <= t
+        count += sum(1 for _, mother in self.pool_children_of(his) if mother == her)
+        if count == 0 and self.is_arrival(woman) and self.arrival_partnership(number_) is not None:
+            record = self.pool_member(woman)
+            if record["partnerships"] == 1 and record["births"] >= 1:
+                count = 1
+        return count
+
+    def extra_of(self, woman: int):
+        """The extra child's values her gate reads (ADR-0017, addendum of 2026-11-05, Grok's
+        round 5): none for a woman with a pool origin (a person of the pool, a child of a pool
+        pregnancy; the cut of her wish), who keeps the extract's wish and its gate: open while
+        `life < W`; the data's for everyone else."""
+        return None if self.is_pool_person(woman) else self.data.extra
+
+    def may_reopen(self, woman: int) -> bool:
+        """Her draw (`grown_unit` with her own seed) is below the grown chance."""
+        return grown_unit(self.own_seed(woman), self.key_of(woman)) < self.data.extra[3]
+
+    def gate(self, woman: int, man: int, number_: int, life: int, t: int):
+        """The decision at the month start `t` without the pregnancy, the pause and the end
+        of fertility (the caller's): "hers", "his", "grown" or None (closed). Without the
+        extra child (the data's, or hers as a woman of the pool): "hers" while `life < W`. The grown path needs her draw below the chance;
+        his slot does not read it."""
+        w = self.wish_of(woman)
+        rule = self.extra_of(woman)
+        if rule is None:
+            return "hers" if life < w else None
+        _, extra, grown_from, _ = rule
+        if life >= w + extra:
+            return None
+        if self.young_of_her(woman, life, t) < w and (life < w or (life >= grown_from and self.may_reopen(woman))):
+            return "hers" if life < w else "grown"
+        if 1 <= w <= life and self.young_of_him(man, t) < self.wish_of(man) and self.ours(woman, man, number_, t) < 1:
+            return "his"
+        return None
+
+    def opening_candidates(self, woman: int, man: int, start: int) -> list:
+        """The month starts from `start` on at which her gate can open without a birth:
+        `start`, and each later one at which a child of either turns `count_until` or an
+        arrived pool child starts to count (the first month start after its arrival)."""
+        out = {start}
+        if self.extra_of(woman) is not None:
+            for sim, side in ((woman, 0), (man, 1)):
+                for born, arrived in self.children_in_run(sim, side):
+                    out.add(month_start_at_or_after(born + self.data.extra[0] * YEAR))
+                    if arrived is not None:
+                        out.add(month_start_after(arrived))
+        return sorted(t for t in out if t >= start)
+
+    def first_open(self, woman: int, start: int):
+        """The first month start from `start` on at which she tries, given no birth before
+        it: her open partnership, not pregnant, the gate open, her age below the end of her
+        fertility; None if there is none."""
+        number_ = self.open_partnership(woman)
+        if number_ is None or woman in self.pregnancies:
+            return None
+        man = self.partnerships[number_][1]
+        life = self.sims[woman][6]
+        for t in self.opening_candidates(woman, man, start):
+            if as_years(t - self.sims[woman][0]) >= self.data.fertility_end:
+                return None
+            if self.gate(woman, man, number_, life, t) is not None:
+                return t
+        return None
 
     def _plan_series(self, woman: int, s: int, by: int, now: int) -> None:
-        """Her monthly series from `s` on, planned by the entry `by`, if the rule allows it
-        at this moment."""
-        if not self.series_allowed(woman, s):
+        """Her monthly series from the first month start at or after `s` at which she tries
+        (`first_open`), planned by the entry `by`, if there is one."""
+        t = self.first_open(woman, s)
+        if t is None:
             return
         payload = variant(3, varint(woman))
-        self._schedule(s, GENERAL, (SIM_SUBJECT, woman), ATTEMPT_KIND, payload, MONTH, by, now)
+        self._schedule(t, GENERAL, (SIM_SUBJECT, woman), ATTEMPT_KIND, payload, MONTH, by, now)
+
+    def brought_start(self, woman: int, number_: int) -> int:
+        """Where the town's rule may begin a series in a partnership she brought without a
+        series: the first month start after her arrival, or the end of the pause after the
+        pair's last birth in it before the freeze (pool seconds, her shift) if later."""
+        origin = self.origins[woman]
+        delta = origin["arrived"] - self.data.pool.frozen_at
+        formed = self.partnerships[number_][2] - delta
+        start = month_start_after(origin["arrived"])
+        key = self.key_of(woman)
+        last = [
+            o["born_pool"] for o in self.origins.values() if o["born_pool"] is not None and o["mother"] == key and o["born_pool"] > formed
+        ]
+        if last:
+            start = max(start, month_start_at_or_after(max(last) + delta + max(self.data.pause_months * MONTH, 1)))
+        return start
+
+    def town_start(self, woman: int, number_: int) -> int:
+        """Where the town's rule begins her series in her open partnership: after its forming,
+        or after the pause of her last town birth in it."""
+        man, formed = self.partnerships[number_][1:3]
+        births = self.town_births(woman)
+        last = max(births) if births else None
+        if last is not None and (last > formed or (last == formed and (formed, woman, man) in self.input_pairings)):
+            return month_start_at_or_after(last + max(self.data.pause_months * MONTH, 1))
+        return month_start_after(formed)
+
+    def _replan(self, woman: int, by: int, now: int) -> None:
+        """After a fact her gate reads changed outside her own births (a child of her partner
+        born of another woman, an arrival naming her or him): her pending series is the first
+        month start from now on at which she tries; kept if it is, else cancelled and planned
+        again by `by`. A series she brought is not touched."""
+        if woman not in self.sims:
+            return
+        number_ = self.open_partnership(woman)
+        if number_ is None or woman in self.pregnancies:
+            return
+        if self.series_exempt(woman, number_):
+            if self.pool_member(woman)["conception_at"] is not None:
+                return
+            start = self.brought_start(woman, number_)
+        else:
+            start = self.town_start(woman, number_)
+        want = self.first_open(woman, max(start, month_start_at_or_after(now)))
+        have = self.pending_series(woman)
+        if have == want:
+            return
+        self.queue = [e for e in self.queue if not (e.kind == ATTEMPT_KIND and e.subject == (SIM_SUBJECT, woman))]
+        if want is not None:
+            self._schedule(want, GENERAL, (SIM_SUBJECT, woman), ATTEMPT_KIND, variant(3, varint(woman)), MONTH, by, now)
 
     def pending_series(self, woman: int):
         """The time of her pending series, or None."""
@@ -4012,17 +4242,17 @@ class World:
 
         - none for a man, a pregnant woman, a woman without an open partnership;
         - exempt (`series_exempt`): the carried series, from `conception_at + Δ` of the pool
-          every MONTH, not recomputed; none if the pool carried none;
+          every MONTH, not recomputed; it is there if it is the grid's first or `age < E` at
+          it (an attempt that fails at `t` ends the series when `age(t + MONTH) >= E`); if the
+          pool carried none, the town's rule from `brought_start` (ADR-0017, addendum of
+          2026-11-05);
         - else the town's rule: from the last trigger in her open partnership, its forming at
           `f` (series from the first month start after `f`) or her last birth in the town at
           `b` (from the first month start at or after `b + max(pause, 1 s)`), the birth the
           later one if `b > f`, or `b = f` with the partnership of an input (the input acts
           before the events of its second; a round runs after the births of its second);
-          none if `births >= wish`;
-        - in both the pending one is the first second of that monthly grid after the clock,
-          and it is there if it is the grid's first or `age < E` at it (an attempt that fails
-          at `t` ends the series when `age(t + MONTH) >= E`; the town's first needs `age < E`
-          at it as well)."""
+        - the town's rule: the first month start after the clock, not before that start, at
+          which she tries (`first_open`)."""
         her = self.sims[sim]
         if her[2] != FEMALE or sim in self.pregnancies:
             return None
@@ -4036,21 +4266,14 @@ class World:
 
         if self.series_exempt(sim, number_):
             carried = self.pool_member(sim)["conception_at"]
-            if carried is None:
-                return None
-            first = carried + self.origins[sim]["arrived"] - self.data.pool.frozen_at
-            t = pending(first)
-            return t if t == first or as_years(t - her[0]) < self.data.fertility_end else None
-        births = self.town_births(sim)
-        last = max(births) if births else None
-        if last is not None and (last > formed or (last == formed and (formed, sim, man) in self.input_pairings)):
-            first = month_start_at_or_after(last + max(self.data.pause_months * MONTH, 1))
+            if carried is not None:
+                first = carried + self.origins[sim]["arrived"] - self.data.pool.frozen_at
+                t = pending(first)
+                return t if t == first or as_years(t - her[0]) < self.data.fertility_end else None
+            first = self.brought_start(sim, number_)
         else:
-            first = month_start_after(formed)
-        if her[6] >= self.wish_of(sim):
-            return None
-        t = pending(first)
-        return t if as_years(t - her[0]) < self.data.fertility_end else None
+            first = self.town_start(sim, number_)
+        return self.first_open(sim, pending(first))
 
     def _attempt(self, event: Event, now: int, plan: bytes) -> None:
         woman = event.subject[1]
@@ -4191,6 +4414,13 @@ class World:
         self.sims[mother][6] += len(children)
         pause = max(self.data.pause_months * MONTH, 1)
         self._plan_series(mother, month_start_at_or_after(now + pause), born[0][1], now)
+        # The father's young rose (ADR-0017, addendum of 2026-11-05): the woman of his open
+        # partnership, if she is not the mother, by the creation entry of child 0.
+        dad = father if pool_father is None else self.by_key.get(pool_father)
+        if dad is not None and dad in self.sims:
+            number_ = self.open_partnership(dad)
+            if number_ is not None and self.partnerships[number_][0] != mother:
+                self._replan(self.partnerships[number_][0], born[0][1], now)
 
     def arrange(self, woman: int, man: int) -> None:
         """`ArrangePartnership` of two living sims, submitted right now; it must be
@@ -5786,7 +6016,9 @@ def carried_plans(world: World) -> list:
         subject = event.subject[1]
         if event.kind == ATTEMPT_KIND and subject in world.sims and world.is_arrival(subject):
             number_ = world.open_partnership(subject)
-            if number_ is not None and world.series_exempt(subject, number_):
+            # A series she brought; the town's series of a partnership she brought without
+            # one is not a carried plan (ADR-0017, addendum of 2026-11-05).
+            if number_ is not None and world.series_exempt(subject, number_) and world.pool_member(subject)["conception_at"] is not None:
                 found.append((event, subject, 0))
         elif event.kind == BIRTH_KIND and subject in world.pool_fathers:
             found.append((event, subject, 1))
@@ -5825,9 +6057,52 @@ def check_carried_conceptions(world: World) -> None:
         if world.arrival_partnership(number_) is None or any(b < conceived for b in world.town_births(woman)):
             continue
         carried = world.pool_member(woman)["conception_at"]
-        assert carried is not None, (woman, conceived)
+        if carried is None:
+            # A partnership the pool left without a series: the town's rule opened it
+            # (ADR-0017, addendum of 2026-11-05; `check_conception_gates`).
+            continue
         first = carried + world.origins[woman]["arrived"] - world.data.pool.frozen_at
         assert conceived >= first and (conceived - first) % MONTH == 0, (woman, conceived, first)
+
+
+def check_conception_gates(world: World) -> None:
+    """Every conception in the town (of a town child, by its birth less the pregnancy, and of
+    a running town pregnancy) lies on a month start, not before the start of the town's series
+    in its partnership (the forming, the pause after her last town birth in it, or for a
+    partnership she brought without a series `brought_start`), and her gate was open there
+    (`World.gate` with her live births before it; ADR-0017, addendum of 2026-11-05). A
+    conception on a carried series' grid is `check_carried_conceptions`' (its gate is her
+    wish, which the pool kept)."""
+    months = world.data.pregnancy_months * MONTH
+    conceptions = set()
+    for sim in set(world.sims) | set(world.archive):
+        parents = world.sims[sim][7] if sim in world.sims else world.archive[sim][9]
+        if parents is not None and not world.is_pool_person(sim):
+            conceptions.add((parents[0], parents[1], world.born_of(sim) - months))
+    for mother, (father, _, _, conceived) in world.pregnancies.items():
+        if mother not in world.pool_fathers and father is not None:
+            conceptions.add((mother, father, conceived))
+    for woman, man, conceived in sorted(conceptions):
+        assert conceived % MONTH == 0, (woman, conceived)
+        numbers = [
+            n for n, (w, m, formed, ended) in world.partnerships.items() if (w, m) == (woman, man) and formed <= conceived and (ended is None or ended[0] >= conceived)
+        ]
+        assert len(numbers) == 1, (woman, man, conceived, numbers)
+        (number_,) = numbers
+        formed = world.partnerships[number_][2]
+        before = [b for b in world.town_births(woman) if b < conceived]
+        brought = world.origins and world.arrival_partnership(number_) is not None and not before
+        if brought and world.pool_member(woman)["conception_at"] is not None:
+            continue
+        if brought:
+            start = world.brought_start(woman, number_)
+        else:
+            inside = [b for b in before if b > formed or (b == formed and (formed, woman, man) in world.input_pairings)]
+            start = month_start_at_or_after(max(inside) + max(world.data.pause_months * MONTH, 1)) if inside else month_start_after(formed)
+        assert conceived >= start, (woman, conceived, start)
+        births = world.sims[woman][6] if woman in world.sims else world.archive[woman][8]
+        life = births - sum(1 for b in world.town_births(woman) if b >= conceived)
+        assert world.gate(woman, man, number_, life, conceived) is not None, (woman, man, conceived, life)
 
 
 def check_carried_births(world: World) -> None:

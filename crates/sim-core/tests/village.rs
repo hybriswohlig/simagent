@@ -43,7 +43,7 @@ const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 
 // The data and the pool (the reference's `village_<seed>_config`).
-const DATA_HASH: u64 = 0xdab8_2f94_9a78_a58f;
+const DATA_HASH: u64 = 0x2a2c_6a3d_1114_52a3;
 const POOL_HASH: u64 = 0x5cc9_dc3e_b6db_8524;
 const POOL_SEED: u64 = 0x11b0_19a2;
 const FROZEN_AT: i64 = 23_587_200_000;
@@ -70,11 +70,18 @@ fn frequencies() -> BTreeMap<DataId, FiniteF64> {
 }
 
 /// The repository's data as the CLI builds them: the life course data, the calibration and
-/// the map of `data/` without their text, with the pool and its frequencies. (Here and not
+/// the map of `data/` without their text, with the pool and its frequencies, then the game's
+/// life course data (ADR-0017, addendum of 2026-11-05). (Here and not
 /// in `common`, like `clamp_pool.rs`: the pool file is 8 MB, and every test crate compiles
 /// `common`.)
 fn repository_data() -> Data {
     let (calibration, genome_map) = common::files_from(CALIBRATION, GENOME_MAP);
+    let game = common::definitions_with(
+        common::game(common::demography()),
+        calibration.clone(),
+        genome_map.clone(),
+    )
+    .expect("definitions");
     Data::with_pool(
         common::definitions(calibration, genome_map).expect("definitions"),
         POOL,
@@ -82,6 +89,7 @@ fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(common::repository_shocks()))
     .map(|data| data.with_houses(common::repository_houses()))
+    .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }
 
@@ -171,7 +179,7 @@ const VILLAGES: [Village; 2] = [
         start_input: (9742, 0x0184_8c0b_393c_fb29),
         entries: 161,
         state_hash: 0x9830_19d4_4d5f_51f2,
-        save: (24706, 0x48a3_36c0_578f_e1cf),
+        save: (24705, 0x1905_ba2a_cbe7_9751),
         kin: &[
             (9, 59, 1.0 / 256.0),
             (18, 61, 1.0 / 128.0),
@@ -192,7 +200,7 @@ const VILLAGES: [Village; 2] = [
         start_input: (9732, 0xfe72_2ea4_8554_8193),
         entries: 161,
         state_hash: 0xe199_e659_2d5c_dd90,
-        save: (24703, 0xb4ec_581d_7eb3_7be7),
+        save: (24702, 0xff36_7385_43f0_3a5a),
         kin: &[
             (6, 32, 1.0 / 128.0),
             (6, 50, 1.0 / 128.0),
@@ -572,9 +580,9 @@ fn a_village_start_is_rejected_as_the_reference_rejects_it() {
 
 // The village of seed 2 to the end of year 29 (the reference's `village_<seed>_run`).
 const RUN_END: i64 = 30 * Y - 1;
-const RUN_LOG: (usize, u64) = (2856, 0xdddb_91f3_e62e_c3a8);
-const RUN_SAVE_END: (usize, u64) = (30395, 0x48de_b0f6_b514_be6a);
-const RUN_STATE_HASH: u64 = 0xe6e5_3c10_7b19_2feb;
+const RUN_LOG: (usize, u64) = (2853, 0x13fb_d15a_7b71_aefb);
+const RUN_SAVE_END: (usize, u64) = (30293, 0x2c39_a0bc_6b74_f00d);
+const RUN_STATE_HASH: u64 = 0x33a1_8c3a_89a9_05ec;
 const RUN_ARCHIVED: u64 = 36;
 const RUN_YEAR_HASHES: [u64; 30] = [
     0x0761_de87_baf2_a10d,
@@ -605,8 +613,8 @@ const RUN_YEAR_HASHES: [u64; 30] = [
     0xd055_2b53_cc39_b4ca,
     0xf51e_b3bc_2b3e_53f3,
     0x3db8_9311_0a97_ff11,
-    0x346a_d7e3_10c2_224c,
-    0x3c1e_7a5c_d32e_ef63,
+    0x772c_0bd9_6d0e_b6d0,
+    0xaf95_761f_dc7e_3381,
 ];
 /// The living at the end of each year.
 const RUN_LIVING: [u64; 30] = [
@@ -631,9 +639,9 @@ type Hunk = (usize, usize, &'static str);
 /// The save of year 9 as (length, xxh3), the hunks of the reference's forged save and that
 /// save.
 const VILLAGE_MOVED_IN: ((usize, u64), &[Hunk], (usize, u64)) = (
-    (28647, 0x3a2b_6de2_a8b0_8ec6),
-    &[(8902, 1, "06"), (14657, 1, "01fecff6ab02")],
-    (28652, 0x605b_0e09_8b3b_179b),
+    (28646, 0x92fc_8101_1fee_26c5),
+    &[(8901, 1, "06"), (14656, 1, "01fecff6ab02")],
+    (28651, 0x0c39_5706_ef44_4733),
 );
 
 /// The village of seed 2 over 30 years (`K` = 80): the year hashes, the living at each year

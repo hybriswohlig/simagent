@@ -206,14 +206,16 @@ fn near(got: f64, want: u64) -> bool {
     (got - want).abs() <= 1e-12 * scale
 }
 
-/// The 30 villages of ADR-0020 sections 8 and 11 (G4, Grok D1): their gate seeds, 80 alone,
+/// The 40 villages of ADR-0020 sections 8 and 11 (G4, Grok D1): their gate seeds, 80 alone,
 /// capacity 160, no immigration, ends from 1200 in steps of 300 up to 2100.
 #[test]
 fn the_villages_are_the_adrs() {
     let seeds = seeds();
-    assert_eq!(seeds.len(), 30);
+    assert_eq!(seeds.len(), 40);
     assert_eq!(seeds[0], 0x5eed_0004_0000_0002);
     assert_eq!(seeds[29], 0x5eed_0004_0000_001f);
+    assert_eq!(seeds[30], 0x5eed_0004_0000_0020);
+    assert_eq!(seeds[39], 0x5eed_0004_0000_0029);
     assert!(seeds.windows(2).all(|w| w[1] == w[0] + 1));
     assert_eq!(ENDS, [1200, 1500, 1800, 2100]);
     assert_eq!(
@@ -234,7 +236,7 @@ fn the_villages_are_the_adrs() {
 #[test]
 fn the_repository_data_are_the_clis() {
     let data = repository_data(&root()).expect("the repository's data");
-    assert_eq!(data.hash(), 0xdab8_2f94_9a78_a58f);
+    assert_eq!(data.hash(), 0x2a2c_6a3d_1114_52a3);
 }
 
 /// The text without the values of `z` and `gl`, which may differ in their last bits (the
@@ -255,7 +257,7 @@ fn masked(text: &str) -> String {
         .collect()
 }
 
-/// Village 0 run 48 years: the reference's export (70 871 bytes; masked 61 001 bytes) and
+/// Village 0 run 48 years: the reference's export (69 920 bytes; masked 60 190 bytes) and
 /// its block 0, `V` within the report's tolerance (it reads `z`).
 #[test]
 fn a_village_of_48_years_reads_as_the_reference_reads_it() {
@@ -263,10 +265,10 @@ fn a_village_of_48_years_reads_as_the_reference_reads_it() {
     let plan = village_plan(SEED_VILLAGE, 48);
     let (world, observer) = run_town(data, &plan).expect("a run");
     let text = write(&world, &observer, plan.end).expect("an export");
-    assert_eq!(text.len(), 70_871);
+    assert_eq!(text.len(), 69_920);
     let masked = masked(&text);
-    assert_eq!(masked.len(), 61_001);
-    assert_eq!(stable_hash64(masked.as_bytes()), 0x0b3f_7845_ff8d_eaaa);
+    assert_eq!(masked.len(), 60_190);
+    assert_eq!(stable_hash64(masked.as_bytes()), 0x3d60_f27e_e985_980d);
     let measured = measure(&text).expect("a measure");
     let block = &measured.block;
     assert_eq!(block["end_years"], 48);
@@ -275,7 +277,7 @@ fn a_village_of_48_years_reads_as_the_reference_reads_it() {
     assert_eq!(block["units"], "7e2301e447853646");
     assert_eq!(block["expectation"], "3fef99999999999a");
     assert_eq!(block["blocks"], json!([[0, 16, 16]]));
-    assert_eq!(block["living"], 121);
+    assert_eq!(block["living"], 119);
     assert_eq!(block["finding"], Value::Null);
     let (v, e) = measured.counted.expect("the block counts");
     assert!(near(v, 0x3ff2_140a_2080_1b67), "V {v}");

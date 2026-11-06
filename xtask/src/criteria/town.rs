@@ -48,6 +48,14 @@ pub fn town_data(root: &Path, map_dir: &Path, pool: &[u8]) -> Result<Data> {
     Data::with_pool(definitions, pool, frequencies).map_err(|e| format!("the town's data: {e}"))
 }
 
+/// The criteria town's data: `town_data`, then the game's life course data in place of the
+/// extract's (ADR-0017, addendum of 2026-11-05), as the CLI builds its base game.
+pub fn game_town_data(root: &Path, map_dir: &Path, pool: &[u8]) -> Result<Data> {
+    let (calibration, map) = crate::prerun::read_files(map_dir)?;
+    let (calibration, _) = crate::pool_file::take_frequencies(&calibration, &map)?;
+    crate::prerun::with_game(root, town_data(root, map_dir, pool)?, &calibration, &map)
+}
+
 /// How a town starts and how long it runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Plan {
@@ -170,7 +178,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         );
     }
     let bytes = std::fs::read(pool).map_err(|e| format!("{pool}: {e}"))?;
-    let data = town_data(root, Path::new(map), &bytes)?;
+    let data = game_town_data(root, Path::new(map), &bytes)?;
     let out = Path::new(out);
     let runs: [Run; 2] = [
         (criteria_town(), out.to_path_buf(), decided_closed),

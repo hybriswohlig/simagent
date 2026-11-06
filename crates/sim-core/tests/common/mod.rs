@@ -119,6 +119,25 @@ pub fn demography_from(text: &str) -> Value {
     )
 }
 
+/// The game's overlay of the life course data (ADR-0017, addendum of 2026-11-05).
+const GAME: &str = include_str!("../../../../data/calibration/demography_game.json");
+
+/// Life course data (without their text) with the game's overlay set into their values, the
+/// way the base game is built: the tilt and the four values of the extra child.
+#[allow(dead_code, reason = "only the tests of the extra child overlay")]
+pub fn game(mut demography: Value) -> Value {
+    let overlay = without(
+        serde_json::from_str(GAME).expect("json"),
+        "values",
+        &["source", "as_of", "note"],
+    );
+    let values = demography["values"].as_object_mut().expect("values");
+    for (key, entry) in overlay["values"].as_object().expect("the overlay's values") {
+        values.insert(key.clone(), entry.clone());
+    }
+    demography
+}
+
 /// The fertility of the old model as test data (ADR-0017 section 5): the woman's window
 /// from 18 until 45, `rate` per attempt, ten months of pregnancy, no pause, no twins, and
 /// the wish always 40, so that the wish never ends a series.
@@ -641,13 +660,16 @@ pub fn repository_frequencies()
 
 /// The repository's data as the CLI builds them: the life course data, the calibration and
 /// the map of `data/` without their text, with the pool and its frequencies, the shock
-/// templates and the houses.
+/// templates and the houses, then the game's life course data in place of the extract's
+/// (ADR-0017, addendum of 2026-11-05).
 #[allow(
     dead_code,
     reason = "only the tests on the repository's data need them"
 )]
 pub fn repository_data() -> Data {
     let (calibration, genome_map) = files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP);
+    let game = definitions_with(game(demography()), calibration.clone(), genome_map.clone())
+        .expect("definitions");
     Data::with_pool(
         definitions(calibration, genome_map).expect("definitions"),
         REPOSITORY_POOL,
@@ -655,19 +677,20 @@ pub fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(repository_shocks()))
     .map(|data| data.with_houses(repository_houses()))
+    .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }
 
-/// The repository's data with its life course data changed by `change`, the pool sealed to
-/// the repository's documents kept, as sim-cli builds a town's own values (ADR-0021,
-/// addendum of 2026-11-05).
+/// The repository's data with the game's life course data changed by `change`, the pool
+/// sealed to the repository's documents kept, as sim-cli builds a town's own values (ADR-0021
+/// and ADR-0017, addenda of 2026-11-05).
 #[allow(
     dead_code,
     reason = "only the tests on the repository's data need them"
 )]
 pub fn repository_data_with(change: impl FnOnce(&mut Value)) -> Data {
     let (calibration, genome_map) = files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP);
-    let mut demography = demography();
+    let mut demography = game(demography());
     change(&mut demography);
     let changed = definitions_with(demography, calibration, genome_map).expect("definitions");
     repository_data()

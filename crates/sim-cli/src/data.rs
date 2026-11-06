@@ -13,6 +13,8 @@ use crate::error::CliError;
 use crate::house::{Layout, house_data_from, layout_from};
 
 const DEMOGRAPHY: &str = include_str!("../../../data/calibration/demography.json");
+/// The game's overlay of the life course data (ADR-0017, addendum of 2026-11-05).
+const GAME: &str = include_str!("../../../data/calibration/demography_game.json");
 const CALIBRATION: &str = include_str!("../../../data/calibration/genetics.json");
 const GENOME_MAP: &str = include_str!("../../../data/genetics/genome_map.json");
 const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
@@ -102,25 +104,49 @@ pub const SETTINGS_FILE: &str = "settings.json";
 
 /// The checked definitions of the base game, with the pool of the pre-run and its
 /// frequencies (ADR-0020 sections 4 and 5), the shock templates (ADR-0023 section 3) and
-/// the houses (ADR-0025).
+/// the houses (ADR-0025): the pool is checked against the life course data it was extracted
+/// from, then the game's life course data take their place (ADR-0017, addendum of
+/// 2026-11-05).
 pub fn core_data() -> Result<Data, CliError> {
-    assemble(DEMOGRAPHY, CALIBRATION)
+    on_the_extract(&game_demography()?, CALIBRATION)
+}
+
+/// The game's life course data: `calibration/demography.json` with each entry of
+/// `calibration/demography_game.json` set into its values (replaced or added).
+pub fn game_demography() -> Result<String, CliError> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Overlay {
+        values: serde_json::Map<String, Value>,
+    }
+    let overlay: Overlay = serde_json::from_str(GAME)
+        .map_err(|error| rejected(&format!("calibration/demography_game.json: {error}")))?;
+    let mut demography: Value = serde_json::from_str(DEMOGRAPHY)
+        .map_err(|error| rejected(&format!("calibration/demography.json: {error}")))?;
+    let values = demography["values"]
+        .as_object_mut()
+        .ok_or_else(|| rejected("calibration/demography.json: no values"))?;
+    values.extend(overlay.values);
+    serde_json::to_string(&demography)
+        .map_err(|error| rejected(&format!("calibration/demography_game.json: {error}")))
 }
 
 /// The base game with the calibration values named in a `simagent.settings` document
-/// replaced. A key must name exactly one value. The core then checks the ranges, so a
-/// market age of 11 is refused here as it would be in the file.
+/// replaced in the game's documents (the tilt and the extra child included). A key must
+/// name exactly one value. The core then checks the ranges, so a market age of 11 is
+/// refused here as it would be in the file.
 pub fn data_with_settings(text: &str) -> Result<Data, CliError> {
     let values = settings_values(text)?;
-    let (demography, calibration) = apply_settings(DEMOGRAPHY, CALIBRATION, &values)?;
-    let base = assemble(DEMOGRAPHY, CALIBRATION)?;
-    if demography == DEMOGRAPHY && calibration == CALIBRATION {
-        return Ok(base);
-    }
-    // The pool is sealed to the built-in definitions. The replacement is checked on top
-    // of that pool, and the data hash changes with it.
-    let definitions = definitions_from(&demography, &calibration, GENOME_MAP)?;
-    base.with_calibration(definitions.demography, definitions.calibration)
+    let (demography, calibration) = apply_settings(&game_demography()?, CALIBRATION, &values)?;
+    on_the_extract(&demography, &calibration)
+}
+
+/// The pool sealed to the built-in definitions (`assemble`), then these documents in their
+/// place; the data hash covers them.
+fn on_the_extract(demography: &str, calibration: &str) -> Result<Data, CliError> {
+    let definitions = definitions_from(demography, calibration, GENOME_MAP)?;
+    assemble(DEMOGRAPHY, CALIBRATION)?
+        .with_calibration(definitions.demography, definitions.calibration)
         .map_err(|error| rejected(&error.to_string()))
 }
 
@@ -173,10 +199,12 @@ pub fn settings_text(values: &BTreeMap<String, f64>) -> String {
 }
 
 /// The base game's number of the calibration value `key`, as a settings document names it:
-/// the one object of that name with `value` and `unit` in the two built-in documents; `None`
-/// if there is none or more than one.
+/// the one object of that name with `value` and `unit` in the game's two documents (the life
+/// course data with the game's overlay, and the calibration); `None` if there is none or more
+/// than one.
 pub fn base_value(key: &str) -> Option<f64> {
-    let mut documents = [DEMOGRAPHY, CALIBRATION]
+    let game = game_demography().ok()?;
+    let mut documents = [game.as_str(), CALIBRATION]
         .map(|text| serde_json::from_str::<Value>(text).ok())
         .into_iter()
         .collect::<Option<Vec<Value>>>()?;
@@ -567,8 +595,49 @@ mod tests {
     #[test]
     fn the_base_game_loads() {
         // The data hash of the built-in data, map 4 with the pool and its frequencies, the
-        // shock templates and the houses, from tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0xdab8_2f94_9a78_a58f);
+        // shock templates and the houses, and the game's life course data, from
+        // tools/data_reference.py (line `data_hash`).
+        assert_eq!(core_data().expect("data").hash(), 0x2a2c_6a3d_1114_52a3);
+    }
+
+    /// The base game is the extract with the game's overlay (ADR-0017, addendum of
+    /// 2026-11-05): the tilt 0.224 and the four values of the extra child, while the pool's
+    /// persons keep the extract's wish (tilt 0.311). A settings document sets them on top of
+    /// the overlay; the pool's wish stays.
+    #[test]
+    fn the_base_game_has_the_extra_child() {
+        let data = core_data().expect("data");
+        let fertility = &data.demography().fertility;
+        assert_eq!(fertility.wish_tilt, 0.224);
+        assert_eq!(
+            fertility.extra,
+            Some(sim_core::demography::ExtraChild {
+                count_until_years: 18,
+                extra: 1,
+                grown_from: 3,
+                grown_chance: 0.2,
+            })
+        );
+        assert_eq!(data.pool().expect("the pool").wish().1, 0.311);
+        let set = data_with_settings(
+            r#"{"format":"simagent.settings","version":1,"values":{"core:fertility_grown_chance":0.5,"core:fertility_wish_tilt":0.3}}"#,
+        )
+        .expect("reads");
+        let fertility = &set.demography().fertility;
+        assert_eq!(fertility.wish_tilt, 0.3);
+        assert_eq!(fertility.extra.map(|extra| extra.grown_chance), Some(0.5));
+        assert_eq!(set.pool().expect("the pool").wish().1, 0.311);
+        assert_ne!(set.hash(), data.hash());
+        // A town's own value of the founding page acts on the game's documents: the tilt and
+        // the extra child stay the game's.
+        let own = data_with_settings(
+            r#"{"format":"simagent.settings","version":1,"values":{"core:market_age":18}}"#,
+        )
+        .expect("reads");
+        let fertility = &own.demography().fertility;
+        assert_eq!(own.demography().market.age_years, 18);
+        assert_eq!(fertility.wish_tilt, 0.224);
+        assert_eq!(fertility.extra, data.demography().fertility.extra);
     }
 
     fn puberty_ramp(data: &Data) -> f64 {
@@ -673,6 +742,11 @@ mod tests {
         );
         assert_eq!(base_value("core:no_such_value"), None);
         assert_eq!(base_value("values"), None);
+        // The game's overlay (ADR-0017, addendum of 2026-11-05): its tilt and the values of
+        // the extra child are the base game's.
+        assert_eq!(base_value("core:fertility_wish_tilt"), Some(0.224));
+        assert_eq!(base_value("core:fertility_count_until"), Some(18.0));
+        assert_eq!(base_value("core:fertility_grown_chance"), Some(0.2));
     }
 
     /// The houses of `data/house/` (ADR-0025 section 3): one to three members take the flat,

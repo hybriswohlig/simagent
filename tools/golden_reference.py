@@ -162,7 +162,7 @@ def make_world(s: dict, data: wr.Data) -> wr.World:
 
 
 def check_all(world: wr.World) -> None:
-    for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths, wr.check_onsets):
+    for check in (wr.check_households, wr.check_separations, wr.check_market, wr.check_afflictions, wr.check_emigration, wr.check_pool, wr.check_deaths, wr.check_onsets, wr.check_conception_gates):
         check(world)
 
 

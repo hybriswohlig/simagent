@@ -573,6 +573,54 @@ fn server_answers(
     std::fs::write(&unread, "{").map_err(|e| format!("{}: {e}", unread.display()))?;
     answers.push(("RunsAnswer", get(port, "/api/runs")?));
     std::fs::remove_file(&unread).map_err(|e| format!("{}: {e}", unread.display()))?;
+    // The wish of a couple in each of its states (ADR-0017, addendum of 2026-11-05), as the
+    // descriptor names them: the women of the open partnerships of the template's town, at
+    // its first second and then year by year until each state has shown. His slot and the
+    // grown path open only for a woman born in the town (a woman of the pool keeps the old
+    // gate), so once the other states have shown only those are asked (his by year 72, the
+    // grown path by year 90).
+    const WISH_STATES: [&str; 7] = [
+        "fertility_over",
+        "pregnant",
+        "pause",
+        "hers",
+        "his",
+        "grown",
+        "fulfilled",
+    ];
+    let mut shown = std::collections::BTreeSet::new();
+    for _ in 0..100 {
+        let town_only = (WISH_STATES.iter())
+            .filter(|state| !["his", "grown"].contains(*state))
+            .all(|state| shown.contains(*state));
+        let pedigree = get(port, "/api/runs/stadt/pedigree")?;
+        let living: std::collections::BTreeSet<u64> =
+            (pedigree["persons"].as_array().into_iter().flatten())
+                .filter(|p| p["died"].is_null() && p["emigrated"].is_null())
+                .filter(|p| !town_only || p["pool"].is_null())
+                .filter_map(|p| p["sim"].as_u64())
+                .collect();
+        let women: std::collections::BTreeSet<u64> =
+            (pedigree["partnerships"].as_array().into_iter().flatten())
+                .filter(|pair| pair["ended"].is_null())
+                .filter_map(|pair| pair["woman"].as_u64())
+                .filter(|woman| living.contains(woman))
+                .collect();
+        for woman in women {
+            let answer = get(port, &format!("/api/runs/stadt/persons/{woman}"))?;
+            let state = answer["wish"]["couple"]["state"]
+                .as_str()
+                .map(str::to_owned);
+            if state.is_some_and(|state| shown.insert(state)) {
+                answers.push(("PersonAnswer", answer));
+            }
+        }
+        if WISH_STATES.iter().all(|state| shown.contains(*state)) {
+            break;
+        }
+        let year = Some(r#"{"step":"year"}"#);
+        ask(port, "/api/runs/stadt/advance", year, 200)?;
+    }
     answers.push(("CensusAnswer", get(port, "/api/runs/town/census")?));
     answers.push(("WorldAnswer", get(port, "/api/runs/town/world")?));
     // The house of the open partnership's household (ADR-0021, addendum of 2026-11-03): at

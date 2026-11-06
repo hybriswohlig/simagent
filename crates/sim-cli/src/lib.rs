@@ -1450,7 +1450,7 @@ pub fn person_answer(
     };
     let mut answer = serde_json::json!({
         "format": "simagent.view.person",
-        "version": 2,
+        "version": 3,
         "contract_version": sim_core::body_contract::CONTRACT_VERSION,
     });
     let json = |value: serde_json::Result<serde_json::Value>| {
@@ -1480,6 +1480,7 @@ pub fn person_answer(
     answer["traits"] = json(serde_json::to_value(world.traits(sim)))?;
     answer["origin"] = json(serde_json::to_value(world.origin(sim)))?;
     answer["ages"] = json(serde_json::to_value(world.ages()))?;
+    answer["wish"] = json(serde_json::to_value(world.wish(sim)))?;
     if let Some(card) = world.genetics_card(sim) {
         answer["card"] = json(serde_json::to_value(card))?;
     }
