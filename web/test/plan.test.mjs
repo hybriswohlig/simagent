@@ -161,6 +161,31 @@ test("idle where nothing around is free: the nearest free place of the room", ()
   assert.ok(Math.abs(p.x - 1) < 1e-9 && Math.abs(p.y - 1.7) < 1e-9, JSON.stringify(p));
 });
 
+test("on the way, a name does not move the dot", () => {
+  // From the hall to the kitchen, half the way at 100: (2.5, 2), over a name there; the names
+  // count only for one who does nothing or stands in front of a thing.
+  const walker = { place: { walking: { from: 0, to: 1, depart: second(90), arrive: second(110) } }, action: null };
+  const name = { left: 2, top: 1.8, right: 3, bottom: 2.2 };
+  assert.deepEqual(spots(layout, [walker], 100, [], [name]), [{ x: 2.5, y: 2 }]);
+});
+
+test("a crowded room keeps every dot inside, at the place with the most room", () => {
+  // The hall of 1 by 3 m holds three dots a step apart (middle, below, above). A fourth and a
+  // fifth find no place a step from the others inside it: each stands inside the hall where it
+  // is farthest from the dots before, not past the wall.
+  const hall = { rooms: [{ id: "hall", floor: 0, x: 0, y: 0, w: 1, h: 3 }], doors: [], objects: [] };
+  const idle = { place: { room: 0 }, action: null };
+  const points = spots(hall, [idle, idle, idle, idle, idle], 0);
+  for (const p of points) {
+    assert.ok(p.x - 0.3 >= -1e-9 && p.x + 0.3 <= 1 + 1e-9 && p.y - 0.3 >= -1e-9 && p.y + 0.3 <= 3 + 1e-9, JSON.stringify(p));
+  }
+  // The farthest places from (0.5, 1.5), (0.5, 2.15) and (0.5, 0.85) are the four corners of
+  // the places a dot fits, (0.3 or 0.7, 0.3 or 2.7), √(0.2² + 0.55²) ≈ 0.585 m from the nearest.
+  const near = (p, others) => Math.min(...others.map((o) => Math.hypot(o.x - p.x, o.y - p.y)));
+  assert.ok(Math.abs(near(points[3], points.slice(0, 3)) - Math.hypot(0.2, 0.55)) < 1e-9, JSON.stringify(points[3]));
+  assert.ok(near(points[4], points.slice(0, 4)) > 0.5, JSON.stringify(points[4]));
+});
+
 test("every dot inside its room", () => {
   // A hall of 1 by 3 m: the dot (0.6 m) fits only in its middle column. Three who do nothing
   // there: the middle (0.5, 1.5), then not to the right or left (past the wall) but below and
