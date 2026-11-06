@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::house::need::FULL;
+use crate::house::reserve::ReserveRules;
 use crate::time::DAY;
 
 /// The five needs, in the order of the log's arrays (ADR-0026 section 1).
@@ -127,9 +128,9 @@ impl BandRates {
 /// the day: the day plan at `day_plan_at`, the wake `wake_before` a departure; the night
 /// (ADR-0026, addendum of 2026-11-04), what a need at 0 does and the most the mood moves the
 /// points of a choice, in percent either way (its addenda of 2026-11-04 on a need at 0 and on
-/// the mood), the longest a time-filler lasts (its addendum on comfort and the time-filler) and
-/// the least time left for one to be taken (its addendum of 2026-11-05 on the time-filler's
-/// length), last.
+/// the mood), the longest a time-filler lasts (its addendum on comfort and the time-filler), the
+/// least time left for one to be taken (its addendum of 2026-11-05 on the time-filler's length)
+/// and the reserve at hunger 0 (its addendum of 2026-11-06 on hunger at 0), last.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DayRules {
@@ -144,6 +145,7 @@ pub struct DayRules {
     pub choice_mood_percent: u8,
     pub fallback_max_seconds: u32,
     pub fallback_min_seconds: u32,
+    pub reserve: ReserveRules,
 }
 
 /// School from `from_age` to the day before the birthday of `until_age`.
@@ -244,7 +246,7 @@ impl ZeroRules {
 
 impl DayRules {
     /// The checks of the day, in this order: the times, the wake, the ages, the shares of
-    /// the work plan, the jumps, the night, a need at 0, the mood, the time-filler.
+    /// the work plan, the jumps, the night, a need at 0, the mood, the time-filler, the reserve.
     fn checked(&self) -> Result<(), HouseError> {
         let (school, work, young) = (&self.school, &self.work, &self.young);
         let hours = [
@@ -310,6 +312,10 @@ impl DayRules {
             || self.fallback_min_seconds > self.fallback_max_seconds
         {
             return Err(HouseError::DayFallback);
+        }
+        // The reserve at hunger 0 (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+        if !self.reserve.valid() {
+            return Err(HouseError::DayReserve);
         }
         Ok(())
     }
@@ -524,6 +530,11 @@ pub enum HouseError {
     /// and the time-filler), or its least time left above its longest (the addendum of
     /// 2026-11-05 on the time-filler's length).
     DayFallback,
+    /// A reserve at hunger 0 out of range (ADR-0026, addendum of 2026-11-06 on hunger at 0):
+    /// capacities not rising from at least 2, a drain that does not fall in every band, a refill
+    /// that does not rise, an energy extra above 0 or a wasted one above the weak one, or a walk
+    /// factor outside 1 to 10.
+    DayReserve,
     /// A need's comfort at or below the critical level 150 or above full.
     Comfort,
     /// Two kinds with one id.
@@ -594,6 +605,7 @@ impl fmt::Display for HouseError {
             HouseError::DayZero => "house.day_zero",
             HouseError::DayMood => "house.day_mood",
             HouseError::DayFallback => "house.day_fallback",
+            HouseError::DayReserve => "house.day_reserve",
             HouseError::Comfort => "house.comfort",
             HouseError::KindDuplicate => "house.kind_duplicate",
             HouseError::KindSlots => "house.kind_slots",
@@ -703,7 +715,8 @@ pub struct HouseData {
 
 impl HouseData {
     /// The checks of the needs' comfort, of the day (ADR-0024 section 4), of ADR-0025 section 2
-    /// and of the offers' format (ADR-0026 section 2), then the walking tables.
+    /// and of the offers' format (ADR-0026 section 2), of the energy rates with the reserve's
+    /// extras, then the walking tables.
     pub fn new(
         rates: NeedRates,
         day: DayRules,
@@ -729,6 +742,15 @@ impl HouseData {
             if (kind.is_bed() && !sleeps_only) || (kind.bed_for.is_some() && !kind.is_bed()) {
                 return Err(HouseError::BedFor);
             }
+        }
+        // Weak or wasted, energy's rate carries an extra (ADR-0026, addendum of 2026-11-06 on
+        // hunger at 0): every rate it may be added to takes the lowest within an `i32`.
+        let offers = kinds.iter().flat_map(|kind| &kind.offers);
+        let energies = (rates.awake.energy.iter().chain(&rates.asleep.energy))
+            .chain(offers.filter_map(|offer| offer.rates.get(&Need::Energy)))
+            .copied();
+        if !day.reserve.fits(energies) {
+            return Err(HouseError::DayReserve);
         }
         defs.sort_by(|a, b| a.id.cmp(&b.id));
         if defs.windows(2).any(|pair| pair[0].id == pair[1].id) {
@@ -759,6 +781,11 @@ impl HouseData {
 
     pub fn day(&self) -> &DayRules {
         &self.day
+    }
+
+    /// The values of the reserve at hunger 0 (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+    pub fn reserve(&self) -> &ReserveRules {
+        &self.day.reserve
     }
 
     /// The kinds in the order of their ids.

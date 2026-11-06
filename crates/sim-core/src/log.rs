@@ -307,6 +307,13 @@ pub enum LogPayload {
     /// the data's value.
     #[serde(rename = "core:accident")]
     Accident { needs: [u16; 5] },
+    /// A person's reserve at hunger 0 fell to half its `capacity`: it is weak (ADR-0026,
+    /// addendum of 2026-11-06 on hunger at 0).
+    #[serde(rename = "core:weakened")]
+    Weakened { capacity: u16 },
+    /// A person's reserve of `capacity` fell to 0: it is wasted.
+    #[serde(rename = "core:wasted")]
+    Wasted { capacity: u16 },
 }
 
 /// Why an action ended (ADR-0026 section 4): its length was over, the need it fills was

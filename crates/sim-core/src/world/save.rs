@@ -273,6 +273,15 @@ impl World {
                 records: exceptions.input_log,
             },
         };
+        // Each reserve has the capacity its person's body gives (ADR-0026, addendum of
+        // 2026-11-06 on hunger at 0); the body needs the state built.
+        if !crate::state::reserve::sized(
+            &world.state.domain,
+            &world.state.data,
+            world.sched.closed_through(),
+        ) {
+            return Err(LoadError::Inconsistent);
+        }
         Ok((world, exceptions.year_hashes))
     }
 }
@@ -405,6 +414,7 @@ pub(super) fn pending_index(
             EventPayload::Decide { sim } => (*sim, Slot::Decide),
             EventPayload::Bedtime { sim } => (*sim, Slot::Bedtime),
             EventPayload::StandUp { sim } => (*sim, Slot::StandUp),
+            EventPayload::ReserveCrossing { sim, level } => (*sim, Slot::Reserve(*level)),
             EventPayload::DayPlan { sim } => (*sim, Slot::DayPlan),
             EventPayload::Return { sim, .. } => (*sim, Slot::Return),
             EventPayload::Depart { sim, .. } => (*sim, Slot::Depart),
@@ -2823,6 +2833,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut choices = BTreeSet::new();
     let mut bedtimes = BTreeSet::new();
     let mut stands = BTreeSet::new();
+    let mut reserves = BTreeSet::new();
+    // Per crossing of a reserve: the sim, the insertion number and the level downwards.
+    let mut planned_reserves = Vec::new();
     let clock = loaded.closed_through;
     // Each person's day; `None` for one whose state its day does not allow.
     let days: BTreeMap<SimId, Option<_>> = (loaded.house.sims.iter())
@@ -2952,6 +2965,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             EventPayload::StandUp { sim } => {
                 let due = stand_due(loaded, rules.data, *sim);
                 entry.period.is_none() && stands.insert(*sim) && due == Some(entry.time)
+            }
+            // Once per crossing of a reserve still to come (ADR-0026, addendum of 2026-11-06 on
+            // hunger at 0), checked as a whole below.
+            EventPayload::ReserveCrossing { sim, level } => {
+                planned_reserves.push((*sim, entry.seq, Reverse(*level)));
+                entry.period.is_none() && reserves.insert((*sim, *level, entry.time))
             }
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.
@@ -3122,6 +3141,19 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             after.map(move |(need, level, at)| (sim, need, level, at))
         })
         .collect();
+    // The crossings of the reserves, half and 0, are exactly those after the clock while a
+    // reserve falls; planned at once, half first.
+    let due_reserves: BTreeSet<_> = (loaded.house.sims.iter())
+        .flat_map(|(&sim, person)| {
+            let after = person.reserve.crossings();
+            after
+                .filter(|&(_, at)| at > loaded.closed_through)
+                .map(move |(level, at)| (sim, level, at))
+        })
+        .collect();
+    planned_reserves.sort_unstable();
+    let reserves_in_order =
+        (planned_reserves.windows(2)).all(|pair| pair[0].0 != pair[1].0 || pair[0].2 < pair[1].2);
     // A change plans all of a person's crossings at once, by need and then from the highest
     // level down; their order decides which of two in one second runs first.
     planned_crossings.sort_unstable();
@@ -3173,6 +3205,8 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         && all_mornings_planned
         && crossings == due_crossings
         && crossings_in_order
+        && reserves == due_reserves
+        && reserves_in_order
         && all_walks_planned
         && round_seen
         && emigration_seen == rules.capacity.is_some()

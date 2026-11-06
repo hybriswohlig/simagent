@@ -323,6 +323,28 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
     serde_json::json!({"format": "simagent.view.houses", "version": 1, "households": households})
 }
 
+/// A person's reserve at the clock `at` (ADR-0026, addendum of 2026-11-06 on hunger at 0): its
+/// value, its capacity and its band, `draws`, `weak`, `wasted` or else `none`, as the core gives
+/// them (`Reserve::band`); what an input at the clock wrote down, in the next second, with that
+/// value.
+fn reserve_json(person: &sim_core::house::state::InHouse, at: SimTime) -> serde_json::Value {
+    use sim_core::house::reserve::Band;
+    let reserve = person.reserve;
+    let hunger = person.needs[0];
+    let second = at.max(hunger.at()).max(reserve.at());
+    let band = match reserve.band(hunger, second) {
+        Some(Band::Draws) => "draws",
+        Some(Band::Weak) => "weak",
+        Some(Band::Wasted) => "wasted",
+        None => "none",
+    };
+    serde_json::json!({
+        "value": reserve.value_at(second),
+        "capacity": reserve.capacity(),
+        "band": band,
+    })
+}
+
 /// A household's house as `simagent view` sends it (ADR-0021, addendum of 2026-11-03): the
 /// drawing with each object's places and the names of its offers, and each person with needs
 /// in ascending SimId with where it is, away at school or work until its return (version 2,
@@ -343,8 +365,9 @@ pub fn houses_answer(world: &World) -> serde_json::Value {
 /// departure ends (`departure_ends`) ends at that departure and says so; each person names the
 /// object whose waiting list it stands on; and each offer a command may name says whether its
 /// object has no free place for the person, as the core's check of a command finds it (version
-/// 8, ADR-0021, addendum of 2026-11-05 on the house page). `None` for a household without a
-/// house.
+/// 8, ADR-0021, addendum of 2026-11-05 on the house page). Each person's reserve at hunger 0 with
+/// its band (version 9, `reserve_json`, ADR-0026, addendum of 2026-11-06 on hunger at 0). `None`
+/// for a household without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::day::{YoungPlace, departure, night, work_draw, young_place};
     use sim_core::house::need::EMERGENCY;
@@ -508,6 +531,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             // Hygiene, the fourth need, at the emergency level or below.
             "smells": needs[3] <= EMERGENCY,
             "commands": commands,
+            "reserve": reserve_json(person, at),
         }));
     }
     // The members without needs (ADR-0024 sections 2 and 4): none before the first morning;
@@ -527,7 +551,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
         .collect();
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 8,
+        "version": 9,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,
@@ -616,8 +640,9 @@ fn places_taken(
 /// departure instead of its points (version 7, ADR-0026, addendum of 2026-11-05 on the
 /// time-filler's length). A time-filler that ends at its next choice as planned names what that
 /// choice raised also when the choice waits for a taken object: what the offer it waits for
-/// raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page). `None` for any other
-/// entry.
+/// raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page). For the person's latest
+/// choice in the log, `latest`, its reserve at the clock as the house answer gives it (version 9,
+/// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `None` for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
@@ -780,6 +805,10 @@ pub fn why_answer(
     } else {
         None
     };
+    // The person's latest choice tells its reserve at the clock (version 9).
+    let reserve = (world.state().house().sims.get(sim))
+        .filter(|_| latest)
+        .map(|person| reserve_json(person, world.closed_through()));
     // Idle and waiting for nothing in a room one does not stay in, the person went to the room
     // one does (ADR-0026, addendum of 2026-11-04 after the playtest).
     let goes_to =
@@ -807,7 +836,7 @@ pub fn why_answer(
     };
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 8,
+        "version": 9,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
@@ -823,6 +852,7 @@ pub fn why_answer(
         "too_short": too_short,
         "offers": offers,
         "now": now,
+        "reserve": reserve,
     })))
 }
 

@@ -395,6 +395,9 @@ pub enum RejectCode {
     Collapsed,
     /// A command, while the person's fun is at 0, for an offer that does not raise fun.
     Listless,
+    /// A command, while the person is weak or wasted, for an offer that does not raise hunger
+    /// (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+    Weak,
 }
 
 /// A rejected input changes nothing and takes no position in the input log.

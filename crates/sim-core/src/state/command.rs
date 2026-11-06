@@ -8,6 +8,7 @@ use crate::data::Data;
 use crate::house::data::Need;
 use crate::house::day::night;
 use crate::house::need::EMPTY;
+use crate::house::reserve::Band;
 use crate::house::state::{Place, dwell_walk};
 use crate::input::{Command, InputRejected, RejectCode};
 use crate::log::{Causes, EndReason};
@@ -17,9 +18,10 @@ use crate::world::SimCtx;
 /// Pure check of a command at the stop `closed_through` (ADR-0024 section 5 and its addendum
 /// of 2026-11-04): first who and whether it lives in its house with needs, then what (object,
 /// offer, age, an offer of sleep only in the night), then the person's state (lying on the
-/// floor, away, fun at 0 for an offer that does not raise it, a critical need; ADR-0026,
-/// addendum of 2026-11-04 on a need at 0), then the place, and last the walk itself, which must
-/// arrive before the end of time.
+/// floor, away, fun at 0 for an offer that does not raise it, weak or wasted for one that does not
+/// raise hunger, a critical need; ADR-0026, addenda of 2026-11-04 on a need at 0 and of 2026-11-06
+/// on hunger at 0), then the place, and last the walk itself, which must arrive before the end of
+/// time.
 pub(crate) fn check(
     domain: &DomainState,
     data: &Data,
@@ -84,6 +86,12 @@ fn rejection(
     if fun == EMPTY && !offer.raises(houses.rates(), Need::Fun, age) {
         return Err(RejectCode::Listless);
     }
+    // Weak or wasted, only what feeds is still done on command (ADR-0026, addendum of
+    // 2026-11-06 on hunger at 0); the person's own choices go on.
+    let weak = super::reserve::band_now(domain, sim, now).is_some_and(Band::weak);
+    if weak && !offer.raises(houses.rates(), Need::Hunger, age) {
+        return Err(RejectCode::Weak);
+    }
     if action::for_critical(domain, data, sim, now) {
         return Err(RejectCode::CriticalNeed);
     }
@@ -98,8 +106,9 @@ fn rejection(
     if (0..kind.slots).all(|slot| taken.contains(&(input.object, slot))) {
         return Err(RejectCode::SlotBusy);
     }
-    // A walk that would end beyond the end of time cannot begin.
-    let walk = SimDuration::from_secs(i64::from(house.walk_to(room, input.object)));
+    // A walk that would end beyond the end of time cannot begin; weak it takes longer.
+    let secs = super::reserve::walk(domain, data, sim, house.walk_to(room, input.object), now);
+    let walk = SimDuration::from_secs(i64::from(secs));
     now.checked_add(walk).map(drop).ok_or(RejectCode::EndOfTime)
 }
 

@@ -85,7 +85,10 @@ pub(super) fn settle(
         let entry = ctx.emit(empty, vec![Subject::Sim(sim)], causes.clone());
         last = Some(entry);
         match need {
-            Need::Hunger | Need::Fun => {}
+            // Hunger at 0 starts the reserve's drain: a change of rates (ADR-0026, addendum of
+            // 2026-11-06 on hunger at 0).
+            Need::Hunger => written = true,
+            Need::Fun => {}
             Need::Energy => {
                 last = Some(collapse(domain, data, sim, entry, ctx));
                 written = true;
@@ -108,7 +111,7 @@ pub(super) fn settle(
         return;
     };
     if written {
-        plan_crossings(domain, sim, last, ctx);
+        plan_crossings(domain, data, sim, last, ctx);
     }
     // A walk to the room one stays in ends where it began, as at 150 and 50 (ADR-0026, addendum
     // of 2026-11-04 after the playtest).
@@ -302,7 +305,7 @@ pub(super) fn rise(
     for (sample, need) in person.needs.iter_mut().zip(NEEDS) {
         *sample = sample.with_rate(now, houses.rates().awake.rate(need, band));
     }
-    plan_crossings(domain, sim, by, ctx);
+    plan_crossings(domain, data, sim, by, ctx);
     action::follow(domain, data, sim, causes, ctx);
 }
 

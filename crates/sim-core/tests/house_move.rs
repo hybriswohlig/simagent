@@ -11,6 +11,7 @@ use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
 use sim_core::house::data::HouseData;
 use sim_core::house::need::NeedSample;
+use sim_core::house::reserve::Reserve;
 use sim_core::house::state::{Action, Decisions, InHouse, MovedIn, Place};
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::input::{Couple, Founder, Input, InputRejected, MoveIn, MoveOut, RejectCode, Start};
@@ -297,6 +298,7 @@ fn the_first_morning_gives_the_needs() {
             count: 1,
         },
         collapsed: false,
+        reserve: Reserve::full(1000, at),
     };
     let house = run.world.state().house();
     assert!(house.households[&home].morning);

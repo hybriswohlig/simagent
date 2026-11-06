@@ -347,7 +347,7 @@ pub(crate) fn decide(
     };
     let mut too_short = None;
     let filled = picked.filter(|&(object, offer)| {
-        let walk_secs = house.walk_to(room, object);
+        let walk_secs = super::reserve::walk(domain, data, sim, house.walk_to(room, object), now);
         let who = (birth, key, seed);
         let person =
             (domain.house.sims.get(&sim)).unwrap_or_else(|| panic!("invariant house.orphan_event"));
@@ -363,7 +363,11 @@ pub(crate) fn decide(
         (_, Some(filled)) => Some(filled),
         (Choice::Wait(_) | Choice::Idle, None) => None,
     };
-    let walk = chosen.map(|(object, _)| house.walk_to(room, object));
+    // Weak, a walk takes longer (ADR-0026, addendum of 2026-11-06 on hunger at 0); the choice
+    // weighed the house's.
+    let walk = chosen.map(|(object, _)| {
+        super::reserve::walk(domain, data, sim, house.walk_to(room, object), now)
+    });
     let arrive = walk.and_then(|walk| now.checked_add(SimDuration::from_secs(i64::from(walk))));
     let (Some(chosen), Some(walk_secs), Some(arrive)) = (chosen, walk, arrive) else {
         let waits = match choice {
@@ -392,7 +396,8 @@ pub(crate) fn decide(
         if waits.is_none() {
             if !house.dwells(room) {
                 let to = house.def().dwell_room;
-                let walked = SimDuration::from_secs(i64::from(house.walk_to_dwell(room)));
+                let secs = super::reserve::walk(domain, data, sim, house.walk_to_dwell(room), now);
+                let walked = SimDuration::from_secs(i64::from(secs));
                 if let Some(arrive) = now.checked_add(walked) {
                     let person = person_mut(domain, sim);
                     person.place = Place::Walking {
@@ -701,7 +706,7 @@ pub(super) fn obey(
         panic!("invariant house.command_busy");
     };
     let needs = person.needs.map(|need| need.value_at(now));
-    let walk_secs = house.walk_to(room, object);
+    let walk_secs = super::reserve::walk(domain, data, sim, house.walk_to(room, object), now);
     let arrive = (now.checked_add(SimDuration::from_secs(i64::from(walk_secs))))
         .unwrap_or_else(|| panic!("invariant house.command_checked"));
     let walk = Walk {
@@ -933,6 +938,9 @@ pub(crate) fn on_arrive(
             *sample = sample.with_rate(now, offer.rate(houses.rates(), need, band));
         }
     }
+    // The change of rates first: it may give energy its extra (ADR-0026, addendum of 2026-11-06
+    // on hunger at 0), which the end reckons with.
+    plan_crossings(domain, data, sim, entry, ctx);
     let end = match action.filler {
         // A time-filler ends at the next choice from here (ADR-0026, addendum of 2026-11-04 on
         // comfort and the time-filler).
@@ -941,9 +949,12 @@ pub(crate) fn on_arrive(
             let household = household.unwrap_or_else(|| panic!("invariant house.orphan_event"));
             filler_end(domain, data, (household, sim), (now, now))
         }
-        false => action_end(person, offer, houses.day(), born),
+        false => {
+            let person = (domain.house.sims.get(&sim))
+                .unwrap_or_else(|| panic!("invariant house.orphan_event"));
+            action_end(person, offer, houses.day(), born)
+        }
     };
-    plan_crossings(domain, sim, entry, ctx);
     if let Some(end) = end {
         let handle = ctx.schedule(end, EventPayload::ActionEnd { sim }, entry);
         domain.pending.insert((sim, Slot::End), handle);
@@ -1014,7 +1025,7 @@ fn end(
                     *sample = sample.with_rate(now, houses.rates().awake.rate(need, band));
                 }
             }
-            plan_crossings(domain, sim, entry, ctx);
+            plan_crossings(domain, data, sim, entry, ctx);
         }
         Place::Away => panic!("invariant house.orphan_event"),
     }

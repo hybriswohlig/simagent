@@ -289,13 +289,15 @@ pub(crate) fn leave(
     let left = LogPayload::LeftHome { place, late_secs };
     let entry = ctx.emit(left, vec![Subject::Sim(sim)], causes);
     let now = ctx.now();
-    let person = person_mut(domain, sim);
-    let Place::Room(room) = person.place else {
+    let Place::Room(room) = person_mut(domain, sim).place else {
         panic!("invariant house.orphan_event");
     };
+    // Weak, the walk out takes longer too (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+    let secs = super::reserve::walk(domain, data, sim, house.walk_out(room), now);
+    let person = person_mut(domain, sim);
     person.due = None;
     person.needs = person.needs.map(|need| need.with_rate(now, 0));
-    let walk = SimDuration::from_secs(i64::from(house.walk_out(room)));
+    let walk = SimDuration::from_secs(i64::from(secs));
     match now.checked_add(walk) {
         Some(arrive) => {
             person.place = Place::Walking {
@@ -311,7 +313,7 @@ pub(crate) fn leave(
         None => person.place = Place::Away,
     }
     // Still needs cross nothing: this only cancels the crossings planned.
-    plan_crossings(domain, sim, entry, ctx);
+    plan_crossings(domain, data, sim, entry, ctx);
     if let Some(place) = held {
         action::release(domain, household, place, entry, ctx);
     }
@@ -369,7 +371,7 @@ pub(crate) fn on_return(
     if let Some(handle) = domain.pending.remove(&(sim, Slot::Arrive)) {
         ctx.cancel(handle);
     }
-    plan_crossings(domain, sim, entry, ctx);
+    plan_crossings(domain, data, sim, entry, ctx);
     let causes = Causes::new(Cause::Event(entry));
     if emptied.contains(&true) {
         super::zero::settle(domain, data, sim, (emptied, true), causes, ctx);

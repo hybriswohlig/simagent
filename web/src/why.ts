@@ -1,5 +1,5 @@
 import { objectName, placedOfferWords } from "./command.js";
-import type { HouseLayout, WhyAnswer, WhyChoice, WhyOffer } from "./generated/export.js";
+import type { HouseLayout, HouseReserve, WhyAnswer, WhyChoice, WhyOffer } from "./generated/export.js";
 import { timeOfDay } from "./render/plan.js";
 import { ROOM_WORDS, TEXT } from "./text.js";
 
@@ -210,12 +210,32 @@ export function beforeBed(comfort: readonly number[]): string {
     : TEXT.house_why_night_comforts.replace("{hunger}", String(hunger ?? "")).replace("{bladder}", String(bladder ?? ""));
 }
 
+/** The sentence of "Warum?" on a person's reserve at the clock, by the server's band (ADR-0026,
+ * addendum of 2026-11-06 on hunger at 0): "Vorrat noch 730 von 1000.", weak with what that does,
+ * wasted with energy falling faster; null for the band `none` or without a reserve. */
+export function reserveWords(reserve: HouseReserve | null): string | null {
+  if (reserve === null) {
+    return null;
+  }
+  const filled = (text: string) => text.replace("{value}", String(reserve.value)).replace("{capacity}", String(reserve.capacity));
+  switch (reserve.band) {
+    case "draws":
+      return filled(TEXT.house_why_reserve_draws);
+    case "weak":
+      return filled(TEXT.house_why_reserve_weak);
+    case "wasted":
+      return filled(TEXT.house_why_reserve_wasted);
+    default:
+      return null;
+  }
+}
+
 /** "Warum?" for a choice as text, all from the server's answer (ADR-0026 section 6 and its
  * addenda of 2026-11-04): in the night that the bed comes first; what was chosen or commanded
  * with its worth, else what was waited for, else that nothing brought enough, and then the
  * time-filler taken instead; what came behind, each offer once; and for an idle choice that is
  * still the person's state, `now`, the same comparison at the clock (the playtest of
- * 2026-11-04). */
+ * 2026-11-04); for the person's latest choice its reserve at the clock (`reserveWords`). */
 export function whyText(why: WhyAnswer, layout: HouseLayout): { readonly told: string; readonly now: string | null } {
   const chosen = why.chosen;
   const opens = why.night === null ? "" : timeOfDay(why.night.from.date.second_of_day);
@@ -256,7 +276,9 @@ export function whyText(why: WhyAnswer, layout: HouseLayout): { readonly told: s
       : waited !== undefined
         ? said(TEXT.house_why_waits, waited)
         : `${none}${shortWords(why)}${goesWords(why, layout)}`;
-  const told = `${night}${head}${behind === "" ? "" : ` ${TEXT.house_why_behind.replace("{list}", behind)}`}`;
+  // The person's reserve at the clock, for its latest choice, one sentence after the choice.
+  const reserve = reserveWords(why.reserve);
+  const told = `${night}${head}${behind === "" ? "" : ` ${TEXT.house_why_behind.replace("{list}", behind)}`}${reserve === null ? "" : ` ${reserve}`}`;
   const now =
     why.now === null || why.now.offers.length === 0
       ? null

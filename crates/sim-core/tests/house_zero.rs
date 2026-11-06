@@ -30,6 +30,7 @@ use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::house::data::Need;
 use sim_core::house::need::NeedSample;
+use sim_core::house::reserve::Reserve;
 use sim_core::house::state::{Decisions, Due, Duty, InHouse, Place, stand_up};
 use sim_core::ids::{EventId, SimId};
 use sim_core::input::{Command, Input, InputRejected, RejectCode};
@@ -1227,6 +1228,7 @@ fn getting_up_needs_energy_above_0() {
         due: None,
         decisions: Decisions { day: 1, count: 0 },
         collapsed: true,
+        reserve: Reserve::full(1000, t(fell)),
     };
     assert_eq!(stand_up(&lying(six - 72), &rules, born), Some(t(six)));
     assert_eq!(

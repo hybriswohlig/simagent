@@ -54,6 +54,33 @@ const SEED_WEEK: u64 = 0x5eed_0002_0005_0001;
 const FAMILIES: u64 = 20;
 const TAG: &str = "test:week";
 
+/// The capacity of each person's reserve, sims 1 to 4 of family `i` (ADR-0026, addendum of
+/// 2026-11-06 on hunger at 0): by the `body_fat_z` of its body, below −1 500, from 1 on 1 500,
+/// between 1 000; the z from `tools/reserve_reference.py --family` (the body of the
+/// specification). 53 of the 80 have 1 000, 12 have 500 and 15 have 1 500.
+const CAPACITIES: [[u16; 4]; 20] = [
+    [1000, 1000, 1000, 1000],
+    [1500, 1000, 1000, 1500],
+    [1000, 1000, 1000, 1500],
+    [1500, 1500, 1000, 1000],
+    [1000, 1000, 1000, 500],
+    [1000, 1000, 1500, 1500],
+    [1000, 500, 1000, 500],
+    [1000, 1000, 500, 1000],
+    [1500, 1500, 1000, 1000],
+    [500, 500, 1000, 1000],
+    [1000, 1000, 1500, 1000],
+    [500, 1000, 500, 1500],
+    [1000, 1000, 1000, 500],
+    [1500, 1000, 1000, 1000],
+    [1000, 1000, 1000, 1000],
+    [500, 1000, 1000, 1000],
+    [500, 1000, 1000, 1500],
+    [1000, 1000, 1000, 1000],
+    [1500, 1000, 1000, 1500],
+    [1000, 500, 1000, 1000],
+];
+
 fn t(secs: i64) -> SimTime {
     SimTime::from_secs(secs)
 }
@@ -457,12 +484,25 @@ fn the_week_of_the_test_family() {
                 LogPayload::NeedEmpty { .. }
                     | LogPayload::Collapsed { .. }
                     | LogPayload::Accident { .. }
+                    | LogPayload::Weakened { .. }
+                    | LogPayload::Wasted { .. }
             )
         });
         let count = consequences.count();
         emptied += count;
         if count > 0 {
             failures.push(format!("family {i}: {count} entries of a need at 0"));
+        }
+        // Each reserve has the capacity of its person's body and holds still and full all week
+        // (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+        let family = usize::try_from(i).expect("small");
+        for (&sim, person) in &week.world.state().house().sims {
+            let place = usize::try_from(sim.get() - 1).expect("small");
+            let reserve = person.reserve;
+            let full = reserve.value() == reserve.capacity() && reserve.rate() == 0;
+            if reserve.capacity() != CAPACITIES[family][place] || !full || reserve.energy() != 0 {
+                failures.push(format!("family {i}, sim {}: {reserve:?}", sim.get()));
+            }
         }
         let longest = hungry(&week);
         let duties = duties(&week);

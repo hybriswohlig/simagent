@@ -1,6 +1,6 @@
 import { objectName, objectWaitedFor, placedOfferWords, whereObject } from "./command.js";
 import { dateText } from "./dates.js";
-import type { CalendarDate, EventItem, HouseLayout, HousePerson } from "./generated/export.js";
+import type { CalendarDate, EventItem, HouseLayout, HousePerson, HouseReserve } from "./generated/export.js";
 import { timeOfDay, wholeMinutes } from "./render/plan.js";
 import { CODES, FINISHED_WORDS, KIND_WORDS, ROOM_WORDS, TEXT, WEEKDAYS } from "./text.js";
 
@@ -47,8 +47,8 @@ function ended(layout: HouseLayout, object: number, offer: number, reason: unkno
 
 /** The line of a house entry of a person's day, or null for one the day leaves out (an
  * arrival): what it chose or was told, what ended, where it idles or what it waits for, a need
- * critical or empty, the day's duty, a collapse and an accident; the object told apart from
- * others of its kind, all from the entry and the layout. */
+ * critical or empty, the day's duty, a collapse and an accident, the reserve at half and at 0;
+ * the object told apart from others of its kind, all from the entry and the layout. */
 export function dayLine(layout: HouseLayout, item: EventItem): DayLine | null {
   const [code, body] = Object.entries(item.entry.payload)[0] ?? ["", {}];
   const fields = body as { [key: string]: unknown };
@@ -95,6 +95,11 @@ export function dayLine(layout: HouseLayout, item: EventItem): DayLine | null {
       return { text: TEXT.house_collapsed, choice: false };
     case "core:accident":
       return { text: TEXT.house_accident, choice: false };
+    // The reserve at half and at 0 (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+    case "core:weakened":
+      return { text: TEXT.house_weakened, choice: false };
+    case "core:wasted":
+      return { text: TEXT.house_wasted, choice: false };
     default:
       return null;
   }
@@ -122,6 +127,22 @@ export function dayGroups<T extends { readonly date: CalendarDate }>(
 function inRoom(layout: HouseLayout, index: number): string {
   const id = layout.rooms[index]?.id ?? "";
   return ROOM_WORDS[id]?.[2] ?? id;
+}
+
+/** The status of a person's reserve beside what it does, the server's band (ADR-0026, addendum
+ * of 2026-11-06 on hunger at 0): "zehrt am Vorrat", "geschwächt", "ausgezehrt"; null for the code `none`.
+ */
+export function reserveWord(reserve: HouseReserve): string | null {
+  switch (reserve.band) {
+    case "draws":
+      return TEXT.house_reserve_draws;
+    case "weak":
+      return TEXT.house_reserve_weak;
+    case "wasted":
+      return TEXT.house_reserve_wasted;
+    default:
+      return null;
+  }
 }
 
 /** What a person does now as one line, all from the house answer: away where and until when, on

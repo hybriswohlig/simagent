@@ -3,11 +3,12 @@
 // am Esstisch", "wacht auf", cut off with its reason), where an idle person stands, what it
 // waits for; and the day list by calendar day across midnight. A person's line now: what it
 // waits for and where, and an action the departure ends at its time (ADR-0021, addendum of
-// 2026-11-05 on the house page). Written by hand from the words of `text.ts`.
+// 2026-11-05 on the house page); the reserve's lines and words (ADR-0026, addendum of 2026-11-06
+// on hunger at 0). Written by hand from the words of `text.ts`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dayGroups, dayLine, doing } from "../dist/day.js";
+import { dayGroups, dayLine, doing, reserveWord } from "../dist/day.js";
 
 function object(kind, room, offers) {
   return { kind, room, x: 0, y: 0, w: 1, h: 1, slots: 1, offers };
@@ -64,6 +65,18 @@ test("idle where, waiting for what", () => {
   assert.deepEqual(line("core:idle", { room: 3, needs: [], busy: [], waits: null }), { text: "tut nichts im Bad", choice: true });
   assert.deepEqual(line("core:idle", { room: 0, needs: [], busy: [1], waits: 1 }), { text: "wartet auf: Toilette auf dem WC", choice: true });
   assert.equal(line("core:reached", { object: 0 }), null);
+});
+
+test("the reserve at half and at 0, and its word beside what the person does", () => {
+  // ADR-0026, addendum of 2026-11-06 on hunger at 0: the day says "wird geschwächt" and "ist
+  // ausgezehrt"; the person's line the server's band in Grok's words, nothing for `none`.
+  assert.deepEqual(line("core:weakened", { capacity: 1000 }), { text: "wird geschwächt", choice: false });
+  assert.deepEqual(line("core:wasted", { capacity: 500 }), { text: "ist ausgezehrt", choice: false });
+  const word = (band) => reserveWord({ value: 300, capacity: 1000, band });
+  assert.equal(word("none"), null);
+  assert.equal(word("draws"), "zehrt am Vorrat");
+  assert.equal(word("weak"), "geschwächt");
+  assert.equal(word("wasted"), "ausgezehrt");
 });
 
 test("the day list by calendar day", () => {

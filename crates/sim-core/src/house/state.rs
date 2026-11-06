@@ -15,6 +15,7 @@ use crate::house::data::{
 use crate::house::day::{YoungPlace, night, young_place};
 use crate::house::day::{day_departure, next_night, work_draw};
 use crate::house::need::{EMPTY, FULL, NeedSample};
+use crate::house::reserve::{Band, Doing, Reserve, ReserveRules};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
@@ -33,7 +34,8 @@ pub struct MovedIn {
 
 /// A person with needs (ADR-0024 sections 1, 2 and 4, ADR-0026), in the order hunger,
 /// energy, bladder, hygiene, fun; `collapsed` while it lies on the floor of its room after its
-/// energy reached 0 (ADR-0026, addendum of 2026-11-04 on a need at 0).
+/// energy reached 0 (ADR-0026, addendum of 2026-11-04 on a need at 0); its reserve at hunger 0
+/// (`house::reserve`, the addendum of 2026-11-06 on hunger at 0).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InHouse {
     pub needs: [NeedSample; 5],
@@ -42,6 +44,7 @@ pub struct InHouse {
     pub due: Option<Due>,
     pub decisions: Decisions,
     pub collapsed: bool,
+    pub reserve: Reserve,
 }
 
 /// Where a person with needs is (ADR-0025 section 5). A walk with an action leads to its
@@ -321,7 +324,8 @@ pub fn filler_possible(
 /// the time-filler's length), `seed` the world's, `member` a living sim's household, birth and
 /// lineage key: on its walk a time-filler was chosen when the walk began; at its object it
 /// arrived when the needs its offer sets were written down, and was chosen its walk from some
-/// room of the house before. A time-filler no such choice could have taken (`filler_possible`)
+/// room of the house before, a weak one's walk twice as long (ADR-0026, addendum of 2026-11-06 on
+/// hunger at 0) where the samples allow that band at its start. A time-filler no such choice could have taken (`filler_possible`)
 /// is refused (`Broken::Filler`). Which offer a choice took is not checked otherwise.
 pub fn fillers_consistent(
     house: &HouseState,
@@ -349,10 +353,18 @@ pub fn fillers_consistent(
             Place::Room(_) => {
                 let set = (NEEDS.into_iter().zip(person.needs)).find(|(need, _)| offer.sets(*need));
                 let begun = set.map(|(_, sample)| sample.at()).ok_or(Broken::Filler)?;
+                // A weak walk took longer (ADR-0026, addendum of 2026-11-06 on hunger at 0): each
+                // length only from a second at which the samples allow its band.
                 (0..home.def().rooms).any(|room| {
-                    let walk = SimDuration::from_secs(i64::from(home.walk_to(room, action.object)));
-                    (begun.checked_sub(walk))
-                        .is_some_and(|chosen| filler_possible(data, who, offer, (chosen, begun)))
+                    let secs = home.walk_to(room, action.object);
+                    (BANDS.iter()).any(|&band| {
+                        let walked = data.reserve().walk(secs, band);
+                        let walk = SimDuration::from_secs(i64::from(walked));
+                        (begun.checked_sub(walk)).is_some_and(|chosen| {
+                            bands_then(person, data.reserve(), chosen)[depth(band)]
+                                && filler_possible(data, who, offer, (chosen, begun))
+                        })
+                    })
                 })
             }
             Place::Away => true,
@@ -497,6 +509,11 @@ pub enum Broken {
     /// the time-filler), or one no choice could have taken: chosen in a night or ending too soon
     /// by the bounds the save shows (`fillers_consistent`, its addendum of 2026-11-05).
     Filler,
+    /// A reserve (ADR-0026, addendum of 2026-11-06 on hunger at 0) of a capacity the rules do
+    /// not have or other than the person's body gives, a value above its capacity, written
+    /// down after the clock, with a rate other than what the person does gives it, or an energy
+    /// extra the rules do not have or one lying on the floor or out carries.
+    Reserve,
 }
 
 /// The checks on load of the house part (ADR-0024, addendum of 2026-11-02) at `now`, the
@@ -543,6 +560,7 @@ pub fn consistent(
         rates_consistent(person, home, data, born)?;
         due_consistent(person, home, data, born)?;
         sleep_consistent(person, home, data, born)?;
+        reserve_consistent(person, home, data, (born, now, choices.is_some()))?;
         if let Some(action) = person.action
             && !taken.insert((household, action.object, action.slot))
         {
@@ -617,8 +635,18 @@ pub fn consistent(
             continue;
         };
         let stays = home.dwells(room) || person.action.is_some() || person.collapsed;
-        let walked = SimDuration::from_secs(i64::from(home.walk_to_dwell(room)));
-        let beyond = now.checked_add(walked).is_none();
+        // Weak, that walk takes longer (ADR-0026, addendum of 2026-11-06 on hunger at 0): any
+        // length the bands the samples allow at the clock give.
+        let secs = home.walk_to_dwell(room);
+        let clock = now.checked_sub(SimDuration::from_secs(1)).unwrap_or(now);
+        let lengths = match data {
+            Some(data) => walks_then(person, data.reserve(), (secs, clock)),
+            None => alloc::vec![secs],
+        };
+        let beyond = (lengths.iter()).any(|&walked| {
+            now.checked_add(SimDuration::from_secs(i64::from(walked)))
+                .is_none()
+        });
         if !(stays || queued.contains(&sim) || due(&sim) || beyond) {
             return Err(Broken::Dwell);
         }
@@ -729,7 +757,12 @@ fn person_consistent(
             };
             let walked = arrive.as_secs() - depart.as_secs();
             let begun = depart < now || (depart == now && opened && person.action.is_some());
-            if !begun || walked != i64::from(secs) || to != goal {
+            let rules = data.ok_or(Broken::HouseUnknown)?.reserve();
+            // Weak, a walk takes longer (ADR-0026, addendum of 2026-11-06 on hunger at 0): by the
+            // bands the samples allow at its start.
+            let lengths = walks_then(person, rules, (secs, depart));
+            if !begun || !lengths.contains(&u32::try_from(walked).unwrap_or(u32::MAX)) || to != goal
+            {
                 return Err(Broken::Walk);
             }
             if dwelling && home.dwells(from) {
@@ -842,7 +875,10 @@ fn due_consistent(
         Need::Bladder => wet,
         Need::Hygiene => (walking && wet) || (stung && hygiene.at() == fun.at()),
         Need::Fun => stung,
-        Need::Hunger | Need::Energy => false,
+        // Energy takes the reserve's deeper extra at a change of rates while the walk or the
+        // action goes on (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+        Need::Energy => person.reserve.energy() != 0,
+        Need::Hunger => false,
     };
     let unexplained =
         |need: Need, sample: NeedSample| written_late(need, sample) && !explained(need);
@@ -910,7 +946,12 @@ fn rates_consistent(
             }
             _ => rates.awake.rate(need, band),
         };
-        if sample.rate() != rate {
+        // Energy carries the reserve's extra (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+        let extra = match need {
+            Need::Energy => person.reserve.energy(),
+            _ => 0,
+        };
+        if sample.rate().checked_sub(extra) != Some(rate) {
             return Err(Broken::Rate);
         }
     }
@@ -929,6 +970,155 @@ fn collapse_consistent(person: &InHouse) -> Result<(), Broken> {
         Ok(())
     } else {
         Err(Broken::Collapse)
+    }
+}
+
+/// The bands of `Reserve::band` in the order of their depth: none, drawing on the reserve, weak,
+/// wasted.
+const BANDS: [Option<Band>; 4] = [
+    None,
+    Some(Band::Draws),
+    Some(Band::Weak),
+    Some(Band::Wasted),
+];
+
+/// The depth of a band in `BANDS`.
+fn depth(band: Option<Band>) -> usize {
+    BANDS.iter().position(|&each| each == band).unwrap_or(0)
+}
+
+/// The bands a person may have had at `t` (ADR-0026, addendum of 2026-11-06 on hunger at 0), by
+/// the evidence its samples keep and the reserve's `rules`, in the order of `BANDS`. Hunger
+/// written down at or before `t` above 0 or rising then: none. At 0 then, it stayed there without
+/// rising since, and so it was if a drain of the reserve written down by `t` lasted through it
+/// (`reserve_consistent`): not none. Else hunger written down later no longer shows itself then:
+/// none, or the band of the reserve's value then. The reserve written down at or before `t` shows
+/// that value exactly. Written down later while hunger stayed at 0, it only fell or stood since,
+/// by at most the steepest drain of the rules: its value then lay from its value now to that plus
+/// `⌈steepest · s / 3600⌉`, `s` the seconds from `t` to its write, and at most its capacity; any
+/// band of that range. Both written down later: every band.
+fn bands_then(person: &InHouse, rules: &ReserveRules, t: SimTime) -> [bool; 4] {
+    let (hunger, reserve) = (person.needs[0], person.reserve);
+    let shown = hunger.at() <= t;
+    if shown && (hunger.rate() > 0 || hunger.value_at(t) != EMPTY) {
+        return [true, false, false, false];
+    }
+    let at_0 = shown || (reserve.at() <= t && reserve.rate() < 0);
+    let (low, high) = if reserve.at() <= t {
+        let value = reserve.value_at(t);
+        (value, value)
+    } else if shown {
+        // In i128: two seconds of a malformed save may lie further apart than a duration holds.
+        let secs = i128::from(reserve.at().as_secs()) - i128::from(t.as_secs());
+        let fallen = (i128::from(rules.steepest_drain()) * secs + 3_599) / 3_600;
+        let most = (i128::from(reserve.value()) + fallen).min(i128::from(reserve.capacity()));
+        (
+            reserve.value(),
+            u16::try_from(most).unwrap_or(reserve.capacity()),
+        )
+    } else {
+        return [true; 4];
+    };
+    let (shallowest, deepest) = (
+        depth(Some(reserve.band_of(high))),
+        depth(Some(reserve.band_of(low))),
+    );
+    core::array::from_fn(|at| (at == 0 && !at_0) || (shallowest..=deepest).contains(&at))
+}
+
+/// The seconds a walk of `secs` may have taken a person who began it at `t`: one length per band
+/// it may have had then (`bands_then`, `ReserveRules::walk`).
+fn walks_then(person: &InHouse, rules: &ReserveRules, (secs, t): (u32, SimTime)) -> Vec<u32> {
+    let possible = bands_then(person, rules, t);
+    let mut lengths: Vec<u32> = (BANDS.iter().zip(possible))
+        .filter(|&(_, possible)| possible)
+        .map(|(&band, _)| rules.walk(secs, band))
+        .collect();
+    lengths.dedup();
+    lengths
+}
+
+/// The reserve (ADR-0026, addendum of 2026-11-06 on hunger at 0): a capacity of the rules and the
+/// value at most it; written down at or before the clock, or in the open second `now` only by an
+/// input that changed the person's rates there, so that some need was written down then too
+/// (`opened`). Its rate is what the person does gives it at the last change of rates, in the age
+/// band of the second it was written down: out 0; eating the refill while it was below its
+/// capacity then, else 0; hunger at 0 the drain, asleep or awake; else 0. Hunger's 0 counts from
+/// the clock: a crossing of 0 in the open second has not run, unless an input changed the
+/// person's rates in that second, which reckoned with it. A drain began with hunger at 0, which
+/// the hunger sample shows if it was written down by then, and lasted while hunger stayed there
+/// without rising, which a hunger sample written down since shows at its write; a refill began
+/// when the person reached its food, with hunger's rate. The energy's extra is that of the band
+/// in the second energy was written down last (one `bands_then` allows; 0 for one lying on the
+/// floor or out), and, unless an action at its object holds energy's rate, that of the band at a
+/// later change of rates, when hunger or the reserve were written down after energy: else that
+/// change would have written energy down anew.
+fn reserve_consistent(
+    person: &InHouse,
+    home: &House,
+    data: Option<&HouseData>,
+    (born, now, opened): (SimTime, SimTime, bool),
+) -> Result<(), Broken> {
+    let houses = data.ok_or(Broken::HouseUnknown)?;
+    let rules = houses.reserve();
+    let reserve = person.reserve;
+    let capacity = reserve.capacity();
+    if !rules.capacity.contains(&capacity) || reserve.value() > capacity || reserve.at() > now {
+        return Err(Broken::Reserve);
+    }
+    let changed_now = person.needs.iter().any(|need| need.at() == now);
+    if reserve.at() == now && !(opened && changed_now) {
+        return Err(Broken::Reserve);
+    }
+    let clock = now.checked_sub(SimDuration::from_secs(1)).unwrap_or(now);
+    let then = if changed_now { now } else { clock };
+    let hunger = person.needs[0];
+    if hunger.at() > then {
+        return Err(Broken::Reserve);
+    }
+    let offer = match (person.place, person.action) {
+        (Place::Room(_), Some(action)) => (home.def().objects.get(usize::from(action.object)))
+            .and_then(|object| houses.kind(&object.kind))
+            .and_then(|kind| kind.offers.get(usize::from(action.offer))),
+        _ => None,
+    };
+    let doing = Doing {
+        out: out(person, home),
+        eating: hunger.rate() > 0,
+        asleep: person.collapsed || offer.is_some_and(|offer| offer.sleep),
+        empty: hunger.value_at(then) == EMPTY,
+    };
+    let band = band_at(born, reserve.at()).ok_or(Broken::Reserve)?;
+    if reserve.rate() != rules.rate(doing, band, (reserve.value(), capacity)) {
+        return Err(Broken::Reserve);
+    }
+    // Hunger written down while the reserve drained wrote no other rate for it: at 0 then and not
+    // rising, else that change of rates would have ended the drain and written the reserve anew.
+    let hunger_at_0 = match hunger.at() <= reserve.at() {
+        true => hunger.value_at(reserve.at()) == EMPTY,
+        false => hunger.value() == EMPTY && hunger.rate() <= 0,
+    };
+    let drain_without_hunger_at_0 = reserve.rate() < 0 && !hunger_at_0;
+    let refill_not_at_the_food = reserve.rate() > 0 && reserve.at() != hunger.at();
+    if drain_without_hunger_at_0 || refill_not_at_the_food {
+        return Err(Broken::Reserve);
+    }
+    // The energy's extra.
+    let still = person.collapsed || out(person, home);
+    let extra = |band: Option<Band>| if still { 0 } else { rules.energy(band) };
+    let energy = person.needs[1];
+    let at_its_write = (BANDS.iter().zip(bands_then(person, rules, energy.at())))
+        .any(|(&band, possible)| possible && extra(band) == reserve.energy());
+    let held = offer.is_some_and(|offer| offer.sets(Need::Energy));
+    let last = hunger.at().max(reserve.at());
+    let at_the_last_change = last <= energy.at()
+        || held
+        || still
+        || extra(reserve.band(hunger, last)) == reserve.energy();
+    if at_its_write && at_the_last_change {
+        Ok(())
+    } else {
+        Err(Broken::Reserve)
     }
 }
 

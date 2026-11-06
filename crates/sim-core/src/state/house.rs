@@ -227,6 +227,9 @@ pub(super) fn start_day(
     let needs = core::array::from_fn(|at| {
         NeedSample::new(MORNING_VALUES[at], now, rates.rate(NEEDS[at], band))
     });
+    let houses = data
+        .houses()
+        .unwrap_or_else(|| panic!("invariant house.unknown"));
     let person = InHouse {
         needs,
         place: Place::Room(entrance),
@@ -237,9 +240,10 @@ pub(super) fn start_day(
             count: 0,
         },
         collapsed: false,
+        reserve: super::reserve::begun(domain, data, houses, (sim, now)),
     };
     domain.house.sims.insert(sim, person);
-    plan_crossings(domain, sim, entry, ctx);
+    plan_crossings(domain, data, sim, entry, ctx);
     super::day::plan_today(domain, data, sim, Causes::new(Cause::Event(entry)), ctx);
     super::day::plan_bedtime(domain, data, sim, entry, ctx);
     let decide = ctx.schedule(now, EventPayload::Decide { sim }, entry);
@@ -254,14 +258,19 @@ pub(super) fn start_day(
 /// of the handler's own second that has not run yet stays planned while its need is still at or
 /// below its level: the change wrote the value of that second down as it was, so the need has
 /// reached the level all the same, and no other need's crossing of a second is lost to the
-/// handler that runs first in it (ADR-0026, addendum of 2026-11-04 on a need at 0).
+/// handler that runs first in it (ADR-0026, addendum of 2026-11-04 on a need at 0). Such a
+/// change is the moment the reserve takes its rate and energy its extra, first, and the
+/// reserve's crossings are planned anew, last (`state::reserve`, the addendum of 2026-11-06 on
+/// hunger at 0).
 pub(super) fn plan_crossings(
     domain: &mut DomainState,
+    data: &Data,
     sim: SimId,
     by: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let now = ctx.now();
+    super::reserve::write(domain, data, sim, now);
     let Some(person) = domain.house.sims.get(&sim) else {
         panic!("invariant house.orphan_event");
     };
@@ -294,6 +303,7 @@ pub(super) fn plan_crossings(
             .pending
             .insert((sim, Slot::Crossing(need, level)), handle);
     }
+    super::reserve::plan(domain, sim, by, ctx);
 }
 
 /// The second a plan made now is made in, whose later seconds it plans: a handler's own; for an
@@ -333,7 +343,7 @@ fn forget(
     sim: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> Option<(Action, [u16; 5])> {
-    let house_events = (Slot::DayPlan, Slot::StandUp);
+    let house_events = (Slot::DayPlan, Slot::Reserve(u16::MAX));
     cancel(domain, sim, house_events, ctx);
     let person = domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {

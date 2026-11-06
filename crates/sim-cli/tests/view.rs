@@ -2160,7 +2160,7 @@ fn settings_file(values: &str) -> String {
 
 /// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
 /// `the_base_game_loads`).
-const BASE_HASH: &str = "2a2c6a3d111452a3";
+const BASE_HASH: &str = "d6729d8677b0f3ad";
 
 /// The data hash in the manifest of the run in `dir`.
 fn data_hash(dir: &Path) -> String {
@@ -2975,6 +2975,15 @@ fn dated(t: i64) -> Value {
     json!({"t": t, "date": date(t)})
 }
 
+/// The reserve of the couple's woman (sim 1) or man (sim 2) while nobody starves, in the house
+/// answer: full at the capacity their bodies give, 500 and 1 500 (their `body_fat_z` −1.36 and
+/// 1.29 by `tools/reserve_reference.py --family`), with no band (version 9, ADR-0026, addendum of
+/// 2026-11-06 on hunger at 0).
+fn full_reserve(sim: u64) -> Value {
+    let capacity = if sim == 1 { 500 } else { 1500 };
+    json!({"value": capacity, "capacity": capacity, "band": "none"})
+}
+
 /// The server over the run `couple` of the scenario `COUPLE`, the couple's household, and the
 /// run's directory.
 fn couple(name: &str) -> (Server, Value, PathBuf) {
@@ -3062,7 +3071,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(8), &dated(at))
+            (&json!("simagent.view.house"), &json!(9), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"], &answer["comfort"]),
@@ -3119,12 +3128,12 @@ fn a_house_over_http() {
              "action": {"object": 5, "offer": 0, "slot": 0, "until": null, "filler": false,
                         "departs": false},
              "waits": null, "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day(&[6])},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)},
             {"sim": 2, "place": walking(3, MORNING + 3),
              "action": {"object": 6, "offer": 0, "slot": 0, "until": null, "filler": false,
                         "departs": false},
              "waits": null, "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day(&[5])},
+             "collapsed": false, "smells": false, "commands": by_day(&[5]), "reserve": full_reserve(2)},
         ])
     );
     step("minutes10", MORNING + 600);
@@ -3133,12 +3142,12 @@ fn a_house_over_http() {
         json!([
             {"sim": 1, "place": {"room": 3}, "action": null, "waits": 6,
              "needs": [584, 894, 986, 695, 790], "weights": [116, 106, 0, 205, 210],
-             "collapsed": false, "smells": false, "commands": by_day(&[6])},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)},
             {"sim": 2, "place": {"room": 3},
              "action": {"object": 6, "offer": 0, "slot": 0, "until": dated(MORNING + 903),
                         "filler": false, "departs": false},
              "waits": null, "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
-             "collapsed": false, "smells": false, "commands": by_day(&[6])},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(2)},
         ])
     );
     step("hour", MORNING + 4_200);
@@ -3181,7 +3190,7 @@ fn young_children_in_the_house() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["version"], &answer["at"], &answer["house"]),
-            (&json!(8), &dated(at), &json!("core:flat"))
+            (&json!(9), &dated(at), &json!("core:flat"))
         );
         answer
     };
@@ -3327,7 +3336,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 8,
+                "version": 9,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -3343,6 +3352,8 @@ fn why_over_http() {
                 "too_short": null,
                 "offers": offers(sim, busy),
                 "now": null,
+                // Still the person's latest choice at the clock: its reserve then (version 9).
+                "reserve": full_reserve(sim),
             }),
             "{sim}"
         );
@@ -3427,7 +3438,7 @@ fn a_command_over_http() {
                           "departs": false},
                "waits": null, "needs": [600, 900, 500, 700, 800],
                "weights": [100, 100, 200, 200, 200],
-               "collapsed": false, "smells": false, "commands": by_day(&[6])})
+               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)})
     );
     let minutes = r#"{"step":"minutes10"}"#;
     assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
@@ -3482,7 +3493,7 @@ fn a_command_over_http() {
                           "departs": false},
                "waits": null, "needs": [584, 894, 480, 1000, 790],
                "weights": [116, 106, 220, 0, 210],
-               "collapsed": false, "smells": false, "commands": by_day(&[])})
+               "collapsed": false, "smells": false, "commands": by_day(&[]), "reserve": full_reserve(2)})
     );
 }
 
@@ -3555,7 +3566,7 @@ fn the_house_answer_after_a_command() {
                           "departs": false},
                "waits": null, "needs": [598, 899, 826, 700, 799],
                "weights": [102, 101, 0, 200, 201],
-               "collapsed": false, "smells": false, "commands": by_day(&[6])})
+               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)})
     );
 }
 
@@ -3651,7 +3662,7 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
         let answer = sim_cli::house_answer(world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(8));
+        assert_eq!(answer["version"], json!(9));
         (answer["persons"].as_array().expect("persons").iter())
             .map(|person| person[name].clone())
             .collect()
@@ -3710,7 +3721,7 @@ fn the_offers_a_command_may_name_follow_the_night() {
         let answer = sim_cli::house_answer(&world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(8));
+        assert_eq!(answer["version"], json!(9));
         let persons = answer["persons"].as_array().expect("persons");
         assert_eq!(persons.len(), 2);
         for person in persons {
@@ -3814,7 +3825,7 @@ fn the_house_answer_ends_an_action_at_the_departure() {
     let answer = sim_cli::house_answer(&world, household)
         .expect("answers")
         .expect("a house");
-    assert_eq!(answer["version"], json!(8));
+    assert_eq!(answer["version"], json!(9));
     let action = &answer["persons"][0]["action"];
     assert_eq!(
         (
@@ -3879,7 +3890,7 @@ fn why_names_what_is_urgent() {
     let why = sim_cli::why_answer(&world, &entry, 7, false, None)
         .expect("answers")
         .expect("a choice");
-    assert_eq!(why["version"], json!(8));
+    assert_eq!(why["version"], json!(9));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -4067,7 +4078,7 @@ fn why_names_what_a_time_filler_ends_for_when_a_wait_follows() {
         let why = sim_cli::why_answer(&world, &filler, 9, false, Some(end))
             .expect("answers")
             .expect("a choice");
-        assert_eq!(why["version"], json!(8));
+        assert_eq!(why["version"], json!(9));
         let told = &why["filler"];
         assert_eq!(
             (&told["until"], &told["ends"], &told["then"]),

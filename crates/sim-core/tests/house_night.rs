@@ -31,6 +31,7 @@ use sim_core::house::choice::mood;
 use sim_core::house::data::{DayRules, Need, OfferDef};
 use sim_core::house::day::{Night, next_night, night, night_of};
 use sim_core::house::need::NeedSample;
+use sim_core::house::reserve::Reserve;
 use sim_core::house::state::{Decisions, InHouse, Place, action_end};
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input, InputRejected, RejectCode};
@@ -400,6 +401,7 @@ fn the_last_night_of_time_lasts_to_its_end() {
             count: 0,
         },
         collapsed: false,
+        reserve: Reserve::full(1000, t(end - H)),
     };
     let sleep = OfferDef {
         rates: Default::default(),
@@ -432,6 +434,7 @@ fn a_sleep_ends_with_its_night() {
         due: None,
         decisions: Decisions { day: 1, count: 0 },
         collapsed: false,
+        reserve: Reserve::full(1000, t(at)),
     };
     let sleep = OfferDef {
         rates: Default::default(),

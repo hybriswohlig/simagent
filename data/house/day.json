@@ -15,6 +15,14 @@
   "choice_mood_percent": 10,
   "fallback_max_seconds": 14400,
   "fallback_min_seconds": 600,
+  "reserve": {
+    "capacity": [500, 1000, 1500],
+    "drain": {"awake": [-80, -60, -40, -50], "asleep": [-32, -24, -16, -20]},
+    "refill": 960,
+    "weak_energy": -40,
+    "wasted_energy": -80,
+    "walk_factor": 2
+  },
   "young": {"until_age": 6, "kita_from": 28800, "kita_to": 54000, "bed_from": 68400, "bed_to": 25200},
   "night": {
     "from": [72000, 72000, 79200, 77400],
