@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::house::need::FULL;
+use crate::house::reserve::{RULES, ReserveRules};
 use crate::time::DAY;
 
 /// The five needs, in the order of the log's arrays (ADR-0026 section 1).
@@ -759,6 +760,11 @@ impl HouseData {
 
     pub fn day(&self) -> &DayRules {
         &self.day
+    }
+
+    /// The values of the reserve at hunger 0 (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+    pub fn reserve(&self) -> &ReserveRules {
+        &RULES
     }
 
     /// The kinds in the order of their ids.

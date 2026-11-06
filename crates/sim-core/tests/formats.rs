@@ -1123,6 +1123,8 @@ fn all_payloads() -> Vec<LogPayload> {
         LogPayload::Accident {
             needs: [600, 900, 1000, 50, 800],
         },
+        LogPayload::Weakened { capacity: 1000 },
+        LogPayload::Wasted { capacity: 500 },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1158,7 +1160,9 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Missed { .. }
             | LogPayload::NeedEmpty { .. }
             | LogPayload::Collapsed { .. }
-            | LogPayload::Accident { .. } => {}
+            | LogPayload::Accident { .. }
+            | LogPayload::Weakened { .. }
+            | LogPayload::Wasted { .. } => {}
         }
     }
     payloads
@@ -1218,6 +1222,7 @@ fn all_reject_codes() -> Vec<RejectCode> {
         RejectCode::NotNight,
         RejectCode::Collapsed,
         RejectCode::Listless,
+        RejectCode::Weak,
     ];
     for code in &codes {
         match code {
@@ -1272,7 +1277,8 @@ fn all_reject_codes() -> Vec<RejectCode> {
             | RejectCode::CriticalNeed
             | RejectCode::NotNight
             | RejectCode::Collapsed
-            | RejectCode::Listless => {}
+            | RejectCode::Listless
+            | RejectCode::Weak => {}
         }
     }
     codes

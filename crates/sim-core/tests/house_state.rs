@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sim_core::data_id::DataId;
 use sim_core::house::data::{HouseData, Need};
 use sim_core::house::need::NeedSample;
+use sim_core::house::reserve::Reserve;
 use sim_core::house::state::{
     Action, Broken, Decisions, Due, Duty, HouseState, InHouse, MovedIn, Place, children_consistent,
     consistent, crossings,
@@ -82,6 +83,7 @@ fn person(place: Place, action: Option<Action>) -> InHouse {
             count: 3,
         },
         collapsed: false,
+        reserve: Reserve::full(1000, needs()[0].at()),
     }
 }
 
@@ -128,6 +130,25 @@ fn legal() -> HouseState {
         ]),
         waits: BTreeMap::from([((household(1), 1), vec![(t(NOW - 60), sim(1))])]),
         holds: BTreeMap::new(),
+    }
+}
+
+/// Each reserve as a run leaves it by `now` (ADR-0026, addendum of 2026-11-06 on hunger at 0):
+/// full, and draining awake from the second its hunger reached 0 if that came by `now` (the
+/// adults 40, the child of 8 80 an hour); still otherwise.
+fn drained_by(state: &mut HouseState, now: i64) {
+    for (id, person) in &mut state.sims {
+        let hunger = person.needs[0];
+        let reached = (hunger.crossing(0)).filter(|at| at.as_secs() <= now);
+        let since = if hunger.value() == 0 {
+            Some(hunger.at())
+        } else {
+            reached
+        };
+        if let Some(since) = since.filter(|_| hunger.rate() <= 0) {
+            let drain = if id.get() == 3 { -80 } else { -40 };
+            person.reserve = Reserve::new(1000, (1000, since, drain), 0);
+        }
     }
 }
 
@@ -469,6 +490,7 @@ fn walks_and_rates_are_checked() {
             let since = if at == late { now - 60 } else { now - 600 };
             *need = NeedSample::new(need.value(), t(since), rates[at]);
         }
+        drained_by(&mut state, now);
         consistent(&state, Some(&houses()), t(now), None, alive, member)
     };
     assert_eq!(asleep(night, 5), Ok(()));
@@ -491,6 +513,7 @@ fn walks_and_rates_are_checked() {
             slot: 0,
             filler: false,
         });
+        drained_by(&mut state, depart + 3);
         consistent(&state, Some(&houses()), t(depart + 3), None, alive, member)
     };
     assert_eq!(to_bed(night - 3), Ok(()));
@@ -582,6 +605,7 @@ fn away_due_and_decisions_are_checked() {
             s.waits.clear();
             let three = in_house(s, 3);
             three.needs[0] = NeedSample::new(0, t(hunger_at), -100);
+            three.reserve = Reserve::new(1000, (1000, t(hunger_at), -80), 0);
             three.due = Some(Due {
                 place: Duty::School,
                 depart: t(NOW - 1),
@@ -713,6 +737,9 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 filler: false,
             });
             one.needs[3] = NeedSample::new(140, t(NOW - 600), -30);
+            // Hunger 100 now: her hunger at 0 now would drain the reserve from a change of rates
+            // in this second (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+            one.needs[0] = NeedSample::new(700, t(NOW - 6 * 3_600), -100);
             one.due = Some(due(NOW - 5));
             change(one);
         })
@@ -759,6 +786,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 filler: false,
             });
             one.needs[3] = NeedSample::new(100, t(NOW - 300), 2_800);
+            one.needs[0] = NeedSample::new(700, t(NOW - 6 * 3_600), -100);
             one.needs[2] = bladder;
             one.due = Some(due(NOW - 600));
         })
@@ -799,6 +827,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
             s.waits.clear();
             let three = in_house(s, 3);
             three.needs[0] = NeedSample::new(0, t(NOW - 3_600), -100);
+            three.reserve = Reserve::new(1000, (1000, t(NOW - 3_600), -80), 0);
             three.needs[3] = hygiene;
             three.needs[4] = fun;
             three.due = Some(due(NOW - 1));
@@ -817,6 +846,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
         s.waits.clear();
         let three = in_house(s, 3);
         three.needs[0] = NeedSample::new(0, t(NOW - 3_600), -100);
+        three.reserve = Reserve::new(1000, (1000, t(NOW - 3_600), -80), 0);
         three.needs[2] = NeedSample::new(1000, t(NOW), -120);
         three.needs[3] = NeedSample::new(50, t(NOW), -30);
         three.due = Some(due(NOW - 1));
@@ -1049,4 +1079,73 @@ fn a_bed_a_young_child_holds_is_checked() {
     assert_eq!(check(morning, 1), Err(Broken::ChildBed));
     assert_eq!(check(morning + 1, 1), Ok(()));
     assert_eq!(check(night, 0), Ok(()));
+}
+
+/// The reserve (ADR-0026, addendum of 2026-11-06 on hunger at 0): a capacity of the rules, at most
+/// full, not written down after the clock; the rate of what the person does, by its hunger at the
+/// clock (sim 1 idle with hunger 1 then, so still; with hunger at 0 since ten minutes the adult's
+/// awake drain of 40, not the asleep one); the energy's extra one of the rules and carried by its
+/// rate (−40 on −40 is −80); a walk begun weak twice as long (sim 3, the child, 7 s from the living
+/// room to the fridge, weak with 400 of 1 000).
+#[test]
+fn the_reserve_is_checked() {
+    let reserve = |id: u64, reserve: Reserve| checked(move |s| in_house(s, id).reserve = reserve);
+    let morning = NOW - 6 * 3_600;
+    assert_eq!(reserve(1, Reserve::full(1000, t(morning))), Ok(()));
+    assert_eq!(reserve(1, Reserve::full(1500, t(morning))), Ok(()));
+    assert_eq!(
+        reserve(1, Reserve::full(700, t(morning))),
+        Err(Broken::Reserve)
+    );
+    assert_eq!(
+        reserve(1, Reserve::full(1000, t(NOW + 1))),
+        Err(Broken::Reserve)
+    );
+    let above: Reserve = serde_json::from_value(serde_json::json!({
+        "capacity": 1000, "value": 1001, "at": morning, "rate": 0, "energy": 0
+    }))
+    .expect("a reserve");
+    assert_eq!(reserve(1, above), Err(Broken::Reserve));
+    let draining = Reserve::new(1000, (1000, t(morning), -40), 0);
+    assert_eq!(reserve(1, draining), Err(Broken::Reserve));
+    // Hunger at 0 since ten minutes: the drain, awake.
+    let starving = |rate: i32| {
+        checked(move |s| {
+            let one = in_house(s, 1);
+            one.needs[0] = NeedSample::new(0, t(NOW - 600), -100);
+            one.reserve = Reserve::new(1000, (1000, t(NOW - 600), rate), 0);
+        })
+    };
+    assert_eq!(starving(-40), Ok(()));
+    assert_eq!(starving(0), Err(Broken::Reserve));
+    assert_eq!(starving(-16), Err(Broken::Reserve));
+    // The energy's extra: one of the rules, in its rate.
+    let extra = |energy: i32, rate: i32| {
+        checked(move |s| {
+            let one = in_house(s, 1);
+            one.needs[1] = NeedSample::new(900, t(NOW - 60), rate);
+            one.reserve = Reserve::full(1000, t(morning)).with_energy(energy);
+        })
+    };
+    assert_eq!(extra(-40, -80), Ok(()));
+    assert_eq!(extra(-80, -120), Ok(()));
+    assert_eq!(extra(-40, -40), Err(Broken::Rate));
+    assert_eq!(extra(-30, -70), Err(Broken::Reserve));
+    // A walk begun weak takes twice the house's 7 s.
+    let weak_walk = |arrive: i64| {
+        checked(move |s| {
+            s.waits.clear();
+            let three = in_house(s, 3);
+            three.needs[0] = NeedSample::new(0, t(NOW - 3_600), -100);
+            three.reserve = Reserve::new(1000, (400, t(NOW - 3_600), -80), 0);
+            three.place = Place::Walking {
+                from: 2,
+                to: 1,
+                depart: t(NOW - 3),
+                arrive: t(arrive),
+            };
+        })
+    };
+    assert_eq!(weak_walk(NOW - 3 + 14), Ok(()));
+    assert_eq!(weak_walk(NOW + 4), Err(Broken::Walk));
 }

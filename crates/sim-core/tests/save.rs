@@ -213,6 +213,11 @@ enum Payload {
     StandUp {
         sim: u64,
     },
+    /// A person's reserve reaches `level` (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+    ReserveCrossing {
+        sim: u64,
+        level: u16,
+    },
 }
 
 /// `str_key` of `core:senescence` and `core:accident`, the causes of death of everyone
@@ -481,7 +486,9 @@ type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
 /// A person with needs (ADR-0024, addendum of 2026-11-02): each need as (value, at, rate),
 /// the place, the action as (object, offer, place, whether it is a time-filler), a departure
 /// that waits as (place, depart, back), the choices of a day as (day, count), whether it lies on
-/// the floor (ADR-0026, addendum of 2026-11-04 on a need at 0).
+/// the floor (ADR-0026, addendum of 2026-11-04 on a need at 0), the reserve as (capacity, value,
+/// at, rate, energy extra; the addendum of 2026-11-06 on hunger at 0), `DERIVED` for the one her
+/// needs and what she does give (`derived`).
 #[derive(Clone, Serialize)]
 struct TestInHouse {
     needs: [(u16, i64, i32); 5],
@@ -490,6 +497,64 @@ struct TestInHouse {
     due: Option<(u8, i64, i64)>,
     decisions: (i64, u16),
     collapsed: bool,
+    reserve: TestReserve,
+}
+
+/// A reserve as (capacity, value, at, rate, energy extra).
+type TestReserve = (u16, u16, i64, i32, i32);
+
+/// The reserve a test leaves to `derived`.
+const DERIVED: TestReserve = (0, 0, 0, 0, 0);
+
+/// Her reserve at `clock` as a run leaves it (ADR-0026, addendum of 2026-11-06 on hunger at 0),
+/// full and of the capacity 1 000 of a body without a value (the test data hold no body): still
+/// from her needs' second unless hunger is at 0 by the clock and she is home and not eating; then
+/// draining from the second hunger got there at the rate of 6 to 12, asleep (on a bed or the
+/// sofa's sleep, or lying) −32 an hour, else −80. With its crossings of 500 and 0 after the clock,
+/// `⌈3600 · (1000 − level) / |rate|⌉` after its second.
+fn derived(person: &TestInHouse, clock: i64) -> (TestReserve, Vec<(i64, u16)>) {
+    let (value, at, rate) = person.needs[0];
+    let out = match person.place {
+        TestPlace::Away => true,
+        TestPlace::Walking { to, .. } => person.action.is_none() && to == 0,
+        TestPlace::Room(_) => false,
+    };
+    let sleeps = matches!(
+        (&person.place, person.action),
+        (
+            TestPlace::Room(_),
+            Some(TestAction(7 | 8, 0, _, _) | TestAction(2, 0, _, _))
+        )
+    );
+    // The second hunger reached 0, if it has by the clock.
+    let empty = match (value, rate) {
+        (0, _) => Some(at),
+        (_, rate) if rate < 0 => {
+            let speed = i64::from(-rate);
+            let reached = at + (3_600 * i64::from(value) + speed - 1) / speed;
+            (reached <= clock).then_some(reached)
+        }
+        _ => None,
+    };
+    let (since, drain) = match (out, rate > 0, empty) {
+        (false, false, Some(since)) => (since, if sleeps || person.collapsed { -32 } else { -80 }),
+        _ => (at, 0),
+    };
+    let crossings = match drain {
+        0 => Vec::new(),
+        drain => [500_u16, 0]
+            .into_iter()
+            .map(|level| {
+                let speed = i64::from(-drain);
+                (
+                    since + (3_600 * i64::from(1_000 - level) + speed - 1) / speed,
+                    level,
+                )
+            })
+            .filter(|&(due, _)| due > clock)
+            .collect(),
+    };
+    ((1_000, 1_000, since, drain, 0), crossings)
 }
 
 /// An action as (object, offer, place, whether it is a time-filler; ADR-0026, addendum of
@@ -1127,11 +1192,15 @@ fn a_save_keeps_only_a_time_filler_a_choice_could_take() {
         depart: eleven,
         arrive: eleven + 5,
     };
-    let walking = seven(walk, television, [0; 5], None);
+    let mut walking = seven(walk, television, [0; 5], None);
+    // Her hunger at 0 since a second before, so her reserve is still above half and her walk not
+    // slower (ADR-0026, addendum of 2026-11-06 on hunger at 0).
+    walking.needs[0] = (0, eleven - 1, -100);
     let arrives = || vec![event(eleven + 5, Payload::Arrive { sim: 1 })];
     assert_eq!(night(eleven + 1, &walking, arrives()), None);
     assert_eq!(night(eleven + 1, &filler(walking), arrives()), refused);
     let mut watching = seven(TestPlace::Room(2), television, [0; 5], None);
+    watching.needs[0] = (0, eleven - 1, -100);
     watching.needs[4] = (0, eleven + 5, 400);
     let ends = || vec![event(eleven + 5 + 2_700, Payload::ActionEnd { sim: 1 })];
     assert_eq!(night(eleven + 10, &watching, ends()), None);
@@ -1235,6 +1304,7 @@ fn seven(
             0,
         ),
         collapsed: false,
+        reserve: DERIVED,
     }
 }
 
@@ -1312,6 +1382,14 @@ fn flat_file(
     }
     f.year_hashes = (0..7).map(|year| (year, 7)).collect();
     f.house_households = vec![(1, ("core:flat".into(), true))];
+    let mut person = person;
+    let mut events = events;
+    if person.reserve == DERIVED {
+        let (reserve, crossings) = derived(&person, clock);
+        person.reserve = reserve;
+        let crossing = |(at, level)| (at, 0, 0, Payload::ReserveCrossing { sim: 1, level }, None);
+        events.extend(crossings.into_iter().map(crossing));
+    }
     f.house_sims = vec![(1, person)];
     for mut entry in events {
         entry.2 = f.next_event_seq;
@@ -1319,6 +1397,60 @@ fn flat_file(
         insert_event(f, entry, (3, planned_at));
     }
     file
+}
+
+/// The reserve in a save (ADR-0026, addendum of 2026-11-06 on hunger at 0): "tiny" at 7 on her way
+/// to the fridge since 6:00 with hunger at 0 then, her reserve draining from 1 000 at the drain of
+/// 6 to 12, 80 an hour; its crossings of 500 and 0 are due after ⌈3 600 · 500 / 80⌉ = 22 500 s and
+/// 45 000 s. With both it loads; without one, with one a second late, with a third, with a still
+/// reserve, with the asleep drain or with the capacity 1 500 (the test data hold no body, so hers
+/// is 1 000) it is refused.
+#[test]
+fn a_save_keeps_the_reserve() {
+    let data = common::data().with_houses(common::repository_houses_on_weekdays());
+    let six = SEVEN_SIX;
+    let at = |secs: i64, payload: Payload| (six + secs, 0, 0, payload, None);
+    let arrive = at(4, Payload::Arrive { sim: 1 });
+    let crossing = |secs: i64, level: u16| at(secs, Payload::ReserveCrossing { sim: 1, level });
+    let walk = TestPlace::Walking {
+        from: 0,
+        to: 1,
+        depart: six,
+        arrive: six + 4,
+    };
+    let walking = |reserve: TestReserve| TestInHouse {
+        reserve,
+        ..seven(walk.clone(), Some((1, 0, 0)), [0; 5], None)
+    };
+    let loads = |person: TestInHouse, events: Vec<QueueEntry>| {
+        load_error_with(data.clone(), &in_the_flat(&data, six + 2, person, events))
+    };
+    let both = || vec![arrive.clone(), crossing(22_500, 500), crossing(45_000, 0)];
+    let draining = (1_000, 1_000, six, -80, 0);
+    assert_eq!(loads(walking(DERIVED), vec![arrive.clone()]), None);
+    assert_eq!(loads(walking(draining), both()), None);
+    let refused = Some(LoadError::Inconsistent);
+    assert_eq!(
+        loads(
+            walking(draining),
+            vec![arrive.clone(), crossing(22_500, 500)]
+        ),
+        refused
+    );
+    let late = vec![arrive.clone(), crossing(22_501, 500), crossing(45_000, 0)];
+    assert_eq!(loads(walking(draining), late), refused);
+    let mut third = both();
+    third.push(crossing(30_000, 250));
+    assert_eq!(loads(walking(draining), third), refused);
+    assert_eq!(
+        loads(walking((1_000, 1_000, six, 0, 0)), vec![arrive.clone()]),
+        refused
+    );
+    let asleep = vec![arrive.clone(), crossing(56_250, 500), crossing(112_500, 0)];
+    assert_eq!(loads(walking((1_000, 1_000, six, -32, 0)), asleep), refused);
+    // 1 500 at −80: 750 after 33 750 s, 0 after 67 500 s.
+    let heavy = vec![arrive.clone(), crossing(33_750, 750), crossing(67_500, 0)];
+    assert_eq!(loads(walking((1_500, 1_500, six, -80, 0)), heavy), refused);
 }
 
 /// A walk and an action (ADR-0026 section 4), every need she does not fill at 0, so that
@@ -1483,6 +1615,7 @@ fn a_save_keeps_the_night() {
         due: None,
         decisions: idle.decisions,
         collapsed: false,
+        reserve: DERIVED,
     };
     let end = |at: i64| event(at, Payload::ActionEnd { sim: 1 });
     let asleep = slept(eight + 2 * 3_600);
@@ -1501,7 +1634,16 @@ fn a_save_keeps_the_night() {
         loads(evening, &by_day, vec![bed.clone(), end(morning)]),
         refused
     );
+    // Her hunger at 0 since a second before the walk, so her reserve is still above half and her
+    // walk not slower (ADR-0026, addendum of 2026-11-06 on hunger at 0).
     let walking = |depart: i64| TestInHouse {
+        needs: [
+            (0, depart - 1, -100),
+            idle.needs[1],
+            idle.needs[2],
+            idle.needs[3],
+            idle.needs[4],
+        ],
         place: TestPlace::Walking {
             from: 0,
             to: 5,
@@ -1866,6 +2008,7 @@ fn a_save_keeps_the_day() {
         due: None,
         decisions: home.decisions,
         collapsed: false,
+        reserve: DERIVED,
     };
     let noon = SCHOOL_DAY + 12 * 3_600;
     assert_eq!(loads(noon, &away, std::slice::from_ref(&returns)), None);

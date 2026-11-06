@@ -145,18 +145,51 @@ impl WorldState {
     }
 
     fn body_with(&self, sim: SimId, t: SimTime, neutral: bool) -> Option<BodyEvaluation> {
-        let data = self.data();
-        let body = BodyData::new(data).ok()?;
-        let domain = self.domain();
-        let world = domain
-            .world_params
-            .as_ref()
-            .map_or(&[][..], |params| params.nutrition.as_slice());
-        let nutrition = nutrition_of(domain, sim, world);
-        let z = traits_of(domain, data, &body, sim, neutral)?;
-        let inputs = inputs_of(domain, data, &body, (sim, t), &nutrition, z)?;
-        Some(body_params(&body, &inputs))
+        body_of(self.domain(), self.data(), (sim, t), neutral)
     }
+}
+
+/// The body of a sim at `t` in the domain state `domain` on `data` (`WorldState::body_at`,
+/// without environment if `neutral`); `None` without body data in the data, for an unknown sim
+/// or before its birth.
+pub(crate) fn body_of(
+    domain: &DomainState,
+    data: &Data,
+    (sim, t): (SimId, SimTime),
+    neutral: bool,
+) -> Option<BodyEvaluation> {
+    let body = BodyData::new(data).ok()?;
+    let world = domain
+        .world_params
+        .as_ref()
+        .map_or(&[][..], |params| params.nutrition.as_slice());
+    let nutrition = nutrition_of(domain, sim, world);
+    let z = traits_of(domain, data, &body, sim, neutral)?;
+    let inputs = inputs_of(domain, data, &body, (sim, t), &nutrition, z)?;
+    Some(body_params(&body, &inputs))
+}
+
+/// The size of a person's reserve in the house by the `body_fat_z` its body has (ADR-0026,
+/// addendum of 2026-11-06 on hunger at 0), the index into the capacities of the rules: 0 (thin)
+/// below −1, 2 (heavy) from 1 on, 1 (ordinary) between; without a value, as 0, also 1. The
+/// value is the same at every age (the contract's `stable`), read once when the needs begin.
+pub fn reserve_size(body_fat_z: Option<f64>) -> usize {
+    match body_fat_z {
+        Some(z) if z < -1.0 => 0,
+        Some(z) if z >= 1.0 => 2,
+        _ => 1,
+    }
+}
+
+/// The size of the reserve of `sim` at `t` (`reserve_size` of its `body_fat_z`, the body of
+/// `body_of`).
+pub(crate) fn reserve_size_of(
+    domain: &DomainState,
+    data: &Data,
+    (sim, t): (SimId, SimTime),
+) -> usize {
+    let z = body_of(domain, data, (sim, t), false).map(|body| body.params.body_fat_z());
+    reserve_size(z)
 }
 
 /// The terms of a sim's height at `t` (5.2 to 5.4): its individual growth curve, the age

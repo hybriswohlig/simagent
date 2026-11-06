@@ -19,6 +19,7 @@ use sim_core::data_id::DataId;
 use sim_core::house::choice::{Choice, Filler, choose, filler, fillers, mood, score};
 use sim_core::house::data::{House, HouseData};
 use sim_core::house::need::NeedSample;
+use sim_core::house::reserve::Reserve;
 use sim_core::house::state::{Decisions, InHouse, Place, filler_end_if, filler_possible};
 use sim_core::ids::SimId;
 use sim_core::lineage::LineageKey;
@@ -449,6 +450,7 @@ fn no_time_filler_two_minutes_before_school() {
         due: None,
         decisions: Decisions { day: 1, count: 1 },
         collapsed: false,
+        reserve: Reserve::full(1000, t(second)),
     };
     let end = |second: i64, (object, offer, walk): (u16, u16, u32)| {
         let person = girl_at(second);

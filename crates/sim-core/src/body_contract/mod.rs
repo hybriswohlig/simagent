@@ -15,7 +15,8 @@ pub use mapping::{
     BodyData, BodyEvaluation, BodyInputs, BodyTraits, CLAMPED_KEYS, body_params, body_traits,
     herc2, mc1r,
 };
-pub(crate) use person::bio_age;
+pub use person::reserve_size;
+pub(crate) use person::{bio_age, reserve_size_of};
 
 /// Why the contract does not accept a value for a parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

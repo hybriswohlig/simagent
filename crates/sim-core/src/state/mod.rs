@@ -18,6 +18,7 @@ pub(crate) mod market;
 pub(crate) mod onset;
 pub(crate) mod params;
 pub(crate) mod partnership;
+pub(crate) mod reserve;
 pub(crate) mod start;
 pub(crate) mod together;
 pub(crate) mod zero;
@@ -316,6 +317,9 @@ pub(crate) enum Slot {
     Bedtime,
     /// Getting up from the floor (ADR-0026, addendum of 2026-11-04 on a need at 0).
     StandUp,
+    /// The reserve reaching a level, half or 0 (ADR-0026, addendum of 2026-11-06 on hunger at
+    /// 0).
+    Reserve(u16),
 }
 
 impl DomainState {
