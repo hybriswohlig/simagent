@@ -1084,9 +1084,11 @@ fn a_bed_a_young_child_holds_is_checked() {
 /// The reserve (ADR-0026, addendum of 2026-11-06 on hunger at 0): a capacity of the rules, at most
 /// full, not written down after the clock; the rate of what the person does, by its hunger at the
 /// clock (sim 1 idle with hunger 1 then, so still; with hunger at 0 since ten minutes the adult's
-/// awake drain of 40, not the asleep one); the energy's extra one of the rules and carried by its
-/// rate (−40 on −40 is −80); a walk begun weak twice as long (sim 3, the child, 7 s from the living
-/// room to the fridge, weak with 400 of 1 000).
+/// awake drain of 40, not the asleep one); a walk begun weak twice as long (sim 3, the child, 7 s
+/// from the living room to the fridge, weak with 400 of 1 000 an hour before and 321 at the walk's
+/// start, ⌊80 · 3 597 / 3 600⌋ = 79 less; energy written down then with the weak −40 on the child's
+/// −50). The energy's extra is that of the band when energy was written down: with the reserve full
+/// since the morning and hunger above 0 then, none, whatever the rate says.
 #[test]
 fn the_reserve_is_checked() {
     let reserve = |id: u64, reserve: Reserve| checked(move |s| in_house(s, id).reserve = reserve);
@@ -1127,8 +1129,9 @@ fn the_reserve_is_checked() {
             one.reserve = Reserve::full(1000, t(morning)).with_energy(energy);
         })
     };
-    assert_eq!(extra(-40, -80), Ok(()));
-    assert_eq!(extra(-80, -120), Ok(()));
+    assert_eq!(extra(0, -40), Ok(()));
+    assert_eq!(extra(-40, -80), Err(Broken::Reserve));
+    assert_eq!(extra(-80, -120), Err(Broken::Reserve));
     assert_eq!(extra(-40, -40), Err(Broken::Rate));
     assert_eq!(extra(-30, -70), Err(Broken::Reserve));
     // A walk begun weak takes twice the house's 7 s.
@@ -1137,7 +1140,8 @@ fn the_reserve_is_checked() {
             s.waits.clear();
             let three = in_house(s, 3);
             three.needs[0] = NeedSample::new(0, t(NOW - 3_600), -100);
-            three.reserve = Reserve::new(1000, (400, t(NOW - 3_600), -80), 0);
+            three.needs[1] = NeedSample::new(900, t(NOW - 3_600), -90);
+            three.reserve = Reserve::new(1000, (400, t(NOW - 3_600), -80), -40);
             three.place = Place::Walking {
                 from: 2,
                 to: 1,
@@ -1148,4 +1152,234 @@ fn the_reserve_is_checked() {
     };
     assert_eq!(weak_walk(NOW - 3 + 14), Ok(()));
     assert_eq!(weak_walk(NOW + 4), Err(Broken::Walk));
+}
+
+/// Where the samples show the band, the energy's extra must be its own (ADR-0026, addendum of
+/// 2026-11-06 on hunger at 0). Sim 1's hunger at 0 since two hours, her reserve then 500 falling 40
+/// an hour: a minute ago at 421 (⌊40 · 7 140 / 3 600⌋ = 79 less), weak, so energy written down then
+/// carries −40 on the adult's −40, nothing else. Hunger written down at 0 again 30 s ago, a change
+/// of rates while she was weak (at 421 too, ⌊40 · 7 170 / 3 600⌋ = 79): energy written before it
+/// without the extra would have been written down anew there, with it it stands.
+#[test]
+fn the_energy_carries_the_extra_of_its_band() {
+    let weak = |energy: (i64, i32, i32), hunger_at: i64| {
+        checked(move |s| {
+            let one = in_house(s, 1);
+            one.needs[0] = NeedSample::new(0, t(hunger_at), -100);
+            let (at, rate, extra) = energy;
+            one.needs[1] = NeedSample::new(900, t(at), rate);
+            one.reserve = Reserve::new(1000, (500, t(NOW - 7_200), -40), extra);
+        })
+    };
+    let at_two = NOW - 7_200;
+    assert_eq!(weak((NOW - 60, -80, -40), at_two), Ok(()));
+    assert_eq!(weak((NOW - 60, -40, 0), at_two), Err(Broken::Reserve));
+    assert_eq!(weak((NOW - 60, -120, -80), at_two), Err(Broken::Reserve));
+    assert_eq!(weak((NOW - 60, -40, 0), NOW - 30), Err(Broken::Reserve));
+    assert_eq!(weak((NOW - 60, -80, -40), NOW - 30), Ok(()));
+}
+
+/// The reserve is written down at a second a run could have written it (ADR-0026, addendum of
+/// 2026-11-06 on hunger at 0). Sim 1's hunger reaches 0 in the open second (600 at −100 since six
+/// hours): an input that changes her rates there, writing her fun down, starts the drain then; the
+/// same reserve without an input in that second is refused. A drain begins with hunger at 0: hers
+/// at 100 two hours ago at −100 an hour reaches 0 an hour ago, a drain from then loads, one from
+/// two hours ago is refused. A refill begins when she reaches the food: sim 2 at the dining table
+/// a minute, hunger +1 800 an hour, her reserve +960 from then; one from two minutes ago is
+/// refused.
+#[test]
+fn the_reserve_is_written_when_a_run_writes_it() {
+    let opened = |input: bool| {
+        let change = |s: &mut HouseState| {
+            let one = in_house(s, 1);
+            one.needs[4] = NeedSample::new(800, t(NOW), -60);
+            one.reserve = Reserve::new(1000, (1000, t(NOW), -40), 0);
+        };
+        match input {
+            true => checked_after(&houses(), Some(&[]), change),
+            false => checked(change),
+        }
+    };
+    assert_eq!(opened(true), Ok(()));
+    assert_eq!(opened(false), Err(Broken::Reserve));
+    let drain_from = |since: i64| {
+        checked(move |s| {
+            let one = in_house(s, 1);
+            one.needs[0] = NeedSample::new(100, t(NOW - 7_200), -100);
+            one.reserve = Reserve::new(1000, (1000, t(since), -40), 0);
+        })
+    };
+    assert_eq!(drain_from(NOW - 3_600), Ok(()));
+    assert_eq!(drain_from(NOW - 7_200), Err(Broken::Reserve));
+    let refill_from = |since: i64| {
+        checked(move |s| {
+            let two = in_house(s, 2);
+            two.place = Place::Room(1);
+            two.action = Some(Action {
+                object: 0,
+                offer: 0,
+                slot: 0,
+                filler: false,
+            });
+            two.needs = needs();
+            two.needs[0] = NeedSample::new(300, t(NOW - 60), 1_800);
+            two.reserve = Reserve::new(1000, (800, t(since), 960), 0);
+        })
+    };
+    assert_eq!(refill_from(NOW - 60), Ok(()));
+    assert_eq!(refill_from(NOW - 120), Err(Broken::Reserve));
+}
+
+/// The walk's length by the evidence that remains (ADR-0026, addendum of 2026-11-06 on hunger at
+/// 0): sim 3, the child, walks the 7 s to the fridge from 3 s before the clock with hunger at 2
+/// since 73 s, falling 100 an hour: 1 at the walk's start (⌊100 · 70 / 3 600⌋ = 1 less), so the
+/// walk is ordinary, though hunger reached 0 a second before the clock (⌈3 600 · 2 / 100⌉ = 72) and
+/// the reserve's drain began then, a write after the walk's start. Twice as long is refused.
+#[test]
+fn a_walk_begun_fed_is_ordinary() {
+    let walk = |arrive: i64| {
+        checked(move |s| {
+            s.waits.clear();
+            let three = in_house(s, 3);
+            three.needs[0] = NeedSample::new(2, t(NOW - 73), -100);
+            three.reserve = Reserve::new(1000, (1000, t(NOW - 1), -80), 0);
+            three.place = Place::Walking {
+                from: 2,
+                to: 1,
+                depart: t(NOW - 3),
+                arrive: t(arrive),
+            };
+        })
+    };
+    assert_eq!(walk(NOW + 4), Ok(()));
+    assert_eq!(walk(NOW + 11), Err(Broken::Walk));
+}
+
+/// The end of time for the walk out of a room one does not stay in (ADR-0026, addendum of
+/// 2026-11-06 on hunger at 0): sim 1 idle in the bath of the flat, 6 s from the living room, 8 s
+/// before the end of time. Fed, the walk would end 2 s before it, so idling there is refused; weak
+/// (hunger at 0 since an hour, her reserve 400 then falling 40 an hour, energy written down then
+/// with −40 more), the walk takes 12 s, beyond the end of time, so she stays.
+#[test]
+fn the_dwell_walk_at_the_end_of_time_takes_its_length() {
+    use sim_core::time::MAX_ABS_SECS;
+    let end = MAX_ABS_SECS - 8;
+    let born = end - 40 * YEAR.as_secs();
+    let member = |id: SimId| (id.get() == 1).then(|| (household(1), t(born)));
+    let in_bath = |hunger: u16, (energy, extra): (i32, i32)| {
+        let mut state = legal();
+        state.waits.clear();
+        state.sims.retain(|id, _| id.get() == 1);
+        let one = in_house(&mut state, 1);
+        let since = t(end - 3_600);
+        one.place = Place::Room(3);
+        one.needs = [
+            (hunger, -100),
+            (900, energy),
+            (500, -120),
+            (700, -30),
+            (800, -60),
+        ]
+        .map(|(value, rate)| NeedSample::new(value, since, rate));
+        let drain = if hunger == 0 { -40 } else { 0 };
+        one.reserve = Reserve::new(1000, (400, since, drain), extra);
+        one.decisions = Decisions {
+            day: day_index(t(end)),
+            count: 1,
+        };
+        consistent(&state, Some(&houses()), t(end), None, alive, member)
+    };
+    assert_eq!(in_bath(0, (-80, -40)), Ok(()));
+    assert_eq!(in_bath(1000, (-40, 0)), Err(Broken::Dwell));
+}
+
+/// A house of long walks for the time-filler's check: hall (the entrance) and four rooms in a
+/// row behind it, each door 120 s, the television in the hall, the bed in the last room; the
+/// repository's needs, day and kinds.
+fn long_house() -> HouseData {
+    let house = serde_json::json!({
+        "id": "test:long", "capacity": 1,
+        "rooms": [{"id": "hall", "entrance": true}, {"id": "one"}, {"id": "two"}, {"id": "three"},
+            {"id": "four"}],
+        "child_day_room": "one", "child_night_room": "four", "dwell_room": "one",
+        "doors": [
+            {"a": "hall", "b": "one", "seconds": 120}, {"a": "one", "b": "two", "seconds": 120},
+            {"a": "two", "b": "three", "seconds": 120}, {"a": "three", "b": "four", "seconds": 120}],
+        "objects": [
+            {"kind": "core:tv", "room": "hall"}, {"kind": "core:dining_table", "room": "hall"},
+            {"kind": "core:fridge", "room": "hall"}, {"kind": "core:toilet", "room": "one"},
+            {"kind": "core:shower", "room": "one"}, {"kind": "core:sofa", "room": "one"},
+            {"kind": "core:bed", "room": "four"}]
+    });
+    common::houses_from(
+        include_str!("../../../data/house/needs.json"),
+        include_str!("../../../data/house/day.json"),
+        include_str!("../../../data/house/kinds.json"),
+        &[&house.to_string()],
+    )
+}
+
+/// A time-filler's choice by the walk the band allowed then (ADR-0026, addendum of 2026-11-06 on
+/// hunger at 0): an adult of 40 watching television in the hall of `long_house` since 100 s
+/// before 22:00, her bedtime. From any room the ordinary walk is at most 480 s, so its choice lay
+/// at most 580 s before her bedtime, under the 600 s a time-filler needs: no choice took it. A walk
+/// twice as long, 960 s from the last room, puts the choice 1 060 s before: possible only if she
+/// was weak then. Hunger at 900 then, falling 100 an hour, she was not: refused. Hunger at 0 since
+/// 2 000 s before her arrival and her reserve then 400 falling 40 an hour, 389 at that choice
+/// (⌊40 · 1 040 / 3 600⌋ = 11 less), she was weak: it loads.
+#[test]
+fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
+    use sim_core::house::state::fillers_consistent;
+    use sim_core::lineage::LineageKey;
+    let houses = long_house();
+    let bedtime = 400 * 86_400 + 22 * 3_600;
+    let begun = bedtime - 100;
+    let born = t(bedtime - 40 * YEAR.as_secs());
+    let key = LineageKey::founder(&DataId::new("test:long").expect("id"), 0);
+    let member = |id: SimId| (id.get() == 1).then_some((household(1), born, key));
+    let watching = |hunger: u16, reserve: Reserve| {
+        let mut needs = [
+            (hunger, -100),
+            (900, -40),
+            (500, -120),
+            (700, -30),
+            (800, 400),
+        ]
+        .map(|(value, rate)| NeedSample::new(value, t(begun - 2_000), rate));
+        needs[4] = NeedSample::new(800, t(begun), 400);
+        let person = InHouse {
+            needs,
+            place: Place::Room(0),
+            action: Some(Action {
+                object: 0,
+                offer: 0,
+                slot: 0,
+                filler: true,
+            }),
+            due: None,
+            decisions: Decisions {
+                day: day_index(t(begun)),
+                count: 3,
+            },
+            collapsed: false,
+            reserve,
+        };
+        let state = HouseState {
+            households: BTreeMap::from([(
+                household(1),
+                MovedIn {
+                    house: DataId::new("test:long").expect("id"),
+                    morning: true,
+                },
+            )]),
+            sims: BTreeMap::from([(sim(1), person)]),
+            waits: BTreeMap::new(),
+            holds: BTreeMap::new(),
+        };
+        fillers_consistent(&state, Some(&houses), 7, member)
+    };
+    let fed = watching(900, Reserve::full(1000, t(begun - 2_000)));
+    assert_eq!(fed, Err(Broken::Filler));
+    let weak = Reserve::new(1000, (400, t(begun - 2_000), -40), -40);
+    assert_eq!(watching(0, weak), Ok(()));
 }

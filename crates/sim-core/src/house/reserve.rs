@@ -174,14 +174,19 @@ impl Reserve {
         if hunger.rate() > 0 || hunger.value_at(t) != EMPTY {
             return None;
         }
-        let value = self.value_at(t);
-        Some(if value == EMPTY {
+        Some(self.band_of(self.value_at(t)))
+    }
+
+    /// The band of the reserve at `value` while hunger is at 0: at 0 wasted, at half or below
+    /// weak, else drawing on it.
+    pub fn band_of(self, value: u16) -> Band {
+        if value == EMPTY {
             Band::Wasted
         } else if value <= self.half() {
             Band::Weak
         } else {
             Band::Draws
-        })
+        }
     }
 }
 
