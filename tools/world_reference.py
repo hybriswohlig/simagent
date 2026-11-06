@@ -204,6 +204,17 @@ What the model knows:
   search draw keeps `DRAW_MARGIN` from its chance and the best utility `UTILITY_MARGIN`
   from every other, so the pinned libm of the core makes the same choices.
   `market=False` (a switch of this reference only) plans no round: the null twin.
+  With the data's group of six values (`MaleAnswer`, genetics specification 11.2a; ADR-0018
+  addendum of 2026-11-06; `Data.male`, None without the group) every person has a taste `ν =
+  normal(0, σ_ν)` (PAIRING_TASTE = 34; its lineage key, 0, 0; `own_seed`: the pool's seed for a
+  pool person, the world's otherwise), her target age is `a + μ_a + ν` (her term is `w_a ·
+  (a_m − t_f)²`), and the chosen man, if he has no open partnership now, answers: his target is
+  `t_m = max(a − min(slope · max(a − from, 0), cap), min) + ν_m`, `U_m = (((−(w_K · dK²)) −
+  (w_H · dH²)) − (w_am · (a_f − t_m)²)) + G_m` over the present terms, `G_m` the draw
+  PAIRING_ACCEPT = 33 (his key, `n`, her key; the world seed), and he accepts iff `U_m > 0`
+  strictly (`answer_of`). A refusal is the outcome "refused": no state, no entry, no second
+  proposal; the partnership's causes are the plan, the rule, her draw, then his. Without the
+  group nothing of this runs: no taste, no answer, no cause.
 - The direct line (ADR-0018 section 8, addendum of 2026-10-24; Grok, round 33, P1; core 48):
   two persons are in direct line iff one is an ancestor of the other by mother and father
   edges at any depth, through persons of the town, persons of the pool and records of the
@@ -522,6 +533,7 @@ import itertools
 import math
 from fractions import Fraction
 from pathlib import Path
+from typing import NamedTuple
 
 import mpmath
 import xxhash
@@ -606,6 +618,8 @@ SEPARATION_BUDGET = 18
 # PAIRING_RANK is old, the other three are new.
 PAIRING_RANK = 5
 MARKET_SEARCH, MARKET_ORDER, PAIRING_NOISE = 19, 20, 21
+# The man's answer and the taste (genetics specification 11.2a and 11.7, tests/golden/rng_tags.txt).
+PAIRING_ACCEPT, PAIRING_TASTE = 33, 34
 # SubjectKey::WORLD, the subject of the worldwide rank MARKET_ORDER (ADR-0018 section 1).
 WORLD_KEY = 0
 # The draws of the environment of a phenotype (genetics specification 4.2, ADR-0009 section
@@ -1318,6 +1332,20 @@ class DataPool:
             self.records[record["lineage_key"]] = record
 
 
+class MaleAnswer(NamedTuple):
+    """The group of six values of the man's answer (11.2a), read from the data as floats:
+    `σ_ν` (years), the slope of his target age (a ratio), the age it starts from, the most it
+    falls behind his age, the lowest target before the taste (years), and his weight `w_am` of
+    the squared distance (per squared year)."""
+
+    taste_sd: float
+    slope: float
+    start: float
+    cap: float
+    minimum: float
+    weight_age: float
+
+
 class Data:
     """The definitions a world runs on: the life course data, the calibration and the
     genome map as documents (parsed JSON with their texts, in the order of their data
@@ -1410,6 +1438,10 @@ class Data:
         # The extra child (ADR-0017, addendum of 2026-11-05): None (the rule without it, the
         # extract and every fixture) or `(count_until years, extra, grown_from, grown_chance)`.
         self.extra = data_reference.extra_child(demography["values"])
+        # The man's answer and the target ages (11.2a): None (the market without them) or
+        # `MaleAnswer`; the group of six, all or none (data_reference checks units and ranges).
+        group = data_reference.male_answer(demography["values"])
+        self.male = None if group is None else MaleAnswer(*group)
         # The table of leaving home (design note of the households, section 1): ten weights
         # for the ages 16 to 25, each in [0, 1], at least one above 0 (data_reference checks
         # the same when it hashes the documents).
@@ -2289,13 +2321,14 @@ def kinship_weight(data: Data) -> float:
     return 16.0 * ln_reference(data.cousin_odds)[1]
 
 
-def penalties(gap: float, phi: float, data: Data, similarity=()) -> list:
+def penalties(gap: float, phi: float, data: Data, similarity=(), taste=None) -> list:
     """The penalty terms of a candidate in the order of 11.2 (design note of the similarity,
     section 2): the similarity terms given (`w_K · (dK · dK)` if a trait of cognition is
     named, then `w_H · (dH · dH)` if one of height is: `similarity` is the list of the
     present (weight, difference) pairs in that order), then `w_a · (d · d)` with `d = Δa −
-    μ_a`, then `K · φ`."""
-    d = gap - data.pairing_gap
+    μ_a`, then `K · φ`. With the man's answer (11.2a) `taste` is her `ν`: her target age is
+    `a + μ_a + ν`, so `d = Δa − (μ_a + ν)`; without it (None) `d` is as before."""
+    d = gap - data.pairing_gap if taste is None else gap - (data.pairing_gap + taste)
     terms = [weight * (difference * difference) for weight, difference in similarity]
     return terms + [data.pairing_weight_age * (d * d), kinship_weight(data) * phi]
 
@@ -2308,10 +2341,10 @@ def utility_of(terms: list, noise: float) -> float:
     return acc + noise
 
 
-def utility(gap: float, phi: float, noise: float, data: Data, similarity=()) -> float:
+def utility(gap: float, phi: float, noise: float, data: Data, similarity=(), taste=None) -> float:
     """The utility of a candidate (step 5; design note of the similarity, section 2). Without
     similarity terms `U = ((−(w_a · (d · d))) − (K · φ)) + G`, the market note exactly."""
-    return utility_of(penalties(gap, phi, data, similarity), noise)
+    return utility_of(penalties(gap, phi, data, similarity, taste), noise)
 
 
 def ranked(seed: int, tag: int, subject: int, n: int, keys: list) -> list:
@@ -2326,12 +2359,48 @@ def noise_of(seed: int, her_key: int, n: int, his_key: int) -> float:
     return gumbel_reference(words(chacha_key(seed, PAIRING_NOISE, her_key, n, his_key))[0])[1]
 
 
+def accept_noise_of(seed: int, his_key: int, n: int, her_key: int) -> float:
+    """`G_m = gumbel(w)` of the draw PAIRING_ACCEPT (his key, `n`, her key), the world seed
+    (11.2a, 11.7): as `noise_of`, at the address of the man."""
+    return gumbel_reference(words(chacha_key(seed, PAIRING_ACCEPT, his_key, n, her_key))[0])[1]
+
+
+def taste_draw(seed: int, key: int, sd: float) -> float:
+    """`ν = normal(0, σ_ν)` of the draw PAIRING_TASTE (the person's lineage key, 0, 0) with the
+    seed of its lot (11.2a, 11.7): a pure function, `0 + σ · (radius · cosine)` of the first two
+    words (tools/rng_reference.py)."""
+    draw = words(chacha_key(seed, PAIRING_TASTE, key, 0, 0))
+    return normal_reference(draw[0], draw[1], 0.0, sd)[1]
+
+
+def male_target(male: MaleAnswer, age: float) -> float:
+    """His target age before his taste (11.2a), `age` in years: `max(a − δ, min)` with `δ =
+    min(slope · max(a − from, 0), cap)`."""
+    delta = min(male.slope * max(age - male.start, 0.0), male.cap)
+    return max(age - delta, male.minimum)
+
+
+def male_penalties(distance: float, male: MaleAnswer, similarity=()) -> list:
+    """The penalty terms of his answer in order (11.2a): the similarity terms given as for her
+    (`w_K · (dK · dK)`, then `w_H · (dH · dH)`, each only if its trait is named), then `w_am ·
+    (d · d)` with `d` her age minus his target age (his taste included). No kinship term."""
+    terms = [weight * (difference * difference) for weight, difference in similarity]
+    return terms + [male.weight_age * (distance * distance)]
+
+
 # Spec 11.2 by hand: a cousin's penalty is ln(10) = 2.303 [W11.2a], so with the same rest a
 # stranger is chosen ten times as often; at φ = 1/32 the odds are √10 = 3.162 [W11.2b].
 assert abs(kinship_weight(MAP3) / 16.0 - math.log(10.0)) <= 1e-15
 assert abs(utility(3.0, 0.0625, 0.0, MAP3) - utility(3.0, 0.0, 0.0, MAP3) + math.log(10.0)) <= 1e-14
 assert abs(math.exp(kinship_weight(MAP3) / 32.0) - 3.1622776601683795) <= 1e-14
 assert search_chance(18 * YEAR, life_test_data({"core:market_search_height_female": 0.0})) == 0.0
+# Spec 11.2a by hand: a man without taste aims at 21 from 16 to 21, at 23.8 [W11.2d] from 25,
+# 26.8 from 30, 32.8 [W11.2e] from 40, 38.8 from 50, 45 [W11.2f] from 60 (the cap 15) and 55 from 70.
+_SPEC_MALE = MaleAnswer(3.0, 0.4, 22.0, 15.0, 21.0, 0.02)
+assert all(
+    abs(male_target(_SPEC_MALE, age) - target) <= 1e-12
+    for age, target in ((16.0, 21.0), (21.0, 21.0), (25.0, 23.8), (30.0, 26.8), (40.0, 32.8), (50.0, 38.8), (60.0, 45.0), (70.0, 55.0))
+)
 
 
 def budget_of(seed: int, key: int, code: str, detail: int = 0) -> float:
@@ -3882,6 +3951,10 @@ class World:
         # once per candidate; the similarity terms only for the named traits.
         hers = self.phenotypes(woman, now)
         record["phenotypes"] = {woman: [z for _, z in hers]}
+        # Her taste moves her target age (11.2a); None without the man's answer.
+        nu_her = None if data.male is None else self.taste_of(woman)
+        if nu_her is not None:
+            record["tastes"] = {woman: nu_her}
         best = None
         for index, man in enumerate(kept):
             gap = as_years(now - self.sims[man][0]) - as_years(now - her_born)
@@ -3890,9 +3963,9 @@ class World:
             his = self.phenotypes(man, now)
             record["phenotypes"][man] = [z for _, z in his]
             similarity = [(weight, z_her - z_his) for (weight, z_her), (_, z_his) in zip(hers, his)]
-            terms = penalties(gap, phi, data, similarity)
+            terms = penalties(gap, phi, data, similarity, nu_her)
             u = utility_of(terms, g)
-            assert u == utility(gap, phi, g, data, similarity)
+            assert u == utility(gap, phi, g, data, similarity, nu_her)
             assert math.isfinite(u), "market.utility"
             record["candidates"].append((man, gap, phi, g, u))
             record["terms"].append(terms)
@@ -3910,10 +3983,49 @@ class World:
             record["outcome"] = "taken"
             return record
         draw = variant(4, varint(PAIRING_NOISE), varint(her_key), varint(n), varint(self.key_of(man)))
+        causes = [plan, variant(3, string(PARTNER_MARKET_RULE)), draw]
+        if data.male is not None:
+            # He answers only her one proposal and only as a single man (11.2a); a refusal is
+            # no state and no entry, and she makes no second proposal this round.
+            record["answer"] = self.answer_of(woman, man, record, now, n)
+            if not record["answer"]["accepted"]:
+                record["outcome"] = "refused"
+                return record
+            causes.append(variant(4, varint(PAIRING_ACCEPT), varint(self.key_of(man)), varint(n), varint(her_key)))
         record["outcome"] = "paired"
         record["partnership"] = self.next_partnership_id
-        record["entry"] = self._partner(woman, man, [plan, variant(3, string(PARTNER_MARKET_RULE)), draw], now)
+        record["entry"] = self._partner(woman, man, causes, now)
         return record
+
+    def taste_of(self, sim: int) -> float:
+        """The taste `ν` of a living or archived sim (11.2a): the draw PAIRING_TASTE at its
+        lineage key with the seed of its lot (`own_seed`: the pool's for a pool person, the
+        world's otherwise); pure, not held. Only with the man's answer."""
+        assert self.data.male is not None
+        return taste_draw(self.own_seed(sim), self.key_of(sim), self.data.male.taste_sd)
+
+    def answer_of(self, woman: int, man: int, record: dict, now: int, n: int) -> dict:
+        """His answer to her one proposal in round `n` at `now` (11.2a): `U_m = (((−(w_K · dK²)) −
+        (w_H · dH²)) − (w_am · d²)) + G_m` over the present terms, `d` her continuous age minus his
+        target age `male_target(a_m) + ν_m`, `dK` and `dH` the differences of the phenotypes of the
+        round (`record["phenotypes"]`), `G_m` the draw PAIRING_ACCEPT; he accepts iff `U_m > 0`.
+        The draw is taken here, so only for a man who is single; the decision keeps
+        `UTILITY_MARGIN` from zero."""
+        data, male = self.data, self.data.male
+        her_age, his_age = as_years(now - self.sims[woman][0]), as_years(now - self.sims[man][0])
+        nu = self.taste_of(man)
+        record["tastes"][man] = nu
+        target = male_target(male, his_age) + nu
+        hers, his = record["phenotypes"][woman], record["phenotypes"][man]
+        weights = [weight for _, _, weight in data.similarity_traits()]
+        similarity = [(weight, z_her - z_his) for weight, z_her, z_his in zip(weights, hers, his)]
+        d = her_age - target
+        terms = male_penalties(d, male, similarity)
+        g = accept_noise_of(self.seed, self.key_of(man), n, self.key_of(woman))
+        u = utility_of(terms, g)
+        assert math.isfinite(u), "market.male_utility"
+        assert abs(u) > UTILITY_MARGIN, "an answer hangs on the last bits of the utility"
+        return {"target": target, "taste": nu, "distance": d, "terms": terms, "noise": g, "utility": u, "accepted": u > 0.0}
 
     def arrange_rejection(self, woman: int, man: int):
         """The reject code of `ArrangePartnership { woman, man }` submitted now, or None
@@ -6578,6 +6690,21 @@ if __name__ == "__main__":
         f"event kind market_round {MARKET_ROUND_KIND} class {GENERAL} subject world {WORLD_SUBJECT}"
         f" payload {MARKET_ROUND_PAYLOAD.hex()} period {MONTH}"
     )
+    # The man's answer (11.2a): only where the repository's data hold the group of six values.
+    male = repository().male
+    if male is not None:
+        print(f"tags PAIRING_ACCEPT {PAIRING_ACCEPT} PAIRING_TASTE {PAIRING_TASTE}")
+        print(f"male_answer {male!r}")
+        print(
+            "male_target "
+            + " ".join(f"{age}:{male_target(male, float(age))!r}" for age in (16, 21, 25, 30, 40, 50, 60, 70))
+        )
+        # The taste of the founders 1 and 0 of `test:answer` at seed 0xff, σ_ν = 3 (pinned in
+        # the core's unit test of `taste`).
+        print(
+            "taste seed 0xff sd 3.0 test:answer founder 1 "
+            f"{taste_draw(0xFF, founder_key('test:answer', 1), 3.0)!r} founder 0 {taste_draw(0xFF, founder_key('test:answer', 0), 3.0)!r}"
+        )
     print(
         f"reject partner_too_young {PARTNER_TOO_YOUNG} partners_too_closely_related {PARTNERS_TOO_CLOSELY_RELATED}"
         f" partners_in_direct_line {PARTNERS_IN_DIRECT_LINE}"
@@ -6713,6 +6840,8 @@ if __name__ == "__main__":
         ("payload", "3", "core:param_changed"),
         ("input", "1", "fork_override"),
     } | {("reject", str(code), name) for code, name in REJECT_NAMES.items() if code not in NEW_CODE_LINES_OF_THE_ARRIVAL + NEW_CODE_LINES_OF_THE_VILLAGE}
+    if repository().male is not None:
+        wanted |= {("tag", str(PAIRING_ACCEPT), "PAIRING_ACCEPT"), ("tag", str(PAIRING_TASTE), "PAIRING_TASTE")}
     missing = sorted(wanted - lines)
     print(f"code lists (rng_tags, event_codes, log_codes) against the constants: {'ok' if not missing else f'MISSING {missing}'}")
     # The shocks (ADR-0023 section 3, addendum before S1b; section 5 "Hunger, die Jahre"): the

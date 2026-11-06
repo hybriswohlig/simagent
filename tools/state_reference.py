@@ -5464,7 +5464,9 @@ def walked_utility(world: world_reference.World, record: dict, choice: dict, man
     gap = world_reference.as_years(t - world.born_of(man)) - world_reference.as_years(t - world.born_of(woman))
     g = world_reference.noise_of(world.seed, world.key_of(woman), n, world.key_of(man))
     similarity = [(weight, z_her - z_his) for (weight, z_her), (_, z_his) in zip(world.phenotypes(woman, t), world.phenotypes(man, t))]
-    return world_reference.utility_of(world_reference.penalties(gap, float(phi), world.data, similarity), g)
+    # With the man's answer (11.2a) her taste moves her target age; without it there is none.
+    taste = None if world.data.male is None else world.taste_of(woman)
+    return world_reference.utility_of(world_reference.penalties(gap, float(phi), world.data, similarity, taste), g)
 
 
 def other_choice(world: world_reference.World, record: dict, choice: dict, kinship, line: bool) -> tuple:
