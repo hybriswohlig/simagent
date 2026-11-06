@@ -768,3 +768,65 @@ fn a_boosted_conception_saves_loads_and_runs_on() {
     loaded.advance_until(&mut more, until, &mut |_| false);
     assert_eq!(loaded.state_hash(), world.state_hash());
 }
+
+const DUMMY_SAVE: &[u8] = include_bytes!("../../../tests/golden/dummy.save");
+const DUMMY_END: i64 = 943_487_999;
+
+fn dummy_end() -> Run {
+    let (world, year_hashes) = World::load(DUMMY_SAVE, common::repository_data()).expect("loads");
+    let mut run = Run {
+        world,
+        out: YearOut {
+            census: Vec::new(),
+            year_hashes,
+            trace: Vec::new(),
+        },
+        log: Vec::new(),
+    };
+    run.advance(DUMMY_END);
+    run
+}
+
+#[test]
+fn a_daughter_is_paired_with_her_father_or_her_brother_and_the_save_runs_on() {
+    let end = DUMMY_END + 3 * Y;
+    for (woman, man) in [(8, 2), (8, 10)] {
+        let mut whole = dummy_end();
+        whole.submit(arrange(woman, man));
+        let formed = (whole.world.pedigree().partnerships.iter())
+            .filter(|couple| couple.ended.is_none())
+            .map(|couple| {
+                (
+                    couple.woman.get(),
+                    couple.man.get(),
+                    couple.formed.as_secs(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(formed, [(woman, man, DUMMY_END + 1)]);
+        whole.advance(end);
+        for stop in [DUMMY_END, DUMMY_END + 1, DUMMY_END + Y] {
+            let mut part = dummy_end();
+            part.submit(arrange(woman, man));
+            if stop > DUMMY_END {
+                part.advance(stop);
+            }
+            let bytes = part.save();
+            let (loaded, years) = World::load(&bytes, common::repository_data()).expect("loads");
+            assert_eq!(loaded.save(&years).expect("saves"), bytes, "{man} {stop}");
+            let mut rest = Run {
+                world: loaded,
+                out: YearOut {
+                    census: part.out.census.clone(),
+                    year_hashes: years,
+                    trace: Vec::new(),
+                },
+                log: part.log,
+            };
+            rest.advance(end);
+            assert_eq!(rest.out.year_hashes, whole.out.year_hashes, "{man} {stop}");
+            assert_eq!(log_hash(&rest.log), log_hash(&whole.log), "{man} {stop}");
+            assert_eq!(rest.world.state_hash(), whole.world.state_hash());
+        }
+    }
+}

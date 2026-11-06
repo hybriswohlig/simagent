@@ -589,8 +589,8 @@ mod tests {
         let settings = |values: &str| {
             format!(r#"{{"format":"simagent.settings","version":1,"values":{{{values}}}}}"#)
         };
-        let aged = data_with_settings(&settings(r#""core:market_age":12"#)).expect("reads");
-        assert_eq!(aged.demography().market.age_years, 12);
+        let aged = data_with_settings(&settings(r#""core:market_age":17"#)).expect("reads");
+        assert_eq!(aged.demography().market.age_years, 17);
         assert_eq!(
             aged.demography().market.candidates,
             base.demography().market.candidates
@@ -615,6 +615,7 @@ mod tests {
         for refused in [
             settings(r#""core:no_such_value":1"#),
             settings(r#""core:market_age":11"#),
+            settings(r#""core:market_age":15"#),
             r#"{"format":"simagent.settings","version":2,"values":{}}"#.to_owned(),
             r#"{"format":"simagent.settings","version":1,"values":{},"extra":1}"#.to_owned(),
         ] {
