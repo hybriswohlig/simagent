@@ -36,6 +36,8 @@ payload 28 core:missed
 payload 29 core:need_empty
 payload 30 core:collapsed
 payload 31 core:accident
+payload 32 core:weakened
+payload 33 core:wasted
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -104,6 +106,7 @@ reject 48 critical_need
 reject 49 not_night
 reject 50 collapsed
 reject 51 listless
+reject 52 weak
 save 0 log_not_taken
 save 1 year_hashes_mismatch
 load 0 bad_magic
