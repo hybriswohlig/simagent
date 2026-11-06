@@ -151,6 +151,17 @@ pub const WORK_PLAN: PurposeTag = PurposeTag::from_pinned_list(31);
 /// key; occasion: the second of the choice; detail: `(object << 32) | offer`; the world seed.
 pub const CHOICE_MOOD: PurposeTag = PurposeTag::from_pinned_list(32);
 
+/// The Gumbel noise of the answer of the chosen man to her proposal (genetics specification
+/// 11.2a, 11.7; ADR-0018, addendum of 2026-11-06). subject: his lineage key; occasion: the
+/// month index of the round; detail: the lineage key of the woman who searches. The world
+/// seed, like `PAIRING_NOISE`.
+pub const PAIRING_ACCEPT: PurposeTag = PurposeTag::from_pinned_list(33);
+
+/// The taste of a person in the target age of the partner market, `normal(0, σ_ν)`
+/// (genetics specification 11.2a, 11.7). subject: the person's lineage key; occasion: 0;
+/// detail: 0. The seed of its lot: the pool's for a pool person, the world's otherwise.
+pub const PAIRING_TASTE: PurposeTag = PurposeTag::from_pinned_list(34);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -185,6 +196,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (SURNAME, "SURNAME"),
     (WORK_PLAN, "WORK_PLAN"),
     (CHOICE_MOOD, "CHOICE_MOOD"),
+    (PAIRING_ACCEPT, "PAIRING_ACCEPT"),
+    (PAIRING_TASTE, "PAIRING_TASTE"),
 ];
 
 /// Values of deleted tags; they are never used again.
