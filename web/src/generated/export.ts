@@ -408,11 +408,12 @@ export type DatedSecond = {
   readonly date: CalendarDate;
 };
 
-/** `GET /api/runs/{run}/houses`: the households with a house, each with its house and whether its first morning has come. */
+/** `GET /api/runs/{run}/houses`: the households with a house, each with its house and whether its first morning has come; the age a child has no needs under (null for data without houses). */
 export type HousesAnswer = {
   readonly format: "simagent.view.houses";
   readonly version: number;
   readonly households: HousesEntry[];
+  readonly young_until: number | null;
 };
 
 /** A household with a house. */

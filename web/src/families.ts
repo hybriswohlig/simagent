@@ -9,9 +9,16 @@ export type Family = { readonly household: number; readonly members: readonly Me
 /** The households of the living with their members and ages, by household number, for finding
  * a family to move into a house (the playtest of 2026-11-04): only those with at most `largest`
  * members (the most a house holds); with `children`, only those where a member's mother, father
- * or social parent is a member too. A person the people answer lacks (not living) is left out;
- * the members by age, the oldest first, then by sim. */
-export function families(pedigree: Pedigree, people: readonly PeopleEntry[], children: boolean, largest: number): Family[] {
+ * or social parent is a member too; with `young`, only those with a member younger than it (the
+ * age a child has no needs under, from the server; the fourth playtest). A person the people
+ * answer lacks (not living) is left out; the members by age, the oldest first, then by sim. */
+export function families(
+  pedigree: Pedigree,
+  people: readonly PeopleEntry[],
+  children: boolean,
+  largest: number,
+  young: number | null = null,
+): Family[] {
   const ages = new Map(people.map((entry) => [entry.sim, entry.shown.at.age_years]));
   const byHousehold = new Map<number, Member[]>();
   for (const person of pedigree.persons) {
@@ -29,7 +36,8 @@ export function families(pedigree: Pedigree, people: readonly PeopleEntry[], chi
     const parented = members.some(({ person }) =>
       [person.mother, person.father, ...person.social_parents].some((parent) => parent !== null && sims.has(parent)),
     );
-    if (members.length > largest || (children && !parented)) {
+    const small = young === null || members.some((member) => member.age < young);
+    if (members.length > largest || (children && !parented) || !small) {
       continue;
     }
     members.sort((a, b) => b.age - a.age || a.person.sim - b.person.sim);
