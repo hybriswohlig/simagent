@@ -188,12 +188,20 @@ fn code(body: &[u8]) -> String {
 /// the base game's towns show of it: nothing more for the market age; the median age of
 /// women at their first partnership, 23.5 years, which the search centre was fitted to; the
 /// mean age gap, 3.0 years, which the preferred gap was fitted to (`tools/life_reference.py`
-/// and the value's note).
+/// and the value's note). Then the children's wish as `data/calibration/demography_game.json`
+/// writes it (ADR-0017, addendum of 2026-11-05): the tilt with the live births per woman
+/// reaching 50, 2.2, which it was fitted to; the four values of the extra child with nothing
+/// more.
 fn founding() -> Value {
     json!([
         {"key": "core:market_age", "base": 16.0, "outcome": null},
         {"key": "core:market_search_center_female", "base": 25.23, "outcome": 23.5},
         {"key": "core:pairing_age_gap_preferred", "base": 4.69, "outcome": 3.0},
+        {"key": "core:fertility_wish_tilt", "base": 0.224, "outcome": 2.2},
+        {"key": "core:fertility_count_until", "base": 18.0, "outcome": null},
+        {"key": "core:fertility_extra", "base": 1.0, "outcome": null},
+        {"key": "core:fertility_grown_from", "base": 3.0, "outcome": null},
+        {"key": "core:fertility_grown_chance", "base": 0.2, "outcome": null},
     ])
 }
 
@@ -943,7 +951,7 @@ fn a_person_is_the_cores_presentation_state() {
         let mut expected = serde_json::to_value(&view).expect("JSON");
         let fields = expected.as_object_mut().expect("an object");
         fields.insert("format".into(), "simagent.view.person".into());
-        fields.insert("version".into(), 3.into());
+        fields.insert("version".into(), 4.into());
         fields.insert(
             "contract_version".into(),
             sim_core::body_contract::CONTRACT_VERSION.into(),
@@ -991,11 +999,19 @@ fn a_person_is_the_cores_presentation_state() {
             .collect();
         assert_eq!(kinds[..3], ["hair", "eyes", "skin"], "{sim}");
         fields.insert("origin".into(), serde_json::to_value(origin).expect("JSON"));
-        // The wish for children by the core (ADR-0017, addendum of 2026-11-05).
-        fields.insert(
-            "wish".into(),
-            serde_json::to_value(world.wish(id)).expect("JSON"),
-        );
+        // The wish for children by the core (ADR-0017, addendum of 2026-11-05), the couple with
+        // the age a child stops counting at, 18 in the base game, while a grown child of hers
+        // opens it, else null (version 4).
+        let mut wish = serde_json::to_value(world.wish(id)).expect("JSON");
+        if let Some(couple) = wish["couple"].as_object_mut() {
+            let grown_at = if couple["state"] == "grown" {
+                json!(18)
+            } else {
+                Value::Null
+            };
+            couple.insert("grown_at".into(), grown_at);
+        }
+        fields.insert("wish".into(), wish);
         assert_eq!(shown, expected, "{sim}");
     }
     let dead_sim = dead["sim"].as_u64().expect("a sim");
@@ -1271,7 +1287,7 @@ fn a_person_with_its_kinship_to_another() {
     // and P4): 2 born −794 880 000, 4 −628 992 000, 8 41 126 400, 10 101 606 400, 12
     // 203 212 800, 13 662 860 800.
     let answer = json_of(&get(server.port, "/api/runs/dummy/persons/13").2);
-    assert_eq!(answer["version"], 3);
+    assert_eq!(answer["version"], 4);
     assert_eq!(
         answer["ages"],
         json!([
@@ -2264,6 +2280,50 @@ fn own_values_the_data_refuse_make_no_town() {
         ("x1", r#"{"core:no_such_value":1}"#, 409, "data_rejected"),
         ("x2", r#"{"core:market_age":11}"#, 409, "data_rejected"),
         ("x9", r#"{"core:market_age":15}"#, 409, "data_rejected"),
+        // The children's wish, in the core's ranges (ADR-0017, addendum of 2026-11-05).
+        (
+            "w1",
+            r#"{"core:fertility_wish_tilt":0}"#,
+            409,
+            "data_rejected",
+        ),
+        (
+            "w2",
+            r#"{"core:fertility_wish_tilt":10.5}"#,
+            409,
+            "data_rejected",
+        ),
+        (
+            "w3",
+            r#"{"core:fertility_extra":1.5}"#,
+            409,
+            "data_rejected",
+        ),
+        ("w4", r#"{"core:fertility_extra":0}"#, 409, "data_rejected"),
+        (
+            "w5",
+            r#"{"core:fertility_grown_from":0}"#,
+            409,
+            "data_rejected",
+        ),
+        (
+            "w6",
+            r#"{"core:fertility_grown_chance":1.5}"#,
+            409,
+            "data_rejected",
+        ),
+        (
+            "w7",
+            r#"{"core:fertility_count_until":0}"#,
+            409,
+            "data_rejected",
+        ),
+        (
+            "w8",
+            r#"{"core:fertility_count_until":17.5}"#,
+            409,
+            "data_rejected",
+        ),
         (
             "x3",
             r#"{"core:market_age":18,"core:no_such_value":1}"#,
@@ -2290,6 +2350,41 @@ fn own_values_the_data_refuse_make_no_town() {
     let (status, _, answer) = post(port, "/api/runs", body);
     assert_eq!((status, code(&answer).as_str()), (409, "run_exists"));
     assert!(!runs.join("town-1").join("settings.json").exists());
+}
+
+/// The children's wish on the founding (ADR-0017 and ADR-0021, addenda of 2026-11-05): a town
+/// founded with each of its five values beside the base game's keeps them in its own
+/// `settings.json`, names them in the run list, has another data hash than the base game and
+/// plays on.
+#[test]
+fn a_town_founded_with_its_own_wish_keeps_it() {
+    let (runs, web) = fixture("own-wish");
+    let server = start(&runs, &web);
+    let port = server.port;
+    let settings = r#"{"core:fertility_wish_tilt":0.5,"core:fertility_extra":2,"core:fertility_grown_from":2,"core:fertility_grown_chance":0.5,"core:fertility_count_until":16}"#;
+    let body = format!(r#"{{"template":"stadt","run":"wunsch","settings":{settings}}}"#);
+    let (status, _, answer) = post(port, "/api/runs", &body);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&answer));
+    let kept = settings_file(concat!(
+        r#""core:fertility_count_until":16.0,"core:fertility_extra":2.0,"#,
+        r#""core:fertility_grown_chance":0.5,"core:fertility_grown_from":2.0,"#,
+        r#""core:fertility_wish_tilt":0.5"#
+    ));
+    let own = runs.join("wunsch").join("settings.json");
+    assert_eq!(fs::read_to_string(&own).expect("its own settings"), kept);
+    assert_ne!(data_hash(&runs.join("wunsch")), BASE_HASH);
+    assert_eq!(
+        listed(port, "wunsch")["settings"],
+        json!([
+            {"key": "core:fertility_count_until", "value": 16.0},
+            {"key": "core:fertility_extra", "value": 2.0},
+            {"key": "core:fertility_grown_chance", "value": 0.5},
+            {"key": "core:fertility_grown_from", "value": 2.0},
+            {"key": "core:fertility_wish_tilt", "value": 0.5},
+        ])
+    );
+    let (status, _, body) = post(port, "/api/runs/wunsch/advance", r#"{"step":"year"}"#);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
 }
 
 /// The folder's `settings.json` and a town's own (ADR-0021, addendum of 2026-11-05): a town
