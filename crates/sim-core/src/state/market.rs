@@ -130,26 +130,11 @@ pub(crate) fn male_target(male: &MaleAnswer, age: f64) -> f64 {
     }
 }
 
-/// His utility for her proposal (11.2a): `U_m = −w_K · dK² − w_H · dH² − w_am · d² + G_m`,
-/// `d` her age minus his target age (taste included); `differences` as in [`utility`], and a
-/// trait the data do not name drops its term for him as for her (11.1). No kinship term.
-fn male_utility(
-    data: &Data,
-    male: &MaleAnswer,
-    differences: [Option<f64>; 2],
-    distance: f64,
-    noise: f64,
-) -> f64 {
-    let market = data.demography().market;
-    let similarity = [market.weight_cognition, market.weight_height]
-        .into_iter()
-        .zip(differences)
-        .filter_map(|(weight, difference)| difference.map(|x| weight * (x * x)));
-    let mut penalties = similarity.chain([male.weight_age * (distance * distance)]);
-    let first = penalties
-        .next()
-        .unwrap_or_else(|| panic!("invariant market.male_utility"));
-    let u = penalties.fold(-first, |sum, penalty| sum - penalty) + noise;
+/// His utility for her proposal (11.2a, Grok's third round of 2026-11-06): `U_m = −w_am · d²
+/// + G_m`, `d` her age minus his target age (taste included). No trait and no kinship term:
+/// `w_K` and `w_H` stand only in her utility.
+fn male_utility(male: &MaleAnswer, distance: f64, noise: f64) -> f64 {
+    let u = -(male.weight_age * (distance * distance)) + noise;
     if !u.is_finite() {
         panic!("invariant market.male_utility");
     }
@@ -380,10 +365,8 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
             let his_age = super::disease::age(born, now);
             let target = male_target(male, his_age)
                 + taste(Lot::of(domain, man).seed(data), his_key, male.taste_sd);
-            let his = compared(domain, data, man, now);
-            let differences = [0, 1].map(|n| hers[n].zip(his[n]).map(|(a, b)| a - b));
             let noise = draws.gumbel(accept_key(his_key, month, her_key));
-            male_utility(data, male, differences, her_age - target, noise)
+            male_utility(male, her_age - target, noise)
         };
         if !accepted(single(domain, man), market.male.as_ref(), answers) {
             continue;
@@ -533,24 +516,21 @@ mod tests {
         assert!(near(male_target(&male(), 40.0) + 2.5, 35.3));
     }
 
-    /// `U_m = −w_K · dz_K² − w_H · dz_h² − w_am · (a_f − t_m)² + G_m` with `w_K` = 0.377 and
-    /// `w_H` = 0.164 (the repository's fitted weights) and `w_am` = 0.02. She is 20 and he aims
-    /// at 23.8, so `d` = −3.8 and the age term is 0.02 · 14.44 = 0.2888. With `dz_K` = 1 and
-    /// `dz_h` = 2 the traits cost 0.377 + 0.164 · 4 = 1.033, together 1.3218.
+    /// `U_m = −w_am · (a_f − t_m)² + G_m` (11.2a, third round): with `w_am` = 0.02, she is 20
+    /// and he aims at 23.8, so `d` = −3.8 and the age term is 0.02 · 14.44 = 0.2888. No trait
+    /// enters his answer. At `d` = 0 the answer is the noise alone, and 0 refuses (strict).
     #[test]
     fn the_man_accepts_when_his_utility_is_above_zero() {
-        let data = crate::data::testing::data();
-        let u = |differences, noise| male_utility(&data, &male(), differences, -3.8, noise);
-        let both = [Some(1.0), Some(2.0)];
-        assert!(near(u(both, 2.0), 0.6782));
-        assert!(near(u(both, 1.3), -0.0218));
-        // A trait the data do not name drops its term (11.1): height only, 0.164 · 4 + 0.2888.
-        assert!(near(u([None, Some(2.0)], 1.0), 1.0 - 0.656 - 0.2888));
-        // No trait at all: the age term alone.
-        assert!(near(u([None, None], 0.29), 0.29 - 0.2888));
-        assert!(near(u([None, None], 0.28), 0.28 - 0.2888));
-        assert!(u(both, 2.0) > 0.0 && u(both, 1.3) <= 0.0);
-        assert!(u([None, None], 0.29) > 0.0 && u([None, None], 0.28) <= 0.0);
+        let u = |distance, noise| male_utility(&male(), distance, noise);
+        assert!(near(u(-3.8, 0.29), 0.29 - 0.2888));
+        assert!(near(u(-3.8, 0.28), 0.28 - 0.2888));
+        assert!(near(u(3.8, 0.29), 0.29 - 0.2888));
+        assert!(near(u(-10.0, 2.5), 2.5 - 2.0));
+        assert_eq!(u(0.0, 0.0), 0.0);
+        assert!(u(-3.8, 0.29) > 0.0 && u(-3.8, 0.28) <= 0.0);
+        assert!(!accepted(true, Some(&male()), |m| male_utility(
+            m, 0.0, 0.0
+        )));
     }
 
     /// Without the group the chosen man does not answer: he forms the partnership if he is
