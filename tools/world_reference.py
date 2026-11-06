@@ -209,9 +209,9 @@ What the model knows:
   normal(0, σ_ν)` (PAIRING_TASTE = 34; its lineage key, 0, 0; `own_seed`: the pool's seed for a
   pool person, the world's otherwise), her target age is `a + μ_a + ν` (her term is `w_a ·
   (a_m − t_f)²`), and the chosen man, if he has no open partnership now, answers: his target is
-  `t_m = max(a − min(slope · max(a − from, 0), cap), min) + ν_m`, `U_m = (((−(w_K · dK²)) −
-  (w_H · dH²)) − (w_am · (a_f − t_m)²)) + G_m` over the present terms, `G_m` the draw
-  PAIRING_ACCEPT = 33 (his key, `n`, her key; the world seed), and he accepts iff `U_m > 0`
+  `t_m = max(a − min(slope · max(a − from, 0), cap), min) + ν_m`, `U_m = (−(w_am · (a_f −
+  t_m)²)) + G_m` (rule of the model owner, 2026-11-06 23:37: no trait terms and no kinship term
+  in his utility), `G_m` the draw PAIRING_ACCEPT = 33 (his key, `n`, her key; the world seed), and he accepts iff `U_m > 0`
   strictly (`answer_of`). A refusal is the outcome "refused": no state, no entry, no second
   proposal; the partnership's causes are the plan, the rule, her draw, then his. Without the
   group nothing of this runs: no taste, no answer, no cause.
@@ -2380,12 +2380,11 @@ def male_target(male: MaleAnswer, age: float) -> float:
     return max(age - delta, male.minimum)
 
 
-def male_penalties(distance: float, male: MaleAnswer, similarity=()) -> list:
-    """The penalty terms of his answer in order (11.2a): the similarity terms given as for her
-    (`w_K · (dK · dK)`, then `w_H · (dH · dH)`, each only if its trait is named), then `w_am ·
-    (d · d)` with `d` her age minus his target age (his taste included). No kinship term."""
-    terms = [weight * (difference * difference) for weight, difference in similarity]
-    return terms + [male.weight_age * (distance * distance)]
+def male_penalties(distance: float, male: MaleAnswer) -> list:
+    """The penalty terms of his answer (11.2a as changed by the model owner on 2026-11-06): the
+    one term `w_am · (d · d)` with `d` her age minus his target age (his taste included). No
+    trait term, no kinship term."""
+    return [male.weight_age * (distance * distance)]
 
 
 # Spec 11.2 by hand: a cousin's penalty is ln(10) = 2.303 [W11.2a], so with the same rest a
@@ -4005,22 +4004,17 @@ class World:
         return taste_draw(self.own_seed(sim), self.key_of(sim), self.data.male.taste_sd)
 
     def answer_of(self, woman: int, man: int, record: dict, now: int, n: int) -> dict:
-        """His answer to her one proposal in round `n` at `now` (11.2a): `U_m = (((−(w_K · dK²)) −
-        (w_H · dH²)) − (w_am · d²)) + G_m` over the present terms, `d` her continuous age minus his
-        target age `male_target(a_m) + ν_m`, `dK` and `dH` the differences of the phenotypes of the
-        round (`record["phenotypes"]`), `G_m` the draw PAIRING_ACCEPT; he accepts iff `U_m > 0`.
-        The draw is taken here, so only for a man who is single; the decision keeps
-        `UTILITY_MARGIN` from zero."""
-        data, male = self.data, self.data.male
+        """His answer to her one proposal in round `n` at `now` (11.2a): `U_m = (−(w_am · d²)) +
+        G_m`, `d` her continuous age minus his target age `male_target(a_m) + ν_m`, `G_m` the draw
+        PAIRING_ACCEPT; no trait and no kinship term. He accepts iff `U_m > 0`. The draw is taken
+        here, so only for a man who is single; the decision keeps `UTILITY_MARGIN` from zero."""
+        male = self.data.male
         her_age, his_age = as_years(now - self.sims[woman][0]), as_years(now - self.sims[man][0])
         nu = self.taste_of(man)
         record["tastes"][man] = nu
         target = male_target(male, his_age) + nu
-        hers, his = record["phenotypes"][woman], record["phenotypes"][man]
-        weights = [weight for _, _, weight in data.similarity_traits()]
-        similarity = [(weight, z_her - z_his) for weight, z_her, z_his in zip(weights, hers, his)]
         d = her_age - target
-        terms = male_penalties(d, male, similarity)
+        terms = male_penalties(d, male)
         g = accept_noise_of(self.seed, self.key_of(man), n, self.key_of(woman))
         u = utility_of(terms, g)
         assert math.isfinite(u), "market.male_utility"

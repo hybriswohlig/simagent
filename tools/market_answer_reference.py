@@ -8,7 +8,8 @@ The data: the map 3 fixture's calibration with the repository's life course data
 height `c` = 1 and almost no deaths (accident 1e-9 per year, senescence off), and, if the
 scenario has the group, the six values of 11.2a with the weight `w_am` and the taste's spread
 `σ_ν` the scenario names (slope 0.4, from 22, cap 15, minimum 21). The test map names no
-cognition or height trait, so the similarity terms drop out (11.1).
+cognition or height trait, so her similarity terms drop out (11.1); his answer has no trait term at
+all (rule of the model owner, 2026-11-06 23:37: `U_m = −w_am · (a_f − t_m)² + G_m`).
 
 Scenarios: "answer" (seed 0xff, tag `test:answer`: a woman of 20 and a man of 22, single) and
 "choice" (a woman of 20, a man of 26 and a man of 21, tag `test:answer2`).
