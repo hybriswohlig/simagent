@@ -301,9 +301,11 @@ fn the_life_course_data_count_in_the_hash() {
     assert_ne!(without.hash(), common::data().hash());
 }
 
-/// The extra child (ADR-0017, addendum of 2026-11-05): the game's overlay sets the tilt 0.224
-/// and the four values of the group; the extract without them keeps 22 values and the rule
-/// without the extra child.
+/// The extra child (ADR-0017, addendum of 2026-11-05): the game's overlay sets the tilt and
+/// the four values of the group; the extract without them keeps 22 values and the rule
+/// without the extra child. Since the man's answer (11.2a, third round) the overlay also
+/// carries the refit of the market: the values of `tools/life_reference.py --accept` and the
+/// tilt 0.239 of its `--wish-refit --accept`.
 #[test]
 fn the_game_overlays_the_extra_child() {
     let (calibration, genome_map) = common::files();
@@ -313,7 +315,26 @@ fn the_game_overlays_the_extra_child() {
     assert_eq!(game.demography.values.len(), 32);
     let data = Data::new(game).expect("checked");
     let fertility = &data.demography().fertility;
-    assert_eq!(fertility.wish_tilt, 0.224);
+    assert_eq!(fertility.wish_tilt, 0.239);
+    let market = &data.demography().market;
+    assert_eq!(
+        (
+            market.search_height,
+            market.search_center,
+            market.minor_factor
+        ),
+        (0.0215, 25.43, 0.118)
+    );
+    assert_eq!(
+        (
+            market.age_gap,
+            market.weight_cognition,
+            market.weight_height,
+            market.weight_age
+        ),
+        (4.26, 0.626, 0.254, 0.0795)
+    );
+    assert_eq!(data.demography().separation_rate, 0.0086);
     assert_eq!(
         fertility.extra,
         Some(ExtraChild {
