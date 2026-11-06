@@ -589,6 +589,13 @@ def section_11():
     put("W11.2a", 16 * mp.log(10) / 16, ("fix", 3))
     put("W11.2b", mp.exp(16 * mp.log(10) / 32), ("fix", 3))
     put("W11.2c", mp.exp(16 * mp.log(10) / 64), ("fix", 3))
+    # The man's target age without taste (11.2a): max(a - min(0,4 * max(a - 22, 0), 15), 21).
+    def man_target(a):
+        a = mp.mpf(a)
+        return max(a - min(mp.mpf("0.4") * max(a - 22, 0), 15), 21)
+    put("W11.2d", man_target(25), ("fix", 1))
+    put("W11.2e", man_target(40), ("fix", 1))
+    put("W11.2f", man_target(60), ("fix", 0))
     assert sum(WISH_SHAPE) == 1
     put("W11.3a", sum(n * p for n, p in enumerate(WISH_SHAPE)), ("fix", 2))
     twin_births = TWINS_MZ + TWINS_DZ
