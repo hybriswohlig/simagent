@@ -3347,7 +3347,8 @@ fn why_over_http() {
                 "too_short": null,
                 "offers": offers(sim, busy),
                 "now": null,
-                "reserve": null,
+                // Still the person's latest choice at the clock: its reserve then (version 9).
+                "reserve": full_reserve(sim),
             }),
             "{sim}"
         );

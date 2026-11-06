@@ -922,6 +922,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event decide",
             "event bedtime",
             "event stand_up",
+            "event reserve_crossing",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -952,7 +953,9 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:missed",
             "log core:need_empty",
             "log core:collapsed",
-            "log core:accident"
+            "log core:accident",
+            "log core:weakened",
+            "log core:wasted"
         ]
     );
 }
