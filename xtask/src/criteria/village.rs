@@ -1,9 +1,9 @@
 //! The villages of P4 (ADR-0020 sections 8 and 11, G4, G5, K2 and Grok D1 to D3; spec 8.2
-//! P4): 30 villages founded from the repository's pool, each of 40 women and 40 men who
+//! P4): 40 villages founded from the repository's pool, each of 40 women and 40 men who
 //! arrive alone, capacity 160, no immigration, the hereditary diseases on. Each runs to 1200
 //! years, is measured with the kit (its last block of 30 birth years whose youngest turn 18
 //! by the end) and dropped; the first 20 in list order with a block of two units or more
-//! count. While the power against "no drift" stays below 0.9, all 30 run again to an end 300
+//! count. While the power against "no drift" stays below 0.9, all 40 run again to an end 300
 //! years later, up to 2100 (the same runs, ADR-0001). Too large for the gate, so it runs as
 //! a tool in release, one village at a time:
 //!
@@ -40,7 +40,7 @@ type Result<T> = std::result::Result<T, String>;
 /// village tests.
 pub const SEED_VILLAGE: u64 = 0x5eed_0004_0000_0002;
 /// The villages of the list (Grok D1); the first `VILLAGE_SEEDS` with a block count.
-pub const VILLAGES: usize = 30;
+pub const VILLAGES: usize = 40;
 /// The village of ADR-0020 section 8 (G4), with the capacity of Grok D1.
 const N_START: u64 = 80;
 const CAPACITY: u64 = 160;
@@ -49,7 +49,7 @@ pub const ENDS: [i64; 4] = [1200, 1500, 1800, 2100];
 /// The power against "no drift" a decision needs (spec 8.2 P4).
 const POWER: f64 = 0.9;
 
-/// The seeds of the 30 villages, in list order.
+/// The seeds of the 40 villages, in list order.
 pub fn seeds() -> Vec<u64> {
     (0..VILLAGES)
         .map(|i| {
@@ -72,7 +72,8 @@ pub fn village_plan(seed: u64, years: i64) -> Plan {
 }
 
 /// The repository's data: the documents under `data/`, the pool and its frequencies, the
-/// shock templates and the houses, as the CLI builds its own.
+/// shock templates and the houses, and the game's life course data, as the CLI builds its
+/// own.
 pub fn repository_data(root: &Path) -> Result<Data> {
     let demography = crate::map4::read(root, "data/calibration/demography.json")?;
     let (calibration, map) = crate::prerun::read_files(&root.join("data"))?;
@@ -99,10 +100,13 @@ pub fn repository_data(root: &Path) -> Result<Data> {
     let frequencies = crate::pool_file::finite(frequencies)?;
     let shocks = shocks(root)?;
     let houses = houses(root)?;
-    Data::with_pool(definitions, &pool, frequencies)
+    let data = Data::with_pool(definitions, &pool, frequencies)
         .and_then(|data| data.with_shocks(shocks))
         .map(|data| data.with_houses(houses))
-        .map_err(|e| format!("the repository's data: {e}"))
+        .map_err(|e| format!("the repository's data: {e}"))?;
+    // The game's life course data in place of the extract's (ADR-0017, addendum of
+    // 2026-11-05).
+    crate::prerun::with_game(root, data, &calibration, &map)
 }
 
 /// The houses of `data/house/` as sim-cli reads them (ADR-0025): the rates, the day, the kinds
@@ -469,7 +473,7 @@ pub fn judge(years: i64, measured: &[Measured]) -> Judged {
     }
 }
 
-/// Runs the 30 villages to each end until one decides, writes `village.json` and the last
+/// Runs the 40 villages to each end until one decides, writes `village.json` and the last
 /// end's exports into `out`, and returns the reds.
 pub fn villages(data: &Data, out: &Path) -> Result<Vec<String>> {
     let mut ends = Vec::new();

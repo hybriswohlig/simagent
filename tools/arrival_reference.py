@@ -173,6 +173,8 @@ def check_all(world: wr.World, deaths: bool = True) -> None:
     # section 5d): every save of every scenario passes them too.
     for check in wr.CARRIED_CHECKS:
         check(world)
+    # The gate at every town conception (ADR-0017, addendum of 2026-11-05).
+    wr.check_conception_gates(world)
 
 
 def make_world(data: wr.Data, seed: int, n_start: int, immigration: bool, switch: bool = True) -> wr.World:

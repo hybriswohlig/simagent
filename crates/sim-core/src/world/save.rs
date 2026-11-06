@@ -229,6 +229,8 @@ impl World {
         let open = open_index(&loaded.partnerships);
         let members = member_index(&loaded.sims);
         let keys = key_index(&loaded.sims, &loaded.archive);
+        let offspring = offspring_index(&loaded);
+        let arranged = arranged_index(&loaded, &exceptions.input_log);
         let world = World {
             sched,
             state: WorldState {
@@ -246,6 +248,8 @@ impl World {
                     keys,
                     pending,
                     open,
+                    offspring,
+                    arranged,
                     kinship: KinshipCache::new(),
                     members,
                     house_mornings,
@@ -271,6 +275,85 @@ impl World {
         };
         Ok((world, exceptions.year_hashes))
     }
+}
+
+/// The children of each parent by the parent's lineage key (`DomainState::offspring`), from
+/// the living and the archive in the order of their SimIds; not saved, loading builds it
+/// again (the gate only counts them).
+fn offspring_index(loaded: &LoadedState) -> BTreeMap<LineageKey, Vec<SimId>> {
+    let mut out: BTreeMap<LineageKey, Vec<SimId>> = BTreeMap::new();
+    let ids = loaded.sims.keys().chain(loaded.archive.keys());
+    let mut ids: Vec<SimId> = ids.copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        if let Some(child) = child_of(loaded, id) {
+            for key in [child.mother, child.father].into_iter().flatten() {
+                out.entry(key).or_default().push(id);
+            }
+        }
+    }
+    out
+}
+
+/// The partnerships an input formed (`DomainState::arranged`): the couples of `Start` and
+/// each `ArrangePartnership`, matched by woman, man and the second they formed.
+fn arranged_index(loaded: &LoadedState, inputs: &[InputRecord]) -> BTreeSet<PartnershipId> {
+    let mut pairs: BTreeSet<(SimId, SimId, SimTime)> = BTreeSet::new();
+    for record in inputs {
+        match &record.input {
+            Input::Start(start) => {
+                let founder = |place: u32| SimId::try_from(u64::from(place) + 1).ok();
+                for couple in &start.couples {
+                    if let (Some(woman), Some(man)) = (founder(couple.woman), founder(couple.man)) {
+                        pairs.insert((woman, man, SimTime::START));
+                    }
+                }
+            }
+            Input::ArrangePartnership(pair) => {
+                if let Some(formed) = record.t.checked_add(SimDuration::from_secs(1)) {
+                    pairs.insert((pair.woman, pair.man, formed));
+                }
+            }
+            _ => {}
+        }
+    }
+    (loaded.partnerships.iter())
+        .filter(|(_, p)| pairs.contains(&(p.woman, p.man, p.formed)))
+        .map(|(id, _)| *id)
+        .collect()
+}
+
+/// A sim of the save as the gate counts it (`conception::Child`).
+fn child_of(loaded: &LoadedState, id: SimId) -> Option<conception::Child> {
+    let facts = facts(loaded, id)?;
+    if let Some(origin) = &facts.pool {
+        return Some(conception::Child {
+            born: facts.born,
+            arrived: origin.born_pool.map(|_| origin.arrived),
+            mother: origin.mother,
+            father: origin.father,
+        });
+    }
+    let parents = facts.parents;
+    Some(conception::Child {
+        born: facts.born,
+        arrived: None,
+        mother: parents.and_then(|p| facts_of_key(loaded, p.mother)),
+        father: parents.and_then(|p| facts_of_key(loaded, p.father)),
+    })
+}
+
+/// The children of the save by their parents' lineage keys, as the gate counts them.
+fn kids_index(loaded: &LoadedState) -> BTreeMap<LineageKey, Vec<conception::Child>> {
+    let mut out: BTreeMap<LineageKey, Vec<conception::Child>> = BTreeMap::new();
+    for id in loaded.sims.keys().chain(loaded.archive.keys()) {
+        if let Some(child) = child_of(loaded, *id) {
+            for key in [child.mother, child.father].into_iter().flatten() {
+                out.entry(key).or_default().push(child);
+            }
+        }
+    }
+    out
 }
 
 /// The lineage keys of a saved state: those of the living and of the archive (ADR-0001
@@ -407,6 +490,10 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
                 Input::MoveIn(move_in) => Some(move_in.household),
                 _ => None,
             })
+            .collect(),
+        kids: kids_index(loaded),
+        keys: (loaded.sims.values().map(|sim| sim.lineage_key))
+            .chain(loaded.archive.values().map(|sim| sim.lineage_key))
             .collect(),
     };
     // The other checks leave no two equal keys short of a 64-bit collision; this one
@@ -1586,6 +1673,10 @@ struct Rules<'a> {
     /// The households a `MoveIn` stamped at the clock moved into their house: it acted in the
     /// second after the clock, so their members' series of plans was set up in that second.
     moved_in: Vec<HouseholdId>,
+    /// The children of the save by their parents' lineage keys, as the gate counts them.
+    kids: BTreeMap<LineageKey, Vec<conception::Child>>,
+    /// The lineage keys of the save, living and archived.
+    keys: BTreeSet<LineageKey>,
 }
 
 impl Rules<'_> {
@@ -1915,12 +2006,12 @@ fn lived_at(left: Option<SimTime>, at: SimTime) -> bool {
     left.is_none_or(|left| left >= at)
 }
 
-/// A conception the rule gives (ADR-0017 section 4, B18): a partnership of mother and
-/// father open at `conceived`, which lies at a month start in her series of attempts
-/// (after the pairing and after the pause of her last birth in it), with fewer live births
-/// than she wishes and her fertility not ended, and a successful draw at the chance of the
-/// curves; the child's key comes from both parents and her number, its alleles and sex
-/// from the draws.
+/// A conception the rule gives (ADR-0017 section 4 and its addendum of 2026-11-05, B18): a
+/// partnership of mother and father open at `conceived`, which lies at a month start in her
+/// series of attempts (after the pairing and after the pause of her last birth in it), with
+/// the gate open there (`conception::decide` on the facts of that second) and her fertility
+/// not ended, and a successful draw at the chance of the curves; the child's key comes from
+/// both parents and her number, its alleles and sex from the draws.
 fn conception_fits(
     loaded: &LoadedState,
     rules: &Rules<'_>,
@@ -1950,19 +2041,19 @@ fn conception_fits(
     let in_her_series = formed.is_some_and(|(id, formed)| {
         let born_before = children_born(loaded, parents.mother, conceived);
         series_start(
+            loaded,
             rules,
             id,
             (parents.mother, parents.father, formed),
             &born_before,
         )
         .is_some_and(|start| start <= conceived)
-            && conception::may_begin(
-                rules.data,
-                life_seed(rules, &her),
-                her.born,
-                her.lineage_key,
-                births_before(rules, parents.mother, born_before.len()),
-                conceived,
+            && pair_facts(loaded, rules, (parents.mother, parents.father, id)).is_some_and(
+                |facts| {
+                    let life = births_before(rules, parents.mother, born_before.len());
+                    let couple = facts.couple(rules.data, conceived, life, (false, false));
+                    conception::decide(&couple).is_ok()
+                },
             )
     });
     let drawn = conception::month_index(conceived).is_some_and(|month| {
@@ -1991,13 +2082,52 @@ fn conception_fits(
     at_a_month_start && in_her_series && drawn && fits
 }
 
-/// The seed of a woman's wish: the pool seed for a pool person (design note of the
-/// arrival, section 6.2).
-fn life_seed(rules: &Rules<'_>, her: &Facts) -> u64 {
-    match (&her.pool, rules.data.pool()) {
-        (Some(_), Some(held)) => held.pool().pool_seed,
-        _ => rules.seed,
+/// Whose wish and draws a sim has: a pool person's are the extract's with the pool seed
+/// (design note of the arrival, section 6.2; ADR-0017, addendum of 2026-11-05).
+fn lot_of(rules: &Rules<'_>, sim: &Facts) -> conception::Lot {
+    match (&sim.pool, rules.data.pool()) {
+        (Some(_), Some(_)) => conception::Lot::Pool,
+        _ => conception::Lot::Town(rules.seed),
     }
+}
+
+/// What the gate reads of the couple of the partnership `id` (`conception::PairFacts`), as
+/// the core gathers it from its domain.
+fn pair_facts(
+    loaded: &LoadedState,
+    rules: &Rules<'_>,
+    (woman, man, id): (SimId, SimId, PartnershipId),
+) -> Option<conception::PairFacts> {
+    let (her, him) = (facts(loaded, woman)?, facts(loaded, man)?);
+    let data = rules.data;
+    let fathered = data
+        .pool()
+        .map_or(&[][..], |pool| pool.fathered(him.lineage_key));
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    let kids = |key: LineageKey| rules.kids.get(&key).cloned().unwrap_or_default();
+    let chance = (data.demography().fertility.extra).map_or(0.0, |rule| rule.grown_chance);
+    Some(conception::PairFacts {
+        him: him.lineage_key,
+        her_born: her.born,
+        her_wish: conception::wish(data, lot_of(rules, &her), her.lineage_key),
+        his_wish: conception::wish(data, lot_of(rules, &him), him.lineage_key),
+        hers: kids(her.lineage_key),
+        his: kids(him.lineage_key),
+        his_unseen: count(
+            (fathered.iter())
+                .filter(|(child, _)| !rules.keys.contains(child))
+                .count(),
+        ),
+        pool_ours: count(
+            (fathered.iter())
+                .filter(|(_, mother)| *mother == Some(her.lineage_key))
+                .count(),
+        ),
+        brought_births: (rules.pool.carried.get(&id))
+            .is_some_and(|(record, _)| record.partnerships == 1 && record.births >= 1),
+        may_reopen: conception::may_reopen(data, lot_of(rules, &her), her.lineage_key, chance),
+        her_pool: lot_of(rules, &her) == conception::Lot::Pool,
+    })
 }
 
 /// Her live births before a conception: those in the town, and for an arrival those the
@@ -2068,6 +2198,7 @@ fn children_born(loaded: &LoadedState, mother: SimId, before: SimTime) -> Vec<Si
 /// a birth in it, at the first attempt she brought, none without one (design note of the
 /// carried plans, C2).
 fn series_start(
+    loaded: &LoadedState,
     rules: &Rules<'_>,
     partnership: PartnershipId,
     (woman, man, formed): (SimId, SimId, SimTime),
@@ -2082,10 +2213,23 @@ fn series_start(
     match births.iter().rev().find(|born| in_it(born)) {
         Some(born) => conception::series_after_birth(*born, pause),
         None => match rules.pool.carried.get(&partnership) {
-            Some((record, delta)) => record
-                .conception_at
-                .and_then(|at| at.as_secs().checked_add(*delta))
-                .map(SimTime::from_secs),
+            Some((record, delta)) => match record.conception_at {
+                Some(at) => at.as_secs().checked_add(*delta).map(SimTime::from_secs),
+                // Brought without a series: the town's rule from `brought_start` (ADR-0017,
+                // addendum of 2026-11-05).
+                None => {
+                    let arrived = facts(loaded, woman)?.pool?.arrived;
+                    let key = facts(loaded, woman)?.lineage_key;
+                    let hers: Vec<(SimTime, Option<SimTime>)> = (loaded.sims.values())
+                        .filter_map(|sim| sim.pool.as_ref())
+                        .chain(loaded.archive.values().filter_map(|sim| sim.pool.as_ref()))
+                        .filter(|origin| origin.mother == Some(key))
+                        .map(|origin| (origin.arrived, origin.born_pool))
+                        .collect();
+                    let formed_pool = SimTime::from_secs(formed.as_secs().checked_sub(*delta)?);
+                    conception::brought_start(rules.data, &hers, arrived, (formed_pool, *delta))
+                }
+            },
             None => conception::series_after_pairing(formed),
         },
     }
@@ -2336,10 +2480,11 @@ fn conceptions_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
     living && archived
 }
 
-/// When the next attempt of a living woman is due (ADR-0017 section 4): the first month
-/// start after now that lies in her series (after the pairing of her open partnership, or
-/// after the pause of her last birth in it), if she is not pregnant, has fewer live births
-/// than she wishes and her fertility has not ended by then.
+/// When the next attempt of a living woman is due (ADR-0017 section 4 and its addendum of
+/// 2026-11-05): the first month start after now that lies in her series (after the pairing
+/// of her open partnership, after the pause of her last birth in it, or the town's start of
+/// a partnership she brought without a series) at which the gate is open, if she is not
+/// pregnant and her fertility has not ended by then; a series she brought runs on its grid.
 fn next_attempt(
     loaded: &LoadedState,
     now: i64,
@@ -2347,9 +2492,9 @@ fn next_attempt(
     woman: SimId,
 ) -> Option<SimTime> {
     let her = loaded.sims.get(&woman)?;
-    if let Some(brought) = carried_series(loaded, rules, woman, now) {
+    if carried_series(loaded, rules, woman, now) == Some(true) {
         return carried_attempt(rules, woman, her.born, now)
-            .filter(|_| brought && !loaded.pregnancies.contains_key(&woman));
+            .filter(|_| !loaded.pregnancies.contains_key(&woman));
     }
     let (id, open) = loaded
         .partnerships
@@ -2360,23 +2505,15 @@ fn next_attempt(
     }
     let clock = SimTime::try_from(now.checked_sub(1)?).ok()?;
     let births = children_born(loaded, woman, SimTime::try_from(now).ok()?);
-    let start = series_start(rules, *id, (woman, open.man, open.formed), &births)?;
+    let start = series_start(loaded, rules, *id, (woman, open.man, open.formed), &births)?;
     let after_now = conception::month_start_after(clock)?;
-    let next = if start > after_now { start } else { after_now };
-    let life = if her.pool.is_some() {
-        rules.data.pool()?.pool().pool_seed
-    } else {
-        rules.seed
-    };
-    conception::may_begin(
-        rules.data,
-        life,
-        her.born,
-        her.lineage_key,
-        her.births,
-        next,
-    )
-    .then_some(next)
+    let from = if start > after_now { start } else { after_now };
+    // The first month start from then on at which the gate opens (ADR-0017, addendum of
+    // 2026-11-05), as the core plans it.
+    let facts = pair_facts(loaded, rules, (woman, open.man, *id))?;
+    conception::first_open(&facts.candidates(rules.data, from), |t| {
+        facts.couple(rules.data, t, her.births, (false, false))
+    })
 }
 
 /// The pending attempt of the series an arrival brought (design note of the carried plans,

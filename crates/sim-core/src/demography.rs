@@ -43,7 +43,7 @@ pub struct Demography {
 }
 
 /// Fertility (11.3): the adult rate of an attempt, the pause after a birth, the length of
-/// a pregnancy, and the wish `P_n ∝ p_n · e^(α·n)`.
+/// a pregnancy, the wish `P_n ∝ p_n · e^(α·n)`, and the extra child.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fertility {
     pub adult_rate: f64,
@@ -51,6 +51,23 @@ pub struct Fertility {
     pub pregnancy_months: u32,
     pub wish_tilt: f64,
     pub wish_shape: Vec<f64>,
+    /// The extra child of both partners' wishes (ADR-0017, addendum of 2026-11-05); `None`
+    /// is the rule without it: she tries while her live births are below her wish.
+    pub extra: Option<ExtraChild>,
+}
+
+/// The extra child (ADR-0017, addendum of 2026-11-05): four values, all or none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ExtraChild {
+    /// A child stops counting as young from the first month start of its this many whole
+    /// years.
+    pub count_until_years: u32,
+    /// Her live births may reach at most her wish plus this before an attempt.
+    pub extra: u32,
+    /// A grown child reopens her only with at least this many live births.
+    pub grown_from: u32,
+    /// And only if her draw is below this chance.
+    pub grown_chance: f64,
 }
 
 /// Twins per conception (11.3): identical, fraternal.
@@ -85,7 +102,7 @@ pub struct Market {
     pub cousin_odds: f64,
 }
 
-/// The number of values of format 1.
+/// The number of values without the extra child.
 const VALUES: usize = 22;
 /// The ages of leaving home: 16 to 25 (ADR-0018 section 4).
 const LEAVE_AGES: usize = 10;
@@ -132,6 +149,7 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         pregnancy_months: whole(value("core:pregnancy_length", Unit::Month)?, 1, 20)?,
         wish_tilt: positive(value("core:fertility_wish_tilt", Unit::Logit)?, 10.0)?,
         wish_shape: wish_shape(&file.fertility_wish_shape)?,
+        extra: None,
     };
     let twins = Twins {
         identical: within(value("core:twins_identical", Unit::Fraction)?, (0.0, 1.0))?,
@@ -180,9 +198,35 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         )?,
         tau0: positive(value("core:learning_time", Unit::Hour)?, 1e9)?,
     };
-    if file.values.len() != VALUES {
+    // The extra child (ADR-0017, addendum of 2026-11-05), one group: none of its keys (the
+    // rule without it, 22 values), or all of them.
+    let extra_child = [
+        "core:fertility_count_until",
+        "core:fertility_extra",
+        "core:fertility_grown_from",
+        "core:fertility_grown_chance",
+    ];
+    let named = extra_child
+        .iter()
+        .filter(|key| {
+            let id = DataId::new(key).unwrap_or_else(|_| panic!("invariant data.key"));
+            file.values.contains_key(&id)
+        })
+        .count();
+    let extra = match named {
+        0 => None,
+        n if n == extra_child.len() => Some(ExtraChild {
+            count_until_years: whole(value(extra_child[0], Unit::Year)?, 1, 120)?,
+            extra: whole(value(extra_child[1], Unit::Count)?, 1, 64)?,
+            grown_from: whole(value(extra_child[2], Unit::Count)?, 1, 64)?,
+            grown_chance: within(value(extra_child[3], Unit::Fraction)?, (0.0, 1.0))?,
+        }),
+        _ => return Err(DataError::CalibrationMissing),
+    };
+    if file.values.len() != VALUES + named {
         return Err(DataError::CalibrationUnknown);
     }
+    let fertility = Fertility { extra, ..fertility };
     Ok(Demography {
         fertility,
         twins,

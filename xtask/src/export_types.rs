@@ -214,6 +214,35 @@ pub fn descriptor() -> Vec<Named> {
                 field("card", Ref("GeneticsCard")),
                 optional("kinship", Ref("Kinship")),
                 field("ages", list(Ref("Age"))),
+                field("wish", Ref("WishShown")),
+            ],
+        },
+        Named {
+            name: "WishShown",
+            doc: "The wish for children by the core: the drawn wish of the person (null below the market age) and the couple of its open partnership with where its wish stands.",
+            fields: vec![
+                field("wish", nullable(Integer)),
+                field("couple", nullable(Ref("CoupleWish"))),
+            ],
+        },
+        Named {
+            name: "CoupleWish",
+            doc: "The woman and the man of an open partnership and where their wish stands: her fertility over, she is pregnant, the pause after a birth, they try by her wish, by his or by a grown child of hers, or her wish is fulfilled.",
+            fields: vec![
+                field("woman", Integer),
+                field("man", Integer),
+                field(
+                    "state",
+                    Kind::Literal(&[
+                        "fertility_over",
+                        "pregnant",
+                        "pause",
+                        "hers",
+                        "his",
+                        "grown",
+                        "fulfilled",
+                    ]),
+                ),
             ],
         },
         Named {

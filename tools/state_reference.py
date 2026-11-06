@@ -3116,6 +3116,7 @@ def check_all(world: world_reference.World) -> None:
         world_reference.check_afflictions,
         world_reference.check_emigration,
         world_reference.check_onsets,
+        world_reference.check_conception_gates,
     ):
         check(world)
 

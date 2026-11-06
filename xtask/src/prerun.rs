@@ -104,6 +104,36 @@ pub fn prerun_data(root: &Path, calibration: &Json, map: &Json) -> Result<Data> 
     data_of(&demography, calibration, map)
 }
 
+/// The game's life course data (ADR-0017, addendum of 2026-11-05):
+/// `data/calibration/demography.json`, the document the pool was extracted from, with each
+/// entry of `data/calibration/demography_game.json` set into its values, as the CLI builds it.
+pub fn game_demography(root: &Path) -> Result<Json> {
+    let mut demography = crate::map4::read(root, "data/calibration/demography.json")?;
+    let overlay = crate::map4::read(root, "data/calibration/demography_game.json")?;
+    let entries = match &overlay {
+        Json::Object(fields) if fields.len() == 1 => match overlay.get("values") {
+            Some(Json::Object(entries)) => entries.clone(),
+            _ => return Err("demography_game.json: no values".to_owned()),
+        },
+        _ => return Err("demography_game.json: the field values only".to_owned()),
+    };
+    let values = demography
+        .get_mut("values")
+        .ok_or("demography.json: no values")?;
+    for (key, entry) in entries {
+        values.set(&key, entry);
+    }
+    Ok(demography)
+}
+
+/// `data` (the extract with the pool) with the game's life course data in place of the
+/// extract's, the way the CLI's base game is built (`Data::with_calibration`).
+pub fn with_game(root: &Path, data: Data, calibration: &Json, map: &Json) -> Result<Data> {
+    let definitions = definitions_of(&game_demography(root)?, calibration, map)?;
+    data.with_calibration(definitions.demography, definitions.calibration)
+        .map_err(|error| format!("the game's data: {error}"))
+}
+
 /// The data of these three documents, read as the CLI reads data files.
 pub fn data_of(demography: &Json, calibration: &Json, map: &Json) -> Result<Data> {
     Data::new(definitions_of(demography, calibration, map)?)

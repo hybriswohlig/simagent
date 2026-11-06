@@ -13,6 +13,10 @@ Usage:
   python3 tools/life_reference.py --r7         the earlier market of Grok's R7, kept for
                                                comparison (not the rule)
   python3 tools/life_reference.py --wa-scan    adds a scan of w_a at the fitted point
+  python3 tools/life_reference.py --wish-refit refits only alpha under the wish of both
+                                               partners (below), every other value held at
+                                               data/calibration/demography.json; with
+                                               --quick a smoke test that publishes nothing
 
 Pure Python (standard library only); every number is fixed by the seeds below, so two runs
 print the same digits. The output is a table of the fitted values with approximate standard
@@ -160,6 +164,35 @@ six). The authoritative check is a check run at the fitted values on new towns: 
 the achieved targets (births as realized births), with standard errors by the
 delete-one-town jackknife (they include the dependence within a town).
 
+The wish of both partners (ADR-0017, addendum of 2026-11-05; `--wish-refit`,
+cfg["rule"] = "extra"; without it the tool runs exactly as before):
+
+- Every person has a wish `W` from the same shape and tilt, the draw TAG_WISH on its own
+  key. `life` is her live births of any partner (a founder's earlier births without persons
+  included); `young` is `life` minus her children with a town birth month `b` at which
+  `t >= b + 18 years` (alive or not; earlier births without persons never leave it); his
+  `young` counts his children with `t < b + 18 years`. `ours` is the live births of the pair
+  (children naming both); a founder couple formed at the start has her earlier births as
+  theirs (her only partnership).
+- She is open when `young < W`, `life < W + 1` and (`life < W` or `life >= 3` and her draw
+  TAG_WISH at occasion 1 on her key is below the grown chance, cfg["grown_chance"], 0.20 in
+  the game, 1 when not given). Otherwise his slot opens when `W >= 1`, `W <= life < W + 1`,
+  his `young` is below his `W` and `ours < 1`; it does not read her draw. An attempt runs when either is open, she is not pregnant, her fertility has not
+  ended and the pause after her last birth in this partnership has passed (it does not carry
+  over from an earlier partnership). Every conception is realized; there is no estimator.
+- alpha alone is fitted by bisection on the realized live births per woman reaching 50, on
+  the same 24 towns at every step (seeds 1-24), to a bracket width of 0.0005, then rounded to
+  three decimals; the root must lie in (0, 10] and below the wish mean 3.0. The bracket starts
+  at alpha 0 and the published alpha (the wish mean 3.0 only if the births stay below 2.20
+  there). The check runs 48
+  new towns (seeds 900001-900048) at the rounded value: accepted when the realized mean is
+  within 2 delete-one-town standard errors of 2.20; births under 18 outside 0.001 to 0.005,
+  the age gap outside 2.5 to 4 or another target off by more than 4 standard errors stop it.
+  The report adds the share of women with a birth conceived at `life >= W`, the share of
+  such births and the completed family sizes 0 to 6, and the gates of the shape: size 3 above
+  size 4 above size 5+, 5+ within 0.01 to 0.05, those women within 0.05 to 0.12, childless
+  within 0.12 to 0.18. `--grown-chance X` sets the chance (default 0.20).
+
 Exit status 1 when a target misses by more than 4 standard errors, a check of 11.2 fails
 (per 11.2 the finding then goes back to Grok before the values are used) or the realized
 births miss 2.20 by more than 2 standard errors (then `alpha` needs a fit on realized
@@ -215,6 +248,9 @@ MAN_DECLINE = (45.0, 70.0, 0.4)  # K5.6h, K5.6j, K5.6i
 COG_H2 = (0.5, 0.75)  # child, adult [K4.2d]
 COG_C2 = (0.25, 0.05)  # child, adult [K4.2e]
 COG_MID, COG_SPREAD = 12.0, 2.0  # years, the transition s(x) of 4.2
+COUNT_UNTIL = 18 * MONTHS  # a child counts as young until 18 years (ADR-0017, 2026-11-05)
+WISH_EXTRA = 1  # at most W + 1 live births started by an attempt
+GROWN_FROM = 3  # a grown child reopens her only with at least 3 live births
 U18_BAND = (0.001, 0.005)  # share of live births to mothers under 18 (Grok, 2026-10-08)
 GAP_BAND = (2.5, 4.0)  # 11.2
 
@@ -502,6 +538,9 @@ def simulate(par, seed, cfg):
     rule = cfg.get("fertility") or PubertyFertility()
     chance = rule.chance
     fert_until = math.ceil(rule.last_age * MONTHS)
+    # The wish of both partners (module docstring); off, the tool runs as before.
+    extra_rule = cfg.get("rule") == "extra"
+    grown_chance = cfg.get("grown_chance", 1.0)
     tabs = (search_table(par["c_f"], par["m_f"], market_age, par["rho"]),
             search_table(par.get("c_m", 0.0), par.get("m_m", 30.0), market_age, par["rho"]))
     tab_len = len(tabs[0])
@@ -519,6 +558,9 @@ def simulate(par, seed, cfg):
     zk, zh, slot, first, npart, partner_of = [], [], [], [], [], []  # zk: adult z_K (P7)
     wish, vcount, vpreg, vlast, nconc, cumv, actual, first_birth = [], [], [], [], [], [], [], []
     pend = []
+    # Under the wish of both partners: the birth months of each person's children, and per
+    # woman her children conceived at `life >= W` (all, by his slot, by a grown child).
+    kids, ext_b, ext_his, ext_grown = [], [], [], []
     kin = Kinship(int(n0 * 1.6) + 64)
     heap = []
     births_at = {}
@@ -546,7 +588,12 @@ def simulate(par, seed, cfg):
         first.append(-1)
         npart.append(0)
         partner_of.append(-1)
-        wish.append(wish_of(unit(salt(TAG_WISH, k)), cum) if sx == FEMALE else 0)
+        wish.append(wish_of(unit(salt(TAG_WISH, k)), cum) if sx == FEMALE or extra_rule else 0)
+        if extra_rule:
+            kids.append([])
+            ext_b.append(0)
+            ext_his.append(0)
+            ext_grown.append(0)
         vcount.append(0)
         vpreg.append(False)
         vlast.append(-10 ** 9)
@@ -566,6 +613,9 @@ def simulate(par, seed, cfg):
 
     # Partnerships.
     q_w, q_m, q_open = [], [], []
+    # Under the wish of both partners: the month each partnership formed, the month of the
+    # woman's last birth in it, the live births of each pair, the reason of each pregnancy.
+    q_t, q_last, pair_births, conceived_by = [], [], {}, {}
     stats_gap = [0, 0.0, 0.0]
     stats_gap_first = [0, 0.0]
     gap_hist = [0] * 201  # whole years from -100 to 100, man minus woman
@@ -580,6 +630,9 @@ def simulate(par, seed, cfg):
         q_w.append(w)
         q_m.append(m)
         q_open.append(True)
+        if extra_rule:
+            q_t.append(t)
+            q_last.append(-10 ** 9)
         is_first = npart[w] == 0 and npart[m] == 0
         b = exp1(salt(TAG_SEP, key[w], npart[w]))
         for p in (w, m):
@@ -616,7 +669,7 @@ def simulate(par, seed, cfg):
                     c[off + 2] += x * x
                     c[off + 3] += y * y
                     c[off + 4] += x * y
-        if t - birth[w] < fert_until and vcount[w] < 4:
+        if t - birth[w] < fert_until and (extra_rule or vcount[w] < 4):
             fert.add(w)
 
     def close(q):
@@ -682,6 +735,9 @@ def simulate(par, seed, cfg):
         if best >= 0:
             form(w, best, 0)
             first[w] = first[best] = -2
+            if extra_rule:
+                # Her only partnership: her earlier births are theirs.
+                pair_births[(w, best)] = vcount[w]
     for sx in (FEMALE, MALE):
         for p in range(n0):
             if sex[p] == sx and -birth[p] >= market_age and partner_of[p] < 0:
@@ -740,6 +796,20 @@ def simulate(par, seed, cfg):
                 if first_birth[w] < 0:
                     first_birth[w] = t
                 actual[w] += size
+                if extra_rule:
+                    kids[w].extend([t] * size)
+                    kids[fa].extend([t] * size)
+                    pair_births[(w, fa)] = pair_births.get((w, fa), 0) + size
+                    q = partner_of[w]
+                    if q >= 0 and t > q_t[q]:
+                        q_last[q] = t
+                    reason = conceived_by.pop(w)
+                    if reason > 0:
+                        ext_b[w] += size
+                        if reason == 1:
+                            ext_his[w] += size
+                        else:
+                            ext_grown[w] += size
                 for idx in range(size):
                     k = k0 if idx == 0 else mix(mix(key[w] + TAG_CHILD * GC) + nc * GA + idx * GB)
                     gk = k0 if (idx == 1 and u < TWIN_MZ) else k
@@ -748,20 +818,40 @@ def simulate(par, seed, cfg):
                     kin.child(slot[c], slot[w], slot[fa])
                 if death[fa] <= t:
                     free_slot(fa)
-            if vcount[w] >= 4:
+            if vcount[w] >= 4 and not extra_rule:
                 fert.discard(w)
         # Conception attempts (only partnerships formed before this month start).
         if fert:
             cs = salt(TAG_CONCEIVE, t)
             drop = []
             for w in fert:
-                if vpreg[w] or t < vlast[w] + PAUSE:
+                if extra_rule:
+                    if vpreg[w] or t < q_last[partner_of[w]] + PAUSE:
+                        continue
+                elif vpreg[w] or t < vlast[w] + PAUSE:
                     continue
                 am = t - birth[w]
                 if am >= fert_until:
                     drop.append(w)
                     continue
                 fa = q_m[partner_of[w]]
+                if extra_rule:
+                    # The gate at this month start: 0 her wish, 1 his slot, 2 a grown child.
+                    # Children are listed in birth order: born at or before t - 18 years
+                    # have left `young`.
+                    wish_w, life = wish[w], vcount[w]
+                    if life >= wish_w + WISH_EXTRA:
+                        continue
+                    young = life - bisect_right(kids[w], t - COUNT_UNTIL)
+                    if young < wish_w and (life < wish_w or (
+                            life >= GROWN_FROM and unit(salt(TAG_WISH, key[w], 1)) < grown_chance)):
+                        reason = 0 if life < wish_w else 2
+                    elif (1 <= wish_w <= life
+                          and len(kids[fa]) - bisect_right(kids[fa], t - COUNT_UNTIL) < wish[fa]
+                          and pair_births.get((w, fa), 0) < 1):
+                        reason = 1
+                    else:
+                        continue
                 f = chance(am / MONTHS, key[w], (t - birth[fa]) / MONTHS, key[fa])
                 if f <= 0.0:
                     continue
@@ -771,7 +861,9 @@ def simulate(par, seed, cfg):
                 x ^= x >> 31
                 if ((x >> 11) + 0.5) * U53 < f:
                     vpreg[w] = True
-                    is_actual = vcount[w] < wish[w]
+                    is_actual = extra_rule or vcount[w] < wish[w]
+                    if extra_rule:
+                        conceived_by[w] = reason
                     if is_actual:
                         pend[fa] += 1
                     births_at.setdefault(t + PREGNANCY, []).append((w, fa, nconc[w], is_actual))
@@ -906,6 +998,12 @@ def simulate(par, seed, cfg):
         "persons": len(sex),
         "snapshots": snapshots,
     }
+    if extra_rule:
+        # Women reaching 50: completed sizes 0 to 6 (6: six or more); those with a birth
+        # conceived at `life >= W`; such births, by his slot, by a grown child.
+        out["size_hist"] = [0] * 7
+        out["ext_women"] = [0]
+        out["ext_births"] = [0, 0, 0]
     hist, never = out["hist"], out["never"]
     for p in range(len(sex)):
         b = birth[p]
@@ -941,6 +1039,12 @@ def simulate(par, seed, cfg):
                     out["bsq"][n][n2] += bn[n] * bn[n2]
             out["births_real"][0] += 1
             out["births_real"][1] += actual[p]
+            if extra_rule:
+                out["size_hist"][min(actual[p], 6)] += 1
+                out["ext_women"][0] += ext_b[p] > 0
+                out["ext_births"][0] += ext_b[p]
+                out["ext_births"][1] += ext_his[p]
+                out["ext_births"][2] += ext_grown[p]
             if first_birth[p] >= 0:
                 out["first_birth"][0] += 1
                 out["first_birth"][1] += (first_birth[p] - b) / MONTHS
@@ -1103,6 +1207,15 @@ def measure(agg, par):
     births = agg["asfr_births"]
     m["u18"] = sum(births[:18]) / sum(births)  # live births to mothers under 18, after burn-in
     m["wish_mean"] = wish_mean(par["alpha"])
+    if "size_hist" in agg:
+        nr, br = agg["births_real"]
+        for k, count in enumerate(agg["size_hist"]):
+            m["size_%d" % k] = count / nr
+        m["size_5plus"] = (agg["size_hist"][5] + agg["size_hist"][6]) / nr
+        m["ext_women"] = agg["ext_women"][0] / nr
+        m["ext_births"] = agg["ext_births"][0] / br
+        m["ext_his"] = agg["ext_births"][1] / br
+        m["ext_grown"] = agg["ext_births"][2] / br
     return m
 
 
@@ -1502,6 +1615,7 @@ LABELS = {
     "births": "mean live births, women reaching 50",
     "births_real": "live births per woman reaching 50, realized",
     "sep": "share of partnerships ending by separation",
+    "sep_real": "share of partnerships ending by separation, realized",
     "r_K": "partner correlation z_K, first partnerships",
     "r_H": "partner correlation z_h, first partnerships",
 }
@@ -1739,7 +1853,242 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     return reached, all(checks), births_ok
 
 
+# ---------------------------------------------------------------------------------------
+# The refit of alpha under the wish of both partners (`--wish-refit`, module docstring)
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GROWN_CHANCE = 0.20  # the play value of the game (ADR-0017, addendum of 2026-11-05)
+SHAPE_GATES = {"size_5plus": (0.01, 0.05), "ext_women": (0.05, 0.12), "size_0": (0.12, 0.18)}
+REFIT = {"founders": 1000, "years": 300, "burn_in": 100, "step_towns": 24,
+         "check_towns": 48, "width": 0.0005}
+REFIT_QUICK = {"founders": 1000, "years": 200, "burn_in": 80, "step_towns": 4,
+               "check_towns": 4, "width": 0.01}
+REFIT_SEEDS = seeds_of(0, 24)  # seeds 1-24, the same towns at every step
+ALPHA_HIGH = 10.0  # the root must lie in (0, 10] (and below the wish mean 3.0)
+# The values the refit holds, by their key in data/calibration/demography.json.
+HELD = {"core:market_search_height_female": "c_f", "core:market_search_center_female": "m_f",
+        "core:market_search_factor_minor": "rho", "core:pairing_age_gap_preferred": "mu_a",
+        "core:pairing_weight_cognition": "w_K", "core:pairing_weight_height": "w_H",
+        "core:separation_rate": "lam", "core:fertility_wish_tilt": "alpha"}
+# The values of the data this tool has as constants of the model.
+FIXED = {"core:fertility_adult_rate": PubertyFertility.adult_rate, "core:fertility_pause": PAUSE,
+         "core:pregnancy_length": PREGNANCY, "core:twins_identical": TWIN_MZ,
+         "core:twins_fraternal": TWIN_ALL - TWIN_MZ, "core:market_age": MARKET_AGE,
+         "core:market_candidates": K_CAND, "core:market_search_width": WIDTH,
+         "core:pairing_weight_age": W_AGE, "core:pairing_kinship_limit": EIGHTH / ONE,
+         "core:pairing_cousin_odds": 10.0}
+EXT_KEYS = tuple("size_%d" % k for k in range(7)) + ("size_5plus", "ext_women", "ext_births",
+                                                     "ext_his", "ext_grown")
+
+
+def published():
+    """The published values of data/calibration/demography.json: the held ones by their
+    name here; the tool's constants must be the data's."""
+    with open(os.path.join(ROOT, "data", "calibration", "demography.json")) as f:
+        doc = json.load(f)
+    values = {k: v["value"] for k, v in doc["values"].items()}
+    for key, mine in FIXED.items():
+        assert abs(values[key] - mine) < 1e-12, (key, values[key], mine)
+    shape = tuple(entry["value"] for entry in doc["fertility_wish_shape"])
+    assert shape == WISH_SHAPE, shape
+    return {name: values[key] for key, name in HELD.items()}
+
+
+def births_of(outs):
+    """Per town (women reaching 50, their live births)."""
+    return [tuple(o["births_real"]) for o in outs]
+
+
+def ratio(towns, skip=-1):
+    n = sum(t[0] for i, t in enumerate(towns) if i != skip)
+    b = sum(t[1] for i, t in enumerate(towns) if i != skip)
+    return b / n
+
+
+def root_of(points, skip=-1):
+    """The root of realized births minus 2.20 over the evaluated alphas, by linear
+    interpolation between the two neighbours of the first sign change (town `skip` left
+    out); None without one."""
+    pts = sorted((a, ratio(towns, skip) - TARGET["births"]) for a, towns in points.items())
+    for (a0, f0), (a1, f1) in zip(pts, pts[1:]):
+        if f0 < 0.0 <= f1:
+            return a0 + (a1 - a0) * (0.0 - f0) / (f1 - f0)
+    return None
+
+
+def wish_refit(argv):
+    quick = "--quick" in argv
+    set_mode(FEMALE_MODE)
+    jobs = min(os.cpu_count() or 1, 12)
+    if "--jobs" in argv:
+        jobs = int(argv[argv.index("--jobs") + 1])
+    cfg = dict(REFIT_QUICK if quick else REFIT)
+    chance = GROWN_CHANCE
+    if "--grown-chance" in argv:
+        chance = float(argv[argv.index("--grown-chance") + 1])
+    t0 = time.time()
+    held = published()
+    base = {k: v for k, v in held.items() if k != "alpha"}
+    log("life_reference --wish-refit: %s; the wish of both partners (extra %d, grown from %d "
+        "with the chance %g, young until %d years); towns of %d founders over %d years (burn-in "
+        "%d); %d towns per step, %d in the check; %d jobs" % (
+            "QUICK smoke test, publishes nothing" if quick else "refit of alpha", WISH_EXTRA,
+            GROWN_FROM, chance, COUNT_UNTIL // MONTHS, cfg["founders"], cfg["years"],
+            cfg["burn_in"], cfg["step_towns"], cfg["check_towns"], jobs))
+    log("held at data/calibration/demography.json: %s; published alpha %g" % (
+        ", ".join("%s %g" % (k, v) for k, v in base.items()), held["alpha"]))
+    sim_cfg = {"founders": cfg["founders"], "years": cfg["years"], "burn_in": cfg["burn_in"],
+               "market": "female", "rule": "extra", "grown_chance": chance}
+    runner = Runner(sim_cfg, jobs)
+    seeds = REFIT_SEEDS[:cfg["step_towns"]]
+    points = {}
+
+    def run(alphas):
+        results = runner.evaluate([dict(base, alpha=a) for a in alphas], seeds)
+        for a, (_, _, outs) in zip(alphas, results):
+            points[a] = births_of(outs)
+            log("  alpha %.6f: realized births %.4f (wish mean %.4f)" % (
+                a, ratio(points[a]), wish_mean(a)))
+
+    # The bracket: alpha 0 and the published alpha; only if the births stay below 2.20 there
+    # the upper end moves to the wish mean 3.0 (towns above 2.20 grow fast and run long).
+    lo, hi = 0.0, min(held["alpha"], ALPHA_HIGH, ALPHA_MAX)
+    log("Bisection on [%g, %.6f] (the upper end the published alpha), towns %d-%d:" % (
+        lo, hi, seeds[0], seeds[-1]))
+    run([lo, hi])
+    if ratio(points[lo]) >= TARGET["births"]:
+        log("STOP: the realized births reach 2.20 at alpha 0: the root is not inside (0, 10].")
+        return 1
+    if ratio(points[hi]) < TARGET["births"]:
+        hi = min(ALPHA_HIGH, ALPHA_MAX)
+        log("The births stay below 2.20 at the published alpha; the upper end moves to %.6f "
+            "(the wish mean 3.0):" % hi)
+        run([hi])
+        if ratio(points[hi]) < TARGET["births"]:
+            log("STOP: the realized births stay below 2.20 at the wish mean 3.0 (11.3).")
+            return 1
+    while hi - lo >= cfg["width"]:
+        mid = 0.5 * (lo + hi)
+        run([mid])
+        if ratio(points[mid]) < TARGET["births"]:
+            lo = mid
+        else:
+            hi = mid
+    found = 0.5 * (lo + hi)
+    alpha = round(found, 3)
+    log("Root: bracket [%.6f, %.6f], midpoint %.6f, published to three decimals: %.3f" % (
+        lo, hi, found, alpha))
+    # The delete-one-town jackknife of the root over the evaluated alphas, with two more
+    # points 0.05 either side so that every left-out root has its neighbours.
+    run([a for a in (alpha - 0.05, alpha + 0.05) if 0.0 < a < ALPHA_MAX and a not in points])
+    n = len(seeds)
+    roots = [root_of(points, i) for i in range(n)]
+    if all(r is not None for r in roots):
+        mean = sum(roots) / n
+        se_alpha = math.sqrt((n - 1) / n * sum((r - mean) ** 2 for r in roots))
+    else:
+        se_alpha = math.nan
+    log("  alpha %.3f, delete-one-town jackknife SE %.3g over %d towns" % (alpha, se_alpha, n))
+    par = dict(base, alpha=alpha)
+    check_seeds = list(range(CHECK_SEED0, CHECK_SEED0 + cfg["check_towns"]))
+    agg, m, outs = runner.evaluate([par], check_seeds)[0]
+    m.update(derived(m))
+    keys = REPORTED + EXTRA + EXT_KEYS
+    se = jackknife(outs, par, keys)
+    if not se:
+        se = {k: math.nan for k in keys}
+    log("")
+    log("wish P_0..P_4 at alpha %.3f = %s, mean %.4f (published %.3f: mean %.4f)" % (
+        alpha, ", ".join("%.4f" % p for p in wish_probs(alpha)), wish_mean(alpha),
+        held["alpha"], wish_mean(held["alpha"])))
+    log("Check run on %d new towns (seeds %d-%d), SE by the delete-one-town jackknife:" % (
+        len(check_seeds), check_seeds[0], check_seeds[-1]))
+    log("  %-46s %8s %9s %8s %7s" % ("target", "goal", "check", "SE", "dev/SE"))
+    reached = True
+    for k in REPORTED:
+        ck = CHECKED_AS.get(k, k)
+        v = value(m, ck)
+        dev = (v - TARGET[k]) / se[ck]
+        if k != "births":
+            reached = reached and abs(dev) <= 4.0
+        log("  %-46s %8.4f %9.4f %8.4f %7.2f" % (LABELS[ck], TARGET[k], v, se[ck], dev))
+    b = m["births_real"]
+    births_ok = abs(b - TARGET["births"]) <= BIRTHS_BIAS_SE * se["births_real"]
+    log("  realized births within %g SE of 2.20: %s" % (BIRTHS_BIAS_SE, "yes" if births_ok
+                                                          else "NO"))
+    for k in ("med_m", "never_m", "first_birth", "tfr", "sep_real"):
+        log("  %-46s %9.4f +- %.4f (report)" % (LABELS.get(k, k), value(m, k), se[k]))
+    log("")
+    log("The extra child (women reaching 50, born in years %d-%d; %d women, %d live births):" % (
+        cfg["burn_in"], cfg["years"] - 50, agg["births_real"][0], agg["births_real"][1]))
+    log("  women with a birth conceived at life >= W: %.4f +- %.4f" % (
+        m["ext_women"], se["ext_women"]))
+    log("  births conceived at life >= W, of all births: %.4f +- %.4f (by his slot %.4f, by a "
+        "grown child %.4f)" % (m["ext_births"], se["ext_births"], m["ext_his"], m["ext_grown"]))
+    log("  completed family size: %s; childless %.4f +- %.4f, 5 or more %.4f +- %.4f" % (
+        ", ".join("%d%s %.4f" % (k, "+" if k == 6 else "", m["size_%d" % k]) for k in range(7)),
+        m["size_0"], se["size_0"], m["size_5plus"], se["size_5plus"]))
+    checks = []
+    g = m["gap"][0]
+    checks.append(GAP_BAND[0] <= g <= GAP_BAND[1])
+    log("  mean age gap man minus woman: %.3f +- %.3f (2.5 to 4) %s" % (
+        g, se["gap"], "ok" if checks[-1] else "FINDING"))
+    u18 = m["u18"]
+    checks.append(U18_BAND[0] <= u18 <= U18_BAND[1])
+    log("  share of live births to mothers under 18: %.5f +- %.5f (0.001 to 0.005) %s" % (
+        u18, se["u18"], "ok" if checks[-1] else "FINDING"))
+    order = m["size_3"] > m["size_4"] > m["size_5plus"]
+    shape = {"size 3 > size 4 > size 5+": order}
+    for k, (low, high) in SHAPE_GATES.items():
+        shape["%s in %g to %g" % (k, low, high)] = low <= m[k] <= high
+    log("  the gates of the shape: " + "; ".join("%s %s" % (name, "held" if ok else "MISSED")
+                                                 for name, ok in shape.items()))
+    if not order or m["size_5plus"] > SHAPE_GATES["size_5plus"][1]:
+        log("  the shape asks for the chance 0.10 next")
+    elif m["ext_women"] < SHAPE_GATES["ext_women"][0] or m["size_5plus"] < SHAPE_GATES["size_5plus"][0]:
+        log("  the shape asks for the chance 0.30 next")
+    log("")
+    status = 0
+    if not all(checks):
+        log("STOP: births under 18 or the age gap left their band; the finding goes back.")
+        status = 1
+    if not reached:
+        log("STOP: another target misses by more than 4 standard errors.")
+        status = 1
+    if not births_ok:
+        log("STOP: the realized births of the check miss 2.20 by more than %g SE." %
+            BIRTHS_BIAS_SE)
+        status = 1
+    if not all(shape.values()):
+        log("SHAPE: a gate of the shape missed; no value is published at this chance.")
+        status = 1
+    if quick:
+        log("QUICK: no value is published.")
+    elif status == 0:
+        snippet = {"core:fertility_wish_tilt": {
+            "value": alpha, "unit": "logit",
+            "source": "tools/life_reference.py --wish-refit: bisection on the realized live "
+                      "births per woman reaching 50 in %d closed towns of %d founders over %d "
+                      "years (burn-in %d), checked on %d new towns" % (
+                          len(seeds), cfg["founders"], cfg["years"], cfg["burn_in"],
+                          len(check_seeds)),
+            "as_of": time.strftime("%Y-%m-%d"),
+            "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners; "
+                    "delete-one-town standard error %.2g" % se_alpha}}
+        snippet["core:fertility_grown_chance"] = {
+            "value": chance, "unit": "fraction",
+            "source": "ADR-0017, addendum of 2026-11-05: a play value",
+            "as_of": time.strftime("%Y-%m-%d"),
+            "note": "the share of women a grown child reopens; held in the refit of alpha"}
+        log("JSON for the game (data/calibration/demography_game.json):")
+        log(json.dumps(snippet, indent=2, ensure_ascii=False))
+    log("%d town runs, %.0f s." % (runner.towns, time.time() - t0))
+    return status
+
+
 def main(argv):
+    if "--wish-refit" in argv:
+        return wish_refit(argv)
     quick = "--quick" in argv
     female = "--r7" not in argv
     if female:

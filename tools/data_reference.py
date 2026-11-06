@@ -119,6 +119,19 @@ after the templates: the rates, the day, the kinds by ID, the houses by ID with 
 numbers in the file's order; names are not hashed. The CLI's data hold the repository's
 houses, so `repository_hash` ends with that suffix.
 
+The game's demography (ADR-0017, addendum of 2026-11-05): calibration/demography.json stays
+the document the pool was extracted from (22 values; the pool's `frozen_hash` is the hash of
+the definitions with it). data/calibration/demography_game.json (`{"values": {...}}`, each
+entry a calibrated value with its text) is the overlay of the game: its entries go into the
+`values` map of that document (`overlaid`: a key there is replaced, a new key added), and the
+CLI's data hash covers the result in place of the extract's (`repository_hash`;
+`Data::with_calibration` after the pool, the templates and the houses). The three values of
+the extra child, `core:fertility_count_until` (year), `core:fertility_extra` and
+`core:fertility_grown_from` (count) and `core:fertility_grown_chance` (fraction), are one
+group: none of them and exactly 22 values (the rule without an extra child), or all four and
+exactly 26 (`extra_child`). A directory without the overlay file has none, and its hash is the
+one before.
+
 Usage: python3 tools/data_reference.py [DATA_DIR]
        (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool, its
        frequencies and, with DATA_DIR/shocks.json, the templates; the pool's seed, hash,
@@ -286,6 +299,74 @@ def check_numbers(value) -> None:
             check_numbers(inner)
 
 
+# The values of the life course data without the group of the extra child, and the group
+# (ADR-0017, addendum of 2026-11-05): key, unit, whole range.
+DEMOGRAPHY_VALUES = 22
+EXTRA_CHILD = (
+    ("core:fertility_count_until", "year", 1, 120),
+    ("core:fertility_extra", "count", 1, 64),
+    ("core:fertility_grown_from", "count", 1, 64),
+)
+# The fourth value of the group: the chance of a woman's draw that lets a grown child reopen
+# her, a fraction in [0, 1].
+GROWN_CHANCE = "core:fertility_grown_chance"
+
+
+def extra_child(values) -> "tuple | None":
+    """The group of the extra child from a `values` map (text stripped or not): None without
+    any of its four keys, else `(count_until, extra, grown_from, grown_chance)`, the first three
+    whole numbers, each of its unit and in its range, the chance a fraction in [0, 1]. Some but
+    not all of them is an error (`data.calibration_missing` in the core), as is a count of
+    values other than 22 without the group or 26 with it (`data.calibration_unknown`)."""
+    keys = [key for key, _, _, _ in EXTRA_CHILD] + [GROWN_CHANCE]
+    present = [key for key in keys if key in values]
+    if not present:
+        assert len(values) == DEMOGRAPHY_VALUES, f"{len(values)} values without the extra child"
+        return None
+    assert len(present) == len(keys), f"the extra child is a group: only {present}"
+    assert len(values) == DEMOGRAPHY_VALUES + len(keys), f"{len(values)} values with the extra child"
+    out = []
+    for key, unit, low, high in EXTRA_CHILD:
+        entry = values[key]
+        assert entry["unit"] == unit, (key, entry["unit"])
+        number = float(entry["value"])
+        assert number == int(number) and low <= int(number) <= high, (key, number)
+        out.append(int(number))
+    entry = values[GROWN_CHANCE]
+    assert entry["unit"] == "fraction", (GROWN_CHANCE, entry["unit"])
+    chance = float(entry["value"])
+    assert 0.0 <= chance <= 1.0, (GROWN_CHANCE, chance)
+    out.append(chance)
+    return tuple(out)
+
+
+def overlaid(demography, overlay):
+    """The game's life course data: a copy of `demography` with the entries of the overlay's
+    `values` in its `values` map (replaced or added). The overlay has the field `values` only,
+    each entry a calibrated value with its three text fields."""
+    assert set(overlay) == {"values"}, f"overlay fields {sorted(overlay)}"
+    out = json.loads(json.dumps(demography))
+    for key, entry in overlay["values"].items():
+        assert set(entry) == {"value", "unit", *CALIBRATED_TEXT}, (key, sorted(entry))
+        out["values"][key] = json.loads(json.dumps(entry))
+    return out
+
+
+def game_overlay(data_dir: Path):
+    """The overlay of the game, `data_dir/calibration/demography_game.json`, or None."""
+    path = Path(data_dir) / "calibration" / "demography_game.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def game_documents(data_dir: Path):
+    """`documents` with the game's overlay on the life course data, if the directory has one."""
+    demography, calibration, genome_map = documents(data_dir)
+    overlay = game_overlay(data_dir)
+    if overlay is not None:
+        demography = overlaid(demography, overlay)
+    return demography, calibration, genome_map
+
+
 def check_demography_format(demography) -> None:
     """The life course data have format 2 and exactly their fields, and the table of
     leaving home is valid (design note of the households, section 1): ten entries of the
@@ -298,6 +379,7 @@ def check_demography_format(demography) -> None:
         assert entry["unit"] == "fraction", entry
         assert 0.0 <= float(entry["value"]) <= 1.0, entry
     assert any(float(entry["value"]) > 0.0 for entry in table), "leave_home_ages: no weight above 0"
+    extra_child(demography["values"])
 
 
 def check_calibration_format(calibration) -> None:
@@ -1271,7 +1353,7 @@ def repository_hash(data_dir: Path) -> int:
     either it is the definitions alone (`data_hash`); with a `house/` followed by the houses
     (`houses_suffix`, ADR-0025)."""
     files = pool_files(data_dir)
-    out = definitions_bytes(*documents(data_dir))
+    out = definitions_bytes(*game_documents(data_dir))
     if files is not None:
         pool, frequencies = files
         assert frequencies_rejection(frequencies) is None, frequencies_rejection(frequencies)
@@ -1319,10 +1401,19 @@ def main(argv):
             f" suffix {pool_suffix(head['pool_seed'], pool_hash, frequencies).hex()}"
         )
         print(f"frequencies rules {frequencies_rejection(frequencies) or 'passed'} " + " ".join(f"{locus}={q!r}" for locus, q in sorted(frequencies.items())))
+        # The game's overlay (ADR-0017, addendum of 2026-11-05): the definitions above are the
+        # extract's (the pool's frozen_hash); the data hash covers the overlaid ones.
+        overlay = game_overlay(data_dir)
+        if overlay is None:
+            print("game overlay none")
+        else:
+            game = game_documents(data_dir)
+            listed = " ".join(f"{key}={entry['value']!r}" for key, entry in sorted(overlay["values"].items()))
+            print(f"game overlay {listed} extra_child {extra_child(game[0]['values'])} game_definitions_hash {documents_hash(*game):016x}")
         # The shock templates (ADR-0023 section 3): the data hash above ends with them; the
         # hash of the definitions and the pool without them, for comparison.
         templates = shock_templates(data_dir)
-        definitions_and_pool = definitions_bytes(*documents(data_dir)) + pool_suffix(head["pool_seed"], pool_hash, frequencies)
+        definitions_and_pool = definitions_bytes(*game_documents(data_dir)) + pool_suffix(head["pool_seed"], pool_hash, frequencies)
         listed = " ".join(
             "{}:{}:{}:{!r}".format(
                 t["id"], t["kind"], t.get("years", t.get("months")), t.get("index", t.get("rate"))

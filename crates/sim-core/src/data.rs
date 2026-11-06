@@ -19,7 +19,7 @@ use crate::hash::stable_hash64;
 use crate::house::data::HouseData;
 use crate::lineage::LineageKey;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
-use crate::pool::{Ancestor, Pool, PoolError, PoolUnborn};
+use crate::pool::{Ancestor, Pool, PoolError, PoolHousehold, PoolPerson, PoolUnborn};
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
 pub const CALIBRATION_FORMAT_VERSION: u32 = 7;
@@ -608,6 +608,14 @@ pub struct PoolData {
     /// The frequencies of the alternative allele at the seven pool loci that travel with
     /// the pool (design note of the map-4 switch, section 2).
     frequencies: BTreeMap<DataId, FiniteF64>,
+    /// The wish shape and tilt of the definitions the pool was checked against: a pool
+    /// person keeps the wish of the extract (ADR-0017, addendum of 2026-11-05).
+    wish: (Vec<f64>, f64),
+    /// Each father's children among the pool's members: (the child's key, its mother's key),
+    /// in the order of the file.
+    fathered: BTreeMap<LineageKey, Vec<(LineageKey, Option<LineageKey>)>>,
+    /// Each member: its household and its place there.
+    members: BTreeMap<LineageKey, (usize, usize)>,
 }
 
 impl PoolData {
@@ -628,6 +636,23 @@ impl PoolData {
     /// A record of the ancestors by its lineage key.
     pub fn record(&self, key: LineageKey) -> Option<&Ancestor> {
         self.pool.ancestors.get(*self.records.get(&key)?)
+    }
+
+    /// The wish shape and tilt of the extract (ADR-0017, addendum of 2026-11-05).
+    pub fn wish(&self) -> (&[f64], f64) {
+        (&self.wish.0, self.wish.1)
+    }
+
+    /// A member of the pool by its lineage key, with its household.
+    pub fn member(&self, key: LineageKey) -> Option<(&PoolHousehold, &PoolPerson)> {
+        let (household, place) = *self.members.get(&key)?;
+        let household = self.pool.households.get(household)?;
+        Some((household, household.members.get(place)?))
+    }
+
+    /// The pool's members naming `father` as their father, each with its mother's key.
+    pub fn fathered(&self, father: LineageKey) -> &[(LineageKey, Option<LineageKey>)] {
+        self.fathered.get(&father).map_or(&[], Vec::as_slice)
     }
 
     /// An unborn child of a pregnancy of the pool by its lineage key.
@@ -1770,12 +1795,31 @@ impl Data {
             .map(|(place, record)| (record.lineage_key, place))
             .collect();
         let hash = pool.hash();
+        let mut fathered: BTreeMap<LineageKey, Vec<(LineageKey, Option<LineageKey>)>> =
+            BTreeMap::new();
+        let mut members = BTreeMap::new();
+        for (h, household) in pool.households.iter().enumerate() {
+            for (m, member) in household.members.iter().enumerate() {
+                members.insert(member.lineage_key, (h, m));
+                if let Some(father) = member.father {
+                    fathered
+                        .entry(father)
+                        .or_default()
+                        .push((member.lineage_key, member.mother));
+                }
+            }
+        }
+        let fertility = &data.demography.fertility;
+        let wish = (fertility.wish_shape.clone(), fertility.wish_tilt);
         data.pool = Some(Arc::new(PoolData {
             pool,
             hash,
             records,
             unborn,
             frequencies,
+            wish,
+            fathered,
+            members,
         }));
         data.hash = data.hashed();
         Ok(data)
@@ -1821,8 +1865,9 @@ impl Data {
 
     /// These data with another demography and genetics calibration. The genome map, the
     /// pool, the shocks and the houses stay. The pool was checked against the definitions
-    /// these data already hold. The data hash covers the replacement, so a town founded
-    /// from it is not the base game.
+    /// these data already hold, and its persons keep the wish of those (ADR-0017, addendum of
+    /// 2026-11-05). The data hash covers the replacement: the base game is the extract with
+    /// the game's overlay, a settings file another replacement on top of the extract.
     pub fn with_calibration(
         self,
         demography: DemographyCalibration,

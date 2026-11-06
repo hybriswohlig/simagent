@@ -344,7 +344,11 @@ def main(argv) -> int:
         {"lineage_key": item["lineage_key"], "differs": item["differs"], "hereditary": item["hereditary"], "a": item["b"], "b": item["a"]}
         for item in ab["changed"]
     ]
-    assert ab["a_only"] and ab["b_only"] and {"died", "cause_of_death", "partnerships", "children"} <= {f for item in ab["changed"] for f in item["differs"]}
+    # Under the game's wish of both partners (ADR-0017, addendum of 2026-11-05) the switch no
+    # longer changes who is born in this scenario: no key only on one side and no count of
+    # children differs (the hand pedigrees of the core keep both); the deaths, their causes,
+    # the partnerships they end and the diseases still do.
+    assert {"died", "cause_of_death", "partnerships", "diseases"} <= {f for item in ab["changed"] for f in item["differs"]}
     # The design: the switch is never on in `a`, so nothing shows there and nobody dies of a
     # disease; `core:disease_ar` (onset 0) rests in every homozygous person of `a` from birth.
     lives_a, lives_b = lives(views["a"], clocks["a"]), lives(views["b"], clocks["b"])

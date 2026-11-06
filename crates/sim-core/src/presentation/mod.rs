@@ -12,6 +12,7 @@ pub mod origin;
 pub mod partners;
 pub mod preview;
 pub mod traits;
+pub mod wish;
 
 use alloc::vec::Vec;
 
