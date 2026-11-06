@@ -17,6 +17,9 @@ Usage:
                                                partners (below), every other value held at
                                                data/calibration/demography.json; with
                                                --quick a smoke test that publishes nothing
+  python3 tools/life_reference.py --accept     Schnitt 1 (11.2a): the man's answer and the
+                                               target ages; the fit adds w_am. Without the
+                                               flag the tool runs as before
 
 Pure Python (standard library only); every number is fixed by the seeds below, so two runs
 print the same digits. The output is a table of the fitted values with approximate standard
@@ -193,10 +196,44 @@ cfg["rule"] = "extra"; without it the tool runs exactly as before):
   size 4 above size 5+, 5+ within 0.01 to 0.05, those women within 0.05 to 0.12, childless
   within 0.12 to 0.18. `--grown-chance X` sets the chance (default 0.20).
 
+The man's answer and the target ages (11.2a, Schnitt 1, Grok 2026-11-06; `--accept`,
+cfg["accept"]). Without the flag none of this runs and the draws below are not made. It
+applies to the female market (it does not combine with `--r7`):
+
+- Taste: each person draws `nu ~ N(0, 3)` once (`TAG_TASTE` on the person's key, occasion
+  0), both sexes, fixed for life, and it enters only the target ages. This tool has no
+  founder pool, so founders and town-born people both use the town seed through their key,
+  as the wish and the menarche offset do.
+- Her age term becomes `-w_a (a_m - t_f)^2` with `t_f = a_f + mu_a + nu` (hers). `w_a`
+  stays 0.02. His target age is `t_m(a) = max(a - min(0.4 * max(a - 22, 0), 15), 21) + nu`
+  (his), `a` his continuous age in the round. The four constants and `sigma_nu` stay fixed.
+- She still offers only the candidate with the largest U. If he is still single he accepts
+  when `U_m = -w_K (dz_K)^2 - w_H (dz_h)^2 - w_am (a_f - t_m)^2 + G_m > 0`. `G_m` is his
+  own standard Gumbel (`TAG_ACCEPT`: his key, the month, her key mixed in the way
+  PAIRING_NOISE mixes the candidate key, because `salt` carries two fields). No kinship
+  term. A refusal, or a man who is already taken, ends her round: no second candidate, and
+  a taken man draws no Gumbel. A refusal leaves him single, so a later woman in the round
+  may offer to him. The founder matching at the start stays the simple rule.
+- Fitted with the others: `w_am` (start 0.02, as a logarithm) for the stock share in which
+  her completed age is larger. Censuses at `t = (year + 1) * Y - 1` for each year from the
+  burn-in through the last year, after that month's round; every open partnership once per
+  census, including those formed before the burn-in. Target 0.18, band 0.14 to 0.22, the
+  standard error the town jackknife of the pooled ratio. The previous targets stay on
+  their previous objects.
+- Reported beside that: the SD of the age gap of new partnerships after the burn-in (no
+  band); the acceptance rate, acceptances over proposals to a still-single man after the
+  burn-in, play band 0.35 to 0.75, flagged when outside; the flow share with the woman
+  older (continuous ages, gap < 0); the same-age rest of the stock, same denominator.
+- Checks, not targets, on new partnerships after the burn-in: men whose continuous age at
+  the round is at least 40 have a mean gap (man minus woman) of at most 18 years, and they
+  are at least 0.025 of those partnerships. A miss stops the tool, as the other bands do.
+
 Exit status 1 when a target misses by more than 4 standard errors, a check of 11.2 fails
 (per 11.2 the finding then goes back to Grok before the values are used) or the realized
 births miss 2.20 by more than 2 standard errors (then `alpha` needs a fit on realized
 births; the smoke test only notes this one, its four towns cannot tell bias from noise).
+With `--accept` the stock band and the two rules for men aged 40 or more are checks of
+that same kind; the acceptance-rate band is only flagged.
 """
 
 import heapq
@@ -218,6 +255,19 @@ WIDTH = 7.0  # K11.2b
 K_CAND = 12  # K11.2f
 MU_AGE = 2.5  # K11.2g
 W_AGE = 0.02  # K11.2h, fixed again (Grok, R6c)
+# Schnitt 1 (11.2a). Play values, not fitted, except w_am which starts here.
+TASTE_SD = 3.0  # K11.2j, both sexes
+W_AM0 = 0.02  # start of w_am
+MALE_SLOPE = 0.4  # K11.2k
+MALE_FROM = 22.0  # K11.2l
+MALE_CAP = 15.0  # K11.2m
+MALE_MIN = 21.0  # K11.2n
+OLDER_TARGET = 0.18  # K11.2o, stock of open partnerships
+OLDER_BAND = (0.14, 0.22)  # 11.2a
+ACCEPT_BAND = (0.35, 0.75)  # play band of the acceptance rate (11.2a)
+GAP40_MAX = 18.0  # years, abort rule for men aged 40 or more (11.2a)
+SHARE40_MIN = 0.025  # abort rule (11.2a)
+AGE40 = 40.0
 Q_SEARCH = 0.25  # search probability per round of a person on the market (Grok, R7)
 MINOR_UNTIL = 18  # years: rho multiplies e(a) from the market age until before 18 (R6b)
 KIN_PENALTY = 16.0 * math.log(10.0)  # 11.2
@@ -261,6 +311,8 @@ TARGET = {
     "r_K": 0.4, "r_H": 0.2,  # K4.2f, K4.2c
     "births": 2.20,  # K11.3e
     "sep": 1.0 / 3.0,  # ADR-0018 section 3
+    # Stock share with the woman older, only a target under --accept (11.2a, K11.2o).
+    "older": OLDER_TARGET,
     # Not a target since Grok's decision of 2026-10-08, only reported; it picks the
     # point among the solutions of the others with a small weight (TSCALE).
     "never_f": 0.10,
@@ -281,7 +333,8 @@ U53 = 2.0 ** -53
 
 (TAG_FOUNDER, TAG_CHILD, TAG_SEX, TAG_G, TAG_ZK, TAG_ZH, TAG_SEN, TAG_ACC, TAG_WISH,
  TAG_SEARCH, TAG_ORDER, TAG_RANK, TAG_NOISE, TAG_CONCEIVE, TAG_TWIN, TAG_SEP, TAG_AGE,
- TAG_PAIR0, TAG_PRIOR, TAG_ZP, TAG_MENARCHE, TAG_QSEARCH) = range(1, 23)
+ TAG_PAIR0, TAG_PRIOR, TAG_ZP, TAG_MENARCHE, TAG_QSEARCH, TAG_TASTE,
+ TAG_ACCEPT) = range(1, 25)
 
 
 def mix(x):
@@ -319,6 +372,20 @@ def normal(w):
 
 def exp1(w):
     return -math.log(unit(w))
+
+
+def male_target(age):
+    """His target age without the taste: max(a - min(0.4 * max(a - 22, 0), 15), 21)
+    (11.2a). `age` is his continuous age in the round, in years."""
+    delta = min(MALE_SLOPE * max(age - MALE_FROM, 0.0), MALE_CAP)
+    return max(age - delta, MALE_MIN)
+
+
+# Worked values of 11.2a, without nu.
+for _age, _target in ((16.0, 21.0), (21.0, 21.0), (25.0, 23.8), (30.0, 26.8),
+                      (40.0, 32.8), (50.0, 38.8), (60.0, 45.0), (70.0, 55.0)):
+    if abs(male_target(_age) - _target) > 1e-9:
+        raise RuntimeError("male target at %s" % _age)
 
 
 # ---------------------------------------------------------------------------------------
@@ -540,6 +607,10 @@ def simulate(par, seed, cfg):
     fert_until = math.ceil(rule.last_age * MONTHS)
     # The wish of both partners (module docstring); off, the tool runs as before.
     extra_rule = cfg.get("rule") == "extra"
+    # Schnitt 1 (11.2a). Off, the draws and the counters below are not used.
+    accept_rule = cfg.get("accept", False)
+    w_am = par["w_am"] if accept_rule else 0.0
+    nu = []
     grown_chance = cfg.get("grown_chance", 1.0)
     tabs = (search_table(par["c_f"], par["m_f"], market_age, par["rho"]),
             search_table(par.get("c_m", 0.0), par.get("m_m", 30.0), market_age, par["rho"]))
@@ -609,6 +680,9 @@ def simulate(par, seed, cfg):
         adult = born + market_age
         if adult > 0 and d > adult:
             adult_at.setdefault(adult, []).append(p)
+        if accept_rule:
+            # PAIRING_TASTE (11.7): normal(0, sigma_nu), own key, occasion 0, detail 0.
+            nu.append(TASTE_SD * normal(salt(TAG_TASTE, k)))
         return p
 
     # Partnerships.
@@ -624,6 +698,13 @@ def simulate(par, seed, cfg):
     stats_market = [0, 0, 0]  # rounds after the burn-in, persons on the market (F, M)
     sep_d = []
     sep_real = [0, 0, 0]  # separations, deaths, still open at the end
+    # Schnitt 1, filled only with --accept: proposals and acceptances after the burn-in;
+    # stock counts (partnerships, woman older, same completed age); men aged 40 or more
+    # (count, sum of gaps); flow partnerships with a negative gap.
+    stats_accept = [0, 0]
+    stats_stock = [0, 0, 0]
+    stats_gap40 = [0, 0.0]
+    stats_flow_older = [0]
 
     def form(w, m, t):
         q = len(q_w)
@@ -652,6 +733,12 @@ def simulate(par, seed, cfg):
             stats_gap[1] += gap
             stats_gap[2] += gap * gap
             gap_hist[100 + max(-100, min(100, math.floor(gap)))] += 1
+            if accept_rule:
+                if gap < 0.0:
+                    stats_flow_older[0] += 1
+                if (t - birth[m]) / MONTHS >= AGE40:
+                    stats_gap40[0] += 1
+                    stats_gap40[1] += gap
             if is_first:
                 stats_gap_first[0] += 1
                 stats_gap_first[1] += gap
@@ -956,18 +1043,58 @@ def simulate(par, seed, cfg):
                     dk = zi_k - (cw[0] * kg[j] + cw[1] * kc[j] + cw[2] * ke[j])
                     dh = zi_h - zh[j]
                     gumbel = -math.log(-math.log(unit_open(mix(ns ^ key[j]))))
-                    u = (-w_k * dk * dk - w_h * dh * dh - w_a * (da - mu_a) ** 2
+                    # 11.2a: her target age is a_f + mu_a + nu. Off, the term is the old one.
+                    if accept_rule and not male_i:
+                        age_sq = (da - mu_a - nu[i]) ** 2
+                    else:
+                        age_sq = (da - mu_a) ** 2
+                    u = (-w_k * dk * dk - w_h * dh * dh - w_a * age_sq
                          - KIN_PENALTY * q_kin[row + slot[j]] / ONE + gumbel)
                     if u > best_u:
                         best, best_u = j, u
                 if best in paired:
                     continue
+                if accept_rule and not male_i:
+                    # His one answer (11.2a). A taken man never reaches this draw.
+                    a_m = (t - birth[best]) / MONTHS
+                    a_f = (t - bi) / MONTHS
+                    cw = COG_BY_AGE[min(t - birth[best], COG_LAST)]
+                    dk = zi_k - (cw[0] * kg[best] + cw[1] * kc[best] + cw[2] * ke[best])
+                    dh = zi_h - zh[best]
+                    t_m = male_target(a_m) + nu[best]
+                    g_m = -math.log(-math.log(unit_open(
+                        mix(salt(TAG_ACCEPT, key[best], t) ^ key[i]))))
+                    u_m = (-w_k * dk * dk - w_h * dh * dh
+                           - w_am * (a_f - t_m) ** 2 + g_m)
+                    if t >= burn:
+                        stats_accept[0] += 1
+                        if u_m > 0.0:
+                            stats_accept[1] += 1
+                    if not u_m > 0.0:
+                        continue
                 paired.add(i)
                 paired.add(best)
                 if male_i:
                     form(best, i, t)
                 else:
                     form(i, best, t)
+        # Stock of 11.2a: year-end census at t = (year + 1) * Y - 1, years from the
+        # burn-in through the last year, after this month's round. Open partnerships
+        # formed before the burn-in are still in q_open and count.
+        if accept_rule and (t + 1) % MONTHS == 0:
+            year = (t + 1) // MONTHS - 1
+            if burn_years <= year < years:
+                for q in range(len(q_open)):
+                    if not q_open[q]:
+                        continue
+                    wq, mq = q_w[q], q_m[q]
+                    age_w = (t - birth[wq]) // MONTHS
+                    age_m = (t - birth[mq]) // MONTHS
+                    stats_stock[0] += 1
+                    if age_w > age_m:
+                        stats_stock[1] += 1
+                    elif age_w == age_m:
+                        stats_stock[2] += 1
         if t % (25 * MONTHS) == 0:
             snapshots.append((t, census(t, birth, death, partner_of)))
     snapshots.append((t_end, census(t_end, birth, death, partner_of)))
@@ -998,6 +1125,11 @@ def simulate(par, seed, cfg):
         "persons": len(sex),
         "snapshots": snapshots,
     }
+    if accept_rule:
+        out["stock"] = stats_stock
+        out["accept_n"] = stats_accept
+        out["gap40"] = stats_gap40
+        out["flow_older"] = stats_flow_older
     if extra_rule:
         # Women reaching 50: completed sizes 0 to 6 (6: six or more); those with a birth
         # conceived at `life >= W`; such births, by his slot, by a grown child.
@@ -1115,10 +1247,16 @@ def median(hist, never):
 
 
 def median_se(hist, never, med):
+    # More than half never partner by 50: the Kaplan-Meier median is undefined.
+    # The finite path below is unchanged.
+    if not math.isfinite(med):
+        return math.nan
     n = sum(hist) + never
     lo = max(0, int((med - 1.0) * MONTHS))
     hi = min(len(hist), int((med + 1.0) * MONTHS) + 1)
     dens = sum(hist[lo:hi]) / n / ((hi - lo) / MONTHS)
+    if dens <= 0.0:
+        return math.nan
     return math.sqrt(0.25 / n) / dens
 
 
@@ -1156,6 +1294,10 @@ def measure(agg, par):
         hist, never = agg["hist"][sx], agg["never"][sx]
         n = sum(hist) + never
         smooth, plain = median(hist, never)
+        # Undefined Kaplan-Meier median (more than half still single at 50). 50 is the
+        # censoring age, so the fit sees a large finite residual instead of an overflow.
+        if not math.isfinite(smooth):
+            smooth, plain = 50.0, 50.0
         m["med_" + tag] = (smooth, median_se(hist, never, smooth))
         m["km_" + tag] = plain
         p = never / n
@@ -1216,6 +1358,21 @@ def measure(agg, par):
         m["ext_births"] = agg["ext_births"][0] / br
         m["ext_his"] = agg["ext_births"][1] / br
         m["ext_grown"] = agg["ext_births"][2] / br
+    if "stock" in agg:
+        n_s, n_older, n_same = agg["stock"]
+        m["n_stock"] = n_s
+        m["older"] = n_older / n_s if n_s else math.nan
+        m["older_same"] = n_same / n_s if n_s else math.nan
+        n_prop, n_yes = agg["accept_n"]
+        m["n_proposals"] = n_prop
+        m["accept_rate"] = n_yes / n_prop if n_prop else math.nan
+        n40, g40 = agg["gap40"]
+        m["n40"] = n40
+        m["gap40"] = g40 / n40 if n40 else math.nan
+        n_gap = agg["gap"][0]
+        m["n_gap"] = n_gap
+        m["share40"] = n40 / n_gap if n_gap else math.nan
+        m["flow_older"] = agg["flow_older"][0] / n_gap if n_gap else math.nan
     return m
 
 
@@ -1603,6 +1760,25 @@ FEMALE_MODE["MEANING"] = dict(MEANING, c_f="height c of s_f(a), women, per month
                               m_f="center m of s_f(a), women, years",
                               rho="factor on s_f(a) from 16 until before 18",
                               mu_a="preferred age gap mu_a (man older), years")
+# Schnitt 1 (11.2a): the female market plus w_am for the stock share. SCALE of w_am is
+# on ln w_am (one unit is a factor e^0.5). TSCALE 0.02 is a stand-in for the per-town
+# standard deviation of that share until a development run measures it. c starts at three
+# times the female-mode start: at 0.0118 his refusals leave more than half of the men
+# who reach 50 without a partnership, so the Kaplan-Meier median is undefined and the
+# local model has no slope to follow. w_am still starts at 0.02.
+ACCEPT_MODE = dict(FEMALE_MODE)
+ACCEPT_MODE.update(
+    XNAMES=FEMALE_MODE["XNAMES"] + ("w_am",),
+    LOGX=FEMALE_MODE["LOGX"] + (True,),
+    SCALE=FEMALE_MODE["SCALE"] + (0.5,),
+    TSCALE=FEMALE_MODE["TSCALE"] + (0.02,),
+    OUTER=FEMALE_MODE["OUTER"] + ("older",),
+    REPORTED=FEMALE_MODE["REPORTED"] + ("older",),
+    X0=[math.log(0.0118 * 3.0), 25.25, math.log(0.0935), 5.0, math.log(0.388),
+        math.log(0.167), math.log(W_AM0)],
+    MEANING=dict(FEMALE_MODE["MEANING"],
+                 w_am="man's age weight w_am, utility per squared year"),
+)
 LABELS = {
     "med_f": "median age at first partnership, women",
     "never_f": "share without partnership by 50, women",
@@ -1618,6 +1794,7 @@ LABELS = {
     "sep_real": "share of partnerships ending by separation, realized",
     "r_K": "partner correlation z_K, first partnerships",
     "r_H": "partner correlation z_h, first partnerships",
+    "older": "share woman older, stock, completed years",
 }
 EXTRA = ("never_f", "med_m", "never_m", "gap", "first_birth", "tfr", "births_real", "sep_real",
          "drift_med_f", "drift_med_m", "drift_never_f", "drift_never_m", "drift_births")
@@ -1644,18 +1821,25 @@ def german(x):
 def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_scan=None):
     agg, m, outs = chk
     m.update(derived(m))
-    se = jackknife(outs, par, REPORTED + EXTRA)
+    # gap_sd and the Schnitt 1 ratios are reported with a town jackknife only under --accept.
+    jk_keys = REPORTED + EXTRA
+    if cfg.get("accept"):
+        jk_keys = jk_keys + ("gap_sd", "flow_older", "accept_rate", "older_same", "gap40",
+                             "share40")
+    se = jackknife(outs, par, jk_keys)
     if not se:
-        se = {k: m[k][1] if isinstance(m[k], tuple) else math.nan for k in REPORTED + EXTRA}
+        se = {k: m[k][1] if isinstance(m[k], tuple) else math.nan for k in jk_keys}
     runs = fitted["runs"]
     log("")
     log("Fitted values: least-squares point of the local regression over %d runs (%.1f "
         "effective at the end); alpha and lambda_sep solved on %d new towns there; "
         "approximate standard errors:" % (len(runs), fitted["neff"], cfg["settle_towns"]))
     log("  %-6s %12s %10s  %s" % ("value", "fitted", "approx SE", "meaning"))
-    for k in NAMES:
-        if k in se_par:
-            log("  %-6s %12.6g %10.2g  %s" % (k, par[k], se_par[k], MEANING[k]))
+    shown = [k for k in NAMES if k in se_par]
+    if cfg.get("accept"):
+        shown.extend(k for k in ("w_am",) if k in se_par)
+    for k in shown:
+        log("  %-6s %12.6g %10.2g  %s" % (k, par[k], se_par[k], MEANING[k]))
     log("  wish P_0..P_4 = %s, mean %.4f (limit 3.0)" % (
         ", ".join("%.4f" % p for p in wish_probs(par["alpha"])), wish_mean(par["alpha"])))
     log("  The standard errors are approximate, not full Monte Carlo errors: the outer values'")
@@ -1760,10 +1944,51 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     log("  total fertility rate, years %d-%d: %.3f +- %.3f (2.1 to 2.3: %s)" % (
         cfg["burn_in"], cfg["years"], tfr, se["tfr"],
         "inside" if 2.1 <= tfr <= 2.3 else "REPORT ITEM"))
+    if cfg.get("accept"):
+        log("  Schnitt 1 (11.2a): the man's answer and the target ages; w_am is fitted "
+            "with the others")
+        lo, hi = OLDER_BAND
+        stock_ok = lo <= m["older"] <= hi
+        checks.append(stock_ok)
+        log("  share woman older in the stock (completed years, pooled over year-end "
+            "censuses): %.4f +- %.4f (0.14 to 0.22) %s" % (
+                m["older"], se["older"], "ok" if stock_ok else "FINDING"))
+        log("    same completed age %.4f; pair-years %d" % (m["older_same"], m["n_stock"]))
+        log("  flow, woman older (continuous ages, gap < 0), new partnerships after the "
+            "burn-in: %.4f +- %.4f (report)" % (m["flow_older"], se["flow_older"]))
+        log("  SD of the age gap, new partnerships after the burn-in: %.3f +- %.3f "
+            "(report, no band)" % (m["gap_sd"], se["gap_sd"]))
+        if m["n_proposals"] == 0:
+            log("  acceptance rate: no proposal to a still-single man after the burn-in "
+                "(0.35 to 0.75) FLAG")
+        else:
+            acc_ok = ACCEPT_BAND[0] <= m["accept_rate"] <= ACCEPT_BAND[1]
+            log("  acceptance rate, acceptances / proposals to a still-single man after the "
+                "burn-in: %.4f +- %.4f over %d proposals (0.35 to 0.75) %s" % (
+                    m["accept_rate"], se["accept_rate"], m["n_proposals"],
+                    "ok" if acc_ok else "FLAG"))
+        mean_ok = m["n40"] > 0 and m["gap40"] <= GAP40_MAX
+        share_ok = m["n_gap"] > 0 and m["share40"] >= SHARE40_MIN
+        checks.append(mean_ok)
+        checks.append(share_ok)
+        if m["n40"]:
+            log("  men aged 40 or more at pairing, mean gap man minus woman: %.3f +- %.3f "
+                "over %d (at most 18) %s" % (
+                    m["gap40"], se["gap40"], m["n40"], "ok" if mean_ok else "FINDING"))
+        else:
+            log("  men aged 40 or more at pairing, mean gap man minus woman: undefined "
+                "over 0 (at most 18) FINDING")
+        log("  men aged 40 or more, share of new partnerships after the burn-in: %.4f "
+            "+- %.4f (at least 0.025) %s" % (
+                m["share40"], se["share40"], "ok" if share_ok else "FINDING"))
     log("")
     sagg, sm, souts = small
     sm.update(derived(sm))
-    sse = jackknife(souts, par, REPORTED + EXTRA)
+    sse_keys = REPORTED + EXTRA
+    if cfg.get("accept"):
+        sse_keys = sse_keys + ("gap_sd", "flow_older", "accept_rate", "older_same", "gap40",
+                               "share40")
+    sse = jackknife(souts, par, sse_keys)
     log("Town size: the fitted values on %d towns of %d founders (the check run has %d):" % (
         len(souts), SMALL_FOUNDERS, cfg["founders"]))
     for k in REPORTED + tuple(k for k in ("births_real", "never_f", "med_m", "never_m", "gap",
@@ -1796,7 +2021,7 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
         ", ".join(OUTER), ", ".join(("ln " if lg else "") + k for k, lg in zip(XNAMES, LOGX))))
     for row in fitted["jac"]:
         log("  " + " ".join("%9.4f" % (v / s) for v, s in zip(row, SCALE)))
-    rounded = {k: sig(par[k], se_par[k]) for k in NAMES if k in se_par}
+    rounded = {k: sig(par[k], se_par[k]) for k in shown if k in se_par}
     log("")
     log("Values for the specification (German decimals):")
     log("  " + ", ".join("%s %s" % (k, german(v)) for k, v in rounded.items()))
@@ -1845,6 +2070,30 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
         snippet[name] = {"value": rounded[k], "unit": unit_, "source": source,
                          "as_of": FIT_DATE,
                          "note": "%s; approximate standard error %.2g" % (note, se_par[k])}
+    if cfg.get("accept"):
+        # New keys use the decision date. The fitted keys above keep FIT_DATE.
+        snippet["core:pairing_weight_age_male"] = {
+            "value": rounded["w_am"], "unit": "logit", "source": source,
+            "as_of": "2026-11-06",
+            "note": "11.2a, w_am, utility per squared year (man); approximate standard error %.2g"
+                    % se_par["w_am"]}
+        fixed_source = "docs/genetik-spezifikation.md 11.2a"
+        for name, fixed, unit_, note in (
+            ("core:pairing_taste_sd", TASTE_SD, "year",
+             "sigma_nu, both sexes, not fitted"),
+            ("core:pairing_male_target_slope", MALE_SLOPE, "ratio",
+             "slope of delta(a) in his target age"),
+            ("core:pairing_male_target_from", MALE_FROM, "year",
+             "age from which his target falls behind his own"),
+            ("core:pairing_male_target_cap", MALE_CAP, "year",
+             "cap of how far his target falls behind his own age"),
+            ("core:pairing_male_target_min", MALE_MIN, "year",
+             "lower bound of his target age"),
+        ):
+            snippet[name] = {
+                "value": fixed, "unit": unit_, "source": fixed_source,
+                "as_of": "2026-11-06",
+                "note": "%s (Schnitt 1, Grok 2026-11-06)" % note}
     log("")
     log("JSON for data/calibration/demography.json (the key names are proposals):")
     log(json.dumps(snippet, indent=2, ensure_ascii=False))
@@ -2089,22 +2338,35 @@ def wish_refit(argv):
 def main(argv):
     if "--wish-refit" in argv:
         return wish_refit(argv)
+    accept = "--accept" in argv
+    if accept and "--r7" in argv:
+        log("STOP: --accept is the market of 11.2a and does not combine with --r7.")
+        return 1
     quick = "--quick" in argv
     female = "--r7" not in argv
-    if female:
+    if accept:
+        set_mode(ACCEPT_MODE)
+    elif female:
         set_mode(FEMALE_MODE)
     jobs = min(os.cpu_count() or 1, 12)
     if "--jobs" in argv:
         jobs = int(argv[argv.index("--jobs") + 1])
     cfg = dict(QUICK if quick else FULL)
+    if accept:
+        cfg["accept"] = True
     t0 = time.time()
     log("life_reference: %s; towns of %d founders over %d years (burn-in %d); %d towns per "
         "run; %d jobs" % ("QUICK smoke test, imprecise" if quick else "full fit",
                           cfg["founders"], cfg["years"], cfg["burn_in"], cfg["towns"], jobs))
     sim_cfg = {k: cfg[k] for k in ("founders", "years", "burn_in")}
     sim_cfg["market"] = "female" if female else "r7"
-    log("market: %s" % ("only women search (Grok R8)" if female else
-                        "R7, the market as a state (kept for comparison)"))
+    if accept:
+        sim_cfg["accept"] = True
+        log("market: only women search (Grok R8), with the man's answer and the target ages "
+            "(11.2a)")
+    else:
+        log("market: %s" % ("only women search (Grok R8)" if female else
+                            "R7, the market as a state (kept for comparison)"))
     runner = Runner(sim_cfg, jobs)
     try:
         fitted = fit(runner, X0[:], ALPHA0, LAM0, cfg)
@@ -2133,8 +2395,13 @@ def main(argv):
         log("NOT REACHED: a target misses by more than 4 standard errors in the check run.")
         status = 1
     if not ok:
-        log("STOP: a check failed (age gap or births under 18); the finding goes back to Grok "
-            "before these values enter the calibration.")
+        if accept:
+            log("STOP: a check failed (age gap, births under 18, the stock of women older, or "
+                "men aged 40 or more); the finding goes back to Grok before these values enter "
+                "the calibration.")
+        else:
+            log("STOP: a check failed (age gap or births under 18); the finding goes back to Grok "
+                "before these values enter the calibration.")
         status = 1
     # Four towns cannot tell a bias of the estimator from noise, so the smoke test only
     # reports this finding; the full fit stops on it.
