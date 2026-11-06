@@ -34,6 +34,48 @@
       "source": "ADR-0017, addendum of 2026-11-05: a play value, held in the refit of alpha",
       "as_of": "2026-11-05",
       "note": "A grown child reopens her only if her draw FERTILITY_WISH at occasion 1 (her key, the seed of her wish) is below this; his slot does not read it."
+    },
+    "core:pairing_taste_sd": {
+      "value": 3.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2j]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "sigma_nu: every person draws one taste nu ~ normal(0, sigma_nu) from PAIRING_TASTE, a pure function of its lineage key (pool persons with the pool seed, town-born with the world seed). It stands only in the target ages. A play value for both sexes, not fitted."
+    },
+    "core:pairing_male_target_slope": {
+      "value": 0.4,
+      "unit": "ratio",
+      "source": "genetics specification 11.2a [K11.2k]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "His target age is his age a minus delta(a) = min(slope * max(a - from, 0), cap), not below the minimum: this is the years the target falls behind his own per year of age past the starting age. A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_male_target_from": {
+      "value": 22.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2l]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "The age in years from which the man's target age falls behind his own. A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_male_target_cap": {
+      "value": 15.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2m]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "The most the man's target age falls behind his own, in years (a man of 60 aims at 45, one of 70 at 55). A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_male_target_min": {
+      "value": 21.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2n]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "The lowest target age of a man before his taste, in years (a man from 16 to 21 aims at 21). A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_weight_age_male": {
+      "value": 0.02,
+      "unit": "logit",
+      "source": "genetics specification 11.2a (w_am, start value 0.02); ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "w_am, utility per squared year of the distance between her age and his target age in his answer, the same unit as core:pairing_weight_age. A start value until the refit: w_am is fitted together with c, m, rho, mu_a, alpha, w_K, w_H and the separation rate against the stock share of couples with the older woman, 0.18 (band 0.14 to 0.22)."
     }
   }
 }
