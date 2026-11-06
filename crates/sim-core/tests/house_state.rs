@@ -1368,6 +1368,37 @@ fn a_walk_begun_at_the_start_of_time_is_refused_without_a_panic() {
     assert!(refused.is_err(), "{refused:?}");
 }
 
+/// The same for samples written down at the start of time before an ordinary walk: the reserve
+/// (draining from then), and hunger (at 0 from then). Each is refused instead of panicking.
+#[test]
+fn samples_from_the_start_of_time_are_refused_without_a_panic() {
+    use sim_core::time::MAX_ABS_SECS;
+    let walking = |hunger: NeedSample, reserve: Reserve| {
+        checked(move |s| {
+            s.waits.clear();
+            let three = in_house(s, 3);
+            three.needs[0] = hunger;
+            three.reserve = reserve;
+            three.place = Place::Walking {
+                from: 2,
+                to: 1,
+                depart: t(NOW - 3),
+                arrive: t(NOW + 4),
+            };
+        })
+    };
+    let old_reserve = walking(
+        NeedSample::new(0, t(NOW - 3), -100),
+        Reserve::new(1000, (500, t(-MAX_ABS_SECS), -80), -40),
+    );
+    assert!(old_reserve.is_err(), "{old_reserve:?}");
+    let old_hunger = walking(
+        NeedSample::new(0, t(-MAX_ABS_SECS), -100),
+        Reserve::new(1000, (500, t(NOW - 1), -80), -40),
+    );
+    assert!(old_hunger.is_err(), "{old_hunger:?}");
+}
+
 /// The end of time for the walk out of a room one does not stay in (ADR-0026, addendum of
 /// 2026-11-06 on hunger at 0): sim 1 idle in the bath of the flat, 6 s from the living room, 8 s
 /// before the end of time. Fed, the walk would end 2 s before it, so idling there is refused; weak

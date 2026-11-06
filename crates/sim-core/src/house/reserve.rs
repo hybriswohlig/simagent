@@ -124,9 +124,10 @@ impl Reserve {
     /// `house.reserve_time` before `at`.
     #[track_caller]
     pub fn value_at(self, t: SimTime) -> u16 {
-        let secs = (t - self.at).as_secs();
+        // In i128: the seconds of a malformed save may lie further apart than a duration holds.
+        let secs = i128::from(t.as_secs()) - i128::from(self.at.as_secs());
         assert!(secs >= 0, "invariant house.reserve_time");
-        let moved = i128::from(self.rate) * i128::from(secs) / HOUR_SECS;
+        let moved = i128::from(self.rate) * secs / HOUR_SECS;
         let value = (i128::from(self.value) + moved).clamp(0, i128::from(self.capacity));
         u16::try_from(value).unwrap_or(self.capacity)
     }
