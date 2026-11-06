@@ -1450,7 +1450,7 @@ pub fn person_answer(
     };
     let mut answer = serde_json::json!({
         "format": "simagent.view.person",
-        "version": 3,
+        "version": 4,
         "contract_version": sim_core::body_contract::CONTRACT_VERSION,
     });
     let json = |value: serde_json::Result<serde_json::Value>| {
@@ -1481,6 +1481,10 @@ pub fn person_answer(
     answer["origin"] = json(serde_json::to_value(world.origin(sim)))?;
     answer["ages"] = json(serde_json::to_value(world.ages()))?;
     answer["wish"] = json(serde_json::to_value(world.wish(sim)))?;
+    with_grown_at(
+        &mut answer["wish"],
+        world.data().demography().fertility.extra,
+    );
     if let Some(card) = world.genetics_card(sim) {
         answer["card"] = json(serde_json::to_value(card))?;
     }
@@ -1491,6 +1495,21 @@ pub fn person_answer(
         answer["kinship"] = kinship;
     }
     Ok(Some(answer))
+}
+
+/// The couple of a person's wish with the age a child stops counting at, the town's own,
+/// while a grown child of hers opens it, else null (version 4 of the person answer, ADR-0017
+/// and ADR-0021, addenda of 2026-11-05): the page's sentence names it. Only a woman under the
+/// rule of the extra child is opened so; a wish without a couple stays as it is.
+fn with_grown_at(wish: &mut serde_json::Value, rule: Option<sim_core::demography::ExtraChild>) {
+    if let Some(couple) = wish
+        .get_mut("couple")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        let grown = couple.get("state").and_then(serde_json::Value::as_str) == Some("grown");
+        let years = rule.filter(|_| grown).map(|rule| rule.count_until_years);
+        couple.insert("grown_at".into(), years.into());
+    }
 }
 
 /// What `other` is to `sim`, by the core, with `to` naming `other`; `None` if either is
@@ -2175,9 +2194,48 @@ pub fn fork_into_with(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use sim_core::data_id::DataId;
+    use sim_core::demography::ExtraChild;
     use sim_core::house::need::NeedSample;
     use sim_core::time::{DAY, SimTime, YEAR};
+
+    /// The age a grown child names on the person page (version 4 of the person answer): the
+    /// town's own, 16 here, only while a grown child opens the couple's wish; null in every
+    /// other state; nothing added to a wish without a couple.
+    #[test]
+    fn a_grown_child_names_the_towns_age() {
+        let rule = ExtraChild {
+            count_until_years: 16,
+            extra: 1,
+            grown_from: 3,
+            grown_chance: 0.2,
+        };
+        let couple =
+            |state: &str| json!({"wish": 2, "couple": {"woman": 1, "man": 2, "state": state}});
+        let mut grown = couple("grown");
+        super::with_grown_at(&mut grown, Some(rule));
+        assert_eq!(grown["couple"]["grown_at"], json!(16));
+        for state in [
+            "fertility_over",
+            "pregnant",
+            "pause",
+            "hers",
+            "his",
+            "fulfilled",
+        ] {
+            let mut wish = couple(state);
+            super::with_grown_at(&mut wish, Some(rule));
+            assert_eq!(
+                wish["couple"]["grown_at"],
+                serde_json::Value::Null,
+                "{state}"
+            );
+        }
+        let mut without = json!({"wish": null, "couple": null});
+        super::with_grown_at(&mut without, Some(rule));
+        assert_eq!(without, json!({"wish": null, "couple": null}));
+    }
 
     /// The departure that ends what a person does at its object (version 8 of the house answer,
     /// ADR-0021, addendum of 2026-11-05 on the house page; ADR-0024 section 4): someone of

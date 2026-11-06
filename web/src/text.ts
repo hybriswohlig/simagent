@@ -67,6 +67,28 @@ export const TEXT = {
   settings_age_gap_what: "So viele Jahre älter als die Frau ist der Mann am liebsten.",
   settings_age_gap_gives: "Im Grundspiel ({base}) ist er im Mittel etwa {outcome} Jahre älter.",
   settings_age_gap_mark: "Altersabstand {value} Jahre, Mann älter",
+  settings_wish_note:
+    "Die Neigung gilt für alle in der Stadt Geborenen, die übrigen Werte nur für Frauen, die dort geboren sind; Zugezogene behalten Wunsch und Regel ihrer Herkunft.",
+  settings_tilt: "Neigung zu mehr Kindern",
+  settings_tilt_what: "Je höher die Zahl, desto mehr Kinder wünschen sich die Menschen, die in der Stadt geboren sind.",
+  settings_tilt_gives: "Im Grundspiel ({base}) bekommt eine Frau, die 50 wird, im Mittel etwa {outcome} Kinder.",
+  settings_tilt_mark: "Neigung zu mehr Kindern {value}",
+  settings_count_until: "Kind zählt nicht mehr mit ab (Jahre)",
+  settings_count_until_what:
+    "Ab diesem Alter zählt ein Kind für den Wunsch nicht mehr mit; vorher zählt es mit, auch wenn es gestorben oder weggezogen ist.",
+  settings_count_until_mark: "zählt nicht mehr mit ab {value} Jahren",
+  settings_extra: "Kinder über den Wunsch hinaus",
+  settings_extra_what:
+    "Höchstens so viele Kinder über den Wunsch einer Frau: mit einem neuen Partner, der sich noch Kinder wünscht, oder wenn ein Kind nicht mehr mitzählt; Zwillinge können eines darüber liegen.",
+  settings_extra_mark: "höchstens {value} über den Wunsch",
+  settings_grown_from: "Noch ein Kind ab (Kinder)",
+  settings_grown_from_what:
+    "Erst ab so vielen Kindern kann sie es noch einmal versuchen, sobald weniger Kinder mitzählen, als sie sich wünscht.",
+  settings_grown_from_mark: "noch ein Kind ab {value} Kindern",
+  settings_grown_chance: "Anteil für noch ein Kind",
+  settings_grown_chance_what:
+    "Dieser Anteil der Frauen kann es noch einmal versuchen, sobald weniger Kinder mitzählen, als sie sich wünschen; 0 heißt keine, 1 heißt jede.",
+  settings_grown_chance_mark: "Anteil {value} für noch ein Kind",
   year: "Jahr",
   year_before: "Jahr {n} vor der Gründung",
   step_days28: "28 Tage",
@@ -311,7 +333,7 @@ export const TEXT = {
   wish_pause: "Nach der letzten Geburt versuchen sie es noch nicht wieder.",
   wish_trying: "{0} und {1} versuchen, ein Kind zu bekommen.",
   wish_his: "{1} wünscht sich noch Kinder.",
-  wish_grown: "Ein Kind von {0} ist 18, deshalb versuchen sie es noch einmal.",
+  wish_grown: "Ein Kind von {0} ist {age}, deshalb versuchen sie es noch einmal.",
   wish_fulfilled: "Der Kinderwunsch von {0} ist erfüllt.",
   filter_clear: "Filter zurücksetzen",
   look_hair: "Haar",

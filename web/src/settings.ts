@@ -36,6 +36,37 @@ const KNOWN: Readonly<Record<string, Known>> = {
     gives: "settings_age_gap_gives",
     mark: "settings_age_gap_mark",
   },
+  // The children's wish (ADR-0017, addendum of 2026-11-05).
+  "core:fertility_wish_tilt": {
+    label: "settings_tilt",
+    what: "settings_tilt_what",
+    gives: "settings_tilt_gives",
+    mark: "settings_tilt_mark",
+  },
+  "core:fertility_count_until": {
+    label: "settings_count_until",
+    what: "settings_count_until_what",
+    gives: null,
+    mark: "settings_count_until_mark",
+  },
+  "core:fertility_extra": {
+    label: "settings_extra",
+    what: "settings_extra_what",
+    gives: null,
+    mark: "settings_extra_mark",
+  },
+  "core:fertility_grown_from": {
+    label: "settings_grown_from",
+    what: "settings_grown_from_what",
+    gives: null,
+    mark: "settings_grown_from_mark",
+  },
+  "core:fertility_grown_chance": {
+    label: "settings_grown_chance",
+    what: "settings_grown_chance_what",
+    gives: null,
+    mark: "settings_grown_chance_mark",
+  },
 };
 
 const NUMBER = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 4, useGrouping: false });

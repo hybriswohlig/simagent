@@ -21,7 +21,7 @@ function useAges(run: string, sims: readonly number[], at: string): Loaded<Ages>
     setLoaded({ state: "loading", key });
     const asked = [...sims];
     Promise.all(
-      asked.map((sim) => getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 3 })),
+      asked.map((sim) => getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 4 })),
     )
       .then((answers) => {
         const ages: Ages = new Map(answers.map((json, i) => [asked[i] ?? 0, (json as unknown as PersonAnswer).at_ages]));
