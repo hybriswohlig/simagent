@@ -47,3 +47,14 @@ test("only those with children, only those a house holds", () => {
   assert.deepEqual(seen(families(PEDIGREE, PEOPLE, true, 3)).map(([household]) => household), []);
   assert.deepEqual(seen(families(PEDIGREE, PEOPLE, false, 3)).map(([household]) => household), [7]);
 });
+
+test("only those with a child under the age the server names", () => {
+  // Household 3 has a foster son of 4 (sim 5); household 7's youngest is 12, household 9's 15.
+  assert.deepEqual(seen(families(PEDIGREE, PEOPLE, false, 8, 6)).map(([household]) => household), [3]);
+  assert.deepEqual(seen(families(PEDIGREE, PEOPLE, true, 8, 6)).map(([household]) => household), [3]);
+  // Under 4 nobody is; under 13 also household 7.
+  assert.deepEqual(seen(families(PEDIGREE, PEOPLE, false, 8, 4)).map(([household]) => household), []);
+  assert.deepEqual(seen(families(PEDIGREE, PEOPLE, false, 8, 13)).map(([household]) => household), [3, 7]);
+  // Without an age, every family as before.
+  assert.deepEqual(seen(families(PEDIGREE, PEOPLE, false, 8, null)).map(([household]) => household), [3, 7, 9]);
+});
