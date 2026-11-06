@@ -1542,6 +1542,7 @@ fn an_arrangement_of_close_kin_with_an_arrival_is_a_save_the_run_writes() {
             man: couple.man,
         }))
         .expect("accepted");
+    world.take_log();
     assert_eq!(world.save(&years).expect("saves"), bytes);
 }
 

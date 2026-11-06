@@ -774,7 +774,7 @@ const DUMMY_END: i64 = 943_487_999;
 
 fn dummy_end() -> Run {
     let (world, year_hashes) = World::load(DUMMY_SAVE, common::repository_data()).expect("loads");
-    Run {
+    let mut run = Run {
         world,
         out: YearOut {
             census: Vec::new(),
@@ -782,7 +782,9 @@ fn dummy_end() -> Run {
             trace: Vec::new(),
         },
         log: Vec::new(),
-    }
+    };
+    run.advance(DUMMY_END);
+    run
 }
 
 #[test]
