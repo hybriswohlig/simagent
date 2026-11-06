@@ -1230,6 +1230,26 @@ fn the_reserve_is_written_when_a_run_writes_it() {
     assert_eq!(refill_from(NOW - 120), Err(Broken::Reserve));
 }
 
+/// A drain lasts only while hunger stays at 0 without rising (ADR-0026, addendum of 2026-11-06 on
+/// hunger at 0). At the clock, a second before `NOW`, sim 1's reserve drains 40 an hour since three
+/// hours before it, so it claims her hunger at 0 all that time; hunger written down two hours
+/// before the clock at 100, falling 100 an hour and so at 0 by the clock, shows it was not: that
+/// change of rates would have ended the drain and written the reserve down anew. Refused. Written
+/// down then at 0, a change of rates that left the drain as it was, it loads.
+#[test]
+fn a_drain_keeps_hunger_at_0_wherever_hunger_was_written() {
+    let clock = NOW - 1;
+    let drain_through = |hunger: u16| {
+        checked(move |s| {
+            let one = in_house(s, 1);
+            one.needs[0] = NeedSample::new(hunger, t(clock - 7_200), -100);
+            one.reserve = Reserve::new(1000, (1000, t(clock - 10_800), -40), 0);
+        })
+    };
+    assert_eq!(drain_through(100), Err(Broken::Reserve));
+    assert_eq!(drain_through(0), Ok(()));
+}
+
 /// The walk's length by the evidence that remains (ADR-0026, addendum of 2026-11-06 on hunger at
 /// 0): sim 3, the child, walks the 7 s to the fridge from 3 s before the clock with hunger at 2
 /// since 73 s, falling 100 an hour: 1 at the walk's start (⌊100 · 70 / 3 600⌋ = 1 less), so the
@@ -1253,6 +1273,78 @@ fn a_walk_begun_fed_is_ordinary() {
     };
     assert_eq!(walk(NOW + 4), Ok(()));
     assert_eq!(walk(NOW + 11), Err(Broken::Walk));
+}
+
+/// The walk's length when hunger was written down after the walk began (ADR-0026, addendum of
+/// 2026-11-06 on hunger at 0): sim 3, the child, walks the 7 s to the fridge from 3 s before the
+/// clock, her hunger and energy written down a second before the clock, her reserve an hour
+/// before `NOW`. Hunger no longer shows itself at the walk's start; the reserve does, 79 less then
+/// (⌊80 · 3 597 / 3 600⌋) while it drains 80 an hour. A drain that lasted through the start shows
+/// hunger at 0 then too: from 600, 521, above half, drawing on it, the walk is ordinary; from 500,
+/// 421, weak, twice as long. A reserve standing still (hunger at 50 now) leaves her fed then, or
+/// at 0 with its band: from 600 still only the ordinary walk; from 400 both.
+#[test]
+fn a_walk_begun_before_hunger_was_written_has_the_reserve_s_band() {
+    let walk = |(hunger, value, rate): (u16, u16, i32), arrive: i64| {
+        checked(move |s| {
+            s.waits.clear();
+            let three = in_house(s, 3);
+            // The extra at the write a second before the clock: weak only from 500 draining
+            // (421 then), −40 on the child's awake −50.
+            let extra = if (hunger, value) == (0, 500) { -40 } else { 0 };
+            three.needs[0] = NeedSample::new(hunger, t(NOW - 1), -100);
+            three.needs[1] = NeedSample::new(900, t(NOW - 1), -50 + extra);
+            three.reserve = Reserve::new(1000, (value, t(NOW - 3_600), rate), extra);
+            three.place = Place::Walking {
+                from: 2,
+                to: 1,
+                depart: t(NOW - 3),
+                arrive: t(arrive),
+            };
+        })
+    };
+    let (ordinary, twice) = (NOW + 4, NOW + 11);
+    assert_eq!(walk((0, 600, -80), ordinary), Ok(()));
+    assert_eq!(walk((0, 600, -80), twice), Err(Broken::Walk));
+    assert_eq!(walk((0, 500, -80), ordinary), Err(Broken::Walk));
+    assert_eq!(walk((0, 500, -80), twice), Ok(()));
+    assert_eq!(walk((50, 600, 0), ordinary), Ok(()));
+    assert_eq!(walk((50, 600, 0), twice), Err(Broken::Walk));
+    assert_eq!(walk((50, 400, 0), ordinary), Ok(()));
+    assert_eq!(walk((50, 400, 0), twice), Ok(()));
+}
+
+/// The walk's length when the reserve was written down after the walk began, hunger at 0 since
+/// before it (ADR-0026, addendum of 2026-11-06 on hunger at 0): sim 3, the child, walks the 7 s to
+/// the fridge from 3 s before the clock, hunger at 0 since an hour; her reserve of 1 000 written
+/// down a second after the walk's start, draining 80 an hour, and her energy with it. Since the
+/// start the reserve only fell, by at most the steepest drain of the rules, the child's 80 an hour:
+/// ⌈80 · 1 / 3 600⌉ = 1. From 400 now it lay at 400 or 401 then, at most half: weak, so the walk is
+/// twice as long and the ordinary one is refused. From 500 it lay at 500 or 501: weak or drawing
+/// on it, both load.
+#[test]
+fn a_walk_begun_before_the_reserve_was_written_has_a_band_of_its_range() {
+    let walk = |value: u16, arrive: i64| {
+        checked(move |s| {
+            s.waits.clear();
+            let three = in_house(s, 3);
+            three.needs[0] = NeedSample::new(0, t(NOW - 3_600), -100);
+            // Weak at the write (400 or 500, at most half): −40 on the child's awake −50.
+            three.needs[1] = NeedSample::new(900, t(NOW - 2), -90);
+            three.reserve = Reserve::new(1000, (value, t(NOW - 2), -80), -40);
+            three.place = Place::Walking {
+                from: 2,
+                to: 1,
+                depart: t(NOW - 3),
+                arrive: t(arrive),
+            };
+        })
+    };
+    let (ordinary, twice) = (NOW + 4, NOW + 11);
+    assert_eq!(walk(400, ordinary), Err(Broken::Walk));
+    assert_eq!(walk(400, twice), Ok(()));
+    assert_eq!(walk(500, ordinary), Ok(()));
+    assert_eq!(walk(500, twice), Ok(()));
 }
 
 /// The end of time for the walk out of a room one does not stay in (ADR-0026, addendum of

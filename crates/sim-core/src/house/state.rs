@@ -15,7 +15,7 @@ use crate::house::data::{
 use crate::house::day::{YoungPlace, night, young_place};
 use crate::house::day::{day_departure, next_night, work_draw};
 use crate::house::need::{EMPTY, FULL, NeedSample};
-use crate::house::reserve::{Band, Doing, Reserve};
+use crate::house::reserve::{Band, Doing, Reserve, ReserveRules};
 use crate::ids::{HouseholdId, SimId};
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
@@ -361,7 +361,7 @@ pub fn fillers_consistent(
                         let walked = data.reserve().walk(secs, band);
                         let walk = SimDuration::from_secs(i64::from(walked));
                         (begun.checked_sub(walk)).is_some_and(|chosen| {
-                            bands_then(person, chosen)[depth(band)]
+                            bands_then(person, data.reserve(), chosen)[depth(band)]
                                 && filler_possible(data, who, offer, (chosen, begun))
                         })
                     })
@@ -988,35 +988,47 @@ fn depth(band: Option<Band>) -> usize {
 }
 
 /// The bands a person may have had at `t` (ADR-0026, addendum of 2026-11-06 on hunger at 0), by
-/// the evidence its samples keep, in the order of `BANDS`. Hunger written down at or before `t`
-/// above 0 or rising then: none. With hunger at 0 then and the reserve written down at or before
-/// `t` too: exactly its band. With the reserve written down later, while hunger stayed at 0 and
-/// so the reserve only fell: any band no deeper than its value now gives, none excepted. With
-/// hunger written down after `t`, the samples no longer show it: every band.
-fn bands_then(person: &InHouse, t: SimTime) -> [bool; 4] {
+/// the evidence its samples keep and the reserve's `rules`, in the order of `BANDS`. Hunger
+/// written down at or before `t` above 0 or rising then: none. At 0 then, it stayed there without
+/// rising since, and so it was if a drain of the reserve written down by `t` lasted through it
+/// (`reserve_consistent`): not none. Else hunger written down later no longer shows itself then:
+/// none, or the band of the reserve's value then. The reserve written down at or before `t` shows
+/// that value exactly. Written down later while hunger stayed at 0, it only fell or stood since,
+/// by at most the steepest drain of the rules: its value then lay from its value now to that plus
+/// `⌈steepest · s / 3600⌉`, `s` the seconds from `t` to its write, and at most its capacity; any
+/// band of that range. Both written down later: every band.
+fn bands_then(person: &InHouse, rules: &ReserveRules, t: SimTime) -> [bool; 4] {
     let (hunger, reserve) = (person.needs[0], person.reserve);
-    if hunger.at() > t {
-        return [true; 4];
-    }
-    if hunger.rate() > 0 || hunger.value_at(t) != EMPTY {
+    let shown = hunger.at() <= t;
+    if shown && (hunger.rate() > 0 || hunger.value_at(t) != EMPTY) {
         return [true, false, false, false];
     }
-    if reserve.at() <= t {
-        let exact = depth(reserve.band(hunger, t));
-        return core::array::from_fn(|at| at == exact);
-    }
-    let deepest = depth(Some(reserve.band_of(reserve.value())));
-    core::array::from_fn(|at| (1..=deepest).contains(&at))
+    let at_0 = shown || (reserve.at() <= t && reserve.rate() < 0);
+    let (low, high) = if reserve.at() <= t {
+        let value = reserve.value_at(t);
+        (value, value)
+    } else if shown {
+        let secs = i128::from((reserve.at() - t).as_secs());
+        let fallen = (i128::from(rules.steepest_drain()) * secs + 3_599) / 3_600;
+        let most = (i128::from(reserve.value()) + fallen).min(i128::from(reserve.capacity()));
+        (
+            reserve.value(),
+            u16::try_from(most).unwrap_or(reserve.capacity()),
+        )
+    } else {
+        return [true; 4];
+    };
+    let (shallowest, deepest) = (
+        depth(Some(reserve.band_of(high))),
+        depth(Some(reserve.band_of(low))),
+    );
+    core::array::from_fn(|at| (at == 0 && !at_0) || (shallowest..=deepest).contains(&at))
 }
 
 /// The seconds a walk of `secs` may have taken a person who began it at `t`: one length per band
 /// it may have had then (`bands_then`, `ReserveRules::walk`).
-fn walks_then(
-    person: &InHouse,
-    rules: &crate::house::reserve::ReserveRules,
-    (secs, t): (u32, SimTime),
-) -> Vec<u32> {
-    let possible = bands_then(person, t);
+fn walks_then(person: &InHouse, rules: &ReserveRules, (secs, t): (u32, SimTime)) -> Vec<u32> {
+    let possible = bands_then(person, rules, t);
     let mut lengths: Vec<u32> = (BANDS.iter().zip(possible))
         .filter(|&(_, possible)| possible)
         .map(|(&band, _)| rules.walk(secs, band))
@@ -1033,12 +1045,13 @@ fn walks_then(
 /// capacity then, else 0; hunger at 0 the drain, asleep or awake; else 0. Hunger's 0 counts from
 /// the clock: a crossing of 0 in the open second has not run, unless an input changed the
 /// person's rates in that second, which reckoned with it. A drain began with hunger at 0, which
-/// the hunger sample shows if it was written down by then; a refill began when the person reached
-/// its food, with hunger's rate. The energy's extra is that of the band in the second energy was
-/// written down last (one `bands_then` allows; 0 for one lying on the floor or out), and, unless an
-/// action at its object holds energy's rate, that of the band at a later change of rates, when
-/// hunger or the reserve were written down after energy: else that change would have written
-/// energy down anew.
+/// the hunger sample shows if it was written down by then, and lasted while hunger stayed there
+/// without rising, which a hunger sample written down since shows at its write; a refill began
+/// when the person reached its food, with hunger's rate. The energy's extra is that of the band
+/// in the second energy was written down last (one `bands_then` allows; 0 for one lying on the
+/// floor or out), and, unless an action at its object holds energy's rate, that of the band at a
+/// later change of rates, when hunger or the reserve were written down after energy: else that
+/// change would have written energy down anew.
 fn reserve_consistent(
     person: &InHouse,
     home: &House,
@@ -1078,17 +1091,22 @@ fn reserve_consistent(
     if reserve.rate() != rules.rate(doing, band, (reserve.value(), capacity)) {
         return Err(Broken::Reserve);
     }
-    let drain_before_hunger_at_0 =
-        reserve.rate() < 0 && hunger.at() <= reserve.at() && hunger.value_at(reserve.at()) != EMPTY;
+    // Hunger written down while the reserve drained wrote no other rate for it: at 0 then and not
+    // rising, else that change of rates would have ended the drain and written the reserve anew.
+    let hunger_at_0 = match hunger.at() <= reserve.at() {
+        true => hunger.value_at(reserve.at()) == EMPTY,
+        false => hunger.value() == EMPTY && hunger.rate() <= 0,
+    };
+    let drain_without_hunger_at_0 = reserve.rate() < 0 && !hunger_at_0;
     let refill_not_at_the_food = reserve.rate() > 0 && reserve.at() != hunger.at();
-    if drain_before_hunger_at_0 || refill_not_at_the_food {
+    if drain_without_hunger_at_0 || refill_not_at_the_food {
         return Err(Broken::Reserve);
     }
     // The energy's extra.
     let still = person.collapsed || out(person, home);
     let extra = |band: Option<Band>| if still { 0 } else { rules.energy(band) };
     let energy = person.needs[1];
-    let at_its_write = (BANDS.iter().zip(bands_then(person, energy.at())))
+    let at_its_write = (BANDS.iter().zip(bands_then(person, rules, energy.at())))
         .any(|(&band, possible)| possible && extra(band) == reserve.energy());
     let held = offer.is_some_and(|offer| offer.sets(Need::Energy));
     let last = hunger.at().max(reserve.at());
