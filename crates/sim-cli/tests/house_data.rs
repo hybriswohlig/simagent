@@ -167,6 +167,36 @@ fn objects(house: &mut Value) -> &mut Vec<Value> {
     house["objects"].as_array_mut().expect("a list")
 }
 
+/// Weak or wasted, energy's rate carries an extra (ADR-0026, addendum of 2026-11-06 on hunger at
+/// 0): every energy rate it may be added to, in the needs' columns and the offers' own, takes the
+/// wasted −80 within an `i32`, so at least −2 147 483 568; checked after the kinds, before the
+/// houses.
+#[test]
+fn every_energy_rate_takes_the_wasted_extra() {
+    let lowest = i64::from(i32::MIN) + 80;
+    let column = |column: &'static str, rate: i64| {
+        let mut changed = rates();
+        changed[column]["energy"][2] = json!(rate);
+        let houses = vec![
+            house("core:flat", 3),
+            house("core:terraced", 5),
+            house("core:house", 8),
+        ];
+        match load(changed, day(), kinds(), houses) {
+            Ok(_) => "ok".to_owned(),
+            Err(error) => error,
+        }
+    };
+    assert_eq!(column("awake", lowest), "ok");
+    assert_eq!(column("awake", lowest - 1), "house.day_reserve");
+    assert_eq!(column("asleep", lowest - 1), "house.day_reserve");
+    let sofa = |rate: i64| {
+        checked(move |k, _| kind(k, "core:sofa")["offers"][0]["rates"]["energy"] = json!(rate))
+    };
+    assert_eq!(sofa(lowest), "ok");
+    assert_eq!(sofa(lowest - 1), "house.day_reserve");
+}
+
 #[test]
 fn house_data_loads_and_rejects() {
     assert_eq!(checked(|_, _| {}), "ok");
@@ -934,6 +964,31 @@ fn the_day_rejects() {
         reserve(|r| r["walk_factor"] = json!(11)),
         "house.day_reserve"
     );
+    // A drain, the refill and the extras move at most 10 000 an hour either way.
+    assert_eq!(reserve(|r| r["drain"]["awake"][0] = json!(-10_000)), "ok");
+    assert_eq!(
+        reserve(|r| r["drain"]["awake"][0] = json!(-10_001)),
+        "house.day_reserve"
+    );
+    assert_eq!(
+        reserve(|r| r["drain"]["asleep"][2] = json!(i32::MIN)),
+        "house.day_reserve"
+    );
+    assert_eq!(reserve(|r| r["refill"] = json!(10_000)), "ok");
+    assert_eq!(
+        reserve(|r| r["refill"] = json!(10_001)),
+        "house.day_reserve"
+    );
+    assert_eq!(reserve(|r| r["wasted_energy"] = json!(-10_000)), "ok");
+    assert_eq!(
+        reserve(|r| r["wasted_energy"] = json!(-10_001)),
+        "house.day_reserve"
+    );
+    let lowest = reserve(|r| {
+        r["weak_energy"] = json!(i32::MIN);
+        r["wasted_energy"] = json!(i32::MIN);
+    });
+    assert_eq!(lowest, "house.day_reserve");
 
     // The first check that fails decides, in the order time, wake, age, share, jump, night,
     // a need at 0, the mood, the time-filler, the reserve.

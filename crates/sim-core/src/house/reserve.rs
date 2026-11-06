@@ -204,18 +204,38 @@ pub struct Doing {
 /// The most times a walk's seconds a weak person may take.
 const MOST_WALK_FACTOR: u32 = 10;
 
+/// The most a drain, the refill or an energy extra may move per hour, either way.
+const MOST_RATE: i32 = 10_000;
+
 impl ReserveRules {
     /// Whether the values hold together (`house.day_reserve`): the capacities rise from at least 2,
-    /// so each half lies above 0; the drain falls in every band, awake and asleep; the refill
-    /// rises; the energy extras are at most 0, the wasted one at most the weak one; the walk
-    /// factor lies from 1 to 10.
+    /// so each half lies above 0; the drain falls in every band, awake and asleep, by at most
+    /// `MOST_RATE`; the refill rises by at most that; the energy extras are at most 0 and at least
+    /// `-MOST_RATE`, the wasted one at most the weak one; the walk factor lies from 1 to 10.
     pub(crate) fn valid(&self) -> bool {
         let [thin, ordinary, heavy] = self.capacity;
         let sizes = 2 <= thin && thin < ordinary && ordinary < heavy;
-        let drains = (self.drain.awake.iter().chain(&self.drain.asleep)).all(|&rate| rate < 0);
-        let extras = self.wasted_energy <= self.weak_energy && self.weak_energy <= 0;
+        let mut drains = self.drain.awake.iter().chain(&self.drain.asleep);
+        let drains = drains.all(|rate| (-MOST_RATE..0).contains(rate));
+        let refill = (1..=MOST_RATE).contains(&self.refill);
+        let extras = -MOST_RATE <= self.wasted_energy
+            && self.wasted_energy <= self.weak_energy
+            && self.weak_energy <= 0;
         let walks = (1..=MOST_WALK_FACTOR).contains(&self.walk_factor);
-        sizes && drains && self.refill > 0 && extras && walks
+        sizes && drains && refill && extras && walks
+    }
+
+    /// Whether every energy rate the extras are added to, `energies`, takes the wasted one, the
+    /// lowest, within an `i32` (`house.day_reserve`): the awake and asleep columns of the needs
+    /// and the offers' own energy rates.
+    pub(crate) fn fits(&self, mut energies: impl Iterator<Item = i32>) -> bool {
+        energies.all(|rate| rate.checked_add(self.wasted_energy).is_some())
+    }
+
+    /// The most the reserve falls in an hour in any age band, awake or asleep.
+    pub(crate) fn steepest_drain(&self) -> u32 {
+        let drains = self.drain.awake.iter().chain(&self.drain.asleep);
+        drains.map(|rate| rate.unsigned_abs()).max().unwrap_or(0)
     }
 
     /// The capacity of the size `size` (0 thin, 1 ordinary, 2 heavy).
@@ -306,6 +326,23 @@ mod tests {
         assert!(!changed(|rules| rules.walk_factor = 0));
         assert!(!changed(|rules| rules.walk_factor = 11));
         assert!(changed(|rules| rules.walk_factor = 1));
+        // At most 10 000 an hour either way, so no sum with an extra leaves an `i32`.
+        assert!(changed(|rules| rules.drain.awake[0] = -10_000));
+        assert!(!changed(|rules| rules.drain.awake[0] = -10_001));
+        assert!(!changed(|rules| rules.drain.asleep[2] = i32::MIN));
+        assert!(changed(|rules| rules.refill = 10_000));
+        assert!(!changed(|rules| rules.refill = 10_001));
+        assert!(changed(|rules| rules.wasted_energy = -10_000));
+        assert!(!changed(|rules| rules.wasted_energy = -10_001));
+        assert!(!changed(|rules| {
+            rules.weak_energy = i32::MIN;
+            rules.wasted_energy = i32::MIN;
+        }));
+        // The energy rates the extras are added to: the lowest takes the wasted −80.
+        assert!(RULES.fits([-40, i32::MIN + 80, i32::MAX].into_iter()));
+        assert!(!RULES.fits([-40, i32::MIN + 79].into_iter()));
+        // The steepest drain of the decision: the child's 80 an hour awake.
+        assert_eq!(RULES.steepest_drain(), 80);
     }
 
     const fn t(secs: i64) -> SimTime {

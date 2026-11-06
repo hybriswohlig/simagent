@@ -994,6 +994,9 @@ DAY_FORMAT = {
     },
 }
 SECONDS_OF_DAY = 86_400
+# The most a drain of the reserve, its refill or an energy extra moves per hour, either way (the
+# core's `house::reserve::MOST_RATE`).
+MOST_RATE = 10_000
 
 
 def zigzag(value: int) -> bytes:
@@ -1071,8 +1074,8 @@ def day_checked(day: dict) -> None:
     offer's length; its addendum on comfort and the time-filler), the least time left for one
     at most that (its addendum of 2026-11-05 on the time-filler's length) and the reserve at
     hunger 0 (its addendum of 2026-11-06: the capacities rising from 2, the drain below 0 in every
-    band, the refill above 0, the extras at most 0 and the wasted one at most the weak one, the
-    walk factor from 1 to 10)."""
+    band, the refill above 0, the extras at most 0 and the wasted one at most the weak one, each
+    rate and extra at most 10 000 an hour either way, the walk factor from 1 to 10)."""
     day_fields(day, DAY_FORMAT)
     school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
     hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
@@ -1112,9 +1115,9 @@ def day_checked(day: dict) -> None:
     thin, ordinary, heavy = reserve["capacity"]
     assert (
         2 <= thin < ordinary < heavy
-        and all(rate < 0 for rate in reserve["drain"]["awake"] + reserve["drain"]["asleep"])
-        and reserve["refill"] > 0
-        and reserve["wasted_energy"] <= reserve["weak_energy"] <= 0
+        and all(-MOST_RATE <= rate < 0 for rate in reserve["drain"]["awake"] + reserve["drain"]["asleep"])
+        and 0 < reserve["refill"] <= MOST_RATE
+        and -MOST_RATE <= reserve["wasted_energy"] <= reserve["weak_energy"] <= 0
         and 1 <= reserve["walk_factor"] <= 10
     ), "house.day_reserve"
 
@@ -1172,6 +1175,12 @@ def houses_checked(needs, day, kinds, houses):
         bed = is_bed(kind)
         sleeps_only = all(offer.get("sleep", False) for offer in kind["offers"])
         assert not (bed and not sleeps_only) and not ("bed_for" in kind and not bed), "house.bed_for"
+    # Weak or wasted, energy's rate carries an extra (ADR-0026, addendum of 2026-11-06 on hunger
+    # at 0): every rate it may be added to, the needs' energy columns and the offers' own energy
+    # rates, takes the lowest within an i32.
+    energies = needs["awake"]["energy"] + needs["asleep"]["energy"]
+    energies += [offer["rates"]["energy"] for kind in kinds for offer in kind["offers"] if "energy" in offer.get("rates", {})]
+    assert all(-(2**31) <= rate + day["reserve"]["wasted_energy"] for rate in energies), "house.day_reserve"
     by_id = {kind["id"]: kind for kind in kinds}
     numbered = [house_numbered(house) for house in houses]
     numbered.sort(key=lambda house: house["id"].encode())

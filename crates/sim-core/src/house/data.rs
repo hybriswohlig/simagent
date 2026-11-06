@@ -715,7 +715,8 @@ pub struct HouseData {
 
 impl HouseData {
     /// The checks of the needs' comfort, of the day (ADR-0024 section 4), of ADR-0025 section 2
-    /// and of the offers' format (ADR-0026 section 2), then the walking tables.
+    /// and of the offers' format (ADR-0026 section 2), of the energy rates with the reserve's
+    /// extras, then the walking tables.
     pub fn new(
         rates: NeedRates,
         day: DayRules,
@@ -741,6 +742,15 @@ impl HouseData {
             if (kind.is_bed() && !sleeps_only) || (kind.bed_for.is_some() && !kind.is_bed()) {
                 return Err(HouseError::BedFor);
             }
+        }
+        // Weak or wasted, energy's rate carries an extra (ADR-0026, addendum of 2026-11-06 on
+        // hunger at 0): every rate it may be added to takes the lowest within an `i32`.
+        let offers = kinds.iter().flat_map(|kind| &kind.offers);
+        let energies = (rates.awake.energy.iter().chain(&rates.asleep.energy))
+            .chain(offers.filter_map(|offer| offer.rates.get(&Need::Energy)))
+            .copied();
+        if !day.reserve.fits(energies) {
+            return Err(HouseError::DayReserve);
         }
         defs.sort_by(|a, b| a.id.cmp(&b.id));
         if defs.windows(2).any(|pair| pair[0].id == pair[1].id) {
