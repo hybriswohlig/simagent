@@ -11,7 +11,6 @@ use crate::ids::{EventId, PartnershipId, SimId};
 use crate::input::{
     ArrangePartnership, Couple, Founder, InputRejected, RejectCode, SeparatePartnership,
 };
-use crate::kinship::KinshipCache;
 use crate::lineage::LineageKey;
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
@@ -30,8 +29,7 @@ pub(crate) fn check_arrange(
     let code = match (domain.world_seed, formed) {
         (None, _) => Some(RejectCode::NotStarted),
         (Some(_), None) => Some(RejectCode::EndOfTime),
-        (Some(_), Some(formed)) => arrange_rejection(domain, pair)
-            .or_else(|| kin_or_age_rejection(domain, data, (pair.woman, pair.man), formed)),
+        (Some(_), Some(formed)) => arrange_rejection(domain, data, pair, formed),
     };
     match code {
         Some(code) => Err(InputRejected { code }),
@@ -41,14 +39,31 @@ pub(crate) fn check_arrange(
 
 /// Why these two cannot be paired, if at all, in this order: a sim never handed out,
 /// one in the archive, not a woman and a man, one in a partnership, one under the market
-/// age, too closely related (ADR-0018 section 1).
-fn arrange_rejection(domain: &DomainState, pair: &ArrangePartnership) -> Option<RejectCode> {
-    pair_rejection(domain, (pair.woman, pair.man)).or_else(|| {
-        [pair.woman, pair.man]
-            .iter()
-            .any(|id| open_partnership(domain, *id).is_some())
-            .then_some(RejectCode::AlreadyPartnered)
-    })
+/// age (ADR-0018 section 1).
+fn arrange_rejection(
+    domain: &DomainState,
+    data: &Data,
+    pair: &ArrangePartnership,
+    formed: SimTime,
+) -> Option<RejectCode> {
+    let both = [pair.woman, pair.man];
+    let age = market::market_age(data);
+    pair_rejection(domain, (pair.woman, pair.man))
+        .or_else(|| {
+            both.iter()
+                .any(|id| open_partnership(domain, *id).is_some())
+                .then_some(RejectCode::AlreadyPartnered)
+        })
+        .or_else(|| {
+            both.iter()
+                .any(|id| {
+                    domain
+                        .sims
+                        .get(id)
+                        .is_none_or(|person| !market::of_age(person.born, formed, age))
+                })
+                .then_some(RejectCode::PartnerTooYoung)
+        })
 }
 
 /// Why a woman and a man an input names are no pair to act on, if at all, in this order:
@@ -126,33 +141,6 @@ pub(crate) fn apply_separate(
     }
     let causes = Causes::new(ctx.trigger());
     separate(domain, id, causes, ctx);
-}
-
-/// Why two living sims of the right sexes and without a partnership cannot be paired now,
-/// if at all: one under the market age, then in direct line, then too closely related
-/// (ADR-0018 sections 1 and 8).
-pub(crate) fn kin_or_age_rejection(
-    domain: &DomainState,
-    data: &Data,
-    (woman, man): (SimId, SimId),
-    now: SimTime,
-) -> Option<RejectCode> {
-    let age = market::market_age(data);
-    let young = [woman, man].into_iter().any(|sim| {
-        domain
-            .sims
-            .get(&sim)
-            .is_none_or(|person| !market::of_age(person.born, now, age))
-    });
-    if young {
-        return Some(RejectCode::PartnerTooYoung);
-    }
-    if market::direct_line(domain, data, woman, man) {
-        return Some(RejectCode::PartnersInDirectLine);
-    }
-    let limit = data.demography().market.kinship_limit;
-    let phi = market::phi_with(&mut KinshipCache::new(), domain, data, woman, man);
-    (phi >= limit).then_some(RejectCode::PartnersTooCloselyRelated)
 }
 
 /// Why the couples of `Start` are rejected, if at all, in this order: a place beyond

@@ -1099,11 +1099,11 @@ fn input_log_consistent(
 /// IDs from 1 in the order they were formed, and the counter follows them (ADR-0018
 /// section 7): the inputs' in the order of the log; the market's in a closed round second
 /// (a positive multiple of `MONTH`), after the inputs' of that second. Each pairs a woman
-/// and a man with `φ` below the limit, of at least the market age unless the pool brought
-/// it (formed under the pool's rules; `pool_view` checks its second against the pool's
-/// record, ADR-0021, addendum of 2026-11-05); it ended by the first of
-/// its due separation (if that second is closed) and the first death of the two, the
-/// separation first in a tie (ADR-0018 section 3), and is open while neither has come;
+/// and a man of at least the market age unless the pool brought it (formed under the pool's
+/// rules; `pool_view` checks its second against the pool's record, ADR-0021, addendum of
+/// 2026-11-05), with `φ` below the limit unless an `ArrangePartnership` formed it; it ended
+/// by the first of its due separation (if that second is closed) and the first death of the
+/// two, the separation first in a tie (ADR-0018 section 3), and is open while neither has come;
 /// never ended before it was formed. A parting of the two by an input ends it in its
 /// second before all of these (it acts before the events of its second), and each parting
 /// ends exactly one partnership (ADR-0023, addendum of 2026-10-31). Each of the two was
@@ -1157,6 +1157,7 @@ fn partnerships_consistent(
                 .flatten()
                 .map(|(_, seq)| *seq);
             let by_input = paired_by.is_some();
+            let arranged = paired_by.is_some_and(|seq| seq > 1);
             let round = formed.as_secs() > 0 && formed.as_secs().rem_euclid(MONTH.as_secs()) == 0;
             let by_market = !carried && !by_input && round && formed.as_secs() < now;
             let created = if carried {
@@ -1169,12 +1170,13 @@ fn partnerships_consistent(
             let of_age = [woman, man].iter().all(|sim| {
                 born_of(sim).is_some_and(|born| state::market::of_age(born, formed, age))
             });
-            let related = match (keys_of(loaded, woman), keys_of(loaded, man)) {
-                (Some(her), Some(his)) => {
-                    kinship.phi(her, his, |key| kin(loaded, rules.data, &keys, key)) >= limit
-                }
-                _ => false,
-            };
+            let related = !arranged
+                && match (keys_of(loaded, woman), keys_of(loaded, man)) {
+                    (Some(her), Some(his)) => {
+                        kinship.phi(her, his, |key| kin(loaded, rules.data, &keys, key)) >= limit
+                    }
+                    _ => false,
+                };
             let first_leave = [left_of(&woman), left_of(&man)].into_iter().flatten().min();
             let separation =
                 separation_due(loaded, rules, *id, partnership).filter(|due| due.as_secs() < now);

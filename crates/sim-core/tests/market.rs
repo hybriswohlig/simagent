@@ -28,7 +28,7 @@ use sim_core::input::{
 use sim_core::log::{LogEntry, LogPayload, log_hash};
 use sim_core::params::WorldParams;
 use sim_core::time::SimTime;
-use sim_core::world::{World, YearOut};
+use sim_core::world::{LoadError, World, YearOut};
 
 const Y: i64 = 31_449_600;
 const MONTH: i64 = 2_419_200;
@@ -267,12 +267,11 @@ fn forty_years_of_market() {
     assert_eq!(log_hash(&run.log), MARKET_LOG_HASH);
 }
 
-/// `ArrangePartnership` below the market age and between close kin is rejected (ADR-0018
-/// section 1): sim 12 turns 16 in month 223 (second 539 481 600); an arrangement acting a
-/// second before is too young, one acting in that second pairs her; the twins 14 and 13
-/// (φ = 1/4) are too closely related.
+/// `ArrangePartnership` below the market age is rejected (ADR-0018 section 1): sim 12 turns
+/// 16 in month 223 (second 539 481 600); an arrangement acting a second before is too young,
+/// one acting in that second pairs her.
 #[test]
-fn an_arrangement_needs_the_market_age_and_no_close_kin() {
+fn an_arrangement_needs_the_market_age() {
     let arrange = |woman: u64, man: u64| {
         Input::ArrangePartnership(ArrangePartnership {
             woman: sim(woman),
@@ -289,40 +288,194 @@ fn an_arrangement_needs_the_market_age_and_no_close_kin() {
     );
     run.advance(539_481_599);
     run.world.submit(arrange(12, 11)).expect("accepted");
-    let mut run = Run::market();
-    run.advance(575_769_599);
-    assert_eq!(
-        run.world.submit(arrange(14, 13)).err(),
-        Some(InputRejected {
-            code: RejectCode::PartnersTooCloselyRelated
-        })
-    );
 }
 
-/// Relatives in direct line are never paired (ADR-0018 section 8, Grok's round 33, P1): the
-/// check comes after the market age and before φ, so a woman and her grandson (φ = 1/8)
-/// get their own code. Founder 1 and her grandson 31 are both single and of age at second
-/// 1 214 438 399, the first such pair of the scenario's forty years in its reference
-/// (`tools/world_reference.py`, the market world of `tools/state_reference.py`).
+fn arranged(stamp: i64, woman: u64, man: u64) -> Run {
+    let mut run = Run::market();
+    run.advance(stamp);
+    run.world
+        .submit(Input::ArrangePartnership(ArrangePartnership {
+            woman: sim(woman),
+            man: sim(man),
+        }))
+        .expect("accepted");
+    run.log.extend(run.world.take_log());
+    run
+}
+
+fn reloaded(part: Run, data: &Data) -> Run {
+    let bytes = part.save();
+    let (world, year_hashes) = World::load(&bytes, data.clone()).expect("loads");
+    assert_eq!(world.save(&year_hashes).expect("saves"), bytes);
+    Run {
+        world,
+        out: YearOut {
+            census: part.out.census,
+            year_hashes,
+            trace: Vec::new(),
+        },
+        log: part.log,
+    }
+}
+
 #[test]
-fn an_arrangement_in_direct_line_is_rejected() {
-    let mut run = Run::market();
-    run.advance(1_214_438_399);
-    let arranged = Input::ArrangePartnership(ArrangePartnership {
-        woman: sim(1),
-        man: sim(31),
-    });
-    assert_eq!(
-        run.world.submit(arranged).err(),
-        Some(InputRejected {
-            code: RejectCode::PartnersInDirectLine
+fn an_arrangement_of_kin_forms_and_its_save_loads_and_runs_on() {
+    let end = 40 * Y - 1;
+    for (stamp, woman, man) in [(575_769_599, 14, 13), (1_214_438_399, 1, 31)] {
+        let mut before = Run::market();
+        before.advance(stamp);
+        let offered = before.world.partner_candidates(sim(woman));
+        assert!(offered.contains(&sim(man)), "{woman} {man}");
+        assert!(
+            before
+                .world
+                .partner_candidates(sim(man))
+                .contains(&sim(woman))
+        );
+        let mut whole = arranged(stamp, woman, man);
+        assert!(whole.pairs().contains(&(woman, man, stamp + 1)));
+        whole.advance(end);
+        for stop in [stamp, stamp + 1, stamp + Y] {
+            let mut part = arranged(stamp, woman, man);
+            if stop > stamp {
+                part.advance(stop);
+            }
+            let mut rest = reloaded(part, &market_data(1.0));
+            rest.advance(end);
+            assert_eq!(
+                rest.out.year_hashes, whole.out.year_hashes,
+                "{woman} {stop}"
+            );
+            assert_eq!(log_hash(&rest.log), log_hash(&whole.log), "{woman} {stop}");
+            assert_eq!(rest.world.state_hash(), whole.world.state_hash());
+        }
+    }
+}
+
+fn with_values(values: &[(&str, f64)]) -> Data {
+    let (calibration, genome_map) = common::files();
+    let mut demography = common::demography();
+    for (key, value) in values {
+        demography["values"][*key]["value"] = serde_json::json!(value);
+    }
+    Data::new(common::definitions_with(demography, calibration, genome_map).expect("definitions"))
+        .expect("checked")
+}
+
+fn aged(founders: &[(i64, Sex)], couples: Vec<Couple>) -> World {
+    let mut world = World::new(with_values(&[("core:market_age", 18.0)]));
+    world
+        .submit(Input::Start(Start {
+            world_seed: 0x18,
+            founder_tag: DataId::new("test:aged").expect("valid"),
+            world_params: WorldParams {
+                hereditary_diseases: false,
+                nutrition: Vec::new(),
+            },
+            founders: (founders.iter())
+                .map(|&(born, sex)| Founder {
+                    born: SimTime::from_secs(born),
+                    sex,
+                    alleles: Vec::new(),
+                })
+                .collect(),
+            couples,
+            capacity: None,
+            pool: None,
+        }))
+        .expect("accepted");
+    world.take_log();
+    world
+}
+
+#[test]
+fn an_arrangement_needs_the_towns_market_age() {
+    const DAY: i64 = 86_400;
+    let founders = [
+        (-20 * Y, Sex::Female),
+        (-16 * Y, Sex::Male),
+        (-18 * Y + DAY, Sex::Male),
+        (-18 * Y, Sex::Male),
+        (-20 * Y, Sex::Female),
+        (-22 * Y, Sex::Male),
+    ];
+    let couples = || vec![Couple { woman: 4, man: 5 }];
+    let arrange = |woman: u64, man: u64| {
+        Input::ArrangePartnership(ArrangePartnership {
+            woman: sim(woman),
+            man: sim(man),
         })
+    };
+    let mut world = aged(&founders, couples());
+    for (woman, man, code) in [
+        (1, 2, RejectCode::PartnerTooYoung),
+        (1, 3, RejectCode::PartnerTooYoung),
+        (1, 6, RejectCode::AlreadyPartnered),
+        (5, 4, RejectCode::AlreadyPartnered),
+    ] {
+        assert_eq!(
+            world.submit(arrange(woman, man)).err(),
+            Some(InputRejected { code }),
+            "{woman} {man}"
+        );
+    }
+    assert_eq!(world.input_log().len(), 1);
+    assert_eq!(world.partner_candidates(sim(1)), [sim(4)]);
+    assert_eq!(world.partner_candidates(sim(4)), [sim(1)]);
+    for young in [2, 3] {
+        assert!(world.partner_candidates(sim(young)).is_empty());
+    }
+    world.submit(arrange(1, 4)).expect("accepted");
+    let mut world = aged(&founders, couples());
+    world.advance_until(
+        &mut YearOut::default(),
+        SimTime::from_secs(DAY - 1),
+        &mut |_| false,
+    );
+    assert_eq!(world.partner_candidates(sim(3)), [sim(1)]);
+    world.submit(arrange(1, 3)).expect("accepted");
+}
+
+fn relabelled(bytes: &[u8], from: &Data, to: &Data) -> Vec<u8> {
+    let old = postcard::to_allocvec(&from.hash()).expect("encodes");
+    let new = postcard::to_allocvec(&to.hash()).expect("encodes");
+    let at = (bytes[..32].windows(old.len()))
+        .position(|window| window == old.as_slice())
+        .expect("the data hash in the header");
+    [&bytes[..at], new.as_slice(), &bytes[at + old.len()..]].concat()
+}
+
+#[test]
+fn a_partnership_the_market_formed_needs_the_kinship_limit() {
+    let blind = |limit: f64| {
+        with_values(&[
+            ("core:market_search_height_female", 1.0),
+            ("core:pairing_cousin_odds", 1.0),
+            ("core:pairing_kinship_limit", limit),
+        ])
+    };
+    let data = blind(1.0);
+    let mut world = World::new(data.clone());
+    world.submit(market_start()).expect("accepted");
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(40 * Y - 1), &mut |_| false);
+    world.take_log();
+    let pedigree = world.pedigree();
+    let close = (pedigree.partnerships.iter())
+        .filter(|couple| couple.formed.as_secs() > 0 && couple.kinship >= 0.125);
+    assert!(close.count() > 0, "a market partnership of close kin");
+    let bytes = world.save(&out.year_hashes).expect("saves");
+    assert!(World::load(&bytes, data.clone()).is_ok());
+    let limited = blind(0.125);
+    assert_eq!(
+        World::load(&relabelled(&bytes, &data, &limited), limited).err(),
+        Some(LoadError::Inconsistent)
     );
 }
 
-/// The market age comes before the direct line (ADR-0018 section 8): a mother and her son
-/// under 16, both single, get `PartnerTooYoung`. Founder 8 and her son 20 at second
-/// 183 859 199, by the reference (`tools/world_reference.py`, the first such pair).
+/// A mother and her son under 16, both single, get `PartnerTooYoung`. Founder 8 and her son
+/// 20 at second 183 859 199, by the reference (`tools/world_reference.py`, the first such
+/// pair).
 #[test]
 fn an_arrangement_too_young_and_in_direct_line_is_too_young() {
     let mut run = Run::market();

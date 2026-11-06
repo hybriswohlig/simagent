@@ -1100,9 +1100,9 @@ fn the_people_are_the_living_with_their_looks() {
 /// The possible children of a couple (Grok's round 44): two daughters and two sons from the
 /// core, the same on every request, and asking changes nothing. Only a pair the core would
 /// pair now has them (K7). By hand from the dummy run's golden pedigree, as in
-/// `a_person_with_its_kinship_to_another`: sim 8, the one living woman, may pair with sim 4
-/// alone; her father 2, her brother 10 and her son 13 are refused, sim 1 died, and a man as
-/// the mother or an unknown sim has none either.
+/// `a_person_with_its_kinship_to_another`: sim 8, the one living woman, may pair with sim 4;
+/// her son 13 is refused, sim 1 died, and a man as the mother or an unknown sim has none
+/// either.
 #[test]
 fn a_couple_shows_four_possible_children() {
     let (runs, web) = fixture("children");
@@ -1142,8 +1142,6 @@ fn a_couple_shows_four_possible_children() {
         ("4", "8"),
         ("8", "99999"),
         ("x", "4"),
-        ("8", "2"),
-        ("8", "10"),
         ("8", "13"),
         ("1", "4"),
     ] {
@@ -1155,8 +1153,16 @@ fn a_couple_shows_four_possible_children() {
             "{path}"
         );
     }
-    for (mother, father) in [(8, 2), (8, 10), (8, 13), (1, 4)] {
+    for (mother, father) in [(8, 13), (1, 4)] {
         assert_eq!(world.preview_children(id(mother), id(father)), None);
+    }
+    for father in [2, 10] {
+        let path = format!("/api/runs/dummy/children/8/{father}");
+        let expected = world.preview_children(id(8), id(father)).expect("children");
+        assert_eq!(
+            json_of(&get(server.port, &path).2)["children"],
+            serde_json::to_value(&expected).expect("JSON")
+        );
     }
 }
 
@@ -1252,12 +1258,12 @@ fn a_person_with_its_kinship_to_another() {
         json!({"to": 5, "word": "unrelated", "foster": "foster_mother", "r_percent": 0.0})
     );
     // The partners a pairing would be accepted with, by hand from the golden pedigree (as in
-    // `tests/partners.rs`): sim 8, the one living woman, and her former partner, sim 4.
+    // `tests/partners.rs`): sim 8, the one living woman.
     let partners = |sim: u64| {
         json_of(&get(server.port, &format!("/api/runs/dummy/persons/{sim}")).2)["partner_candidates"]
             .clone()
     };
-    assert_eq!(partners(8), json!([4]));
+    assert_eq!(partners(8), json!([10, 12, 4, 2]));
     assert_eq!(partners(4), json!([8]));
     assert_eq!(partners(13), json!([]));
     // The ages of the living at the run's last second 943 487 999, in whole years of
@@ -2257,6 +2263,7 @@ fn own_values_the_data_refuse_make_no_town() {
     for (run, settings, status, expected) in [
         ("x1", r#"{"core:no_such_value":1}"#, 409, "data_rejected"),
         ("x2", r#"{"core:market_age":11}"#, 409, "data_rejected"),
+        ("x9", r#"{"core:market_age":15}"#, 409, "data_rejected"),
         (
             "x3",
             r#"{"core:market_age":18,"core:no_such_value":1}"#,
@@ -2376,6 +2383,8 @@ fn a_town_whose_own_values_do_not_read_does_not_open() {
     let (status, _, body) = post(port, "/api/runs/town/advance", year);
     assert_eq!((status, code(&body).as_str()), (500, "data_rejected"));
     write(&own, settings_file(r#""core:market_age":11.0"#).as_bytes());
+    assert_eq!(listed(port, "town"), unread);
+    write(&own, settings_file(r#""core:market_age":15.0"#).as_bytes());
     assert_eq!(listed(port, "town"), unread);
     write(&own, settings_file("").as_bytes());
     assert_eq!(listed(port, "town")["settings"], json!([]));
