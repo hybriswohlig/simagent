@@ -100,7 +100,39 @@ pub struct Market {
     /// How much more often a stranger is chosen than an otherwise equal first cousin; the
     /// kinship term is `16 · ln(odds) · φ`.
     pub cousin_odds: f64,
+    /// The man's answer and the target ages (11.2a); `None` is the market where the chosen
+    /// man does not answer and nobody has a taste.
+    pub male: Option<MaleAnswer>,
 }
+
+/// The man's answer and the target ages (11.2a, ADR-0018 addendum of 2026-11-06): six values,
+/// all or none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MaleAnswer {
+    /// `σ_ν`, the spread of the taste `ν ~ normal(0, σ_ν)` every person draws once, in years.
+    pub taste_sd: f64,
+    /// His target age is his age minus `min(slope · max(a − from, 0), cap)`, not below the
+    /// minimum: the slope per year of age.
+    pub target_slope: f64,
+    /// The age from which the target falls behind his own, in years.
+    pub target_from: f64,
+    /// The most the target falls behind his age, in years.
+    pub target_cap: f64,
+    /// The lowest target age before the taste, in years.
+    pub target_min: f64,
+    /// `w_am`, the weight of his age term, per squared year.
+    pub weight_age: f64,
+}
+
+/// The keys of the man's answer, in the order of `MaleAnswer`.
+const MALE_ANSWER: [&str; 6] = [
+    "core:pairing_taste_sd",
+    "core:pairing_male_target_slope",
+    "core:pairing_male_target_from",
+    "core:pairing_male_target_cap",
+    "core:pairing_male_target_min",
+    "core:pairing_weight_age_male",
+];
 
 /// The number of values without the extra child.
 const VALUES: usize = 22;
@@ -181,6 +213,7 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         age_gap: positive(value("core:pairing_age_gap_preferred", Unit::Year)?, 150.0)?,
         kinship_limit: positive(value("core:pairing_kinship_limit", Unit::Fraction)?, 1.0)?,
         cousin_odds: within(value("core:pairing_cousin_odds", Unit::Ratio)?, (1.0, 1e6))?,
+        male: None,
     };
     // Zero, or inside the range of every hazard, so that `B / λ` is finite.
     let separation_rate = value("core:separation_rate", Unit::PerYear)?;
@@ -223,10 +256,32 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         }),
         _ => return Err(DataError::CalibrationMissing),
     };
-    if file.values.len() != VALUES + named {
+    // The man's answer (ADR-0018, addendum of 2026-11-06), one group as well: none of its six
+    // keys (the market where the chosen man does not answer), or all of them.
+    let answering = MALE_ANSWER
+        .iter()
+        .filter(|key| {
+            let id = DataId::new(key).unwrap_or_else(|_| panic!("invariant data.key"));
+            file.values.contains_key(&id)
+        })
+        .count();
+    let male = match answering {
+        0 => None,
+        n if n == MALE_ANSWER.len() => Some(MaleAnswer {
+            taste_sd: within(value(MALE_ANSWER[0], Unit::Year)?, (0.0, 50.0))?,
+            target_slope: within(value(MALE_ANSWER[1], Unit::Ratio)?, (0.0, 1.0))?,
+            target_from: positive(value(MALE_ANSWER[2], Unit::Year)?, 150.0)?,
+            target_cap: positive(value(MALE_ANSWER[3], Unit::Year)?, 150.0)?,
+            target_min: positive(value(MALE_ANSWER[4], Unit::Year)?, 150.0)?,
+            weight_age: positive(value(MALE_ANSWER[5], Unit::Logit)?, 1e6)?,
+        }),
+        _ => return Err(DataError::CalibrationMissing),
+    };
+    if file.values.len() != VALUES + named + answering {
         return Err(DataError::CalibrationUnknown);
     }
     let fertility = Fertility { extra, ..fertility };
+    let market = Market { male, ..market };
     Ok(Demography {
         fertility,
         twins,

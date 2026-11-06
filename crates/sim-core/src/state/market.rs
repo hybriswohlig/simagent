@@ -5,13 +5,20 @@
 //! `φ ≥ 1/8` are skipped, nearer kin below that limit pays a penalty. The similarity terms
 //! of cognition and height compare the phenotypes of the traits the data name (4.2); the
 //! base map has none, so there they drop out (11.1).
+//!
+//! With the data's group of six values (11.2a, ADR-0018 addendum of 2026-11-06) the chosen
+//! man answers her one proposal by his own utility, and both have a target age moved by a
+//! taste drawn once per person. Without the group he does not answer, nobody has a taste,
+//! and the round and its draws are those of 11.2.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
+use super::conception::Lot;
 use super::{DomainState, partnership};
 use crate::data::Data;
 use crate::data_id::Code;
+use crate::demography::MaleAnswer;
 use crate::genome::Sex;
 use crate::ids::SimId;
 use crate::kinship::{self, Kin, KinshipCache};
@@ -72,6 +79,93 @@ pub(crate) fn noise_key(her: LineageKey, month: u64, his: LineageKey) -> DrawKey
         occasion: month,
         detail: his.get(),
     }
+}
+
+/// The address of the Gumbel noise of the answer of the man `his` to the woman `her` in the
+/// round `month` (11.2a, 11.7).
+pub(crate) fn accept_key(his: LineageKey, month: u64, her: LineageKey) -> DrawKey {
+    DrawKey {
+        tag: tags::PAIRING_ACCEPT,
+        subject: SubjectKey::from(his),
+        occasion: month,
+        detail: her.get(),
+    }
+}
+
+/// The address of the taste of a person (11.2a, 11.7): its own key alone.
+pub(crate) fn taste_key(person: LineageKey) -> DrawKey {
+    DrawKey {
+        tag: tags::PAIRING_TASTE,
+        subject: SubjectKey::from(person),
+        occasion: 0,
+        detail: 0,
+    }
+}
+
+/// The taste `ν ~ normal(0, σ_ν)` of a person (11.2a): a pure function of the seed of its lot
+/// (`Lot::seed`) and its lineage key; it stands only in the target age.
+pub(crate) fn taste(seed: u64, person: LineageKey, sd: f64) -> f64 {
+    Draws::new(WorldSeed::new(seed)).normal(taste_key(person), 0.0, sd)
+}
+
+/// The target age of a man of `age` years, without his taste (11.2a): `max(a − δ(a), min)`
+/// with `δ(a) = min(slope · max(a − from, 0), cap)`.
+pub(crate) fn male_target(male: &MaleAnswer, age: f64) -> f64 {
+    let since = if age > male.target_from {
+        age - male.target_from
+    } else {
+        0.0
+    };
+    let slope = male.target_slope * since;
+    let delta = if slope < male.target_cap {
+        slope
+    } else {
+        male.target_cap
+    };
+    let target = age - delta;
+    if target > male.target_min {
+        target
+    } else {
+        male.target_min
+    }
+}
+
+/// His utility for her proposal (11.2a): `U_m = −w_K · dK² − w_H · dH² − w_am · d² + G_m`,
+/// `d` her age minus his target age (taste included); `differences` as in [`utility`], and a
+/// trait the data do not name drops its term for him as for her (11.1). No kinship term.
+fn male_utility(
+    data: &Data,
+    male: &MaleAnswer,
+    differences: [Option<f64>; 2],
+    distance: f64,
+    noise: f64,
+) -> f64 {
+    let market = data.demography().market;
+    let similarity = [market.weight_cognition, market.weight_height]
+        .into_iter()
+        .zip(differences)
+        .filter_map(|(weight, difference)| difference.map(|x| weight * (x * x)));
+    let mut penalties = similarity.chain([male.weight_age * (distance * distance)]);
+    let first = penalties
+        .next()
+        .unwrap_or_else(|| panic!("invariant market.male_utility"));
+    let u = penalties.fold(-first, |sum, penalty| sum - penalty) + noise;
+    if !u.is_finite() {
+        panic!("invariant market.male_utility");
+    }
+    u
+}
+
+/// Whether the partnership forms (11.2a): the chosen man must still be single, and with the
+/// group of six values he answers, `U_m > 0` (strictly). Without it he does not answer. A
+/// man who is taken is not asked, so `utility` (which draws his noise) runs only for a single
+/// man.
+fn accepted(
+    single: bool,
+    male: Option<&MaleAnswer>,
+    utility: impl FnOnce(&MaleAnswer) -> f64,
+) -> bool {
+    single && male.is_none_or(|male| utility(male) > 0.0)
 }
 
 /// The utility of a candidate (11.2): `U = −w_K · dK² − w_H · dH² − w_a · (Δa − μ_a)² −
@@ -256,12 +350,17 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
             }
             candidates.push((man, his_key, kinship));
         }
-        // 5. and 6. The largest utility; on a tie the earlier in the list.
+        // 5. and 6. The largest utility; on a tie the earlier in the list. Her taste moves
+        // her target age, `t_f = a_f + μ_a + ν`, so the gap she compares with `μ_a` is
+        // `Δa − ν` (11.2a).
         let her_age = super::disease::age(born_of(domain, woman), now);
         let hers = compared(domain, data, woman, now);
+        let nu = market.male.map_or(0.0, |male| {
+            taste(Lot::of(domain, woman).seed(data), her_key, male.taste_sd)
+        });
         let mut best: Option<(f64, SimId, LineageKey)> = None;
         for (man, his_key, kinship) in candidates {
-            let gap = super::disease::age(born_of(domain, man), now) - her_age;
+            let gap = super::disease::age(born_of(domain, man), now) - her_age - nu;
             let his = compared(domain, data, man, now);
             let differences = [0, 1].map(|n| hers[n].zip(his[n]).map(|(a, b)| a - b));
             let noise = draws.gumbel(noise_key(her_key, month, his_key));
@@ -273,17 +372,34 @@ pub(crate) fn on_round(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'
         let Some((_, man, his_key)) = best else {
             continue;
         };
-        // No second try: a man chosen earlier in this round is no longer single.
-        if !single(domain, man) {
+        // 7. No second try: a man chosen earlier in this round is no longer single and is
+        // not asked. With the group he answers (11.2a); a refusal ends her round, it is no
+        // state and no event.
+        let answers = |male: &MaleAnswer| {
+            let born = born_of(domain, man);
+            let his_age = super::disease::age(born, now);
+            let target = male_target(male, his_age)
+                + taste(Lot::of(domain, man).seed(data), his_key, male.taste_sd);
+            let his = compared(domain, data, man, now);
+            let differences = [0, 1].map(|n| hers[n].zip(his[n]).map(|(a, b)| a - b));
+            let noise = draws.gumbel(accept_key(his_key, month, her_key));
+            male_utility(data, male, differences, her_age - target, noise)
+        };
+        if !accepted(single(domain, man), market.male.as_ref(), answers) {
             continue;
         }
         let rule = Code::new("core:partner_market")
             .unwrap_or_else(|_| panic!("invariant market.rule_code"));
-        let causes = Causes::new(ctx.trigger())
+        let mut causes = Causes::new(ctx.trigger())
             .with(Cause::Rule(rule))
             .with(Cause::Random(DrawRef::from(noise_key(
                 her_key, month, his_key,
             ))));
+        if market.male.is_some() {
+            causes = causes.with(Cause::Random(DrawRef::from(accept_key(
+                his_key, month, her_key,
+            ))));
+        }
         partnership::pair_and_move(domain, data, (woman, man), causes, ctx);
     }
 }
@@ -307,7 +423,6 @@ fn born_of(domain: &DomainState, sim: SimId) -> SimTime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::demography::MaleAnswer;
 
     /// "From 16 on" is from the 16th birthday on, in seconds (11.1): a year has
     /// `YEAR` seconds.

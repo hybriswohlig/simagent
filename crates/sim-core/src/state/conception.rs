@@ -130,6 +130,12 @@ impl Lot {
         }
     }
 
+    /// The seed of its draws: the world seed of a town person, the pool's of a pool person
+    /// (the seed half of [`Lot::wish_of`]; the taste of the partner market draws with it, 11.2a).
+    pub(crate) fn seed(self, data: &Data) -> u64 {
+        self.wish_of(data).0
+    }
+
     /// The seed of its draws and the wish shape and tilt it reads.
     fn wish_of(self, data: &Data) -> (u64, &[f64], f64) {
         match self {
