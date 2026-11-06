@@ -91,6 +91,21 @@ function clear(point: Point, box: Box): boolean {
   return Math.hypot(dx, dy) >= DOT - 1e-9;
 }
 
+/** Of `places` (the nearest first), the one farthest from every point of `others`, the first of
+ * equals; `undefined` for no place. */
+function roomiest(places: readonly Point[], others: readonly Point[]): Point | undefined {
+  let best: Point | undefined;
+  let room = -1;
+  for (const place of places) {
+    const near = Math.min(Infinity, ...others.map((other) => Math.hypot(other.x - place.x, other.y - place.y)));
+    if (near > room + 1e-9) {
+      best = place;
+      room = near;
+    }
+  }
+  return best;
+}
+
 /** Where someone at object `index` stands: on its middle where the dot fits on it (a bed, the
  * sofa, the table), else in front of it (the fourth playtest: dots over the television and the
  * wall): on the side toward the middle of its room, across the thin side (the height first),
@@ -135,8 +150,9 @@ function atObject(layout: HouseLayout, drawn: Plan, index: number, name: Box | u
  * the right, the left, below, above, then at the corners, then twice as far. One in a room
  * stays inside it, and one who does nothing or stands in front of a thing stays off the
  * furniture and off every name in `shown` (the fourth playtest), where no place around is so at
- * the nearest such place of the room (`grid`); failing that, the same without the names; where
- * none is so, the first place around that covers nobody. */
+ * the nearest such place of the room (`grid`); failing that, the same without the names. One in
+ * a room where no place inside it covers nobody stands inside it where it is farthest from the
+ * others; one on the way, at the first place around that covers nobody. */
 export function spots(
   layout: HouseLayout,
   persons: readonly Drawn[],
@@ -177,7 +193,8 @@ export function spots(
     const id = room === null ? null : layout.rooms[room]?.id;
     const fits = (spot: Point) =>
       box === null || (within(spot, box) && (!floor || things.every((thing) => thing.room !== id || clear(spot, thing.box))));
-    const unnamed = (spot: Point) => shown.every((name) => clear(spot, name));
+    // The names count only for one on the floor (idle or in front of a thing).
+    const unnamed = (spot: Point) => !floor || shown.every((name) => clear(spot, name));
     const around = ring.map(([dx, dy]) => ({ x: point.x + dx * SPREAD, y: point.y + dy * SPREAD }));
     const roomy = (spot: Point) => free(spot) && fits(spot);
     const best = (spot: Point) => roomy(spot) && unnamed(spot);
@@ -187,6 +204,7 @@ export function spots(
         elsewhere(best) ??
         around.find(roomy) ??
         elsewhere(roomy) ??
+        (box === null ? undefined : roomiest(grid(box, point), out)) ??
         around.find(free) ??
         around[around.length - 1] ??
         point,
