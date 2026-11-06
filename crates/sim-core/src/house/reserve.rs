@@ -37,20 +37,6 @@ pub struct Drain {
     pub asleep: [i32; 4],
 }
 
-/// The values of the decision (ADR-0026, addendum of 2026-11-06 on hunger at 0). They move into
-/// `day.json` with the next change of the data.
-pub const RULES: ReserveRules = ReserveRules {
-    capacity: [500, 1000, 1500],
-    drain: Drain {
-        awake: [-80, -60, -40, -50],
-        asleep: [-32, -24, -16, -20],
-    },
-    refill: 960,
-    weak_energy: -40,
-    wasted_energy: -80,
-    walk_factor: 2,
-};
-
 /// How a person stands with its reserve: hunger is at 0 and does not rise, and the reserve is
 /// above half (`Draws`, "zehrt am Vorrat"), at half or below and above 0 (`Weak`,
 /// "geschwächt"), or at 0 (`Wasted`, "ausgezehrt"). A code of the house answer.
@@ -210,7 +196,23 @@ pub struct Doing {
     pub empty: bool,
 }
 
+/// The most times a walk's seconds a weak person may take.
+const MOST_WALK_FACTOR: u32 = 10;
+
 impl ReserveRules {
+    /// Whether the values hold together (`house.day_reserve`): the capacities rise from at least 2,
+    /// so each half lies above 0; the drain falls in every band, awake and asleep; the refill
+    /// rises; the energy extras are at most 0, the wasted one at most the weak one; the walk
+    /// factor lies from 1 to 10.
+    pub(crate) fn valid(&self) -> bool {
+        let [thin, ordinary, heavy] = self.capacity;
+        let sizes = 2 <= thin && thin < ordinary && ordinary < heavy;
+        let drains = (self.drain.awake.iter().chain(&self.drain.asleep)).all(|&rate| rate < 0);
+        let extras = self.wasted_energy <= self.weak_energy && self.weak_energy <= 0;
+        let walks = (1..=MOST_WALK_FACTOR).contains(&self.walk_factor);
+        sizes && drains && self.refill > 0 && extras && walks
+    }
+
     /// The capacity of the size `size` (0 thin, 1 ordinary, 2 heavy).
     pub fn capacity_of(&self, size: usize) -> u16 {
         self.capacity[size]
@@ -265,6 +267,41 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+
+    /// The values of the decision, as `data/house/day.json` holds them.
+    const RULES: ReserveRules = ReserveRules {
+        capacity: [500, 1000, 1500],
+        drain: Drain {
+            awake: [-80, -60, -40, -50],
+            asleep: [-32, -24, -16, -20],
+        },
+        refill: 960,
+        weak_energy: -40,
+        wasted_energy: -80,
+        walk_factor: 2,
+    };
+
+    #[test]
+    fn the_rules_of_the_day_file_are_the_decision() {
+        let day: crate::house::data::DayRules =
+            serde_json::from_str(include_str!("../../../../data/house/day.json")).expect("the day");
+        assert_eq!(day.reserve, RULES);
+        assert!(RULES.valid());
+        let changed = |change: fn(&mut ReserveRules)| {
+            let mut rules = RULES.clone();
+            change(&mut rules);
+            rules.valid()
+        };
+        assert!(!changed(|rules| rules.capacity = [1, 1000, 1500]));
+        assert!(!changed(|rules| rules.capacity = [500, 500, 1500]));
+        assert!(!changed(|rules| rules.drain.asleep[3] = 0));
+        assert!(!changed(|rules| rules.refill = 0));
+        assert!(!changed(|rules| rules.weak_energy = 1));
+        assert!(!changed(|rules| rules.wasted_energy = -39));
+        assert!(!changed(|rules| rules.walk_factor = 0));
+        assert!(!changed(|rules| rules.walk_factor = 11));
+        assert!(changed(|rules| rules.walk_factor = 1));
+    }
 
     const fn t(secs: i64) -> SimTime {
         SimTime::from_secs(secs)

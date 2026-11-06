@@ -10,6 +10,7 @@ use sim_core::house::data::{
     DayRules, Hours, HouseData, HouseError, NeedJumps, NightRules, SchoolRules, WorkRules,
     YoungRules, ZeroRules,
 };
+use sim_core::house::reserve::{Drain, ReserveRules};
 
 /// The repository's `day.json` (ADR-0024 section 4).
 const DAY: &str = include_str!("../../../data/house/day.json");
@@ -632,6 +633,21 @@ fn the_repository_day_loads() {
         // A time-filler is taken only with 10 minutes left (ADR-0026, addendum of 2026-11-05 on
         // the time-filler's length).
         fallback_min_seconds: 600,
+        // The reserve at hunger 0 (ADR-0026, addendum of 2026-11-06 on hunger at 0): 500, 1 000
+        // or 1 500 by the body's fat; at hunger 0 it falls 80, 60, 40, 50 an hour awake and two
+        // fifths of that asleep, eating fills it 960 an hour; weak, energy falls 40 an hour more,
+        // wasted 80, and a walk takes twice as long.
+        reserve: ReserveRules {
+            capacity: [500, 1000, 1500],
+            drain: Drain {
+                awake: [-80, -60, -40, -50],
+                asleep: [-32, -24, -16, -20],
+            },
+            refill: 960,
+            weak_energy: -40,
+            wasted_energy: -80,
+            walk_factor: 2,
+        },
     };
     assert_eq!(*data.day(), expected);
 }
@@ -872,12 +888,58 @@ fn the_day_rejects() {
     });
     assert_eq!(shorter, "house.day_fallback");
     assert!(least(-1).contains("invalid value"));
+    // The reserve (ADR-0026, addendum of 2026-11-06 on hunger at 0): capacities rising from 2,
+    // a drain falling in every band, a refill rising, extras at most 0 with the wasted one at
+    // most the weak one, a walk factor from 1 to 10.
+    let reserve = |change: fn(&mut Value)| day_checked(move |d| change(&mut d["reserve"]));
+    assert_eq!(reserve(|r| r["capacity"] = json!([2, 3, 4])), "ok");
+    assert_eq!(
+        reserve(|r| r["capacity"] = json!([1, 3, 4])),
+        "house.day_reserve"
+    );
+    assert_eq!(
+        reserve(|r| r["capacity"] = json!([500, 500, 1500])),
+        "house.day_reserve"
+    );
+    assert_eq!(
+        reserve(|r| r["capacity"] = json!([500, 1500, 1000])),
+        "house.day_reserve"
+    );
+    assert_eq!(
+        reserve(|r| r["drain"]["awake"][1] = json!(0)),
+        "house.day_reserve"
+    );
+    assert_eq!(
+        reserve(|r| r["drain"]["asleep"][3] = json!(1)),
+        "house.day_reserve"
+    );
+    assert_eq!(reserve(|r| r["refill"] = json!(0)), "house.day_reserve");
+    assert_eq!(reserve(|r| r["weak_energy"] = json!(0)), "ok");
+    assert_eq!(
+        reserve(|r| r["weak_energy"] = json!(1)),
+        "house.day_reserve"
+    );
+    assert_eq!(reserve(|r| r["wasted_energy"] = json!(-40)), "ok");
+    assert_eq!(
+        reserve(|r| r["wasted_energy"] = json!(-39)),
+        "house.day_reserve"
+    );
+    assert_eq!(reserve(|r| r["walk_factor"] = json!(1)), "ok");
+    assert_eq!(reserve(|r| r["walk_factor"] = json!(10)), "ok");
+    assert_eq!(
+        reserve(|r| r["walk_factor"] = json!(0)),
+        "house.day_reserve"
+    );
+    assert_eq!(
+        reserve(|r| r["walk_factor"] = json!(11)),
+        "house.day_reserve"
+    );
 
     // The first check that fails decides, in the order time, wake, age, share, jump, night,
-    // a need at 0, the mood, the time-filler.
+    // a need at 0, the mood, the time-filler, the reserve.
     let broken = |checks: usize| {
         day_checked(move |d| {
-            let breaks: [fn(&mut Value); 9] = [
+            let breaks: [fn(&mut Value); 10] = [
                 |d| d["school"]["depart"] = json!(55_200),
                 |d| d["wake_before"] = json!(10_000),
                 |d| d["school"]["until_age"] = json!(19),
@@ -887,14 +949,16 @@ fn the_day_rejects() {
                 |d| d["zero"]["stand_up_at"] = json!(0),
                 |d| d["choice_mood_percent"] = json!(51),
                 |d| d["fallback_max_seconds"] = json!(0),
+                |d| d["reserve"]["refill"] = json!(0),
             ];
-            breaks.iter().skip(9 - checks).for_each(|change| change(d));
+            breaks.iter().skip(10 - checks).for_each(|change| change(d));
         })
     };
-    let codes: Vec<String> = (1..=9).map(broken).collect();
+    let codes: Vec<String> = (1..=10).map(broken).collect();
     assert_eq!(
         codes,
         [
+            "house.day_reserve",
             "house.day_fallback",
             "house.day_mood",
             "house.day_zero",
@@ -920,6 +984,10 @@ fn the_day_rejects() {
     assert!(unknown(day_checked(|d| d["young"]["x"] = json!(1))));
     assert!(unknown(day_checked(|d| d["night"]["x"] = json!(1))));
     assert!(unknown(day_checked(|d| d["zero"]["x"] = json!(1))));
+    assert!(unknown(day_checked(|d| d["reserve"]["x"] = json!(1))));
+    assert!(unknown(day_checked(
+        |d| d["reserve"]["drain"]["x"] = json!(1)
+    )));
     let missing = day_checked(|d| {
         d.as_object_mut().expect("the day").remove("wake_before");
     });
@@ -951,6 +1019,10 @@ fn the_day_rejects() {
             .remove("fallback_min_seconds");
     });
     assert!(no_least.contains("missing field"), "{no_least}");
+    let no_reserve = day_checked(|d| {
+        d.as_object_mut().expect("the day").remove("reserve");
+    });
+    assert!(no_reserve.contains("missing field"), "{no_reserve}");
 
     assert_eq!(HouseError::DayTime.to_string(), "house.day_time");
     assert_eq!(HouseError::DayJump.to_string(), "house.day_jump");
@@ -958,6 +1030,7 @@ fn the_day_rejects() {
     assert_eq!(HouseError::DayZero.to_string(), "house.day_zero");
     assert_eq!(HouseError::DayMood.to_string(), "house.day_mood");
     assert_eq!(HouseError::DayFallback.to_string(), "house.day_fallback");
+    assert_eq!(HouseError::DayReserve.to_string(), "house.day_reserve");
     assert_eq!(HouseError::BedFor.to_string(), "house.bed_for");
     assert_eq!(HouseError::DwellRoom.to_string(), "house.dwell_room");
 }

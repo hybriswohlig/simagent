@@ -981,6 +981,17 @@ DAY_FORMAT = {
     # The least time left for a time-filler to be taken (its addendum of 2026-11-05 on the
     # time-filler's length).
     "fallback_min_seconds": U32,
+    # The reserve at hunger 0 (its addendum of 2026-11-06 on hunger at 0): the capacities of a
+    # thin, an ordinary and a heavy body, the drain per age band awake and asleep, the refill, the
+    # energy's extra when weak and when wasted, the walk factor.
+    "reserve": {
+        "capacity": (U16, 3),
+        "drain": {"awake": (I32, 4), "asleep": (I32, 4)},
+        "refill": I32,
+        "weak_energy": I32,
+        "wasted_energy": I32,
+        "walk_factor": U32,
+    },
 }
 SECONDS_OF_DAY = 86_400
 
@@ -1057,8 +1068,11 @@ def day_checked(day: dict) -> None:
     of 2026-11-04 on a need at 0: energy rising on the floor, the level to get up at from 1 to
     1000, the accident's hygiene at most 1000, the change of fun at hygiene 0 from -1000 to 0),
     the mood (at most 50 percent either way), the longest time-filler (60 s to 12 h, as an
-    offer's length; its addendum on comfort and the time-filler) and the least time left for one
-    at most that (its addendum of 2026-11-05 on the time-filler's length)."""
+    offer's length; its addendum on comfort and the time-filler), the least time left for one
+    at most that (its addendum of 2026-11-05 on the time-filler's length) and the reserve at
+    hunger 0 (its addendum of 2026-11-06: the capacities rising from 2, the drain below 0 in every
+    band, the refill above 0, the extras at most 0 and the wasted one at most the weak one, the
+    walk factor from 1 to 10)."""
     day_fields(day, DAY_FORMAT)
     school, work, young, jumps = day["school"], day["work"], day["young"], day["return_jumps"]
     hours = [(school["depart"], school["back"])] + [(work[k]["depart"], work[k]["back"]) for k in ("full_time", "part_time")]
@@ -1094,6 +1108,15 @@ def day_checked(day: dict) -> None:
     assert day["choice_mood_percent"] <= 50, "house.day_mood"
     assert 60 <= day["fallback_max_seconds"] <= 43_200, "house.day_fallback"
     assert day["fallback_min_seconds"] <= day["fallback_max_seconds"], "house.day_fallback"
+    reserve = day["reserve"]
+    thin, ordinary, heavy = reserve["capacity"]
+    assert (
+        2 <= thin < ordinary < heavy
+        and all(rate < 0 for rate in reserve["drain"]["awake"] + reserve["drain"]["asleep"])
+        and reserve["refill"] > 0
+        and reserve["wasted_energy"] <= reserve["weak_energy"] <= 0
+        and 1 <= reserve["walk_factor"] <= 10
+    ), "house.day_reserve"
 
 
 def houses_checked(needs, day, kinds, houses):
@@ -1243,7 +1266,10 @@ def houses_suffix(files) -> bytes:
     kita_to: u32, bed_from: u32, bed_to: u32 }, night: NightRules { from: [u32; 4], until: [u32;
     4], until_weekend: [u32; 4] }, zero: ZeroRules { collapse_energy_rate: i32, stand_up_at: u16, accident_hygiene_at_most:
     u16, hygiene_empty_fun: i32 }, choice_mood_percent: u8, fallback_max_seconds: u32,
-    fallback_min_seconds: u32 }` (ADR-0024 section 4; the night of
+    fallback_min_seconds: u32, reserve: ReserveRules { capacity: [u16; 3], drain: Drain { awake:
+    [i32; 4], asleep: [i32; 4] }, refill: i32, weak_energy: i32, wasted_energy: i32, walk_factor:
+    u32 } }` (ADR-0024 section 4; the reserve at hunger 0 of ADR-0026, addendum of 2026-11-06,
+    fixed arrays as their elements; the night of
     ADR-0026, its addendum of 2026-11-04: a fixed array as its four elements, no length; a need
     at 0 and the mood of its addenda of 2026-11-04; the weekend's end of the night of its addendum
     after the playtest; the longest time-filler of its addendum on comfort and the time-filler,
@@ -1277,6 +1303,11 @@ def houses_suffix(files) -> bytes:
     out += varint(zero["accident_hygiene_at_most"]) + zigzag(zero["hygiene_empty_fun"])
     out += u8(day["choice_mood_percent"]) + varint(day["fallback_max_seconds"])
     out += varint(day["fallback_min_seconds"])
+    reserve = day["reserve"]
+    out += b"".join(varint(capacity) for capacity in reserve["capacity"])
+    out += b"".join(zigzag(rate) for column in ("awake", "asleep") for rate in reserve["drain"][column])
+    out += zigzag(reserve["refill"]) + zigzag(reserve["weak_energy"]) + zigzag(reserve["wasted_energy"])
+    out += varint(reserve["walk_factor"])
     out += varint(len(kinds))
     for kind in kinds:
         out += string(kind["id"]) + u8(kind["slots"]) + varint(len(kind["offers"]))
