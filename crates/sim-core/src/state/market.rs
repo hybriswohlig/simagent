@@ -307,6 +307,7 @@ fn born_of(domain: &DomainState, sim: SimId) -> SimTime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::demography::MaleAnswer;
 
     /// "From 16 on" is from the 16th birthday on, in seconds (11.1): a year has
     /// `YEAR` seconds.
@@ -362,5 +363,165 @@ mod tests {
             utility(&data, [None, None], 10.0, 0.031_25, -2.0),
             -3.715_214_546_497_022_8
         );
+    }
+
+    /// The spec values of the group (11.2a): slope 0.4, from 22, cap 15, minimum 21, his
+    /// weight 0.02, taste 3.
+    fn male() -> MaleAnswer {
+        MaleAnswer {
+            taste_sd: 3.0,
+            target_slope: 0.4,
+            target_from: 22.0,
+            target_cap: 15.0,
+            target_min: 21.0,
+            weight_age: 0.02,
+        }
+    }
+
+    fn near(x: f64, y: f64) -> bool {
+        (x - y).abs() <= 1e-12
+    }
+
+    /// His target age without taste, by hand from 11.2a: `δ = min(0.4 · max(a − 22, 0), 15)`,
+    /// `t = max(a − δ, 21)`. 16 and 21: δ = 0, so the minimum 21. 25: δ = 1.2, 23.8 [W11.2d].
+    /// 30: δ = 3.2, 26.8. 40: δ = 7.2, 32.8 [W11.2e]. 50: δ = 11.2, 38.8. 60: δ = 15.2 held at
+    /// the cap 15, 45 [W11.2f]. 70: δ = 15, 55. Ages are continuous: 21.5 is before the
+    /// slope (δ = 0) and above the minimum, 59.5 is where the slope meets the cap.
+    #[test]
+    fn the_mans_target_age_rises_with_his_age() {
+        for (age, target) in [
+            (16.0, 21.0),
+            (21.0, 21.0),
+            (21.5, 21.5),
+            (22.0, 22.0),
+            (25.0, 23.8),
+            (30.0, 26.8),
+            (40.0, 32.8),
+            (50.0, 38.8),
+            (59.5, 44.5),
+            (60.0, 45.0),
+            (70.0, 55.0),
+        ] {
+            assert!(
+                near(male_target(&male(), age), target),
+                "{age}: {}",
+                male_target(&male(), age)
+            );
+        }
+    }
+
+    /// The taste is added after the minimum: a boy of 16 with `ν` = −4 aims at 21 − 4 = 17,
+    /// a man of 40 with `ν` = 2.5 at 32.8 + 2.5 = 35.3.
+    #[test]
+    fn the_taste_moves_the_target_after_the_minimum() {
+        assert!(near(male_target(&male(), 16.0) + -4.0, 17.0));
+        assert!(near(male_target(&male(), 40.0) + 2.5, 35.3));
+    }
+
+    /// `U_m = −w_K · dz_K² − w_H · dz_h² − w_am · (a_f − t_m)² + G_m` with `w_K` = 0.377 and
+    /// `w_H` = 0.164 (the repository's fitted weights) and `w_am` = 0.02. She is 20 and he aims
+    /// at 23.8, so `d` = −3.8 and the age term is 0.02 · 14.44 = 0.2888. With `dz_K` = 1 and
+    /// `dz_h` = 2 the traits cost 0.377 + 0.164 · 4 = 1.033, together 1.3218.
+    #[test]
+    fn the_man_accepts_when_his_utility_is_above_zero() {
+        let data = crate::data::testing::data();
+        let u = |differences, noise| male_utility(&data, &male(), differences, -3.8, noise);
+        let both = [Some(1.0), Some(2.0)];
+        assert!(near(u(both, 2.0), 0.6782));
+        assert!(near(u(both, 1.3), -0.0218));
+        // A trait the data do not name drops its term (11.1): height only, 0.164 · 4 + 0.2888.
+        assert!(near(u([None, Some(2.0)], 1.0), 1.0 - 0.656 - 0.2888));
+        // No trait at all: the age term alone.
+        assert!(near(u([None, None], 0.29), 0.29 - 0.2888));
+        assert!(near(u([None, None], 0.28), 0.28 - 0.2888));
+        assert!(u(both, 2.0) > 0.0 && u(both, 1.3) <= 0.0);
+        assert!(u([None, None], 0.29) > 0.0 && u([None, None], 0.28) <= 0.0);
+    }
+
+    /// Without the group the chosen man does not answer: he forms the partnership if he is
+    /// single, and nothing is drawn. With it, only a man who is still single is asked: a taken
+    /// man is neither asked nor drawn for, and the answer is strict, `U_m > 0`.
+    #[test]
+    fn only_a_single_man_answers_and_only_by_a_utility_above_zero() {
+        use core::cell::Cell;
+        let male = male();
+        let asked = Cell::new(0_u32);
+        let utility = |u: f64| {
+            let asked = &asked;
+            move |_: &MaleAnswer| {
+                asked.set(asked.get() + 1);
+                u
+            }
+        };
+        assert!(accepted(true, None, |_| panic!("no group, no answer")));
+        assert!(!accepted(false, None, |_| panic!("no group, no answer")));
+        assert!(!accepted(false, Some(&male), utility(5.0)));
+        assert_eq!(asked.get(), 0, "a taken man draws nothing");
+        assert!(accepted(true, Some(&male), utility(0.5)));
+        assert_eq!(asked.get(), 1);
+        assert!(!accepted(true, Some(&male), utility(0.0)));
+        assert!(!accepted(true, Some(&male), utility(-0.5)));
+        assert_eq!(asked.get(), 3);
+    }
+
+    /// Two new addresses (11.7): his Gumbel is addressed by his key, the month and her key;
+    /// the taste by the person alone.
+    #[test]
+    fn the_new_draws_are_addressed_as_the_specification_says() {
+        let (her, his) = (
+            LineageKey::founder(&data_id("test:a"), 0),
+            LineageKey::founder(&data_id("test:a"), 1),
+        );
+        assert_eq!(
+            accept_key(his, 7, her),
+            DrawKey {
+                tag: tags::PAIRING_ACCEPT,
+                subject: SubjectKey::from(his),
+                occasion: 7,
+                detail: her.get(),
+            }
+        );
+        assert_ne!(accept_key(his, 7, her), noise_key(her, 7, his));
+        assert_eq!(
+            taste_key(her),
+            DrawKey {
+                tag: tags::PAIRING_TASTE,
+                subject: SubjectKey::from(her),
+                occasion: 0,
+                detail: 0,
+            }
+        );
+    }
+
+    fn data_id(text: &str) -> crate::data_id::DataId {
+        crate::data_id::DataId::new(text).unwrap_or_else(|_| panic!("a data id"))
+    }
+
+    /// The taste is `normal(0, σ_ν)` at the key of the person with the seed of its lot: a pure
+    /// function. Values of the independent draws of `tools/rng_reference.py` for the
+    /// founders 1 and 0 of `test:answer` (seed 0xff, σ_ν = 3): 5.400892368330496 and
+    /// −5.1569021306108365. The scale is exact (`0 + σ · z`), another seed or person draws
+    /// another number.
+    #[test]
+    fn the_taste_is_a_pure_normal_draw_of_the_lots_seed() {
+        let id = data_id("test:answer");
+        let (hers, his) = (LineageKey::founder(&id, 0), LineageKey::founder(&id, 1));
+        assert!((taste(0xff, his, 3.0) - 5.400_892_368_330_496).abs() <= 1e-12);
+        assert!((taste(0xff, hers, 3.0) - -5.156_902_130_610_836_5).abs() <= 1e-12);
+        assert_eq!(taste(0xff, his, 3.0), taste(0xff, his, 3.0));
+        assert_eq!(taste(0xff, his, 3.0), 3.0 * taste(0xff, his, 1.0));
+        assert_eq!(taste(0xff, his, 0.0), 0.0);
+        assert_ne!(taste(0xfe, his, 3.0), taste(0xff, his, 3.0));
+        assert_ne!(taste(0xff, hers, 3.0), taste(0xff, his, 3.0));
+    }
+
+    /// A person of the town draws its taste with the world seed (ADR-0020 section 5, as the
+    /// wish does). A person of the pool draws with the pool's seed: that is the other branch
+    /// of `Lot::wish_of`, the seed half of which `Lot::seed` returns unchanged.
+    #[test]
+    fn a_town_born_person_draws_with_the_world_seed() {
+        let data = crate::data::testing::data();
+        assert_eq!(crate::state::conception::Lot::Town(0xff).seed(&data), 0xff);
+        assert_eq!(crate::state::conception::Lot::Town(7).seed(&data), 7);
     }
 }
