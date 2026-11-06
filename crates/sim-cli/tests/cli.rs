@@ -1604,8 +1604,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 60, "the core version in the header of the save");
-    bytes[9] = 61;
+    assert_eq!(bytes[9], 61, "the core version in the header of the save");
+    bytes[9] = 62;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),

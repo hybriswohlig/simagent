@@ -268,7 +268,7 @@ fn a_village_of_48_years_reads_as_the_reference_reads_it() {
     assert_eq!(text.len(), 69_920);
     let masked = masked(&text);
     assert_eq!(masked.len(), 60_190);
-    assert_eq!(stable_hash64(masked.as_bytes()), 0x3d60_f27e_e985_980d);
+    assert_eq!(stable_hash64(masked.as_bytes()), 0x0047_3441_62c1_ed9d);
     let measured = measure(&text).expect("a measure");
     let block = &measured.block;
     assert_eq!(block["end_years"], 48);
