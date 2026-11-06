@@ -132,6 +132,15 @@ group: none of them and exactly 22 values (the rule without an extra child), or 
 exactly 26 (`extra_child`). A directory without the overlay file has none, and its hash is the
 one before.
 
+The man's answer and the target ages (genetics specification 11.2a, ADR-0018, addendum of
+2026-11-06) are a second group of six values in the overlay, `core:pairing_taste_sd` (year, in
+[0, 50]), `core:pairing_male_target_slope` (ratio, in [0, 1]), `core:pairing_male_target_from`,
+`..._cap` and `..._min` (year, in (0, 150]) and `core:pairing_weight_age_male` (logit, in
+(0, 1e6]): none of them or all six (`male_answer`; some but not all is `CalibrationMissing`), and
+the count of values is 22, plus 4 with the extra child, plus 6 with this group
+(`expected_values`). The values go into the hash like any other (the `values` map sorted by key),
+so only the presence of the keys changes it.
+
 Usage: python3 tools/data_reference.py [DATA_DIR]
        (with DATA_DIR/pool/: the definitions' hash, the data hash with the pool, its
        frequencies and, with DATA_DIR/shocks.json, the templates; the pool's seed, hash,
@@ -312,19 +321,47 @@ EXTRA_CHILD = (
 GROWN_CHANCE = "core:fertility_grown_chance"
 
 
+# The man's answer and the target ages (genetics specification 11.2a, ADR-0018 addendum of
+# 2026-11-06): six values, one group. Key, unit, kind of range as the loader reads it:
+# `closed` is [low, high], `open_low` is (low, high].
+MALE_ANSWER = (
+    ("core:pairing_taste_sd", "year", "closed", 0.0, 50.0),
+    ("core:pairing_male_target_slope", "ratio", "closed", 0.0, 1.0),
+    ("core:pairing_male_target_from", "year", "open_low", 0.0, 150.0),
+    ("core:pairing_male_target_cap", "year", "open_low", 0.0, 150.0),
+    ("core:pairing_male_target_min", "year", "open_low", 0.0, 150.0),
+    ("core:pairing_weight_age_male", "logit", "open_low", 0.0, 1e6),
+)
+
+
+def expected_values(values) -> int:
+    """The count of values the loader accepts for this map: 22, plus 4 with the extra child's
+    group, plus 6 with the man's group (a group counts when any of its keys is there; a partial
+    group is an error of its own)."""
+    keys = [key for key, _, _, _ in EXTRA_CHILD] + [GROWN_CHANCE]
+    count = DEMOGRAPHY_VALUES
+    if any(key in values for key in keys):
+        count += len(keys)
+    if any(key in values for key, *_ in MALE_ANSWER):
+        count += len(MALE_ANSWER)
+    return count
+
+
 def extra_child(values) -> "tuple | None":
     """The group of the extra child from a `values` map (text stripped or not): None without
     any of its four keys, else `(count_until, extra, grown_from, grown_chance)`, the first three
     whole numbers, each of its unit and in its range, the chance a fraction in [0, 1]. Some but
     not all of them is an error (`data.calibration_missing` in the core), as is a count of
-    values other than 22 without the group or 26 with it (`data.calibration_unknown`)."""
+    values other than 22 + 4 with the extra child's group + 6 with the man's group
+    (`data.calibration_unknown`); the man's group is checked here as well (`male_answer`)."""
     keys = [key for key, _, _, _ in EXTRA_CHILD] + [GROWN_CHANCE]
     present = [key for key in keys if key in values]
+    if present:
+        assert len(present) == len(keys), f"the extra child is a group: only {present}"
+    male_answer(values)
+    assert len(values) == expected_values(values), f"{len(values)} values, expected {expected_values(values)}"
     if not present:
-        assert len(values) == DEMOGRAPHY_VALUES, f"{len(values)} values without the extra child"
         return None
-    assert len(present) == len(keys), f"the extra child is a group: only {present}"
-    assert len(values) == DEMOGRAPHY_VALUES + len(keys), f"{len(values)} values with the extra child"
     out = []
     for key, unit, low, high in EXTRA_CHILD:
         entry = values[key]
@@ -337,6 +374,30 @@ def extra_child(values) -> "tuple | None":
     chance = float(entry["value"])
     assert 0.0 <= chance <= 1.0, (GROWN_CHANCE, chance)
     out.append(chance)
+    return tuple(out)
+
+
+def male_answer(values) -> "tuple | None":
+    """The man's group from a `values` map (11.2a): None without any of its six keys, else
+    `(taste_sd, target_slope, target_from, target_cap, target_min, weight_age)` as floats, each of
+    its unit and in its range (taste_sd [0, 50], slope [0, 1], from/cap/min (0, 150], weight
+    (0, 1e6]). Some but not all of the six is an error (`data.calibration_missing` in the core).
+    The count of values is checked in `extra_child` together with the extra child's."""
+    present = [key for key, *_ in MALE_ANSWER if key in values]
+    if not present:
+        return None
+    assert len(present) == len(MALE_ANSWER), f"the man's answer is a group: only {present}"
+    out = []
+    for key, unit, kind, low, high in MALE_ANSWER:
+        entry = values[key]
+        assert entry["unit"] == unit, (key, entry["unit"])
+        number = float(entry["value"])
+        assert math.isfinite(number), (key, number)
+        if kind == "closed":
+            assert low <= number <= high, (key, number)
+        else:
+            assert low < number <= high, (key, number)
+        out.append(number)
     return tuple(out)
 
 
@@ -1449,7 +1510,9 @@ def main(argv):
         else:
             game = game_documents(data_dir)
             listed = " ".join(f"{key}={entry['value']!r}" for key, entry in sorted(overlay["values"].items()))
-            print(f"game overlay {listed} extra_child {extra_child(game[0]['values'])} game_definitions_hash {documents_hash(*game):016x}")
+            male = male_answer(game[0]["values"])
+            tail = "" if male is None else f" male_answer {male}"
+            print(f"game overlay {listed} extra_child {extra_child(game[0]['values'])}{tail} game_definitions_hash {documents_hash(*game):016x}")
         # The shock templates (ADR-0023 section 3): the data hash above ends with them; the
         # hash of the definitions and the pool without them, for comparison.
         templates = shock_templates(data_dir)
