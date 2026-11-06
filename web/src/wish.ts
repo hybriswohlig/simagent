@@ -4,7 +4,8 @@ import { TEXT } from "./text.js";
 /** The sentences of the wish for children on a person page (ADR-0017, addendum of
  * 2026-11-05), as the core decides them: the drawn wish of the person, then, for its open
  * partnership, the first sentence that applies; none while she is pregnant (the pregnancy
- * has its own line). `{0}` is the woman of the couple, `{1}` the man. `name` gives the name
+ * has its own line). `{0}` is the woman of the couple, `{1}` the man; a grown child is one of
+ * the age the server names, the town's (`grown_at`). `name` gives the name
  * of a sim. Below the market age the core sends no wish, and there are none. */
 export function wishLines(person: string, shown: WishShown, name: (sim: number) => string): string[] {
   if (shown.wish === null) {
@@ -34,7 +35,7 @@ export function wishLines(person: string, shown: WishShown, name: (sim: number) 
       lines.push(fill(`${TEXT.wish_trying} ${TEXT.wish_his}`));
       break;
     case "grown":
-      lines.push(fill(`${TEXT.wish_trying} ${TEXT.wish_grown}`));
+      lines.push(fill(`${TEXT.wish_trying} ${TEXT.wish_grown.replace("{age}", String(couple.grown_at))}`));
       break;
     case "fulfilled":
       lines.push(fill(TEXT.wish_fulfilled));

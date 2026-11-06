@@ -69,11 +69,19 @@ struct Settled {
 /// the order of the page, each with what the base game's towns show of it where the value
 /// was fitted to that: the median age of women at their first partnership, 23.5 years, for
 /// the centre of their search, and the mean age gap, 3.0 years, for the preferred gap
-/// (`tools/life_reference.py` and the notes in `data/calibration/demography.json`).
-const FOUNDING: [(&str, Option<f64>); 3] = [
+/// (`tools/life_reference.py` and the notes in `data/calibration/demography.json`). Then the
+/// children's wish (ADR-0017, addendum of 2026-11-05): the tilt with the live births per
+/// woman reaching 50 it was fitted to, 2.2, and the four values of the extra child, none
+/// fitted to an outcome (the note of each in `data/calibration/demography_game.json`).
+const FOUNDING: [(&str, Option<f64>); 8] = [
     ("core:market_age", None),
     ("core:market_search_center_female", Some(23.5)),
     ("core:pairing_age_gap_preferred", Some(3.0)),
+    ("core:fertility_wish_tilt", Some(2.2)),
+    ("core:fertility_count_until", None),
+    ("core:fertility_extra", None),
+    ("core:fertility_grown_from", None),
+    ("core:fertility_grown_chance", None),
 ];
 
 /// [`FOUNDING`] as the run list names it, each with the base game's value from the

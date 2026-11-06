@@ -227,7 +227,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "CoupleWish",
-            doc: "The woman and the man of an open partnership and where their wish stands: her fertility over, she is pregnant, the pause after a birth, they try by her wish, by his or by a grown child of hers, or her wish is fulfilled.",
+            doc: "The woman and the man of an open partnership and where their wish stands: her fertility over, she is pregnant, the pause after a birth, they try by her wish, by his or by a grown child of hers, or her wish is fulfilled; with a grown child the age a child stops counting at, the town's (null otherwise).",
             fields: vec![
                 field("woman", Integer),
                 field("man", Integer),
@@ -243,6 +243,7 @@ pub fn descriptor() -> Vec<Named> {
                         "fulfilled",
                     ]),
                 ),
+                field("grown_at", nullable(Integer)),
             ],
         },
         Named {

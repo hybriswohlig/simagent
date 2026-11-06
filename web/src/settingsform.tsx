@@ -23,6 +23,7 @@ export function SettingsFields({
     <details>
       <summary>{TEXT.settings_own}</summary>
       <p>{TEXT.settings_note}</p>
+      <p>{TEXT.settings_wish_note}</p>
       {founding.map((value) => (
         <p key={value.key}>
           <label>

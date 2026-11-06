@@ -127,11 +127,12 @@ export type WishShown = {
   readonly couple: CoupleWish | null;
 };
 
-/** The woman and the man of an open partnership and where their wish stands: her fertility over, she is pregnant, the pause after a birth, they try by her wish, by his or by a grown child of hers, or her wish is fulfilled. */
+/** The woman and the man of an open partnership and where their wish stands: her fertility over, she is pregnant, the pause after a birth, they try by her wish, by his or by a grown child of hers, or her wish is fulfilled; with a grown child the age a child stops counting at, the town's (null otherwise). */
 export type CoupleWish = {
   readonly woman: number;
   readonly man: number;
   readonly state: "fertility_over" | "pregnant" | "pause" | "hers" | "his" | "grown" | "fulfilled";
+  readonly grown_at: number | null;
 };
 
 /** `GET /api/runs/{run}/people`: the living persons for finding them, each with its body now and its looks in words. */

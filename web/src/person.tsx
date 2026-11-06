@@ -57,7 +57,7 @@ function usePersonView(run: string, sim: string, at: string): Loaded<PersonAnswe
   useEffect(() => {
     let live = true;
     setLoaded({ state: "loading", key });
-    getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 3 })
+    getJson(`/api/runs/${run}/persons/${sim}`, { format: "simagent.view.person", version: 4 })
       .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
       .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
@@ -267,7 +267,7 @@ function KinForm({
     }
     let live = true;
     setLoaded({ state: "loading", key });
-    getJson(`/api/runs/${run}/persons/${sim}?to=${other}`, { format: "simagent.view.person", version: 3 })
+    getJson(`/api/runs/${run}/persons/${sim}?to=${other}`, { format: "simagent.view.person", version: 4 })
       .then((json) => live && setLoaded({ state: "ready", key, value: json as unknown as PersonAnswer }))
       .catch((error: unknown) => live && setLoaded({ state: "failed", key, text: failure(error) }));
     return () => {
