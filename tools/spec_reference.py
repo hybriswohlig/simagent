@@ -525,10 +525,14 @@ def section_5():
     put("W5.4d", nutrition_cohort_loss(k, mp.mpf("0.3"), 0), ("fix", 3))
     put("W5.4e", nutrition_cohort_loss(k, mp.mpf("0.3"), -2), ("fix", 3))
     put("W5.4f", nutrition_cohort_loss(k, mp.mpf("0.3"), -4), ("fix", 3))
-    # Fertility multipliers (5.6). Smoothstep midpoint is exact; the declines are linear.
-    put("W5.6a", mp.mpf("0.5"), ("fix", 1))
+    # Fertility multipliers (5.6). The ovulatory share 1 - 2^(-u / t50) is exactly 1/2 at u = t50;
+    # the declines are linear.
+    put("W5.6a", Fraction(1, 2), ("frac",))
     put("W5.6b", (mp.mpf("50") - 40) / 20, ("fix", 1))
     put("W5.6c", 1 + (mp.mpf("0.4") - 1) * mp.mpf("0.5"), ("fix", 1))
+    # After 70 the spec fixes F_m = 0,4 · max(0, (85 − a) / 15); it cites ages 75 and 80.
+    put("W5.6d", mp.mpf("0.4") * (mp.mpf("85") - 75) / 15, ("fix", 3))
+    put("W5.6e", mp.mpf("0.4") * (mp.mpf("85") - 80) / 15, ("fix", 3))
 
 
 def nutrition_weight(age):
