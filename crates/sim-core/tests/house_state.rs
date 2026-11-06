@@ -1347,6 +1347,27 @@ fn a_walk_begun_before_the_reserve_was_written_has_a_band_of_its_range() {
     assert_eq!(walk(500, twice), Ok(()));
 }
 
+/// A malformed save whose walk began at the start of time, with hunger written down then and the
+/// reserve a second before the clock: the seconds between them are more than a duration holds.
+/// The loader refuses it instead of panicking.
+#[test]
+fn a_walk_begun_at_the_start_of_time_is_refused_without_a_panic() {
+    use sim_core::time::MAX_ABS_SECS;
+    let refused = checked(|s| {
+        s.waits.clear();
+        let three = in_house(s, 3);
+        three.needs[0] = NeedSample::new(0, t(-MAX_ABS_SECS), -100);
+        three.reserve = Reserve::new(1000, (500, t(NOW - 1), -80), -40);
+        three.place = Place::Walking {
+            from: 2,
+            to: 1,
+            depart: t(-MAX_ABS_SECS),
+            arrive: t(-MAX_ABS_SECS + 7),
+        };
+    });
+    assert!(refused.is_err(), "{refused:?}");
+}
+
 /// The end of time for the walk out of a room one does not stay in (ADR-0026, addendum of
 /// 2026-11-06 on hunger at 0): sim 1 idle in the bath of the flat, 6 s from the living room, 8 s
 /// before the end of time. Fed, the walk would end 2 s before it, so idling there is refused; weak

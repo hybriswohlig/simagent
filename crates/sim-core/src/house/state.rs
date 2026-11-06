@@ -1008,7 +1008,8 @@ fn bands_then(person: &InHouse, rules: &ReserveRules, t: SimTime) -> [bool; 4] {
         let value = reserve.value_at(t);
         (value, value)
     } else if shown {
-        let secs = i128::from((reserve.at() - t).as_secs());
+        // In i128: two seconds of a malformed save may lie further apart than a duration holds.
+        let secs = i128::from(reserve.at().as_secs()) - i128::from(t.as_secs());
         let fallen = (i128::from(rules.steepest_drain()) * secs + 3_599) / 3_600;
         let most = (i128::from(reserve.value()) + fallen).min(i128::from(reserve.capacity()));
         (
