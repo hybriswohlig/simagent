@@ -13,16 +13,19 @@ Usage:
   python3 tools/life_reference.py --r7         the earlier market of Grok's R7, kept for
                                                comparison (not the rule)
   python3 tools/life_reference.py --wa-scan    adds a scan of w_a at the fitted point
-  python3 tools/life_reference.py --wish-refit refits only alpha under the wish of both
-                                               partners (below), every other value held at
-                                               data/calibration/demography.json; with
-                                               --quick a smoke test that publishes nothing
+  python3 tools/life_reference.py --wish-refit measures at the published tilt under the
+                                               wish of both partners (below); the tilt is
+                                               read from demography_game.json and the market
+                                               from demography.json; it bisects nothing and
+                                               writes nothing; with --quick a smoke test
   python3 tools/life_reference.py --wish-refit --accept --market FILE
-                                               the refit of alpha under 11.2a, the market
+                                               the same measurement under 11.2a, the market
                                                values from the --accept fit's snippet FILE
   python3 tools/life_reference.py --accept     Schnitt 1 (11.2a): the man's answer and the
-                                               target ages; the fit adds w_a. Without the
-                                               flag the tool runs as before
+                                               target ages; the fit adds w_a. Alpha stays
+                                               the game's play value and conception is the
+                                               game's rule. Without the flag the tool runs
+                                               as before
 
 Pure Python (standard library only); every number is fixed by the seeds below, so two runs
 print the same digits. The output is a table of the fitted values with approximate standard
@@ -45,6 +48,9 @@ What the tool fits (targets from the specification and Grok's decisions of 2026-
 - `alpha` of the wish `P_n ~ p_n * exp(alpha * n)` (11.3): women who reach 50 have 2.20
   live births on average, twins counting two. A wish mean above 3.0 stops the tool. The
   search solves it on an estimator (below); the check run checks the realized births.
+  Under `--accept` alpha is not fitted: it is the play value `core:fertility_wish_tilt`
+  of data/calibration/demography_game.json, and realized births B are a band, not a
+  target (below).
 - `lambda_sep` per year (ADR-0018 section 3): one third of all partnerships end by
   separation, the rest by the first death.
 - `w_K` and `w_H` (11.2): in first partnerships (neither partner had one before) the
@@ -142,6 +148,11 @@ Modeling choices of this tool (not in the specification):
   50, and that is the check of `alpha`: if it misses 2.20 by more than 2 of its standard
   errors (town jackknife), the tool stops with a finding and `alpha` has to be fitted on
   realized births instead. The realized values are printed next to the estimators.
+  Without `--accept` that check stays. With `--accept` the runs use the game's conception
+  rule, births have no residual, alpha is not solved, and the check is the band 1.8 to
+  2.6 (K11.3h, K11.3i, edges included) on the same women; the town-jackknife standard
+  error is reported beside the band and does not move the edges. Outside the band the
+  full run stops and publishes no value; `--quick` only reports.
 
 - Town size: 1000 founders, growing to about 2000 to 2500 persons in 300 years. The
   market outcome depends on the number of singles, so the values hold for towns of this
@@ -167,11 +178,15 @@ the covariance of the model's intercepts across the targets (kernel weights and 
 Jacobian's noise not modeled), `alpha`'s and `lambda_sep`'s by the delete-one-town
 jackknife of their solution on the settle run (without the uncertainty of the other
 six). The authoritative check is a check run at the fitted values on new towns: it gives
-the achieved targets (births as realized births), with standard errors by the
-delete-one-town jackknife (they include the dependence within a town).
+the achieved targets (without `--accept`, births as realized births), with standard
+errors by the delete-one-town jackknife (they include the dependence within a town).
+Under `--accept`, alpha is held at the play value for every run and only `lambda_sep`
+is solved on the sample; the settle run does not solve alpha, and its jackknife has no
+standard error for alpha.
 
-The wish of both partners (ADR-0017, addendum of 2026-11-05; `--wish-refit`,
-cfg["rule"] = "extra"; without it the tool runs exactly as before):
+The wish of both partners (ADR-0017, addendum of 2026-11-05; cfg["rule"] = "extra").
+`--wish-refit` measures at the published tilt, and `--accept` fits under the same
+conception rule. Without either flag the tool runs exactly as before:
 
 - Every person has a wish `W` from the same shape and tilt, the draw TAG_WISH on its own
   key. `life` is her live births of any partner (a founder's earlier births without persons
@@ -186,18 +201,21 @@ cfg["rule"] = "extra"; without it the tool runs exactly as before):
   his `young` is below his `W` and `ours < 1`; it does not read her draw. An attempt runs when either is open, she is not pregnant, her fertility has not
   ended and the pause after her last birth in this partnership has passed (it does not carry
   over from an earlier partnership). Every conception is realized; there is no estimator.
-- alpha alone is fitted by bisection on the realized live births per woman reaching 50, on
-  the same 24 towns at every step (seeds 1-24), to a bracket width of 0.0005, then rounded to
-  three decimals; the root must lie in (0, 10] and below the wish mean 3.0. The bracket starts
-  at alpha 0 and the published alpha (the wish mean 3.0 only if the births stay below 2.20
-  there). The check runs 48
-  new towns (seeds 900001-900048) at the rounded value: accepted when the realized mean is
-  within 2 delete-one-town standard errors of 2.20; births under 18 outside 0.001 to 0.005,
-  the age gap outside 2.5 to 4 or another target off by more than 4 standard errors stop it.
-  The report adds the share of women with a birth conceived at `life >= W`, the share of
-  such births and the completed family sizes 0 to 6, and the gates of the shape: size 3 above
-  size 4 above size 5+, 5+ within 0.01 to 0.05, those women within 0.05 to 0.12, childless
-  within 0.12 to 0.18. `--grown-chance X` sets the chance (default 0.20).
+- `--wish-refit` reads the tilt from data/calibration/demography_game.json
+  (`core:fertility_wish_tilt`) and the market values as the game lays them: with
+  `--accept --market FILE` from that snippet, otherwise from
+  data/calibration/demography.json. It does not bisect, round or write a value. The check
+  run (48 towns, seeds 900001-900048; four towns with `--quick`) reports realized live
+  births B with the town-jackknife standard error, the total fertility rate, the
+  completed family sizes and the shares of the extra child. It stops when B is outside
+  1.8 to 2.6 (K11.3h, K11.3i, edges included; with `--quick` this one is only reported),
+  a shape gate misses, births under 18 leave
+  0.001 to 0.005, the age gap leaves 2.5 to 4, another target misses by more than 4
+  standard errors, or, with `--accept`, the stock share, the acceptance rate or the rules
+  for men aged 40 or more fail. The shape gates, edges included: size 3 above size 4
+  above size 5+, 5+ within 0.01 to 0.05, women with a birth conceived at `life >= W`
+  within 0.05 to 0.12, childless within 0.12 to 0.18. `--grown-chance X` sets the chance
+  (default 0.20). A miss does not suggest another chance.
 
 The man's answer and the target ages (11.2a, Schnitt 1, Grok 2026-11-06; `--accept`,
 cfg["accept"]). Without the flag none of this runs and the draws below are not made. It
@@ -224,7 +242,13 @@ applies to the female market (it does not combine with `--r7`):
   round and after the deaths and separations later in that month; every open partnership
   once per census, including those formed before the burn-in. Target 0.18, band 0.14 to 0.22, the
   standard error the town jackknife of the pooled ratio. The previous targets stay on
-  their previous objects.
+  their previous objects. Alpha is not fitted and not settled: it is the play value
+  `core:fertility_wish_tilt` read from data/calibration/demography_game.json. The runs use
+  the game's conception rule (cfg["rule"] = "extra", grown chance 0.20, the same gate
+  `--wish-refit` uses). Births have no residual. The separation rate is still solved. The
+  JSON snippet does not contain `core:fertility_wish_tilt`. Realized births B, the pooled
+  live births of women born after the burn-in who are 50 at the end (both twins), lie in
+  1.8 (K11.3h) to 2.6 (K11.3i), edges included; the town jackknife stands beside the band.
 - Reported beside that: the SD of the age gap of new partnerships after the burn-in (no
   band); the flow share with the woman older (continuous ages, gap < 0); the same-age rest
   of the stock, same denominator.
@@ -234,12 +258,16 @@ applies to the female market (it does not combine with `--r7`):
   proposals to a still-single man after the burn-in, lies in 0.35 to 0.75 (a check since the
   third round). A miss stops the tool, as the other bands do.
 
-Exit status 1 when a target misses by more than 4 standard errors, a check of 11.2 fails
-(per 11.2 the finding then goes back to Grok before the values are used) or the realized
-births miss 2.20 by more than 2 standard errors (then `alpha` needs a fit on realized
-births; the smoke test only notes this one, its four towns cannot tell bias from noise).
-With `--accept` the stock band, the acceptance-rate band and the two rules for men aged 40
-or more are checks of that same kind, in the fit and in `--wish-refit --accept`.
+Exit status 1 when a target misses by more than 4 standard errors or a check of 11.2 fails
+(per 11.2 the finding then goes back to Grok before the values are used). Without
+`--accept`, exit 1 also when the realized births miss 2.20 by more than 2 standard errors
+(then `alpha` has to be fitted on realized births; the smoke test only notes this one, its
+four towns cannot tell bias from noise). With `--accept` that check is gone: realized
+births B outside 1.8 to 2.6 stop the full run, which then publishes no value, and
+`--quick` only reports B and its standard error. The stock band, the acceptance-rate band
+and the two rules for men aged 40 or more are checks of the same kind, in the fit and in
+`--wish-refit --accept`. `--wish-refit` stops on the band of B, a shape gate or one of
+those checks, and it never publishes a value.
 """
 
 import heapq
@@ -310,6 +338,9 @@ WISH_EXTRA = 1  # at most W + 1 live births started by an attempt
 GROWN_FROM = 3  # a grown child reopens her only with at least 3 live births
 U18_BAND = (0.001, 0.005)  # share of live births to mothers under 18 (Grok, 2026-10-08)
 GAP_BAND = (2.5, 4.0)  # 11.2
+# Realized live births B per woman reaching 50. Play values, edges included (2026-11-07).
+BIRTHS_LOW = 1.8  # K11.3h
+BIRTHS_HIGH = 2.6  # K11.3i
 
 TARGET = {
     "med_f": 23.5, "med_m": 26.0, "never_m": 0.10,  # K11.2c, K11.2d, K11.2e (men only)
@@ -1364,9 +1395,10 @@ def measure(agg, par):
             m["size_%d" % k] = count / nr
         m["size_5plus"] = (agg["size_hist"][5] + agg["size_hist"][6]) / nr
         m["ext_women"] = agg["ext_women"][0] / nr
-        m["ext_births"] = agg["ext_births"][0] / br
-        m["ext_his"] = agg["ext_births"][1] / br
-        m["ext_grown"] = agg["ext_births"][2] / br
+        birth_den = br if br else math.nan
+        m["ext_births"] = agg["ext_births"][0] / birth_den
+        m["ext_his"] = agg["ext_births"][1] / birth_den
+        m["ext_grown"] = agg["ext_births"][2] / birth_den
     if "stock" in agg:
         n_s, n_older, n_same = agg["stock"]
         m["n_stock"] = n_s
@@ -1628,6 +1660,15 @@ def fit(runner, x, alpha, lam, cfg):
     towns = cfg["towns"]
     nx, nout = len(SCALE), len(OUTER)
     points, runs, clipped = [], [], []
+    # --accept holds alpha at the play value passed in. Births are not a residual there,
+    # so only lambda_sep is solved on a sample. The default fit solves both, as before.
+    fixed_alpha = cfg.get("fixed_alpha", False)
+
+    def solve(agg, strict=False):
+        if fixed_alpha:
+            lam_i = root(lambda z: sep_rb(agg, z)[0] - TARGET["sep"], 1e-7, 1.0)
+            return alpha, lam_i
+        return inner(agg, strict)
 
     def record(x, alpha, lam, res, label):
         agg, m, outs = res
@@ -1638,7 +1679,7 @@ def fit(runner, x, alpha, lam, cfg):
     log("Start, and a design one SCALE unit away along each axis (one set of towns):")
     record(x, alpha, lam, runner.evaluate([params(x, alpha, lam)], seeds_of(0, towns))[0],
            "start")
-    alpha, lam = inner(runs[-1][3])
+    alpha, lam = solve(runs[-1][3])
     xs = []
     for i in range(nx):
         for sgn in (1.0, -1.0):
@@ -1658,7 +1699,7 @@ def fit(runner, x, alpha, lam, cfg):
         clipped.append(short)
         xc = [c + s * v for c, s, v in zip(xc, SCALE, d)]
         xc[RHO_INDEX] = min(0.0, xc[RHO_INDEX])
-        alpha, lam = inner(runs[-1][3])
+        alpha, lam = solve(runs[-1][3])
         res = runner.evaluate([params(xc, alpha, lam)], seeds_of(k + 1, towns))[0]
         record(xc, alpha, lam, res, "it %d" % k)
     a, jac, cov_a, neff = regress(points, xc, RHO_MIN)
@@ -1677,17 +1718,23 @@ def fit(runner, x, alpha, lam, cfg):
         gi = [gain[i][t] / TSCALE[t] for t in range(nout)]
         v = sum(gi[t] * gi[s] * cov_a[t][s] for t in range(nout) for s in range(nout))
         se_x.append(SCALE[i] * math.sqrt(max(v, 0.0)))
-    # alpha and lambda_sep settled at the fitted point on new towns.
-    log("Settling alpha and lambda_sep at the fitted point:")
-    alpha, lam = inner(aggregate([o for r in runs[-4:] for o in r[5]]))
+    # alpha and lambda_sep settled at the fitted point on new towns. Under --accept
+    # alpha is the play value already held and is not settled.
+    if fixed_alpha:
+        log("Settling lambda_sep at the fitted point (alpha stays the game's play value):")
+    else:
+        log("Settling alpha and lambda_sep at the fitted point:")
+    alpha, lam = solve(aggregate([o for r in runs[-4:] for o in r[5]]))
     res = runner.evaluate([params(x_fit, alpha, lam)],
                           seeds_of(cfg["iters"] + 2, cfg["settle_towns"]))[0]
     describe("settle", x_fit, alpha, lam, res[1])
-    alpha, lam = inner(res[0], strict=True)
+    alpha, lam = solve(res[0], strict=True)
     fitted = {"x": x_fit, "alpha": alpha, "lam": lam, "model": model, "se_x": se_x,
               "model_se": [math.sqrt(v) for v in var_a], "jac": jac, "neff": neff,
               "pooled": res[0], "settle": res[2], "runs": runs,
               "clipped": sum(clipped[-5:])}
+    if fixed_alpha:
+        fitted["fixed_alpha"] = True
     return fitted
 
 
@@ -1702,10 +1749,16 @@ def fit_errors(fitted, par):
         out[name] = par[name] * se if lg else se
     outs = fitted["settle"]
     n = len(outs)
-    sols = {"alpha": [], "lam": []}
+    # Under --accept alpha is not a solution, so it has no jackknife standard error.
+    if fitted.get("fixed_alpha"):
+        sols = {"lam": []}
+    else:
+        sols = {"alpha": [], "lam": []}
     for i in range(n):
         agg = aggregate(outs[:i] + outs[i + 1:])
-        sols["alpha"].append(root(lambda a: births_rb(agg, a)[0] - TARGET["births"], -5.0, 5.0))
+        if "alpha" in sols:
+            sols["alpha"].append(root(lambda a: births_rb(agg, a)[0] - TARGET["births"],
+                                      -5.0, 5.0))
         ds = agg["sep_d"]
         sols["lam"].append(root(lambda x: 1.0 - sum(math.exp(-x * d) for d in ds) / len(ds)
                                 - TARGET["sep"], 1e-7, 1.0))
@@ -1837,33 +1890,60 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
         se = {k: m[k][1] if isinstance(m[k], tuple) else math.nan for k in jk_keys}
     runs = fitted["runs"]
     log("")
-    log("Fitted values: least-squares point of the local regression over %d runs (%.1f "
-        "effective at the end); alpha and lambda_sep solved on %d new towns there; "
-        "approximate standard errors:" % (len(runs), fitted["neff"], cfg["settle_towns"]))
+    if cfg.get("accept"):
+        log("Fitted values: least-squares point of the local regression over %d runs (%.1f "
+            "effective at the end); lambda_sep solved on %d new towns there, alpha held at "
+            "the game's play value; approximate standard errors:" % (
+                len(runs), fitted["neff"], cfg["settle_towns"]))
+    else:
+        log("Fitted values: least-squares point of the local regression over %d runs (%.1f "
+            "effective at the end); alpha and lambda_sep solved on %d new towns there; "
+            "approximate standard errors:" % (len(runs), fitted["neff"], cfg["settle_towns"]))
     log("  %-6s %12s %10s  %s" % ("value", "fitted", "approx SE", "meaning"))
     shown = [k for k in NAMES if k in se_par]
     if cfg.get("accept"):
         shown.extend(k for k in ("w_a",) if k in se_par)
     for k in shown:
         log("  %-6s %12.6g %10.2g  %s" % (k, par[k], se_par[k], MEANING[k]))
+    if cfg.get("accept"):
+        log("  %-6s %12.6g %10s  %s" % (
+            "alpha", par["alpha"], "fixed",
+            "tilt of the wish, the game's play value, not fitted"))
     log("  wish P_0..P_4 = %s, mean %.4f (limit 3.0)" % (
         ", ".join("%.4f" % p for p in wish_probs(par["alpha"])), wish_mean(par["alpha"])))
-    log("  The standard errors are approximate, not full Monte Carlo errors: the outer values'")
-    log("  from the final local model (delta method with the intercepts' covariance across the")
-    log("  targets; kernel weights and the Jacobian's noise not modeled), alpha's and")
-    log("  lambda_sep's from the delete-one-town jackknife of the settle run (without the")
-    log("  uncertainty of the outer values). The authoritative check is the check run below.")
+    if cfg.get("accept"):
+        log("  The standard errors are approximate, not full Monte Carlo errors: the outer values'")
+        log("  from the final local model (delta method with the intercepts' covariance across the")
+        log("  targets; kernel weights and the Jacobian's noise not modeled), lambda_sep's from")
+        log("  the delete-one-town jackknife of the settle run (without the uncertainty of the")
+        log("  outer values). Alpha is the game's play value and is not settled. The authoritative")
+        log("  check is the check run below.")
+    else:
+        log("  The standard errors are approximate, not full Monte Carlo errors: the outer values'")
+        log("  from the final local model (delta method with the intercepts' covariance across the")
+        log("  targets; kernel weights and the Jacobian's noise not modeled), alpha's and")
+        log("  lambda_sep's from the delete-one-town jackknife of the settle run (without the")
+        log("  uncertainty of the outer values). The authoritative check is the check run below.")
     log("")
     n_chk = cfg["check_towns"]
-    log("Targets: the regression model at the fitted values (model; births and separation "
-        "on the settle run), and a check run there on %d new towns (seeds %d-%d), SE by the "
-        "delete-one-town jackknife:" % (n_chk, CHECK_SEED0, CHECK_SEED0 + n_chk - 1))
+    if cfg.get("accept"):
+        log("Targets: the regression model at the fitted values (model; separation on the "
+            "settle run; births are not a target), and a check run there on %d new towns "
+            "(seeds %d-%d), SE by the delete-one-town jackknife:" % (
+                n_chk, CHECK_SEED0, CHECK_SEED0 + n_chk - 1))
+    else:
+        log("Targets: the regression model at the fitted values (model; births and separation "
+            "on the settle run), and a check run there on %d new towns (seeds %d-%d), SE by the "
+            "delete-one-town jackknife:" % (n_chk, CHECK_SEED0, CHECK_SEED0 + n_chk - 1))
     log("  %-44s %8s %9s %9s %8s %7s" % ("target", "goal", "model", "check", "SE", "dev/SE"))
     model = dict(zip(OUTER, (TARGET[k] + v for k, v in zip(OUTER, fitted["model"]))))
     model["births"] = births_rb(fitted["pooled"], par["alpha"])[0]
     model["sep"] = sep_rb(fitted["pooled"], par["lam"])[0]
     reached = True
     for k in REPORTED:
+        # Under --accept births are not a target and have no residual (11.3, 2026-11-07).
+        if cfg.get("accept") and k == "births":
+            continue
         fit_mean = model[k]
         ck = CHECKED_AS.get(k, k)
         v = value(m, ck)
@@ -1890,10 +1970,14 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     log("  Medians are Kaplan-Meier medians among persons reaching 50 (no other censoring),")
     log("  with each month's count spread over half a month on either side; plain (first")
     log("  month with half reached): women %.3f, men %.3f." % (m["km_f"], m["km_m"]))
-    log("  Births: the model column is the search estimator (the mean over the wish given each")
-    log("  woman's history, solved to 2.20 on the settle run); the check column is the realized")
-    log("  mean live births, the check of alpha. The search estimator on the check run: %.4f "
-        "+- %.4f." % (value(m, "births"), se["births"]))
+    if cfg.get("accept"):
+        log("  Births have no residual in this fit. Alpha is the game's play value and is not")
+        log("  solved; realized live births B are the band in the checks below, not a target.")
+    else:
+        log("  Births: the model column is the search estimator (the mean over the wish given each")
+        log("  woman's history, solved to 2.20 on the settle run); the check column is the realized")
+        log("  mean live births, the check of alpha. The search estimator on the check run: %.4f "
+            "+- %.4f." % (value(m, "births"), se["births"]))
     log("  Separation: partnerships formed in years %d-%d, each counted by its eventual end; "
         "realized share %.4f +- %.4f; %d of %d still open at the end of the run." % (
             cfg["burn_in"], cfg["years"], m["sep_real"], se["sep_real"], m["n_open"],
@@ -1923,12 +2007,19 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
     if par["rho"] >= 1.0:
         log("    rho is at its bound 1: the share cannot rise further by rho")
     b = m["births_real"]
-    births_dev = (b - TARGET["births"]) / se["births_real"]
-    births_ok = abs(births_dev) <= BIRTHS_BIAS_SE
-    verdict = "ok" if births_ok else "FINDING: fit alpha on realized births"
-    log("  realized live births per woman reaching 50, the check of alpha's search estimator "
-        "(not an exact conditional expectation in a closed town): %.4f +- %.4f, %+.2f SE from "
-        "2.20 (within %g SE) %s" % (b, se["births_real"], births_dev, BIRTHS_BIAS_SE, verdict))
+    if cfg.get("accept"):
+        births_ok = BIRTHS_LOW <= b <= BIRTHS_HIGH
+        log("  realized live births B per woman reaching 50, born after the burn-in, both "
+            "twins counted: %.4f +- %.4f (band %.1f to %.1f, K11.3h to K11.3i; the SE stands "
+            "beside the band) %s" % (b, se["births_real"], BIRTHS_LOW, BIRTHS_HIGH,
+                                     "ok" if births_ok else "FINDING"))
+    else:
+        births_dev = (b - TARGET["births"]) / se["births_real"]
+        births_ok = abs(births_dev) <= BIRTHS_BIAS_SE
+        verdict = "ok" if births_ok else "FINDING: fit alpha on realized births"
+        log("  realized live births per woman reaching 50, the check of alpha's search estimator "
+            "(not an exact conditional expectation in a closed town): %.4f +- %.4f, %+.2f SE from "
+            "2.20 (within %g SE) %s" % (b, se["births_real"], births_dev, BIRTHS_BIAS_SE, verdict))
     log("  candidates per searcher (after the burn-in): mean %.2f, none in "
         "%.3f of searches" % (m["cands_mean"], m["cands_none"]))
     log("  w_K scan at the fitted point (%d towns each): %s" % (
@@ -2071,6 +2162,9 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
          "docs/genetik-spezifikation.md 11.3, alpha, log weight per wished child"),
         ("core:separation_rate", "lam", "per_year", "ADR-0018 section 3, lambda_sep"),
     )
+    # Under --accept alpha is a play value, not a fitted result, so the overlay omits it.
+    if cfg.get("accept"):
+        entries = tuple(e for e in entries if e[0] != "core:fertility_wish_tilt")
     snippet = {}
     for name, k, unit_, note in entries:
         if k not in rounded:
@@ -2108,26 +2202,28 @@ def report(cfg, par, se_par, fitted, chk, scan, small, runtime, towns_run, wa_sc
                 "as_of": "2026-11-06",
                 "note": "%s (Schnitt 1, Grok 2026-11-06)" % note}
     log("")
-    log("JSON for data/calibration/demography.json (the key names are proposals):")
-    log(json.dumps(snippet, indent=2, ensure_ascii=False))
+    # A full --accept run outside the band of B publishes nothing. --quick only reports.
+    if cfg.get("accept") and not births_ok and not cfg.get("quick"):
+        log("No value is published: realized live births B are outside %.1f to %.1f." % (
+            BIRTHS_LOW, BIRTHS_HIGH))
+    else:
+        log("JSON for data/calibration/demography.json (the key names are proposals):")
+        log(json.dumps(snippet, indent=2, ensure_ascii=False))
     log("")
     log("%d town runs, %.0f s." % (towns_run, runtime))
     return reached, all(checks), births_ok
 
 
 # ---------------------------------------------------------------------------------------
-# The refit of alpha under the wish of both partners (`--wish-refit`, module docstring)
+# The measurement at the published tilt (`--wish-refit`, module docstring)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GROWN_CHANCE = 0.20  # the play value of the game (ADR-0017, addendum of 2026-11-05)
 SHAPE_GATES = {"size_5plus": (0.01, 0.05), "ext_women": (0.05, 0.12), "size_0": (0.12, 0.18)}
-REFIT = {"founders": 1000, "years": 300, "burn_in": 100, "step_towns": 24,
-         "check_towns": 48, "width": 0.0005}
-REFIT_QUICK = {"founders": 1000, "years": 200, "burn_in": 80, "step_towns": 4,
-               "check_towns": 4, "width": 0.01}
-REFIT_SEEDS = seeds_of(0, 24)  # seeds 1-24, the same towns at every step
-ALPHA_HIGH = 10.0  # the root must lie in (0, 10] (and below the wish mean 3.0)
-# The values the refit holds, by their key in data/calibration/demography.json.
+REFIT = {"founders": 1000, "years": 300, "burn_in": 100, "check_towns": 48}
+REFIT_QUICK = {"founders": 1000, "years": 200, "burn_in": 80, "check_towns": 4}
+# The market values the measurement holds, by their key in data/calibration/demography.json.
+# core:fertility_wish_tilt is read here only so the extract's alpha is not the tilt used.
 HELD = {"core:market_search_height_female": "c_f", "core:market_search_center_female": "m_f",
         "core:market_search_factor_minor": "rho", "core:pairing_age_gap_preferred": "mu_a",
         "core:pairing_weight_cognition": "w_K", "core:pairing_weight_height": "w_H",
@@ -2156,26 +2252,11 @@ def published():
     return {name: values[key] for key, name in HELD.items()}
 
 
-def births_of(outs):
-    """Per town (women reaching 50, their live births)."""
-    return [tuple(o["births_real"]) for o in outs]
-
-
-def ratio(towns, skip=-1):
-    n = sum(t[0] for i, t in enumerate(towns) if i != skip)
-    b = sum(t[1] for i, t in enumerate(towns) if i != skip)
-    return b / n
-
-
-def root_of(points, skip=-1):
-    """The root of realized births minus 2.20 over the evaluated alphas, by linear
-    interpolation between the two neighbours of the first sign change (town `skip` left
-    out); None without one."""
-    pts = sorted((a, ratio(towns, skip) - TARGET["births"]) for a, towns in points.items())
-    for (a0, f0), (a1, f1) in zip(pts, pts[1:]):
-        if f0 < 0.0 <= f1:
-            return a0 + (a1 - a0) * (0.0 - f0) / (f1 - f0)
-    return None
+def game_wish_tilt():
+    """Play value of alpha: core:fertility_wish_tilt in demography_game.json."""
+    with open(os.path.join(ROOT, "data", "calibration", "demography_game.json")) as f:
+        doc = json.load(f)
+    return doc["values"]["core:fertility_wish_tilt"]["value"]
 
 
 def wish_refit(argv):
@@ -2190,6 +2271,9 @@ def wish_refit(argv):
         chance = float(argv[argv.index("--grown-chance") + 1])
     t0 = time.time()
     held = published()
+    # The tilt is the game's play value. The extract's alpha stays in demography.json and
+    # is not the value this run measures.
+    alpha = game_wish_tilt()
     base = {k: v for k, v in held.items() if k != "alpha"}
     # Under --accept (11.2a) the market values come from the snippet of the --accept fit
     # (`--market FILE`): the held market values and her w_a, rounded as published.
@@ -2203,71 +2287,24 @@ def wish_refit(argv):
         base["w_a"] = market["core:pairing_weight_age"]["value"]
         assert market["core:pairing_weight_age_male"]["value"] == W_AM
         assert market["core:pairing_taste_sd"]["value"] == TASTE_SD
-    log("life_reference --wish-refit: %s; the wish of both partners (extra %d, grown from %d "
-        "with the chance %g, young until %d years); towns of %d founders over %d years (burn-in "
-        "%d); %d towns per step, %d in the check; %d jobs" % (
-            "QUICK smoke test, publishes nothing" if quick else "refit of alpha", WISH_EXTRA,
-            GROWN_FROM, chance, COUNT_UNTIL // MONTHS, cfg["founders"], cfg["years"],
-            cfg["burn_in"], cfg["step_towns"], cfg["check_towns"], jobs))
-    log("held at %s: %s; published alpha %g" % (
+    log("life_reference --wish-refit: %s; measuring at the published tilt, no bisection "
+        "and no value written; the wish of both partners (extra %d, grown from %d "
+        "with the chance %g, young until %d years); towns of %d founders over %d years "
+        "(burn-in %d); %d towns in the check; %d jobs" % (
+            "QUICK smoke test" if quick else "measurement", WISH_EXTRA, GROWN_FROM, chance,
+            COUNT_UNTIL // MONTHS, cfg["founders"], cfg["years"], cfg["burn_in"],
+            cfg["check_towns"], jobs))
+    log("held at %s: %s; published tilt alpha %g (read from demography_game.json)" % (
         "the --accept fit's snippet (11.2a, the man's answer)" if accept else
         "data/calibration/demography.json",
-        ", ".join("%s %g" % (k, v) for k, v in base.items()), held["alpha"]))
+        ", ".join("%s %g" % (k, v) for k, v in base.items()), alpha))
     sim_cfg = {"founders": cfg["founders"], "years": cfg["years"], "burn_in": cfg["burn_in"],
                "market": "female", "rule": "extra", "grown_chance": chance}
     if accept:
         sim_cfg["accept"] = True
     runner = Runner(sim_cfg, jobs)
-    seeds = REFIT_SEEDS[:cfg["step_towns"]]
-    points = {}
-
-    def run(alphas):
-        results = runner.evaluate([dict(base, alpha=a) for a in alphas], seeds)
-        for a, (_, _, outs) in zip(alphas, results):
-            points[a] = births_of(outs)
-            log("  alpha %.6f: realized births %.4f (wish mean %.4f)" % (
-                a, ratio(points[a]), wish_mean(a)))
-
-    # The bracket: alpha 0 and the published alpha; only if the births stay below 2.20 there
-    # the upper end moves to the wish mean 3.0 (towns above 2.20 grow fast and run long).
-    lo, hi = 0.0, min(held["alpha"], ALPHA_HIGH, ALPHA_MAX)
-    log("Bisection on [%g, %.6f] (the upper end the published alpha), towns %d-%d:" % (
-        lo, hi, seeds[0], seeds[-1]))
-    run([lo, hi])
-    if ratio(points[lo]) >= TARGET["births"]:
-        log("STOP: the realized births reach 2.20 at alpha 0: the root is not inside (0, 10].")
-        return 1
-    if ratio(points[hi]) < TARGET["births"]:
-        hi = min(ALPHA_HIGH, ALPHA_MAX)
-        log("The births stay below 2.20 at the published alpha; the upper end moves to %.6f "
-            "(the wish mean 3.0):" % hi)
-        run([hi])
-        if ratio(points[hi]) < TARGET["births"]:
-            log("STOP: the realized births stay below 2.20 at the wish mean 3.0 (11.3).")
-            return 1
-    while hi - lo >= cfg["width"]:
-        mid = 0.5 * (lo + hi)
-        run([mid])
-        if ratio(points[mid]) < TARGET["births"]:
-            lo = mid
-        else:
-            hi = mid
-    found = 0.5 * (lo + hi)
-    alpha = round(found, 3)
-    log("Root: bracket [%.6f, %.6f], midpoint %.6f, published to three decimals: %.3f" % (
-        lo, hi, found, alpha))
-    # The delete-one-town jackknife of the root over the evaluated alphas, with two more
-    # points 0.05 either side so that every left-out root has its neighbours.
-    run([a for a in (alpha - 0.05, alpha + 0.05) if 0.0 < a < ALPHA_MAX and a not in points])
-    n = len(seeds)
-    roots = [root_of(points, i) for i in range(n)]
-    if all(r is not None for r in roots):
-        mean = sum(roots) / n
-        se_alpha = math.sqrt((n - 1) / n * sum((r - mean) ** 2 for r in roots))
-    else:
-        se_alpha = math.nan
-    log("  alpha %.3f, delete-one-town jackknife SE %.3g over %d towns" % (alpha, se_alpha, n))
     par = dict(base, alpha=alpha)
+    log("Check run at alpha %.3f (wish mean %.4f), no search:" % (alpha, wish_mean(alpha)))
     check_seeds = list(range(CHECK_SEED0, CHECK_SEED0 + cfg["check_towns"]))
     agg, m, outs = runner.evaluate([par], check_seeds)[0]
     m.update(derived(m))
@@ -2278,24 +2315,26 @@ def wish_refit(argv):
     if not se:
         se = {k: math.nan for k in keys}
     log("")
-    log("wish P_0..P_4 at alpha %.3f = %s, mean %.4f (published %.3f: mean %.4f)" % (
-        alpha, ", ".join("%.4f" % p for p in wish_probs(alpha)), wish_mean(alpha),
-        held["alpha"], wish_mean(held["alpha"])))
+    log("wish P_0..P_4 at the published tilt %.3f = %s, mean %.4f" % (
+        alpha, ", ".join("%.4f" % p for p in wish_probs(alpha)), wish_mean(alpha)))
     log("Check run on %d new towns (seeds %d-%d), SE by the delete-one-town jackknife:" % (
         len(check_seeds), check_seeds[0], check_seeds[-1]))
     log("  %-46s %8s %9s %8s %7s" % ("target", "goal", "check", "SE", "dev/SE"))
     reached = True
     for k in REPORTED:
+        # Births are not a target of this measurement. B is the band below.
+        if k == "births":
+            continue
         ck = CHECKED_AS.get(k, k)
         v = value(m, ck)
         dev = (v - TARGET[k]) / se[ck]
-        if k != "births":
-            reached = reached and abs(dev) <= 4.0
+        reached = reached and abs(dev) <= 4.0
         log("  %-46s %8.4f %9.4f %8.4f %7.2f" % (LABELS[ck], TARGET[k], v, se[ck], dev))
     b = m["births_real"]
-    births_ok = abs(b - TARGET["births"]) <= BIRTHS_BIAS_SE * se["births_real"]
-    log("  realized births within %g SE of 2.20: %s" % (BIRTHS_BIAS_SE, "yes" if births_ok
-                                                          else "NO"))
+    births_ok = BIRTHS_LOW <= b <= BIRTHS_HIGH
+    log("  realized live births B: %.4f +- %.4f (band %.1f to %.1f, K11.3h to K11.3i; the SE "
+        "stands beside the band) %s" % (b, se["births_real"], BIRTHS_LOW, BIRTHS_HIGH,
+                                        "ok" if births_ok else "FINDING"))
     for k in ("med_m", "never_m", "first_birth", "tfr", "sep_real"):
         log("  %-46s %9.4f +- %.4f (report)" % (LABELS.get(k, k), value(m, k), se[k]))
     log("")
@@ -2318,8 +2357,7 @@ def wish_refit(argv):
     log("  share of live births to mothers under 18: %.5f +- %.5f (0.001 to 0.005) %s" % (
         u18, se["u18"], "ok" if checks[-1] else "FINDING"))
     if accept:
-        # The checks of 11.2a on the game's alpha (the --accept fit checked them at its own
-        # alpha and without the wish of both partners).
+        # The checks of 11.2a, the same ones the --accept fit stops on.
         lo, hi = OLDER_BAND
         checks.append(lo <= m["older"] <= hi)
         log("  share woman older in the stock (completed years, year-end censuses): %.4f +- "
@@ -2344,10 +2382,6 @@ def wish_refit(argv):
         shape["%s in %g to %g" % (k, low, high)] = low <= m[k] <= high
     log("  the gates of the shape: " + "; ".join("%s %s" % (name, "held" if ok else "MISSED")
                                                  for name, ok in shape.items()))
-    if not order or m["size_5plus"] > SHAPE_GATES["size_5plus"][1]:
-        log("  the shape asks for the chance 0.10 next")
-    elif m["ext_women"] < SHAPE_GATES["ext_women"][0] or m["size_5plus"] < SHAPE_GATES["size_5plus"][0]:
-        log("  the shape asks for the chance 0.30 next")
     log("")
     status = 0
     if not all(checks):
@@ -2357,33 +2391,18 @@ def wish_refit(argv):
     if not reached:
         log("STOP: another target misses by more than 4 standard errors.")
         status = 1
-    if not births_ok:
-        log("STOP: the realized births of the check miss 2.20 by more than %g SE." %
-            BIRTHS_BIAS_SE)
+    # --quick only reports the band of B (11.3); the full measurement stops on it.
+    if not births_ok and quick:
+        log("NOTE: realized live births B are outside %.1f to %.1f on the few towns of the "
+            "smoke test; only the full measurement decides." % (BIRTHS_LOW, BIRTHS_HIGH))
+    elif not births_ok:
+        log("STOP: realized live births B are outside %.1f to %.1f; no value is published." % (
+            BIRTHS_LOW, BIRTHS_HIGH))
         status = 1
     if not all(shape.values()):
-        log("SHAPE: a gate of the shape missed; no value is published at this chance.")
+        log("STOP: a gate of the shape missed; no value is published.")
         status = 1
-    if quick:
-        log("QUICK: no value is published.")
-    elif status == 0:
-        snippet = {"core:fertility_wish_tilt": {
-            "value": alpha, "unit": "logit",
-            "source": "tools/life_reference.py --wish-refit: bisection on the realized live "
-                      "births per woman reaching 50 in %d closed towns of %d founders over %d "
-                      "years (burn-in %d), checked on %d new towns" % (
-                          len(seeds), cfg["founders"], cfg["years"], cfg["burn_in"],
-                          len(check_seeds)),
-            "as_of": time.strftime("%Y-%m-%d"),
-            "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners; "
-                    "delete-one-town standard error %.2g" % se_alpha}}
-        snippet["core:fertility_grown_chance"] = {
-            "value": chance, "unit": "fraction",
-            "source": "ADR-0017, addendum of 2026-11-05: a play value",
-            "as_of": time.strftime("%Y-%m-%d"),
-            "note": "the share of women a grown child reopens; held in the refit of alpha"}
-        log("JSON for the game (data/calibration/demography_game.json):")
-        log(json.dumps(snippet, indent=2, ensure_ascii=False))
+    log("No value is published.")
     log("%d town runs, %.0f s." % (runner.towns, time.time() - t0))
     return status
 
@@ -2405,8 +2424,12 @@ def main(argv):
     if "--jobs" in argv:
         jobs = int(argv[argv.index("--jobs") + 1])
     cfg = dict(QUICK if quick else FULL)
+    alpha0 = ALPHA0
     if accept:
         cfg["accept"] = True
+        cfg["fixed_alpha"] = True
+        cfg["quick"] = quick
+        alpha0 = game_wish_tilt()
     t0 = time.time()
     log("life_reference: %s; towns of %d founders over %d years (burn-in %d); %d towns per "
         "run; %d jobs" % ("QUICK smoke test, imprecise" if quick else "full fit",
@@ -2415,14 +2438,19 @@ def main(argv):
     sim_cfg["market"] = "female" if female else "r7"
     if accept:
         sim_cfg["accept"] = True
+        sim_cfg["rule"] = "extra"
+        sim_cfg["grown_chance"] = GROWN_CHANCE
         log("market: only women search (Grok R8), with the man's answer and the target ages "
-            "(11.2a)")
+            "(11.2a); conception is the game's rule (the wish of both partners, extra child "
+            "at chance %g)" % GROWN_CHANCE)
+        log("alpha %.3f, read from data/calibration/demography_game.json "
+            "(core:fertility_wish_tilt), not fitted" % alpha0)
     else:
         log("market: %s" % ("only women search (Grok R8)" if female else
                             "R7, the market as a state (kept for comparison)"))
     runner = Runner(sim_cfg, jobs)
     try:
-        fitted = fit(runner, X0[:], ALPHA0, LAM0, cfg)
+        fitted = fit(runner, X0[:], alpha0, LAM0, cfg)
     except WishTooHigh as err:
         log("STOP: the births target needs alpha %s, a wish mean above %.1f (11.3)." % (
             err.args[0], WISH_MAX_MEAN))
@@ -2456,9 +2484,17 @@ def main(argv):
             log("STOP: a check failed (age gap or births under 18); the finding goes back to Grok "
                 "before these values enter the calibration.")
         status = 1
-    # Four towns cannot tell a bias of the estimator from noise, so the smoke test only
-    # reports this finding; the full fit stops on it.
-    if not births_ok and quick:
+    # Without --accept, four towns cannot tell a bias of the estimator from noise, so the
+    # smoke test only reports the 2.20 finding and the full fit stops on it. Under
+    # --accept that check is gone: B outside its band stops the full run, and --quick
+    # only reports B.
+    if accept:
+        if not births_ok and not quick:
+            log("STOP: realized live births B are outside %.1f to %.1f (K11.3h, K11.3i); "
+                "no value is published and the finding goes back to Grok." % (
+                    BIRTHS_LOW, BIRTHS_HIGH))
+            status = 1
+    elif not births_ok and quick:
         log("NOTE: the realized births miss 2.20 by more than %g standard errors on the few "
             "towns of the smoke test; only the full fit decides." % BIRTHS_BIAS_SE)
     elif not births_ok:

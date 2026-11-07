@@ -602,6 +602,10 @@ def section_11():
     put("W11.3b", 100 * twin_births, ("fix", 1))
     put("W11.3c", 100 * 2 * twin_births / (1 + twin_births), ("fix", 2))
     put("W11.3d", Fraction(105, 205), ("frac",))
+    # The wish mean at the game's play value alpha = 0,231 (11.3): P_n ∝ p_n · e^(alpha · n).
+    tilt = mp.mpf("0.231")
+    weights = [mp.mpf(p.numerator) / p.denominator * mp.exp(tilt * n) for n, p in enumerate(WISH_SHAPE)]
+    put("W11.3e", sum(n * w for n, w in enumerate(weights)) / sum(weights), ("fix", 3))
     # Share of the reference population beyond the bound, two-sided.
     put("W11.4a", mp.erfc(G_L_BOUND / mp.sqrt(2)), ("sig", 3))
     put("W11.5a", 100 * (mp.exp(mp.mpf("0.25")) - 1), ("fix", 1))
