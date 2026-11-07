@@ -322,6 +322,19 @@ fn the_life_table_check_names_each_finding() {
     assert_eq!(finding(&under), (json!("l_underflow"), json!([])));
 }
 
+/// 100 women with `total` births between them, as even as whole numbers allow.
+fn women_with(total: u64) -> Units<u64> {
+    Units {
+        values: (0..100u64)
+            .map(|i| total / 100 + u64::from(i < total % 100))
+            .collect(),
+        anchors: (0..100).collect(),
+    }
+}
+
+/// F11 births per woman reaching 50 is a band check without a target (spec 11.3, K11.3h and
+/// K11.3i): the mean in 1.8 to 2.6, edges included. The mean, variance, se and total stay
+/// reported.
 #[test]
 fn births_of_one_woman_have_a_mean_and_no_error() {
     let check = births(&Units {
@@ -333,30 +346,73 @@ fn births_of_one_woman_have_a_mean_and_no_error() {
         (&check["variance"], &check["se"], &check["tol"]),
         (&Value::Null, &Value::Null, &Value::Null)
     );
+    // One woman with 2 children is inside the band: no standard error is needed.
     assert_eq!(
         (&check["pass"], &check["finding"]),
-        (&json!(false), &json!("undefined"))
+        (&json!(true), &Value::Null)
     );
+    assert_eq!(check["target"], Value::Null);
+    assert_eq!(check["band"], json!([hex(1.8), hex(2.6)]));
     assert_eq!(check["total"], json!(2));
-    // Two women with 1 and 3: mean 2, V = (1 + 1) / 1 = 2, se = sqrt(2 / 2) = 1.
+    // Two women with 1 and 3: mean 2, V = (1 + 1) / 1 = 2, se = sqrt(2 / 2) = 1; no tolerance.
     let check = births(&Units {
         values: vec![1, 3],
         anchors: vec![7, 8],
     });
     assert_eq!(
-        [
-            &check["value"],
-            &check["variance"],
-            &check["se"],
-            &check["tol"]
-        ],
-        [&hex(2.0), &hex(2.0), &hex(1.0), &hex(4.0)]
+        [&check["value"], &check["variance"], &check["se"]],
+        [&hex(2.0), &hex(2.0), &hex(1.0)]
     );
+    assert_eq!(check["tol"], Value::Null);
     assert_eq!(
         (&check["pass"], &check["finding"]),
         (&json!(true), &Value::Null)
     );
     assert_eq!((&check["total"], &check["n"]), (&json!(4), &json!(2)));
+}
+
+#[test]
+fn the_births_band_has_its_edges_inside_and_nothing_just_outside() {
+    // Means 1.79, 1.80, 2.60 and 2.61 by construction: 100 women with 179, 180, 260 and 261.
+    for (total, mean, pass) in [
+        (179, 1.79, false),
+        (180, 1.8, true),
+        (260, 2.6, true),
+        (261, 2.61, false),
+    ] {
+        let check = births(&women_with(total));
+        assert_eq!(check["value"], hex(mean), "{total}");
+        assert_eq!(check["pass"], json!(pass), "{total}");
+        assert_eq!(
+            check["finding"],
+            if pass { Value::Null } else { json!("outside") },
+            "{total}"
+        );
+        assert_eq!(check["total"], json!(total));
+        // Whatever the mean, no target and no tolerance.
+        assert_eq!(
+            (&check["target"], &check["tol"]),
+            (&Value::Null, &Value::Null)
+        );
+        assert_eq!(check["fragile"], json!(false));
+    }
+    // Far outside either way: the old target 2.20 within 4 se no longer decides.
+    assert_eq!(births(&women_with(100))["pass"], json!(false));
+    assert_eq!(births(&women_with(400))["pass"], json!(false));
+    // The old target's value passes without a tolerance at all.
+    assert_eq!(births(&women_with(220))["pass"], json!(true));
+}
+
+#[test]
+fn births_are_undefined_without_women() {
+    let check = births(&Units::default());
+    assert_eq!((&check["n"], &check["total"]), (&json!(0), &json!(0)));
+    assert_eq!(check["value"], Value::Null);
+    assert_eq!(
+        (&check["pass"], &check["finding"]),
+        (&json!(false), &json!("undefined"))
+    );
+    assert_eq!(check["band"], json!([hex(1.8), hex(2.6)]));
 }
 
 #[test]

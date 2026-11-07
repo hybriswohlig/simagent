@@ -76,7 +76,14 @@ fn scenario_hashes(bytes: &[u8]) -> Option<(BTreeMap<i64, String>, String)> {
 }
 
 /// The JSON goldens that only view runs: their form may change without a new core version.
-const VIEWS: [&str; 1] = ["tests/golden/diff_switch.json"];
+/// The comparison of two runs, and the reports of the criteria fixtures, which only judge
+/// the exports beside them (those exports still count with any byte).
+const VIEWS: [&str; 4] = [
+    "tests/golden/diff_switch.json",
+    "tests/golden/criteria/hand.report.json",
+    "tests/golden/criteria/t1_pool_d.report.json",
+    "tests/golden/criteria/t2_pool_c.report.json",
+];
 
 /// True if an existing result of the golden `path` differs between `base` and `head`.
 fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
@@ -94,7 +101,8 @@ fn result_changed(path: &str, base: &[u8], head: &[u8]) -> bool {
                         .any(|(year, hash)| head_years.get(year) != Some(hash))
             }
             // A golden that only views runs shows no result of its own (the comparison of
-            // two pedigrees, ADR-0021 addendum of 2026-10-23: no new core version). Any other
+            // two pedigrees, ADR-0021 addendum of 2026-10-23: no new core version; the
+            // criteria reports, which judge exports that count on their own). Any other
             // JSON golden counts with any change: some hold hashes in other layouts (a census,
             // a pre-run), and a scenario golden may lose its hashes.
             _ => !VIEWS.contains(&path),
@@ -370,6 +378,43 @@ mod tests {
         assert_eq!(
             changed_results(&nested("00000000000000a0"), &nested("00000000000000b0")),
             vec![census.to_string()]
+        );
+    }
+
+    /// The reports of the criteria fixtures only judge their exports (the births band of
+    /// 2026-11-07): a change of a verdict or a band is no result change. The export each
+    /// report reads still counts with any byte.
+    #[test]
+    fn the_criteria_reports_change_without_a_result_but_their_exports_count() {
+        for report in [
+            "tests/golden/criteria/hand.report.json",
+            "tests/golden/criteria/t1_pool_d.report.json",
+            "tests/golden/criteria/t2_pool_c.report.json",
+        ] {
+            let judged = |verdict: &str| {
+                with(|r| {
+                    r.goldens.insert(
+                        report.to_string(),
+                        format!(r#"{{"checks":[{{"id":"f11_births","pass":{verdict}}}]}}"#)
+                            .into_bytes(),
+                    );
+                })
+            };
+            assert_eq!(
+                changed_results(&judged("true"), &judged("false")),
+                Vec::<String>::new()
+            );
+        }
+        let export = "tests/golden/criteria/hand.ndjson";
+        let exported = |line: &str| {
+            with(|r| {
+                r.goldens
+                    .insert(export.to_string(), format!("{line}\n").into_bytes());
+            })
+        };
+        assert_eq!(
+            changed_results(&exported(r#"{"births":2}"#), &exported(r#"{"births":3}"#)),
+            vec![export.to_string()]
         );
     }
 
