@@ -1,7 +1,7 @@
 {
   "format_version": 5,
   "start": {
-    "world_seed": "0000000000000001",
+    "world_seed": "000000000000001b",
     "founder_tag": "test:town",
     "world_params": {
       "hereditary_diseases": true,

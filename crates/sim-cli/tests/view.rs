@@ -195,9 +195,9 @@ fn code(body: &[u8]) -> String {
 fn founding() -> Value {
     json!([
         {"key": "core:market_age", "base": 16.0, "outcome": null},
-        {"key": "core:market_search_center_female", "base": 25.23, "outcome": 23.5},
-        {"key": "core:pairing_age_gap_preferred", "base": 4.69, "outcome": 3.0},
-        {"key": "core:fertility_wish_tilt", "base": 0.224, "outcome": 2.2},
+        {"key": "core:market_search_center_female", "base": 25.43, "outcome": 23.5},
+        {"key": "core:pairing_age_gap_preferred", "base": 4.26, "outcome": 3.0},
+        {"key": "core:fertility_wish_tilt", "base": 0.231, "outcome": 2.2},
         {"key": "core:fertility_count_until", "base": 18.0, "outcome": null},
         {"key": "core:fertility_extra", "base": 1.0, "outcome": null},
         {"key": "core:fertility_grown_from", "base": 3.0, "outcome": null},
@@ -586,7 +586,7 @@ fn it_refuses_to_start_without_web_dist() {
     assert!(error.starts_with("error: web_missing: "), "{error}");
 }
 
-/// A run of `tests/scenarios/dummy.json` over 80 years (550 events, so the events have two
+/// A run of `tests/scenarios/dummy.json` over 80 years (528 events, so the events have two
 /// pages), exported, beside the fixture's runs; one tiny run gets a broken census, events
 /// and save.
 fn long_fixture(name: &str) -> (PathBuf, PathBuf) {
@@ -722,7 +722,7 @@ fn the_events_come_in_pages_and_filtered() {
         .lines()
         .map(|line| serde_json::from_str(line).expect("JSON"))
         .collect();
-    assert_eq!(file.len(), 550);
+    assert_eq!(file.len(), 528);
     let page = |query: &str| {
         let (status, _, body) = get(server.port, &format!("/api/runs/long/events{query}"));
         assert_eq!(status, 200, "{query}");
@@ -801,9 +801,9 @@ fn the_events_come_in_pages_and_filtered() {
         .map(|e| e["id"].as_u64().expect("an id"))
         .collect();
     for (cursor, count, next) in [
-        (50, 499, Value::Null),
-        (49, 500, Value::Null),
-        (48, 500, file[548]["id"].clone()),
+        (28, 499, Value::Null),
+        (27, 500, Value::Null),
+        (26, 500, file[526]["id"].clone()),
     ] {
         let found = page(&format!("?after={}", ids[cursor]));
         let events = found["events"].as_array().expect("events");
@@ -815,7 +815,7 @@ fn the_events_come_in_pages_and_filtered() {
         );
         assert_eq!(events[0], file[cursor + 1]);
     }
-    let beyond = page(&format!("?after={}", ids[549] + 1000));
+    let beyond = page(&format!("?after={}", ids[527] + 1000));
     assert_eq!(
         (&beyond["events"], &beyond["next"]),
         (&serde_json::json!([]), &Value::Null)
@@ -850,8 +850,8 @@ fn the_events_come_in_pages_and_filtered() {
         serde_json::json!([])
     );
     // Empty pairs are nothing.
-    let found = page(&format!("?&after={}&", ids[547]));
-    assert_eq!(found["events"], serde_json::json!([file[548], file[549]]));
+    let found = page(&format!("?&after={}&", ids[525]));
+    assert_eq!(found["events"], serde_json::json!([file[526], file[527]]));
 
     for query in [
         "?after=x",
@@ -1117,8 +1117,8 @@ fn the_people_are_the_living_with_their_looks() {
 /// core, the same on every request, and asking changes nothing. Only a pair the core would
 /// pair now has them (K7). By hand from the dummy run's golden pedigree, as in
 /// `a_person_with_its_kinship_to_another`: sim 8, the one living woman, may pair with sim 4;
-/// her son 13 is refused, sim 1 died, and a man as the mother or an unknown sim has none
-/// either.
+/// sim 7, who emigrated, is refused (no child of 8 is in the town any more to be too young),
+/// sim 1 died, and a man as the mother or an unknown sim has none either.
 #[test]
 fn a_couple_shows_four_possible_children() {
     let (runs, web) = fixture("children");
@@ -1158,7 +1158,7 @@ fn a_couple_shows_four_possible_children() {
         ("4", "8"),
         ("8", "99999"),
         ("x", "4"),
-        ("8", "13"),
+        ("8", "7"),
         ("1", "4"),
     ] {
         let path = format!("/api/runs/dummy/children/{mother}/{father}");
@@ -1169,7 +1169,7 @@ fn a_couple_shows_four_possible_children() {
             "{path}"
         );
     }
-    for (mother, father) in [(8, 13), (1, 4)] {
+    for (mother, father) in [(8, 7), (1, 4)] {
         assert_eq!(world.preview_children(id(mother), id(father)), None);
     }
     for father in [2, 10] {
@@ -1184,10 +1184,10 @@ fn a_couple_shows_four_possible_children() {
 
 /// What the people of a person's family tree are to it, in one answer (Grok's round 46, P3):
 /// the kinship of the person route for each sim of `?to=`, in the order asked. By hand from
-/// the dummy run's golden pedigree: sim 13 is the son of 8 and 4, and 8 the daughter of 1
-/// and 2; the couple 8 and 4 is unrelated, so 13's parents share half and its grandparents
-/// on its mother's side a quarter with it. An unknown sim in the list or the path is an
-/// unknown sim; a query that is not exactly `to=` and sims with commas is refused.
+/// the dummy run's golden pedigree: sim 8 is the daughter of 1 and 2 and the sister of 10 and
+/// 12 (the same two parents), so each of the four shares half with her. An unknown sim in the
+/// list or the path is an unknown sim; a query that is not exactly `to=` and sims with commas
+/// is refused.
 #[test]
 fn the_kin_of_a_family_tree() {
     let (runs, web) = fixture("kin");
@@ -1200,7 +1200,7 @@ fn the_kin_of_a_family_tree() {
         .expect("runs");
     assert!(status.success());
     let server = start(&runs, &web);
-    let (status, head, body) = get(server.port, "/api/runs/dummy/persons/13/kin?to=8,4,1,2");
+    let (status, head, body) = get(server.port, "/api/runs/dummy/persons/8/kin?to=1,2,10,12");
     assert_eq!(status, 200);
     assert!(head.contains("\r\nContent-Type: application/json\r\n"));
     assert_eq!(
@@ -1209,17 +1209,17 @@ fn the_kin_of_a_family_tree() {
             "format": "simagent.view.kin",
             "version": 1,
             "kin": [
-                {"to": 8, "word": "mother", "foster": null, "r_percent": 50.0},
-                {"to": 4, "word": "father", "foster": null, "r_percent": 50.0},
-                {"to": 1, "word": "grandmother", "foster": null, "r_percent": 25.0},
-                {"to": 2, "word": "grandfather", "foster": null, "r_percent": 25.0}
+                {"to": 1, "word": "mother", "foster": null, "r_percent": 50.0},
+                {"to": 2, "word": "father", "foster": null, "r_percent": 50.0},
+                {"to": 10, "word": "brother", "foster": null, "r_percent": 50.0},
+                {"to": 12, "word": "brother", "foster": null, "r_percent": 50.0}
             ]
         })
     );
     for path in [
-        "/api/runs/dummy/persons/13/kin?to=8,99",
-        "/api/runs/dummy/persons/99/kin?to=8",
-        "/api/runs/dummy/persons/13/kin?to=08",
+        "/api/runs/dummy/persons/8/kin?to=1,99",
+        "/api/runs/dummy/persons/99/kin?to=1",
+        "/api/runs/dummy/persons/8/kin?to=01",
     ] {
         let (status, _, body) = get(server.port, path);
         assert_eq!(
@@ -1229,11 +1229,11 @@ fn the_kin_of_a_family_tree() {
         );
     }
     for path in [
-        "/api/runs/dummy/persons/13/kin",
-        "/api/runs/dummy/persons/13/kin?to=",
-        "/api/runs/dummy/persons/13/kin?to=8,",
-        "/api/runs/dummy/persons/13/kin?to=8&to=4",
-        "/api/runs/dummy/persons/13/kin?of=8",
+        "/api/runs/dummy/persons/8/kin",
+        "/api/runs/dummy/persons/8/kin?to=",
+        "/api/runs/dummy/persons/8/kin?to=1,",
+        "/api/runs/dummy/persons/8/kin?to=1&to=2",
+        "/api/runs/dummy/persons/8/kin?of=1",
     ] {
         let (status, _, body) = get(server.port, path);
         assert_eq!(
@@ -1245,8 +1245,8 @@ fn the_kin_of_a_family_tree() {
 }
 
 /// With `?to=` the person route adds what the second sim is to the first (ADR-0021 section
-/// 2), from the core: on the dummy run, by hand from its golden pedigree, sim 10 is the uncle
-/// of sim 13 (φ 1/8) and sim 5 the foster mother of sim 3 (unrelated). The query is exactly
+/// 2), from the core: on the dummy run, by hand from its golden pedigree, sim 10 is the
+/// brother of sim 12 (φ 1/4) and sim 5 the foster mother of sim 3 (unrelated). The query is exactly
 /// `to=` and digits; digits that name no sim of the run are an unknown sim, as in the path.
 #[test]
 fn a_person_with_its_kinship_to_another() {
@@ -1266,8 +1266,8 @@ fn a_person_with_its_kinship_to_another() {
         json_of(&body)["kinship"].clone()
     };
     assert_eq!(
-        kinship("/api/runs/dummy/persons/13?to=10"),
-        json!({"to": 10, "word": "uncle", "foster": null, "r_percent": 25.0})
+        kinship("/api/runs/dummy/persons/12?to=10"),
+        json!({"to": 10, "word": "brother", "foster": null, "r_percent": 50.0})
     );
     assert_eq!(
         kinship("/api/runs/dummy/persons/3?to=5"),
@@ -1281,12 +1281,12 @@ fn a_person_with_its_kinship_to_another() {
     };
     assert_eq!(partners(8), json!([10, 12, 4, 2]));
     assert_eq!(partners(4), json!([8]));
-    assert_eq!(partners(13), json!([]));
+    assert_eq!(partners(1), json!([]));
     // The ages of the living at the run's last second 943 487 999, in whole years of
     // 31 449 600 seconds, by hand from the births of the golden pedigree (Grok's round 33, P3
     // and P4): 2 born −794 880 000, 4 −628 992 000, 8 41 126 400, 10 101 606 400, 12
-    // 203 212 800, 13 662 860 800.
-    let answer = json_of(&get(server.port, "/api/runs/dummy/persons/13").2);
+    // 203 212 800.
+    let answer = json_of(&get(server.port, "/api/runs/dummy/persons/12").2);
     assert_eq!(answer["version"], 4);
     assert_eq!(
         answer["ages"],
@@ -1295,19 +1295,18 @@ fn a_person_with_its_kinship_to_another() {
             {"sim": 4, "age_years": 49},
             {"sim": 8, "age_years": 28},
             {"sim": 10, "age_years": 26},
-            {"sim": 12, "age_years": 23},
-            {"sim": 13, "age_years": 8}
+            {"sim": 12, "age_years": 23}
         ])
     );
     // Without a query the answer stays as it was.
-    let (_, _, plain) = get(server.port, "/api/runs/dummy/persons/13");
+    let (_, _, plain) = get(server.port, "/api/runs/dummy/persons/12");
     let plain = json_of(&plain);
     assert!(plain.get("kinship").is_none());
-    let mut with = json_of(&get(server.port, "/api/runs/dummy/persons/13?to=10").2);
+    let mut with = json_of(&get(server.port, "/api/runs/dummy/persons/12?to=10").2);
     with.as_object_mut().expect("an object").remove("kinship");
     assert_eq!(with, plain);
     for to in ["0", "01", "999", "18446744073709551616"] {
-        let (status, _, body) = get(server.port, &format!("/api/runs/dummy/persons/13?to={to}"));
+        let (status, _, body) = get(server.port, &format!("/api/runs/dummy/persons/12?to={to}"));
         assert_eq!(
             (status, code_of(&body)),
             (404, "unknown_sim".to_owned()),
@@ -1328,7 +1327,7 @@ fn a_person_with_its_kinship_to_another() {
         "?to=1;x=2",
         "?to=%31",
     ] {
-        let (status, _, body) = get(server.port, &format!("/api/runs/dummy/persons/13{query}"));
+        let (status, _, body) = get(server.port, &format!("/api/runs/dummy/persons/12{query}"));
         assert_eq!(
             (status, code_of(&body)),
             (400, "bad_query".to_owned()),
@@ -2176,7 +2175,7 @@ fn settings_file(values: &str) -> String {
 
 /// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
 /// `the_base_game_loads`).
-const BASE_HASH: &str = "d6729d8677b0f3ad";
+const BASE_HASH: &str = "0a08eab115b75093";
 
 /// The data hash in the manifest of the run in `dir`.
 fn data_hash(dir: &Path) -> String {
@@ -2775,9 +2774,9 @@ fn the_diff_over_http_is_the_diff_of_the_command_line() {
     let (status, _, body) = get(port, "/api/runs/parent/diff/fork");
     assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
     let answer = json_of(&body);
-    let died = &answer["changed"][1]["b"]["died"];
+    let died = &answer["changed"][0]["b"]["died"];
     assert_eq!(
-        answer["changed"][1]["lineage_key"],
+        answer["changed"][0]["lineage_key"],
         json!("5e51a4f2e3aba5e9")
     );
     assert_eq!(

@@ -1,9 +1,8 @@
 //! The partners a pairing input would be accepted with (ADR-0018 section 1, ADR-0021
 //! section 6): at the end of the dummy run (its last second 943487999), read off its golden
 //! pedigree (`tests/golden/dummy_pedigree.json`) by hand.
-//! Living then: sims 2, 4, 10, 12 and 13 (men) and 8 (the one woman); every partnership
-//! has ended. Sim 8's father is 2, her brothers 10 and 12 (φ 1/4), her son 13 is eight;
-//! sim 4, her former partner, is unrelated to her. Sim 1 died, sims 3, 5, 6, 7, 9 and 11
+//! Living then: sims 2, 4, 10 and 12 (men) and 8 (the one woman); every partnership has
+//! ended. Sim 8's father is 2, her brothers 10 and 12 (φ 1/4); sim 4 is unrelated to her. Sim 1 died, sims 3, 5, 6, 7, 9 and 11
 //! emigrated.
 
 use std::path::Path;
@@ -34,13 +33,12 @@ fn the_dummy_runs_partners_by_hand() {
         .0;
     assert_eq!(world.closed_through().as_secs(), 943_487_999);
     let sim = |n: u64| SimId::try_from(n).expect("an id");
-    let cases: [(u64, &[u64]); 13] = [
+    let cases: [(u64, &[u64]); 12] = [
         (8, &[10, 12, 4, 2]),
         (4, &[8]),
         (2, &[8]),
         (10, &[8]),
         (12, &[8]),
-        (13, &[]),
         (1, &[]),
         (3, &[]),
         (5, &[]),

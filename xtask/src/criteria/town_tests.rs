@@ -261,7 +261,7 @@ fn the_towns_data_take_the_pool_frequencies() {
 }
 
 /// The criteria town runs the game (ADR-0017, addendum of 2026-11-05): its data are the
-/// town's data with the game's life course data, the tilt 0.224 and the extra child, while the
+/// town's data with the game's life course data, the tilt 0.231 and the extra child, while the
 /// pool's persons keep the extract's wish (0.311); the town's data without the overlay keep
 /// the rule without the extra child.
 #[test]
@@ -278,7 +278,7 @@ fn the_criteria_town_runs_the_game() {
     assert_eq!(town.demography().fertility.extra, None);
     assert_eq!(town.demography().fertility.wish_tilt, 0.311);
     let fertility = &game.demography().fertility;
-    assert_eq!(fertility.wish_tilt, 0.224);
+    assert_eq!(fertility.wish_tilt, 0.231);
     assert_eq!(
         fertility.extra,
         Some(sim_core::demography::ExtraChild {

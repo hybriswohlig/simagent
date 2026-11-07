@@ -109,7 +109,7 @@ fn key(hex: &str) -> LineageKey {
 
 /// The dummy run (`tests/golden/dummy_pedigree.json`, from the Python reference): the root of
 /// each person's chain, read off that pedigree by hand. Founders are their own roots; the
-/// children of sim 6 (who emigrated) and of sim 2 and sim 4 (who live) have their fathers'.
+/// children of sim 6 (who emigrated) and of sim 2 (who lives) have their fathers'.
 #[test]
 fn the_dummy_runs_roots_by_hand() {
     let base = scratch("dummy");
@@ -136,7 +136,6 @@ fn the_dummy_runs_roots_by_hand() {
         (10, "d14e686636ce6fd8"),
         (11, "8768613bccdc39a5"),
         (12, "d14e686636ce6fd8"),
-        (13, "5ecfb3ffee518eab"),
     ];
     for (sim, root) in roots {
         let sim = SimId::try_from(sim).expect("an id");

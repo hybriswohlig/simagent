@@ -11,7 +11,7 @@
 //! units below with their heights, the start, state and log hashes. Cohort 0 holds 12 adults: 9
 //! children of the pool's pregnancies born in the town, the units of K4 (town-born), and 3
 //! persons born at the arrival second, whose birth is the pool's history; the rule holds for all
-//! 12. Cohort 1 holds the 9 conceived before `T_Y` (a birth 10 months after its conception).
+//! 12. Cohort 1 holds the 10 conceived before `T_Y` (a birth 10 months after its conception).
 //! Negative twin: the override on year 3 (forked at `T_3 − 1 s`) costs cohort 0 only 0.75 cm, so
 //! the 1.50 assertion is red there.
 
@@ -40,7 +40,7 @@ const TOLERANCE: f64 = 1e-9;
 
 /// The units of the reference: cohort, lineage key, birth second, town-born, the pure height
 /// at 18 in the base run and in the fork (bits), the expected difference (bits).
-const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 21] = [
+const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 22] = [
     (
         1,
         0x0d3c71c3d06eb8ea,
@@ -121,6 +121,15 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 21] = [
         0x4065fbf7336b2e81,
         0x4065dabc1fb9f36d,
         0x3ff09d89d89d89d9,
+    ),
+    (
+        1,
+        0x550b95edf447b6a6,
+        48384000,
+        true,
+        0x406649cdec0ad68e,
+        0x406633a68994af2c,
+        0x3fe6276276276276,
     ),
     (
         0,
@@ -232,14 +241,14 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 21] = [
     ),
 ];
 const START_INPUT_HASH: u64 = 0xa1c9d8dc290b704f;
-const BASE_STATE: u64 = 0x01c8b6a63c8e68a6;
-const BASE_LOG: u64 = 0x2f0ea8ac47b08d5c;
-const FORK_STATE: u64 = 0xd1615393bb9a57be;
-const FORK_LOG: u64 = 0x800f2ab2334b1e39;
-const TWIN_LATE_STATE: u64 = 0xeae4509724090c03;
-const TWIN_LATE_LOG: u64 = 0xe691a7517f858fd4;
-const IDENTICAL: usize = 1020;
-const PERSONS: usize = 1295;
+const BASE_STATE: u64 = 0xa040af453edeb0ca;
+const BASE_LOG: u64 = 0x3d1a4b389ba3bb5c;
+const FORK_STATE: u64 = 0x650c0e1cdd48cc9e;
+const FORK_LOG: u64 = 0x57046e8a7e59f579;
+const TWIN_LATE_STATE: u64 = 0x7a17d96a57dcaa16;
+const TWIN_LATE_LOG: u64 = 0x4949173d26bd0897;
+const IDENTICAL: usize = 1021;
+const PERSONS: usize = 1300;
 
 fn start(data: &Data) -> Start {
     Start {

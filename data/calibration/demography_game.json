@@ -1,11 +1,11 @@
 {
   "values": {
     "core:fertility_wish_tilt": {
-      "value": 0.224,
+      "value": 0.231,
       "unit": "logit",
-      "source": "tools/life_reference.py --wish-refit (grown chance 0.20): bisection of alpha on the realized live births per woman reaching 50 in 24 closed towns of 1000 founders over 300 years (burn-in 100, seeds 1-24, every other value held at calibration/demography.json), bracket [0.223531, 0.223835]; checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-05",
-      "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners and the extra child; delete-one-town standard error 0.0042. Trace (alpha -> births): 0 -> 1.9530,0.311 -> 2.2888, 0.1555 -> 2.1302, 0.23325 -> 2.2117, 0.194375 -> 2.1670, 0.213813 -> 2.1915, 0.223531 -> 2.1998, 0.228391 -> 2.2064, 0.225961 -> 2.2044, 0.224746 -> 2.2026, 0.224139 -> 2.2017, 0.223835 -> 2.2013. Check: 2.1965 +- 0.0054 live births, under 18 0.00226, age gap 2.967, every other target within 4 standard errors; women with a birth conceived at or above the wish 0.083, such births 0.038 (his slot 0.014, a grown child 0.024). Completed sizes 0/1/2/3/4/5+: 0.156/0.101/0.332/0.236/0.152/0.023 (the rule without the extra child at alpha 0.311: 0.145/0.095/0.328/0.281/0.150/0.002; the extra child without the grown chance at alpha 0.063: 0.179/0.122/0.347/0.088/0.192/0.072). The pool's persons keep the wish of calibration/demography.json (alpha 0.311)."
+      "source": "tools/life_reference.py --wish-refit --accept --market (the --accept fit's values): bisection of alpha on the realized live births per woman reaching 50 in 24 closed towns of 1000 founders over 300 years (burn-in 100, seeds 1-24), bracket [0.231124, 0.231428]; checked on 48 new towns (seeds 900001-900048), with the bands of 11.2a",
+      "as_of": "2026-11-07",
+      "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners, with the market of 11.2a; delete-one-town standard error 0.0003"
     },
     "core:fertility_count_until": {
       "value": 18.0,
@@ -34,6 +34,104 @@
       "source": "ADR-0017, addendum of 2026-11-05: a play value, held in the refit of alpha",
       "as_of": "2026-11-05",
       "note": "A grown child reopens her only if her draw FERTILITY_WISH at occasion 1 (her key, the seed of her wish) is below this; his slot does not read it."
+    },
+    "core:pairing_taste_sd": {
+      "value": 1.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2j]; ADR-0018, addendum of 2026-11-06 (third round: 1 year)",
+      "as_of": "2026-11-06",
+      "note": "sigma_nu: every person draws one taste nu ~ normal(0, sigma_nu) from PAIRING_TASTE, a pure function of its lineage key (pool persons with the pool seed, town-born with the world seed). It stands only in the target ages. A play value for both sexes, not fitted."
+    },
+    "core:pairing_male_target_slope": {
+      "value": 0.4,
+      "unit": "ratio",
+      "source": "genetics specification 11.2a [K11.2k]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "His target age is his age a minus delta(a) = min(slope * max(a - from, 0), cap), not below the minimum: this is the years the target falls behind his own per year of age past the starting age. A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_male_target_from": {
+      "value": 22.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2l]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "The age in years from which the man's target age falls behind his own. A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_male_target_cap": {
+      "value": 15.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2m]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "The most the man's target age falls behind his own, in years (a man of 60 aims at 45, one of 70 at 55). A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_male_target_min": {
+      "value": 21.0,
+      "unit": "year",
+      "source": "genetics specification 11.2a [K11.2n]; ADR-0018, addendum of 2026-11-06",
+      "as_of": "2026-11-06",
+      "note": "The lowest target age of a man before his taste, in years (a man from 16 to 21 aims at 21). A play value for the modern scenario, not fitted."
+    },
+    "core:pairing_weight_age_male": {
+      "value": 0.02,
+      "unit": "logit",
+      "source": "genetics specification 11.2a [K11.2p]; ADR-0018, addendum of 2026-11-06 (third round)",
+      "as_of": "2026-11-06",
+      "note": "w_am, utility per squared year of the distance between her age and his target age in his answer, the same unit as core:pairing_weight_age. His answer has no trait term: U_m = -w_am * (a_f - t_m)^2 + G_m > 0. A play value, not fitted (third round of 2026-11-06); the stock share of couples with the older woman, 0.18, is carried by her weight w_a."
+    },
+    "core:market_search_height_female": {
+      "value": 0.02154,
+      "unit": "fraction",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2 with Grok R8, c of the search rate s_f(a) of women, per market round; approximate standard error 6.2e-05; refit under the man's answer (11.2a, third round), game overlay only"
+    },
+    "core:market_search_center_female": {
+      "value": 25.43,
+      "unit": "year",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2 with Grok R8, m of the search rate s_f(a) of women; approximate standard error 0.03; refit under the man's answer (11.2a, third round), game overlay only"
+    },
+    "core:market_search_factor_minor": {
+      "value": 0.119,
+      "unit": "fraction",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "Grok R6b and R8, factor on s_f(a) from the 16th until before the 18th birthday; approximate standard error 0.003; refit under the man's answer (11.2a, third round), game overlay only"
+    },
+    "core:pairing_age_gap_preferred": {
+      "value": 4.26,
+      "unit": "year",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2 with Grok R8, mu_a of the age term (man older), with w_a fitted (11.2a); approximate standard error 0.021; refit under the man's answer (11.2a, third round), game overlay only"
+    },
+    "core:pairing_weight_cognition": {
+      "value": 0.618,
+      "unit": "logit",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference; approximate standard error 0.0052; refit under the man's answer (11.2a, third round), game overlay only"
+    },
+    "core:pairing_weight_height": {
+      "value": 0.259,
+      "unit": "logit",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "docs/genetik-spezifikation.md 11.2, w_H, utility per squared phenotype difference; approximate standard error 0.0019; refit under the man's answer (11.2a, third round), game overlay only"
+    },
+    "core:separation_rate": {
+      "value": 0.0086,
+      "unit": "per_year",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "ADR-0018 section 3, lambda_sep; approximate standard error 1.2e-05; refit under the man's answer (11.2a, third round), game overlay only"
+    },
+    "core:pairing_weight_age": {
+      "value": 0.0782,
+      "unit": "logit",
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2a third round, w_a, her utility per squared year; approximate standard error 0.0011; refit under the man's answer (11.2a, third round), game overlay only"
     }
   }
 }

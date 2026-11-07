@@ -4,20 +4,20 @@
 // the step the play button plays, triggers a hunger year (its line, for year 29, comes at once),
 // steps one year, unfolds the hereditary diseases and turns them on (off in the scenario; its
 // line, the fold's new state and the button's new label come at once), opens the people and
-// filters them for blond hair (the count changes), goes back, opens sim 13, which
-// stands at one age beside its parents, its mother sim 8 among them, and whose card folds its
+// filters them for blond hair (the count changes), goes back, opens sim 10, which
+// stands at one age beside its parents, its mother sim 1 among them, and whose card folds its
 // hereditary diseases, and clicks its mother in the pedigree (P11),
 // opens the comparison of the run with itself (no life differs), goes back to the run page
 // and finds the hunger year's line again (the chronicle kept), then forks the run from its
 // year with the hereditary diseases off (unfolded in the form) and lands on the comparison with the fork, finds where
-// the fork begins on its page, steps the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 13 and finds it on the run page, opens the sheet of portraits with a height under each
+// the fork begins on its page, steps the fork 28 days on and finds the comparison made at the run's second; last it pins the family of sim 10 and finds it on the run page, opens the sheet of portraits with a height under each
 // (ten rows of seven), and founds a town, which stands in its first second with its founders
 // and says when its curves begin; last the server falls silent and loading again ends the
 // message that it does not answer, and once more after a step alone, where the message ends
 // by itself once the server answers; then it moves a household into its house, and at the
 // end founds a town with partnerships from 18 in the folded section of own values, which its
 // page marks, and runs it two decades (smoke/reopen.mjs opens it after a restart).
-// Sim 13 with mother 8 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
+// Sim 13 with mother 1 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
 
@@ -154,15 +154,15 @@ if (browser !== undefined) {
     await step("with children", page.getByRole("checkbox", { name: "nur mit Kindern" }).waitFor());
     await step("the families counted", page.getByRole("status").filter({ hasText: /^\d+ Familien$/ }).waitFor());
     await step("back to the run", page.goBack());
-    await step("open sim 13", page.locator(`a[href="#/runs/${run}/persons/13"]`).first().click());
+    await step("open sim 10", page.locator(`a[href="#/runs/${run}/persons/10"]`).first().click());
     await step("its card folds its hereditary diseases", page.locator("details > summary", { hasText: /^Erbkrankheiten$/ }).waitFor());
     await step("its family folded", page.locator("details > summary", { hasText: /^Ähnlichkeit in der Familie$/ }).click());
     await step("its family at one age", page.getByRole("heading", { level: 3, name: /^Eltern und Vollgeschwister, mit \d+$/ }).waitFor());
     await step(
       "its mother among them",
-      page.locator("figcaption", { hasText: /^Mutter / }).locator(`a[href="#/runs/${run}/persons/8"]`).waitFor(),
+      page.locator("figcaption", { hasText: /^Mutter / }).locator(`a[href="#/runs/${run}/persons/1"]`).waitFor(),
     );
-    const mother = page.locator('svg[aria-label="Stammbaum"] a[data-sim="8"]');
+    const mother = page.locator('svg[aria-label="Stammbaum"] a[data-sim="1"]');
     await step("its mother in the pedigree", mother.waitFor());
     await step("what she is to it", mother.locator("text", { hasText: /^Mutter · 50,0 %$/ }).waitFor());
     const before = await page.locator("h1").textContent();
@@ -174,7 +174,7 @@ if (browser !== undefined) {
           const heading = document.querySelector("h1");
           return location.hash === hash && heading !== null && heading.textContent !== name;
         },
-        [`#/runs/${run}/persons/8`, before],
+        [`#/runs/${run}/persons/1`, before],
       ),
     );
     await step("the comparison with itself", page.goto(`${url}#/runs/${run}/diff/${run}`));
@@ -222,7 +222,7 @@ if (browser !== undefined) {
         new RegExp(`^Verglichen wird zum Stand von ${run} \\(Jahr 29, 13\\. Monat, 28\\. Tag\\); gabel ist dafür bis dorthin nachgerechnet, an ihm selbst ändert sich nichts\\.$`),
       ).waitFor(),
     );
-    await step("sim 13 again", page.goto(`${url}#/runs/${run}/persons/13`));
+    await step("sim 10 again", page.goto(`${url}#/runs/${run}/persons/10`));
     // The kinship found by name (Grok's round 46): a name of the list typed in, the core's line.
     const kinField = page.getByPlaceholder("Name eingeben");
     await step("the kinship's search field", kinField.waitFor());
@@ -543,7 +543,7 @@ if (browser !== undefined) {
     if (errors.length > 0) {
       throw new Error(`errors on the page: ${errors.join("; ")}`);
     }
-    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 13 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 8, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, the families with children, and a household moved into its house named by its family with its members moving in, an hour on with no name or dot of the plan over another, why a choice was made with the mood in its points, and a command given that shows in its day at once and keeps its choice, and a town founded with partnerships from 18, marked, two decades on");
+    console.log("smoke: the run page in year 28 and 29 with its empty chronicle's hint, the step it plays, a hunger and the folded switch, the people filtered, sim 10 beside its parents in the folded family and with its card, its mother marked in the tree, then its mother sim 1, the comparison with itself and nothing pinned, the chronicle kept, the comparison with a fork, where the fork begins, a pinned family above a chronicle that scrolls and beside itself in the comparison with the fork, the sheet of portraits with their heights, a new town in its first second with a refused pairing and a couple given time together and parted in the cheat mode, the server's silence ended by loading again and by itself, the families with children, and a household moved into its house named by its family with its members moving in, an hour on with no name or dot of the plan over another, why a choice was made with the mood in its points, and a command given that shows in its day at once and keeps its choice, and a town founded with partnerships from 18, marked, two decades on");
   } catch (error) {
     fail(error.message);
   } finally {

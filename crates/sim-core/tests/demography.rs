@@ -6,7 +6,7 @@ mod common;
 
 use serde_json::{Value, json};
 use sim_core::data::Data;
-use sim_core::demography::{ExtraChild, Fertility, Market, Twins};
+use sim_core::demography::{ExtraChild, Fertility, MaleAnswer, Market, Twins};
 use sim_core::learning::LearningParams;
 
 /// The check of the repository's definitions with the life course data changed by
@@ -69,6 +69,7 @@ fn the_repository_values_are_those_of_the_specification() {
             age_gap: 4.69,
             kinship_limit: 0.125,
             cousin_odds: 10.0,
+            male: None,
         }
     );
     assert_eq!(demography.separation_rate, 0.00867);
@@ -300,19 +301,40 @@ fn the_life_course_data_count_in_the_hash() {
     assert_ne!(without.hash(), common::data().hash());
 }
 
-/// The extra child (ADR-0017, addendum of 2026-11-05): the game's overlay sets the tilt 0.224
-/// and the four values of the group; the extract without them keeps 22 values and the rule
-/// without the extra child.
+/// The extra child (ADR-0017, addendum of 2026-11-05): the game's overlay sets the tilt and
+/// the four values of the group; the extract without them keeps 22 values and the rule
+/// without the extra child. Since the man's answer (11.2a, third round) the overlay also
+/// carries the refit of the market: the values of `tools/life_reference.py --accept` and the
+/// tilt 0.231 of its `--wish-refit --accept`.
 #[test]
 fn the_game_overlays_the_extra_child() {
     let (calibration, genome_map) = common::files();
     let game =
         common::definitions_with(common::game(common::demography()), calibration, genome_map)
             .expect("definitions");
-    assert_eq!(game.demography.values.len(), 26);
+    assert_eq!(game.demography.values.len(), 32);
     let data = Data::new(game).expect("checked");
     let fertility = &data.demography().fertility;
-    assert_eq!(fertility.wish_tilt, 0.224);
+    assert_eq!(fertility.wish_tilt, 0.231);
+    let market = &data.demography().market;
+    assert_eq!(
+        (
+            market.search_height,
+            market.search_center,
+            market.minor_factor
+        ),
+        (0.02154, 25.43, 0.119)
+    );
+    assert_eq!(
+        (
+            market.age_gap,
+            market.weight_cognition,
+            market.weight_height,
+            market.weight_age
+        ),
+        (4.26, 0.618, 0.259, 0.0782)
+    );
+    assert_eq!(data.demography().separation_rate, 0.0086);
     assert_eq!(
         fertility.extra,
         Some(ExtraChild {
@@ -323,6 +345,151 @@ fn the_game_overlays_the_extra_child() {
         })
     );
     assert_eq!(common::data().demography().fertility.extra, None);
+    // The six values of the man's answer (11.2a) come with it: the spec's values, the taste's
+    // spread 1 year (third round of 2026-11-06).
+    assert_eq!(
+        data.demography().market.male,
+        Some(MaleAnswer {
+            taste_sd: 1.0,
+            ..MALE
+        })
+    );
+    assert_eq!(common::data().demography().market.male, None);
+}
+
+/// The man's answer and the target ages (11.2a, ADR-0018 addendum of 2026-11-06): the spec's
+/// first values (taste 3), used for the group's loader rules.
+const MALE: MaleAnswer = MaleAnswer {
+    taste_sd: 3.0,
+    target_slope: 0.4,
+    target_from: 22.0,
+    target_cap: 15.0,
+    target_min: 21.0,
+    weight_age: 0.02,
+};
+
+/// The six keys of the man's answer with their units and values.
+const MALE_KEYS: [(&str, &str, f64); 6] = [
+    ("core:pairing_taste_sd", "year", 3.0),
+    ("core:pairing_male_target_slope", "ratio", 0.4),
+    ("core:pairing_male_target_from", "year", 22.0),
+    ("core:pairing_male_target_cap", "year", 15.0),
+    ("core:pairing_male_target_min", "year", 21.0),
+    ("core:pairing_weight_age_male", "logit", 0.02),
+];
+
+/// The life course data of the repository with the six values of the man's answer added.
+fn with_male(demography: &mut Value) {
+    for (key, unit, value) in MALE_KEYS {
+        demography["values"][key] = json!({"value": value, "unit": unit});
+    }
+}
+
+/// The group of the man's answer: all six keys or none, each of its unit and range. Without
+/// them the market is the one before (22 values, no answer), a seventh key is unknown.
+#[test]
+fn the_male_answer_is_one_group() {
+    let grouped = |change: Box<dyn FnOnce(&mut Value)>| {
+        checked(move |demography| {
+            with_male(demography);
+            change(demography);
+        })
+    };
+    assert_eq!(grouped(Box::new(|_| {})), "ok");
+    let mut demography = common::demography();
+    with_male(&mut demography);
+    let (calibration, genome_map) = common::files();
+    let definitions =
+        common::definitions_with(demography, calibration, genome_map).expect("definitions");
+    assert_eq!(definitions.demography.values.len(), 28);
+    let data = Data::new(definitions).expect("checked");
+    assert_eq!(data.demography().market.male, Some(MALE));
+    assert_ne!(data.hash(), common::data().hash());
+    // Each key alone is missing from a group that names the others; one key alone is a
+    // partial group too.
+    for (key, _, _) in MALE_KEYS {
+        let remove: Box<dyn FnOnce(&mut Value)> = Box::new(move |d: &mut Value| {
+            d["values"].as_object_mut().expect("values").remove(key);
+        });
+        assert_eq!(grouped(remove), "data.calibration_missing", "{key}");
+        let only = Box::new(move |d: &mut Value| {
+            let keys: Vec<String> = d["values"]
+                .as_object()
+                .expect("values")
+                .keys()
+                .cloned()
+                .collect();
+            for other in keys {
+                if other != key && MALE_KEYS.iter().any(|(k, _, _)| *k == other) {
+                    d["values"].as_object_mut().expect("values").remove(&other);
+                }
+            }
+        });
+        assert_eq!(grouped(only), "data.calibration_missing", "only {key}");
+    }
+    let set = |key: &'static str, value: f64| -> Box<dyn FnOnce(&mut Value)> {
+        Box::new(move |d: &mut Value| d["values"][key]["value"] = json!(value))
+    };
+    for (key, wrong) in [
+        ("core:pairing_taste_sd", -0.01),
+        ("core:pairing_taste_sd", 50.01),
+        ("core:pairing_male_target_slope", -0.01),
+        ("core:pairing_male_target_slope", 1.01),
+        ("core:pairing_male_target_from", 0.0),
+        ("core:pairing_male_target_from", 150.01),
+        ("core:pairing_male_target_cap", 0.0),
+        ("core:pairing_male_target_cap", 150.01),
+        ("core:pairing_male_target_min", 0.0),
+        ("core:pairing_male_target_min", 150.01),
+        ("core:pairing_weight_age_male", 0.0),
+        ("core:pairing_weight_age_male", 1_000_001.0),
+    ] {
+        assert_eq!(grouped(set(key, wrong)), "data.demography", "{key} {wrong}");
+    }
+    for (key, edge) in [
+        ("core:pairing_taste_sd", 0.0),
+        ("core:pairing_taste_sd", 50.0),
+        ("core:pairing_male_target_slope", 0.0),
+        ("core:pairing_male_target_slope", 1.0),
+        ("core:pairing_male_target_from", 150.0),
+        ("core:pairing_male_target_cap", 150.0),
+        ("core:pairing_male_target_min", 150.0),
+        ("core:pairing_weight_age_male", 1_000_000.0),
+    ] {
+        assert_eq!(grouped(set(key, edge)), "ok", "{key} {edge}");
+    }
+    for (key, _, _) in MALE_KEYS {
+        let unit = Box::new(move |d: &mut Value| d["values"][key]["unit"] = json!("fraction"));
+        assert_eq!(grouped(unit), "data.calibration_unit", "{key}");
+    }
+    let seventh = Box::new(|d: &mut Value| {
+        d["values"]["core:pairing_taste_more"] = json!({"value": 1.0, "unit": "year"});
+    });
+    assert_eq!(grouped(seventh), "data.calibration_unknown");
+}
+
+/// The two groups are independent: the extra child without the man's answer, and the man's
+/// answer without the extra child, each as before.
+#[test]
+fn the_extra_child_and_the_male_answer_do_not_need_each_other() {
+    let mut answer = common::demography();
+    with_male(&mut answer);
+    let (calibration, genome_map) = common::files();
+    let data =
+        Data::new(common::definitions_with(answer, calibration, genome_map).expect("definitions"))
+            .expect("checked");
+    assert_eq!(data.demography().fertility.extra, None);
+    assert_eq!(data.demography().market.male, Some(MALE));
+    let mut extra = common::game(common::demography());
+    for (key, _, _) in MALE_KEYS {
+        extra["values"].as_object_mut().expect("values").remove(key);
+    }
+    let (calibration, genome_map) = common::files();
+    let data =
+        Data::new(common::definitions_with(extra, calibration, genome_map).expect("definitions"))
+            .expect("checked");
+    assert!(data.demography().fertility.extra.is_some());
+    assert_eq!(data.demography().market.male, None);
 }
 
 /// The group of the extra child: all four keys or none; each of its unit and range; a fifth

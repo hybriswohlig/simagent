@@ -42,9 +42,10 @@ fn sim(n: u64) -> SimId {
 fn data(chance: f64) -> Data {
     let (mut calibration, genome_map) =
         common::death_files(1e-9, None, common::repository_diseases());
-    let mut demography = common::demography();
+    // The game's overlay first: it carries the refit market and separation values, which the
+    // window of fertility then puts back to off (the market off and no separation).
+    let mut demography = common::game(common::demography());
     common::window_fertility(&mut calibration, &mut demography, 1.0);
-    let mut demography = common::game(demography);
     demography["fertility_wish_shape"] = Value::Array(
         [0.0, 0.0, 0.0, 1.0]
             .map(|w| json!({"value": w, "unit": "fraction"}))
@@ -421,8 +422,9 @@ fn childless_man(world: &World, except: &[SimId]) -> SimId {
 }
 
 /// Pairs `woman` with `man`: with the clock at the end of a month, parts her from her
-/// partner if she has one and runs a month on; then pairs the two and runs to the next month
-/// start, the first of their series.
+/// partner if she has one and pairs the two in the same second (no market round falls between
+/// the two inputs, so nobody else can pair either of them first); then runs to the next
+/// month start, the first of their series.
 fn repair(world: &mut World, woman: SimId, man: SimId) {
     let pedigree = world.pedigree();
     if let Some(pair) =
@@ -435,12 +437,6 @@ fn repair(world: &mut World, woman: SimId, man: SimId) {
         world
             .submit(Input::SeparatePartnership(part))
             .expect("accepted");
-        let until = world.closed_through().as_secs() + M;
-        world.advance_until(
-            &mut YearOut::default(),
-            SimTime::from_secs(until),
-            &mut |_| false,
-        );
     }
     world
         .submit(Input::ArrangePartnership(ArrangePartnership { woman, man }))
