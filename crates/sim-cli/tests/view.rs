@@ -197,7 +197,7 @@ fn founding() -> Value {
         {"key": "core:market_age", "base": 16.0, "outcome": null},
         {"key": "core:market_search_center_female", "base": 25.43, "outcome": 23.5},
         {"key": "core:pairing_age_gap_preferred", "base": 4.26, "outcome": 3.0},
-        {"key": "core:fertility_wish_tilt", "base": 0.239, "outcome": 2.2},
+        {"key": "core:fertility_wish_tilt", "base": 0.231, "outcome": 2.2},
         {"key": "core:fertility_count_until", "base": 18.0, "outcome": null},
         {"key": "core:fertility_extra", "base": 1.0, "outcome": null},
         {"key": "core:fertility_grown_from", "base": 3.0, "outcome": null},

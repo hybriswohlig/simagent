@@ -305,7 +305,7 @@ fn the_life_course_data_count_in_the_hash() {
 /// the four values of the group; the extract without them keeps 22 values and the rule
 /// without the extra child. Since the man's answer (11.2a, third round) the overlay also
 /// carries the refit of the market: the values of `tools/life_reference.py --accept` and the
-/// tilt 0.239 of its `--wish-refit --accept`.
+/// tilt 0.231 of its `--wish-refit --accept`.
 #[test]
 fn the_game_overlays_the_extra_child() {
     let (calibration, genome_map) = common::files();
@@ -315,7 +315,7 @@ fn the_game_overlays_the_extra_child() {
     assert_eq!(game.demography.values.len(), 32);
     let data = Data::new(game).expect("checked");
     let fertility = &data.demography().fertility;
-    assert_eq!(fertility.wish_tilt, 0.239);
+    assert_eq!(fertility.wish_tilt, 0.231);
     let market = &data.demography().market;
     assert_eq!(
         (
@@ -323,7 +323,7 @@ fn the_game_overlays_the_extra_child() {
             market.search_center,
             market.minor_factor
         ),
-        (0.0215, 25.43, 0.118)
+        (0.02154, 25.43, 0.119)
     );
     assert_eq!(
         (
@@ -332,7 +332,7 @@ fn the_game_overlays_the_extra_child() {
             market.weight_height,
             market.weight_age
         ),
-        (4.26, 0.626, 0.254, 0.0795)
+        (4.26, 0.618, 0.259, 0.0782)
     );
     assert_eq!(data.demography().separation_rate, 0.0086);
     assert_eq!(

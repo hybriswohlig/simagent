@@ -1,11 +1,11 @@
 {
   "values": {
     "core:fertility_wish_tilt": {
-      "value": 0.239,
+      "value": 0.231,
       "unit": "logit",
-      "source": "tools/life_reference.py --wish-refit --accept --market (the --accept fit's values): bisection of alpha on the realized live births per woman reaching 50 in 24 closed towns of 1000 founders over 300 years (burn-in 100, seeds 1-24), bracket [0.239021, 0.239324]; checked on 48 new towns (seeds 900001-900048)",
+      "source": "tools/life_reference.py --wish-refit --accept --market (the --accept fit's values): bisection of alpha on the realized live births per woman reaching 50 in 24 closed towns of 1000 founders over 300 years (burn-in 100, seeds 1-24), bracket [0.231124, 0.231428]; checked on 48 new towns (seeds 900001-900048), with the bands of 11.2a",
       "as_of": "2026-11-07",
-      "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners, with the market of 11.2a; delete-one-town standard error 0.002"
+      "note": "ADR-0017, addendum of 2026-11-05: alpha under the wish of both partners, with the market of 11.2a; delete-one-town standard error 0.0003"
     },
     "core:fertility_count_until": {
       "value": 18.0,
@@ -78,60 +78,60 @@
       "note": "w_am, utility per squared year of the distance between her age and his target age in his answer, the same unit as core:pairing_weight_age. His answer has no trait term: U_m = -w_am * (a_f - t_m)^2 + G_m > 0. A play value, not fitted (third round of 2026-11-06); the stock share of couples with the older woman, 0.18, is carried by her weight w_a."
     },
     "core:market_search_height_female": {
-      "value": 0.0215,
+      "value": 0.02154,
       "unit": "fraction",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "11.2 with Grok R8, c of the search rate s_f(a) of women, per market round; approximate standard error 0.00017; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2 with Grok R8, c of the search rate s_f(a) of women, per market round; approximate standard error 6.2e-05; refit under the man's answer (11.2a, third round), game overlay only"
     },
     "core:market_search_center_female": {
       "value": 25.43,
       "unit": "year",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "11.2 with Grok R8, m of the search rate s_f(a) of women; approximate standard error 0.054; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2 with Grok R8, m of the search rate s_f(a) of women; approximate standard error 0.03; refit under the man's answer (11.2a, third round), game overlay only"
     },
     "core:market_search_factor_minor": {
-      "value": 0.118,
+      "value": 0.119,
       "unit": "fraction",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "Grok R6b and R8, factor on s_f(a) from the 16th until before the 18th birthday; approximate standard error 0.0046; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "Grok R6b and R8, factor on s_f(a) from the 16th until before the 18th birthday; approximate standard error 0.003; refit under the man's answer (11.2a, third round), game overlay only"
     },
     "core:pairing_age_gap_preferred": {
       "value": 4.26,
       "unit": "year",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "11.2 with Grok R8, mu_a of the age term (man older), with w_a fitted (11.2a); approximate standard error 0.022; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2 with Grok R8, mu_a of the age term (man older), with w_a fitted (11.2a); approximate standard error 0.021; refit under the man's answer (11.2a, third round), game overlay only"
     },
     "core:pairing_weight_cognition": {
-      "value": 0.626,
+      "value": 0.618,
       "unit": "logit",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference; approximate standard error 0.01; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "docs/genetik-spezifikation.md 11.2, w_K, utility per squared phenotype difference; approximate standard error 0.0052; refit under the man's answer (11.2a, third round), game overlay only"
     },
     "core:pairing_weight_height": {
-      "value": 0.254,
+      "value": 0.259,
       "unit": "logit",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "docs/genetik-spezifikation.md 11.2, w_H, utility per squared phenotype difference; approximate standard error 0.004; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "docs/genetik-spezifikation.md 11.2, w_H, utility per squared phenotype difference; approximate standard error 0.0019; refit under the man's answer (11.2a, third round), game overlay only"
     },
     "core:separation_rate": {
       "value": 0.0086,
       "unit": "per_year",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "ADR-0018 section 3, lambda_sep; approximate standard error 1.1e-05; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "ADR-0018 section 3, lambda_sep; approximate standard error 1.2e-05; refit under the man's answer (11.2a, third round), game overlay only"
     },
     "core:pairing_weight_age": {
-      "value": 0.0795,
+      "value": 0.0782,
       "unit": "logit",
-      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 24 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
-      "as_of": "2026-11-06",
-      "note": "11.2a third round, w_a, her utility per squared year; approximate standard error 0.0022; refit under the man's answer (11.2a, third round), game overlay only"
+      "source": "tools/life_reference.py --accept: closed towns of 1000 founders over 300 years (burn-in 100), local regression over 39 runs of 12 towns, checked on 48 new towns (seeds 900001-900048)",
+      "as_of": "2026-11-07",
+      "note": "11.2a third round, w_a, her utility per squared year; approximate standard error 0.0011; refit under the man's answer (11.2a, third round), game overlay only"
     }
   }
 }
