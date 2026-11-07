@@ -208,7 +208,8 @@ conception rule. Without either flag the tool runs exactly as before:
   run (48 towns, seeds 900001-900048; four towns with `--quick`) reports realized live
   births B with the town-jackknife standard error, the total fertility rate, the
   completed family sizes and the shares of the extra child. It stops when B is outside
-  1.8 to 2.6 (K11.3h, K11.3i, edges included), a shape gate misses, births under 18 leave
+  1.8 to 2.6 (K11.3h, K11.3i, edges included; with `--quick` this one is only reported),
+  a shape gate misses, births under 18 leave
   0.001 to 0.005, the age gap leaves 2.5 to 4, another target misses by more than 4
   standard errors, or, with `--accept`, the stock share, the acceptance rate or the rules
   for men aged 40 or more fail. The shape gates, edges included: size 3 above size 4
@@ -2390,7 +2391,11 @@ def wish_refit(argv):
     if not reached:
         log("STOP: another target misses by more than 4 standard errors.")
         status = 1
-    if not births_ok:
+    # --quick only reports the band of B (11.3); the full measurement stops on it.
+    if not births_ok and quick:
+        log("NOTE: realized live births B are outside %.1f to %.1f on the few towns of the "
+            "smoke test; only the full measurement decides." % (BIRTHS_LOW, BIRTHS_HIGH))
+    elif not births_ok:
         log("STOP: realized live births B are outside %.1f to %.1f; no value is published." % (
             BIRTHS_LOW, BIRTHS_HIGH))
         status = 1
