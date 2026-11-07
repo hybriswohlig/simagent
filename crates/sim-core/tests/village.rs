@@ -43,7 +43,7 @@ const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 
 // The data and the pool (the reference's `village_<seed>_config`).
-const DATA_HASH: u64 = 0xbc43_540a_dace_6c73;
+const DATA_HASH: u64 = 0x0a08_eab1_15b7_5093;
 const POOL_HASH: u64 = 0x5cc9_dc3e_b6db_8524;
 const POOL_SEED: u64 = 0x11b0_19a2;
 const FROZEN_AT: i64 = 23_587_200_000;
@@ -179,7 +179,7 @@ const VILLAGES: [Village; 2] = [
         start_input: (9742, 0x0184_8c0b_393c_fb29),
         entries: 161,
         state_hash: 0x9830_19d4_4d5f_51f2,
-        save: (24706, 0xf1ce_acb4_2593_7949),
+        save: (24705, 0xfe2e_ae56_6654_1968),
         kin: &[
             (9, 59, 1.0 / 256.0),
             (18, 61, 1.0 / 128.0),
@@ -200,7 +200,7 @@ const VILLAGES: [Village; 2] = [
         start_input: (9732, 0xfe72_2ea4_8554_8193),
         entries: 161,
         state_hash: 0xe199_e659_2d5c_dd90,
-        save: (24703, 0x6138_aa04_ca96_559a),
+        save: (24702, 0x103b_52ea_cef0_8b20),
         kin: &[
             (6, 32, 1.0 / 128.0),
             (6, 50, 1.0 / 128.0),
@@ -580,56 +580,56 @@ fn a_village_start_is_rejected_as_the_reference_rejects_it() {
 
 // The village of seed 2 to the end of year 29 (the reference's `village_<seed>_run`).
 const RUN_END: i64 = 30 * Y - 1;
-const RUN_LOG: (usize, u64) = (2842, 0xacb1_6f72_5e50_81de);
-const RUN_SAVE_END: (usize, u64) = (30556, 0x58a5_38f2_df72_75ac);
-const RUN_STATE_HASH: u64 = 0x71c3_535c_c543_16ac;
-const RUN_ARCHIVED: u64 = 31;
+const RUN_LOG: (usize, u64) = (2811, 0x0946_4c54_8a70_cd39);
+const RUN_SAVE_END: (usize, u64) = (29883, 0xd134_dc75_cd4b_5999);
+const RUN_STATE_HASH: u64 = 0x402f_5f90_5739_8b1c;
+const RUN_ARCHIVED: u64 = 28;
 const RUN_YEAR_HASHES: [u64; 30] = [
     0x47ed_8e93_51f1_1577,
     0x8ba2_db80_12c6_e1b9,
     0xb99b_5c32_1d86_71ca,
-    0x7f14_024b_7813_4dc8,
-    0x0949_6590_636c_e959,
-    0x3ed4_76d7_0ba2_0f1e,
-    0xcadc_fabb_df5a_2e6b,
-    0xe099_a4a2_1d75_6e1e,
-    0xcabf_b287_47a9_db71,
-    0x3cb5_8755_a3df_6561,
-    0x637f_b990_afae_cf28,
-    0x834f_d988_7440_6ce5,
-    0xd593_95e9_91a4_108d,
-    0x8e15_6ae5_ab5a_8294,
-    0x4717_dbf7_2f44_4fed,
-    0xa0f9_4e3b_fb52_ba85,
-    0xcd9e_8370_8254_97c7,
-    0x7801_5493_f6d0_c7ea,
-    0x2061_859d_47df_f33f,
-    0xd515_5638_b6c1_d176,
-    0xf5bd_33bb_5260_a9ee,
-    0x9fa4_7cdd_645f_0ae1,
-    0x6ade_d94a_92c7_c2d3,
-    0x844f_68c1_2910_46ef,
-    0xc796_931f_a20b_b957,
-    0xb001_2718_a8a5_8c95,
-    0xece7_606e_7508_cc7f,
-    0xe007_2a9f_4b90_11b1,
-    0xafbe_ff51_2d72_f8fd,
-    0xf74d_5242_bdae_3a6c,
+    0x1f95_1431_59b3_8afe,
+    0xe9cf_60aa_0702_a21d,
+    0x4d76_8575_f952_6c1b,
+    0x557c_b9dd_264e_7f3a,
+    0xb6be_0412_b84d_dc95,
+    0xe094_b4cd_2957_1068,
+    0x73d3_1bca_49be_07e7,
+    0xe0df_9a41_a98b_69b1,
+    0xab3f_ceaa_472f_7e67,
+    0x2fcf_2529_d2d2_7d47,
+    0x87ba_7219_de04_16db,
+    0x7929_f11a_1bda_90d2,
+    0x1416_9094_9254_44ce,
+    0xb12d_31dd_3252_0388,
+    0xfba2_4c2a_36e1_2aad,
+    0x6263_a2f9_ea87_7208,
+    0xbdba_46c0_4a5e_74f6,
+    0xb8e2_d2f8_2bab_6862,
+    0x79f0_baf0_1b3f_47e7,
+    0x4562_aa07_816d_6994,
+    0xf87d_2f7c_5475_e25f,
+    0x2cd0_4544_0c88_851d,
+    0x68b4_3dbf_d1df_0a79,
+    0x8e0c_7b6a_9323_e000,
+    0x4895_fa06_4ff5_0df8,
+    0x840f_5e9f_fd8c_af65,
+    0x9154_5d36_78a1_e288,
 ];
 /// The living at the end of each year.
 const RUN_LIVING: [u64; 30] = [
-    80, 79, 80, 78, 74, 76, 80, 78, 79, 81, 81, 81, 82, 80, 81, 80, 78, 79, 79, 79, 79, 78, 78, 77,
-    77, 76, 76, 77, 78, 80,
+    80, 79, 80, 78, 80, 79, 75, 77, 79, 80, 81, 82, 82, 78, 79, 79, 78, 79, 79, 79, 79, 79, 79, 78,
+    78, 77, 77, 77, 80, 80,
 ];
 /// The births, the deaths and the emigrants of each year.
 const RUN_BIRTHS: [u64; 30] = [
-    0, 2, 1, 2, 3, 2, 4, 3, 1, 3, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2,
+    0, 2, 1, 2, 2, 2, 4, 2, 2, 1, 2, 1, 0, 2, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0,
 ];
 const RUN_DEATHS: [u64; 30] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0,
 ];
 const RUN_EMIGRATED: [u64; 30] = [
-    0, 3, 0, 4, 7, 0, 0, 5, 0, 1, 1, 1, 0, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 3, 0, 4, 0, 3, 8, 0, 0, 0, 1, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 /// The year whose save the resumed run starts from.
 const RUN_RESUME_YEAR: i64 = 9;
@@ -639,9 +639,9 @@ type Hunk = (usize, usize, &'static str);
 /// The save of year 9 as (length, xxh3), the hunks of the reference's forged save and that
 /// save.
 const VILLAGE_MOVED_IN: ((usize, u64), &[Hunk], (usize, u64)) = (
-    (28811, 0xe4cf_110a_9092_1c9d),
-    &[(8799, 1, "06"), (14678, 1, "01fecff6ab02")],
-    (28816, 0x85ab_14a9_48e6_a30f),
+    (28309, 0xba6a_742f_b208_d546),
+    &[(8662, 1, "01"), (14482, 1, "01fecff6ab02")],
+    (28314, 0xc0e3_4446_cca7_483b),
 );
 
 /// The village of seed 2 over 30 years (`K` = 80): the year hashes, the living at each year

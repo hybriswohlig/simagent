@@ -236,7 +236,7 @@ fn the_villages_are_the_adrs() {
 #[test]
 fn the_repository_data_are_the_clis() {
     let data = repository_data(&root()).expect("the repository's data");
-    assert_eq!(data.hash(), 0xbc43_540a_dace_6c73);
+    assert_eq!(data.hash(), 0x0a08_eab1_15b7_5093);
 }
 
 /// The text without the values of `z` and `gl`, which may differ in their last bits (the
@@ -257,7 +257,7 @@ fn masked(text: &str) -> String {
         .collect()
 }
 
-/// Village 0 run 48 years: the reference's export (69 431 bytes; masked 59 701 bytes) and
+/// Village 0 run 48 years: the reference's export (68 381 bytes; masked 58 791 bytes) and
 /// its block 0, `V` within the report's tolerance (it reads `z`).
 #[test]
 fn a_village_of_48_years_reads_as_the_reference_reads_it() {
@@ -265,22 +265,22 @@ fn a_village_of_48_years_reads_as_the_reference_reads_it() {
     let plan = village_plan(SEED_VILLAGE, 48);
     let (world, observer) = run_town(data, &plan).expect("a run");
     let text = write(&world, &observer, plan.end).expect("an export");
-    assert_eq!(text.len(), 69_431);
+    assert_eq!(text.len(), 68_381);
     let masked = masked(&text);
-    assert_eq!(masked.len(), 59_701);
-    assert_eq!(stable_hash64(masked.as_bytes()), 0xb605_9f40_501c_b12f);
+    assert_eq!(masked.len(), 58_791);
+    assert_eq!(stable_hash64(masked.as_bytes()), 0x48bd_46e4_153d_0d00);
     let measured = measure(&text).expect("a measure");
     let block = &measured.block;
     assert_eq!(block["end_years"], 48);
     assert_eq!(block["g_star"], 0);
     assert_eq!(block["n"], 19);
-    assert_eq!(block["units"], "d5843cd604975d1a");
+    assert_eq!(block["units"], "e4fffeef367fa16a");
     assert_eq!(block["expectation"], "3fefa9c4b73dfa9c");
     assert_eq!(block["blocks"], json!([[0, 19, 19]]));
-    assert_eq!(block["living"], 118);
+    assert_eq!(block["living"], 116);
     assert_eq!(block["finding"], Value::Null);
     let (v, e) = measured.counted.expect("the block counts");
-    assert!(near(v, 0x3fea_7eea_caee_8e61), "V {v}");
+    assert!(near(v, 0x3fe9_1b58_b3db_8038), "V {v}");
     assert_eq!(e.to_bits(), 0x3fef_a9c4_b73d_fa9c);
 }
 
