@@ -735,7 +735,7 @@ PROJECTION_VERSION = 19
 # runs of the game's data (a new data hash) from the first series the gate plans that her wish
 # alone would not; a run on the extract or a fixture keeps its year hashes and its log: core 60,
 # the projection stays 19.
-CORE_VERSION = 61
+CORE_VERSION = 62
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
