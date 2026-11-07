@@ -759,6 +759,7 @@ fn golden_scenarios_cover_every_kind() {
     assert_eq!(
         uncovered(run.world.stats(), &run.log),
         [
+            "event separation",
             "event immigration",
             "event disease_onset",
             "event house_morning",
@@ -774,6 +775,7 @@ fn golden_scenarios_cover_every_kind() {
             "event stand_up",
             "event reserve_crossing",
             "log core:param_changed",
+            "log core:separated",
             "log core:arrived",
             "log core:disease_onset",
             "log core:shock_triggered",
@@ -797,7 +799,8 @@ fn golden_scenarios_cover_every_kind() {
             "log core:wasted"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
-         its only disease begins at birth, and nobody moves into a house"
+         its only disease begins at birth, no partnership ends by separation, and nobody \
+         moves into a house"
     );
     let fork = fork_run();
     let arrival = arrival_run();
@@ -866,8 +869,10 @@ fn every_required_kind_is_checked() {
             .cloned()
             .collect();
         // The fork has no pool: its own events never include the immigration; its only
-        // disease begins at birth, so it plans no onset; nobody moves into a house.
+        // disease begins at birth, so it plans no onset; none of its partnerships ends by
+        // separation (the arrival's log has the entry); nobody moves into a house.
         let mut expected = vec![
+            "event separation".to_owned(),
             "event immigration".to_owned(),
             "event disease_onset".to_owned(),
         ];
