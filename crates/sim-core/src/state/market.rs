@@ -563,10 +563,8 @@ mod tests {
     /// the taste by the person alone.
     #[test]
     fn the_new_draws_are_addressed_as_the_specification_says() {
-        let (her, his) = (
-            LineageKey::founder(&data_id("test:a"), 0),
-            LineageKey::founder(&data_id("test:a"), 1),
-        );
+        let id = crate::data_id::DataId::new("test:a").unwrap_or_else(|_| panic!("a data id"));
+        let (her, his) = (LineageKey::founder(&id, 0), LineageKey::founder(&id, 1));
         assert_eq!(
             accept_key(his, 7, her),
             DrawKey {
@@ -588,10 +586,6 @@ mod tests {
         );
     }
 
-    fn data_id(text: &str) -> crate::data_id::DataId {
-        crate::data_id::DataId::new(text).unwrap_or_else(|_| panic!("a data id"))
-    }
-
     /// The taste is `normal(0, σ_ν)` at the key of the person with the seed of its lot: a pure
     /// function. Values of the independent draws of `tools/rng_reference.py` for the
     /// founders 1 and 0 of `test:answer` (seed 0xff, σ_ν = 3): 5.400892368330496 and
@@ -599,7 +593,7 @@ mod tests {
     /// another number.
     #[test]
     fn the_taste_is_a_pure_normal_draw_of_the_lots_seed() {
-        let id = data_id("test:answer");
+        let id = crate::data_id::DataId::new("test:answer").unwrap_or_else(|_| panic!("a data id"));
         let (hers, his) = (LineageKey::founder(&id, 0), LineageKey::founder(&id, 1));
         assert!((taste(0xff, his, 3.0) - 5.400_892_368_330_496).abs() <= 1e-12);
         assert!((taste(0xff, hers, 3.0) - -5.156_902_130_610_836_5).abs() <= 1e-12);

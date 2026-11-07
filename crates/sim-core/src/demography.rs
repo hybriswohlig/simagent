@@ -124,16 +124,6 @@ pub struct MaleAnswer {
     pub weight_age: f64,
 }
 
-/// The keys of the man's answer, in the order of `MaleAnswer`.
-const MALE_ANSWER: [&str; 6] = [
-    "core:pairing_taste_sd",
-    "core:pairing_male_target_slope",
-    "core:pairing_male_target_from",
-    "core:pairing_male_target_cap",
-    "core:pairing_male_target_min",
-    "core:pairing_weight_age_male",
-];
-
 /// The number of values without the extra child.
 const VALUES: usize = 22;
 /// The ages of leaving home: 16 to 25 (ADR-0018 section 4).
@@ -257,8 +247,17 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         _ => return Err(DataError::CalibrationMissing),
     };
     // The man's answer (ADR-0018, addendum of 2026-11-06), one group as well: none of its six
-    // keys (the market where the chosen man does not answer), or all of them.
-    let answering = MALE_ANSWER
+    // keys (the market where the chosen man does not answer), or all of them, in the order of
+    // `MaleAnswer`.
+    let male_answer = [
+        "core:pairing_taste_sd",
+        "core:pairing_male_target_slope",
+        "core:pairing_male_target_from",
+        "core:pairing_male_target_cap",
+        "core:pairing_male_target_min",
+        "core:pairing_weight_age_male",
+    ];
+    let answering = male_answer
         .iter()
         .filter(|key| {
             let id = DataId::new(key).unwrap_or_else(|_| panic!("invariant data.key"));
@@ -267,13 +266,13 @@ pub(crate) fn read_demography(file: &DemographyCalibration) -> Result<Demography
         .count();
     let male = match answering {
         0 => None,
-        n if n == MALE_ANSWER.len() => Some(MaleAnswer {
-            taste_sd: within(value(MALE_ANSWER[0], Unit::Year)?, (0.0, 50.0))?,
-            target_slope: within(value(MALE_ANSWER[1], Unit::Ratio)?, (0.0, 1.0))?,
-            target_from: positive(value(MALE_ANSWER[2], Unit::Year)?, 150.0)?,
-            target_cap: positive(value(MALE_ANSWER[3], Unit::Year)?, 150.0)?,
-            target_min: positive(value(MALE_ANSWER[4], Unit::Year)?, 150.0)?,
-            weight_age: positive(value(MALE_ANSWER[5], Unit::Logit)?, 1e6)?,
+        n if n == male_answer.len() => Some(MaleAnswer {
+            taste_sd: within(value(male_answer[0], Unit::Year)?, (0.0, 50.0))?,
+            target_slope: within(value(male_answer[1], Unit::Ratio)?, (0.0, 1.0))?,
+            target_from: positive(value(male_answer[2], Unit::Year)?, 150.0)?,
+            target_cap: positive(value(male_answer[3], Unit::Year)?, 150.0)?,
+            target_min: positive(value(male_answer[4], Unit::Year)?, 150.0)?,
+            weight_age: positive(value(male_answer[5], Unit::Logit)?, 1e6)?,
         }),
         _ => return Err(DataError::CalibrationMissing),
     };
