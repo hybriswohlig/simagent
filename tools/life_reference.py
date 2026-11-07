@@ -712,6 +712,9 @@ def simulate(par, seed, cfg):
     stats_gap40 = [0, 0.0]
     stats_flow_older = [0]
 
+    # When each partnership ends (the earlier death or the separation), continuous months.
+    q_end = []
+
     def form(w, m, t):
         q = len(q_w)
         q_w.append(w)
@@ -731,6 +734,7 @@ def simulate(par, seed, cfg):
             market[sex[p]].discard(p)
         d = min(death[w], death[m])
         t_sep = t + MONTHS * b / lam_sep if lam_sep > 0.0 else math.inf
+        q_end.append(min(d, t_sep))
         if t_sep < d and t_sep < t_end:
             heapq.heappush(heap, (t_sep, 1, q))
         if t >= burn:
@@ -1081,13 +1085,15 @@ def simulate(par, seed, cfg):
                 else:
                     form(i, best, t)
         # Stock of 11.2a: year-end census at t = (year + 1) * Y - 1, years from the
-        # burn-in through the last year, after this month's round. Open partnerships
-        # formed before the burn-in are still in q_open and count.
+        # burn-in through the last year: the state at the year's last second, after this
+        # month's round and after the deaths and separations later in this month (their
+        # continuous times lie before t + 1; they are taken from the queue only at the next
+        # month start). Open partnerships formed before the burn-in count.
         if accept_rule and (t + 1) % MONTHS == 0:
             year = (t + 1) // MONTHS - 1
             if burn_years <= year < years:
                 for q in range(len(q_open)):
-                    if not q_open[q]:
+                    if not q_open[q] or q_end[q] < t + 1:
                         continue
                     wq, mq = q_w[q], q_m[q]
                     age_w = (t - birth[wq]) // MONTHS
@@ -2265,6 +2271,8 @@ def wish_refit(argv):
     agg, m, outs = runner.evaluate([par], check_seeds)[0]
     m.update(derived(m))
     keys = REPORTED + EXTRA + EXT_KEYS
+    if accept:
+        keys = keys + ("older", "accept_rate", "gap40", "share40", "gap_sd")
     se = jackknife(outs, par, keys)
     if not se:
         se = {k: math.nan for k in keys}
@@ -2308,6 +2316,27 @@ def wish_refit(argv):
     checks.append(U18_BAND[0] <= u18 <= U18_BAND[1])
     log("  share of live births to mothers under 18: %.5f +- %.5f (0.001 to 0.005) %s" % (
         u18, se["u18"], "ok" if checks[-1] else "FINDING"))
+    if accept:
+        # The checks of 11.2a on the game's alpha (the --accept fit checked them at its own
+        # alpha and without the wish of both partners).
+        lo, hi = OLDER_BAND
+        checks.append(lo <= m["older"] <= hi)
+        log("  share woman older in the stock (completed years, year-end censuses): %.4f +- "
+            "%.4f (0.14 to 0.22) %s" % (m["older"], se["older"], "ok" if checks[-1] else
+                                        "FINDING"))
+        checks.append(m["n_proposals"] > 0 and
+                      ACCEPT_BAND[0] <= m["accept_rate"] <= ACCEPT_BAND[1])
+        log("  acceptance rate after the burn-in: %.4f +- %.4f over %d proposals (0.35 to "
+            "0.75) %s" % (m["accept_rate"], se["accept_rate"], m["n_proposals"],
+                          "ok" if checks[-1] else "FINDING"))
+        checks.append(m["n40"] > 0 and m["gap40"] <= GAP40_MAX)
+        log("  men aged 40 or more at pairing, mean gap: %.3f +- %.3f over %d (at most 18) %s"
+            % (m["gap40"], se["gap40"], m["n40"], "ok" if checks[-1] else "FINDING"))
+        checks.append(m["n_gap"] > 0 and m["share40"] >= SHARE40_MIN)
+        log("  men aged 40 or more, share of new partnerships: %.4f +- %.4f (at least 0.025) "
+            "%s" % (m["share40"], se["share40"], "ok" if checks[-1] else "FINDING"))
+        log("  SD of the age gap, new partnerships after the burn-in: %.3f +- %.3f (report)" % (
+            m["gap_sd"], se["gap_sd"]))
     order = m["size_3"] > m["size_4"] > m["size_5plus"]
     shape = {"size 3 > size 4 > size 5+": order}
     for k, (low, high) in SHAPE_GATES.items():
@@ -2321,7 +2350,8 @@ def wish_refit(argv):
     log("")
     status = 0
     if not all(checks):
-        log("STOP: births under 18 or the age gap left their band; the finding goes back.")
+        log("STOP: births under 18, the age gap or a check of 11.2a left its band; the finding "
+            "goes back.")
         status = 1
     if not reached:
         log("STOP: another target misses by more than 4 standard errors.")
