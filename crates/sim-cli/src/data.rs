@@ -597,18 +597,18 @@ mod tests {
         // The data hash of the built-in data, map 4 with the pool and its frequencies, the
         // shock templates and the houses, and the game's life course data, from
         // tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0xd672_9d86_77b0_f3ad);
+        assert_eq!(core_data().expect("data").hash(), 0xbc43_540a_dace_6c73);
     }
 
     /// The base game is the extract with the game's overlay (ADR-0017, addendum of
-    /// 2026-11-05): the tilt 0.224 and the four values of the extra child, while the pool's
+    /// 2026-11-05): the tilt 0.239 and the four values of the extra child, while the pool's
     /// persons keep the extract's wish (tilt 0.311). A settings document sets them on top of
     /// the overlay; the pool's wish stays.
     #[test]
     fn the_base_game_has_the_extra_child() {
         let data = core_data().expect("data");
         let fertility = &data.demography().fertility;
-        assert_eq!(fertility.wish_tilt, 0.224);
+        assert_eq!(fertility.wish_tilt, 0.239);
         assert_eq!(
             fertility.extra,
             Some(sim_core::demography::ExtraChild {
@@ -636,7 +636,7 @@ mod tests {
         .expect("reads");
         let fertility = &own.demography().fertility;
         assert_eq!(own.demography().market.age_years, 18);
-        assert_eq!(fertility.wish_tilt, 0.224);
+        assert_eq!(fertility.wish_tilt, 0.239);
         assert_eq!(fertility.extra, data.demography().fertility.extra);
     }
 
@@ -734,8 +734,8 @@ mod tests {
     #[test]
     fn the_base_game_names_its_values() {
         assert_eq!(base_value("core:market_age"), Some(16.0));
-        assert_eq!(base_value("core:market_search_center_female"), Some(25.23));
-        assert_eq!(base_value("core:pairing_age_gap_preferred"), Some(4.69));
+        assert_eq!(base_value("core:market_search_center_female"), Some(25.43));
+        assert_eq!(base_value("core:pairing_age_gap_preferred"), Some(4.26));
         assert_eq!(
             base_value("female_ramp"),
             Some(puberty_ramp(&core_data().expect("data")))
@@ -744,7 +744,7 @@ mod tests {
         assert_eq!(base_value("values"), None);
         // The game's overlay (ADR-0017, addendum of 2026-11-05): its tilt and the values of
         // the extra child are the base game's.
-        assert_eq!(base_value("core:fertility_wish_tilt"), Some(0.224));
+        assert_eq!(base_value("core:fertility_wish_tilt"), Some(0.239));
         assert_eq!(base_value("core:fertility_count_until"), Some(18.0));
         assert_eq!(base_value("core:fertility_grown_chance"), Some(0.2));
     }

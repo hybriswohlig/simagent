@@ -236,7 +236,7 @@ fn the_villages_are_the_adrs() {
 #[test]
 fn the_repository_data_are_the_clis() {
     let data = repository_data(&root()).expect("the repository's data");
-    assert_eq!(data.hash(), 0xd672_9d86_77b0_f3ad);
+    assert_eq!(data.hash(), 0xbc43_540a_dace_6c73);
 }
 
 /// The text without the values of `z` and `gl`, which may differ in their last bits (the
@@ -257,7 +257,7 @@ fn masked(text: &str) -> String {
         .collect()
 }
 
-/// Village 0 run 48 years: the reference's export (69 920 bytes; masked 60 190 bytes) and
+/// Village 0 run 48 years: the reference's export (69 431 bytes; masked 59 701 bytes) and
 /// its block 0, `V` within the report's tolerance (it reads `z`).
 #[test]
 fn a_village_of_48_years_reads_as_the_reference_reads_it() {
@@ -265,23 +265,23 @@ fn a_village_of_48_years_reads_as_the_reference_reads_it() {
     let plan = village_plan(SEED_VILLAGE, 48);
     let (world, observer) = run_town(data, &plan).expect("a run");
     let text = write(&world, &observer, plan.end).expect("an export");
-    assert_eq!(text.len(), 69_920);
+    assert_eq!(text.len(), 69_431);
     let masked = masked(&text);
-    assert_eq!(masked.len(), 60_190);
-    assert_eq!(stable_hash64(masked.as_bytes()), 0x0047_3441_62c1_ed9d);
+    assert_eq!(masked.len(), 59_701);
+    assert_eq!(stable_hash64(masked.as_bytes()), 0xb605_9f40_501c_b12f);
     let measured = measure(&text).expect("a measure");
     let block = &measured.block;
     assert_eq!(block["end_years"], 48);
     assert_eq!(block["g_star"], 0);
-    assert_eq!(block["n"], 16);
-    assert_eq!(block["units"], "7e2301e447853646");
-    assert_eq!(block["expectation"], "3fef99999999999a");
-    assert_eq!(block["blocks"], json!([[0, 16, 16]]));
-    assert_eq!(block["living"], 119);
+    assert_eq!(block["n"], 19);
+    assert_eq!(block["units"], "d5843cd604975d1a");
+    assert_eq!(block["expectation"], "3fefa9c4b73dfa9c");
+    assert_eq!(block["blocks"], json!([[0, 19, 19]]));
+    assert_eq!(block["living"], 118);
     assert_eq!(block["finding"], Value::Null);
     let (v, e) = measured.counted.expect("the block counts");
-    assert!(near(v, 0x3ff2_140a_2080_1b67), "V {v}");
-    assert_eq!(e.to_bits(), 0x3fef_9999_9999_999a);
+    assert!(near(v, 0x3fea_7eea_caee_8e61), "V {v}");
+    assert_eq!(e.to_bits(), 0x3fef_a9c4_b73d_fa9c);
 }
 
 /// One set: `V`, `E`, the bits of `V̄`, `Ē`, `s`, `se` and the power, the comparison, the

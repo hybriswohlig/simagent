@@ -1,9 +1,10 @@
 //! Kinship words of a run (ADR-0021 section 3, Grok's K1 to K6) on the dummy run, whose
 //! pedigree (`tests/golden/dummy_pedigree.json`, from the Python reference) has parents,
-//! siblings, grandparents, an uncle and a foster child: sim 3, a founder taken in by sims 5
-//! and 6. Sim 1 died and sim 6 emigrated, so both read from the archive. The words are read
-//! off that pedigree by hand, `r` from φ of each relation (1/4 for a parent or a sibling,
-//! 1/8 for a grandparent or an uncle, 1/2 for a founder with itself).
+//! siblings and a foster child: sim 3, a founder taken in by sims 5 and 6. Sim 1 died and
+//! sim 6 emigrated, so both read from the archive. The words are read off that pedigree by
+//! hand, `r` from φ of each relation (1/4 for a parent or a sibling, 1/2 for a founder with
+//! itself). With the game's market nobody of the second generation pairs in the thirty
+//! years, so the run has no grandchild and no uncle; those words are the relation tests'.
 
 use std::path::Path;
 use std::process::Command;
@@ -39,11 +40,10 @@ fn the_dummy_runs_words_by_hand() {
         (6, 7, Son, None, 50.0),
         (7, 9, Brother, None, 50.0),
         (8, 10, Brother, None, 50.0),
-        (13, 4, Father, None, 50.0),
-        (13, 2, Grandfather, None, 25.0),
-        (13, 1, Grandmother, None, 25.0),
-        (13, 10, Uncle, None, 25.0),
-        (10, 13, Nephew, None, 25.0),
+        (8, 1, Mother, None, 50.0),
+        (8, 2, Father, None, 50.0),
+        (12, 8, Sister, None, 50.0),
+        (1, 10, Son, None, 50.0),
         (7, 8, Unrelated, None, 0.0),
         (3, 5, Unrelated, Some(Foster::FosterMother), 0.0),
         (3, 6, Unrelated, Some(Foster::FosterFather), 0.0),

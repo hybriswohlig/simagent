@@ -122,7 +122,7 @@ fn matches(world: &World, golden: &str, persons: usize) {
 #[test]
 fn the_dummy_runs_card_is_the_references() {
     let world = run("dummy.json");
-    matches(&world, DUMMY_CARD, 13);
+    matches(&world, DUMMY_CARD, 12);
     assert!(
         world
             .genetics_card(SimId::try_from(999).expect("an id"))
@@ -242,7 +242,7 @@ fn the_skipped_lines_are_the_references() {
     let world = run_in("skipped", "town.json", None);
     let golden: Value = serde_json::from_str(SKIPPED).expect("JSON");
     let golden = golden.as_array().expect("a list");
-    assert_eq!(golden.len(), 7);
+    assert_eq!(golden.len(), 10);
     let persons = world.pedigree().persons;
     assert!(persons.len() > 200);
     for person in persons {
