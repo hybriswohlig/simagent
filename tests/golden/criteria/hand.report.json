@@ -764,14 +764,18 @@
    "min_n": 0,
    "units": "92e581b9a7641e14",
    "value": "3ff6000000000000",
-   "target": "400199999999999a",
-   "tol": "3ff06526aa25a13b",
-   "pass": true,
-   "finding": null,
+   "target": null,
+   "tol": null,
+   "pass": false,
+   "finding": "outside",
    "inexact": [],
    "variance": "3ff0cccccccccccd",
    "se": "3fd06526aa25a13b",
    "total": 22,
+   "band": [
+    "3ffccccccccccccd",
+    "4004cccccccccccd"
+   ],
    "fragile": false
   },
   {

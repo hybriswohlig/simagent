@@ -633,9 +633,9 @@ TARGET_R_H = 0.2
 P4_WRONG = 0.664
 TARGET_MEDIAN = 23.5
 TARGET_NEVER = 0.10
-TARGET_BIRTHS = 2.20
 TARGET_E0 = {"f": 83.43, "m": 78.80}
 TARGET_H2T_R2 = 0.2
+BIRTHS_BAND = (1.8, 2.6)  # spec 11.3 "Band der Geburten" (K11.3h, K11.3i), no target
 GAP_BAND = (2.5, 4.0)
 EARLY_BAND = (0.001, 0.005)
 MC1R_Q_BAND = (0.13, 0.17)
@@ -1644,8 +1644,11 @@ def f11_checks(rows: Rows) -> list:
     ys = [exact(y) for _, y in births]
     n = len(ys)
     m, v, se = mean(ys), variance(ys), mean_se(ys)
-    out.append(check_obj("f11_births", n, 0, [k for k, _ in births], m, TARGET_BIRTHS, None if se is None else 4.0 * se, [],
-                         variance=fbits(v), se=fbits(se), total=int(fold(ys))))
+    obj = check_obj("f11_births", n, 0, [k for k, _ in births], m, None, None, [],
+                    variance=fbits(v), se=fbits(se), total=int(fold(ys)), band=[bits(BIRTHS_BAND[0]), bits(BIRTHS_BAND[1])])
+    obj["pass"] = m is not None and BIRTHS_BAND[0] <= m <= BIRTHS_BAND[1]
+    obj["finding"] = None if obj["pass"] else ("undefined" if m is None else "outside")
+    out.append(obj)
     early = f11_early_births(rows)
     value = share(len(early["early"]), len(early["units"]))
     obj = check_obj("f11_early_births", len(early["units"]), 0, early["units"], value, None, None, [], early=len(early["early"]),

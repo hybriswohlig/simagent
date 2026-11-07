@@ -26,7 +26,9 @@ const USAGE: &str = "usage: cargo xtask criteria report <export.ndjson> [<out.js
 
 /// A decision this close to its boundary could flip under the 1e-12 rule (section 2).
 const FRAGILE: f64 = 1e-9;
-/// The bands of F11 (K11), inclusive: early births and the age gap in years.
+/// The bands of F11 (K11), inclusive: births per woman reaching 50 (K11.3h, K11.3i), early
+/// births and the age gap in years.
+const BIRTHS: [f64; 2] = [1.8, 2.6];
 const EARLY: [f64; 2] = [0.001, 0.005];
 const GAP: [f64; 2] = [2.5, 4.0];
 /// `h²` of `core:growth` in the village's expectation (K4.2a).
@@ -404,14 +406,19 @@ fn partnerships(town: &Town, female: bool) -> [Value; 2] {
     ]
 }
 
-/// F11 births per woman reaching 50 in the town, against 2.20 within `4 sqrt(V / n)`.
+/// F11 births per woman reaching 50 in the town, in its band (spec 11.3, "Band der Geburten":
+/// the mean in 1.8 to 2.6, edges included, no target). The mean, the variance, the standard
+/// error and the total are reported.
 fn births(units: &Units<u64>) -> Value {
     let n = units.values.len();
     let values: Vec<f64> = units.values.iter().map(|births| real(*births)).collect();
     let se = mean_se(&units.values).map(|(_, se)| se);
     merged([
-        head("f11_births", n, 0, &units.anchors, &[]),
-        judged(n, 0, mean(&values), 2.2, se.map(|se| 4.0 * se)),
+        banded(
+            head("f11_births", n, 0, &units.anchors, &[]),
+            mean(&values),
+            BIRTHS,
+        ),
         json!({
             "variance": maybe(variance(&values)),
             "se": maybe(se),
