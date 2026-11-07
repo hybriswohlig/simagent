@@ -229,8 +229,8 @@ def insert_memory(
 
 
 def recall_one(m: Memory, now: int) -> Memory:
-    """Recall: +300 at most up to 1000, since = now. READING (ADR-0030 1, 'um 300 bis
-    höchstens 1000'): the strength at now plus 300, capped at 1000 (not a range)."""
+    """Recall (ADR-0030 1 'Abruf'): min(1000, strength at now + 300), since = now, for
+    each side's own copy."""
     return replace(m, strength=min(STRENGTH_MAX, strength_at(m, now) + RECALL_STEP), since=now)
 
 
@@ -238,11 +238,10 @@ def common_memory(
     a: int, mem_a: List[Memory], b: int, mem_b: List[Memory], now: int
 ) -> Optional[Tuple[Memory, Memory]]:
     """The strongest common memory of a and b (ADR-0030 1 'Abruf'): a's memory names b,
-    b's names a, both with the same `at` and `kind`. READING: 'gleicher Schlüssel bei
-    beiden, das Gegenüber in with' cannot mean the whole (at, kind, with) because each
-    one's `with` names the other; so the key is (at, kind) plus the counterpart in
-    `with`. 'Die stärkste' of two copies is the larger sum of their strengths at now; on
-    a tie the younger `at`, then the smaller key (a's key, then b's)."""
+    b's names a, both with the same `at` and `kind` (ADR-0030 1: 'gleiche at und kind bei
+    beiden, das Gegenüber in with'). The strongest is the one with the larger sum of both
+    strengths at now, on a tie the younger `at`, then the smaller `kind` (the key starts
+    with `at, kind`; the rest of the key only makes the order total)."""
     best = None
     for ma in mem_a:
         if b not in ma.with_:
@@ -275,9 +274,9 @@ def recall_pair(
 
 
 def keep_on_move_out(memories: List[Memory], now: int) -> List[Memory]:
-    """The 8 strongest in the order of displacement (strongest first), frozen. READING
-    (ADR-0030 1 'eingefroren'): the kept entries are written at now (strength at now,
-    since = now) so that no fade is left to run; the list is sorted by key again."""
+    """The 8 strongest in the order of displacement (strongest first), frozen as
+    ADR-0030 1 'Auszug und Tod' says: strength at the move-out second, since = that second;
+    the list is sorted by key again."""
     ranked = sorted(memories, key=lambda m: displacement_order(m, now), reverse=True)
     kept = [replace(m, strength=strength_at(m, now), since=now) for m in ranked[:KEEP_ON_MOVE_OUT]]
     return sorted(kept, key=lambda m: m.key)
@@ -373,8 +372,9 @@ def insert_bond(
 
 def house_day(t: int, move_in: int) -> int:
     """The house day: from one HouseMorning (06:00) to the next, counted from 0 at move-in.
-    READING (ADR-0030 3): SimTime 0 is midnight, and the day numbers equal the number of
-    06:00 boundaries between move-in (exclusive) and t (inclusive)."""
+    ADR-0030 3 'Haustag': the number of HouseMorning since move-in, that is the 06:00
+    boundaries between move-in (exclusive) and t (inclusive). READING: SimTime 0 is
+    midnight."""
     six = 6 * 3600
     return (t - six) // DAY - (move_in - six) // DAY
 
@@ -714,8 +714,8 @@ def heard_bond_steps(hearer: int, key: tuple) -> Optional[Dict[int, int]]:
 @dataclass
 class Deeds:
     """A person's own deeds of the last 30 house days, at most 64, in the order they
-    came about; the truth for a Tat. READING (ADR-0031 1): 'die letzten 30 Haustage' is the
-    day of the check and the 29 before it. When the 65th arrives the oldest falls (within a
+    came about; the truth for a Tat (ADR-0031 1 'Wahrheit': the window is today and the 29 days
+    before). When the 65th arrives the oldest falls (within a
     day the one that came first) and the window is shorter: no day up to the day of a fallen
     deed can be judged any more."""
 
@@ -756,9 +756,10 @@ def gossip_material(
     """The material of the giver for the hearer: a belief of the kind Tat (a VaterVon is
     never material) about a third party, the doer (neither hearer nor giver, and not seated
     at the same furniture), not secret, with certainty above 0, that the hearer does not
-    hold at least as surely. READING (ADR-0031 3): 'Subjekt' is the doer; 'mindestens so
-    sicher' compares with the giver's own certainty; a hearer's `widerlegt` belief (certainty
-    0) therefore leaves the sentence as material, although hearing then changes nothing."""
+    hold as `widerlegt` and does not hold at least as surely (ADR-0031 3 'Stoff'; a
+    sentence the hearer holds as widerlegt is no material, so nobody repeats it forever).
+    READING: 'Subjekt' is the doer; 'mindestens so sicher' compares with the giver's own
+    certainty."""
     out = []
     for key, belief in giver_beliefs.items():
         if key[0] != 1 or belief.secret or belief.certainty <= 0:
@@ -767,7 +768,7 @@ def gossip_material(
         if doer in (giver, hearer) or doer in seated:
             continue
         held = hearer_beliefs.get(key)
-        if held is not None and held.certainty >= belief.certainty:
+        if held is not None and (held.basis == WIDERLEGT or held.certainty >= belief.certainty):
             continue
         out.append(belief)
     return sorted(out, key=lambda b: b.key)
@@ -1291,6 +1292,12 @@ def check_beliefs() -> None:
     expect("material: certainty 0", gossip_material(1, {kx: replace(giver[kx], certainty=0)}, 2, {}, set()), [])
     expect("material: hearer holds as surely", gossip_material(1, giver, 2, {kx: replace(giver[kx], certainty=733)}, set()), [])
     expect("material: hearer holds less surely", len(gossip_material(1, giver, 2, {kx: replace(giver[kx], certainty=732)}, set())), 1)
+    expect(
+        "material: the hearer holds it widerlegt (certainty 0), no material",
+        gossip_material(1, giver, 2, {kx: Belief(kx, None, 0, 1, 5, 5, WIDERLEGT)}, set()),
+        [],
+    )
+    expect("material: a widerlegt belief of the giver is no material either", gossip_material(1, {kx: Belief(kx, None, 0, 1, 5, 5, WIDERLEGT)}, 2, {}, set()), [])
     expect("material: VaterVon never", gossip_material(1, {vk: Belief(vk, 5, 1000, 5, None, None, BETEILIGT)}, 2, {}, set()), [])
     m1 = Belief(tat_key(30, NECKT, 1, 2), None, 900, 5, 7, 7, GEHOERT)
     m2 = Belief(tat_key(30, NECKT, 1, 1), None, 900, 5, 7, 7, GEHOERT)
