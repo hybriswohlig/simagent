@@ -378,6 +378,11 @@ fn checks(root: &Path, require_clean_tree: bool) -> Result {
 
 /// The scenario whose output must show every optional field, nullable value, listed text
 /// and variant of the export descriptor: a town of the pool with a capacity over 60 years.
+/// What its history must contain, so that a refit that moves it is a search with a stated
+/// target (by the references, `world_reference.py` and `diff_reference.py`): a death by a
+/// hereditary disease after year 10 (the fork with the switch off from year 10 shows
+/// `DiffLife.died` and `cause_of_death`), a partnership ended by emigration, a woman pregnant
+/// at the end, and a living person with tanned skin (`skin_eumelanin` at least 0.18).
 const EXPORT_SCENARIO: &str = "tests/scenarios/export_coverage.json";
 
 /// The answers of `simagent view` (the release binary) over the runs in `out`: the person
