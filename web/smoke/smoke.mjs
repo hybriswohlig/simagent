@@ -17,7 +17,7 @@
 // by itself once the server answers; then it moves a household into its house, and at the
 // end founds a town with partnerships from 18 in the folded section of own values, which its
 // page marks, and runs it two decades (smoke/reopen.mjs opens it after a restart).
-// Sim 13 with mother 1 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
+// Sim 10 with mother 1 is in `tests/golden/dummy_pedigree.json`. Any error on the page, in
 // its console or a refusal fails it. Usage: node smoke/smoke.mjs <url> <run>
 import { chromium } from "playwright-core";
 

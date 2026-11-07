@@ -220,13 +220,14 @@ applies to the female market (it does not combine with `--r7`):
   may offer to him. The founder matching at the start stays the simple rule.
 - Fitted with the others: her `w_a` (start 0.08, as a logarithm) for the stock share in which
   her completed age is larger. Censuses at `t = (year + 1) * Y - 1` for each year from the
-  burn-in through the last year, after that month's round; every open partnership once per
-  census, including those formed before the burn-in. Target 0.18, band 0.14 to 0.22, the
+  burn-in through the last year: the state at the year's last second, after that month's
+  round and after the deaths and separations later in that month; every open partnership
+  once per census, including those formed before the burn-in. Target 0.18, band 0.14 to 0.22, the
   standard error the town jackknife of the pooled ratio. The previous targets stay on
   their previous objects.
 - Reported beside that: the SD of the age gap of new partnerships after the burn-in (no
-  band); the flow share with the woman
-  older (continuous ages, gap < 0); the same-age rest of the stock, same denominator.
+  band); the flow share with the woman older (continuous ages, gap < 0); the same-age rest
+  of the stock, same denominator.
 - Checks, not targets, on new partnerships after the burn-in: men whose continuous age at
   the round is at least 40 have a mean gap (man minus woman) of at most 18 years, and they
   are at least 0.025 of those partnerships; the acceptance rate, acceptances over
@@ -237,8 +238,8 @@ Exit status 1 when a target misses by more than 4 standard errors, a check of 11
 (per 11.2 the finding then goes back to Grok before the values are used) or the realized
 births miss 2.20 by more than 2 standard errors (then `alpha` needs a fit on realized
 births; the smoke test only notes this one, its four towns cannot tell bias from noise).
-With `--accept` the stock band and the two rules for men aged 40 or more are checks of
-that same kind; the acceptance-rate band is only flagged.
+With `--accept` the stock band, the acceptance-rate band and the two rules for men aged 40
+or more are checks of that same kind, in the fit and in `--wish-refit --accept`.
 """
 
 import heapq
