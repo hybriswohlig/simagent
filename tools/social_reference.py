@@ -34,7 +34,6 @@ Usage: ~/.cache/simagent-tools-venv/bin/python tools/social_reference.py --check
 
 import sys
 from dataclasses import dataclass, replace
-from fractions import Fraction
 from typing import Callable, Dict, List, Optional, Tuple
 
 from rng_reference import chacha_key, founder_key, uniform_below, words
@@ -93,7 +92,8 @@ START_VALUES = {
     "kin": (500, 500, 450, 0, 300, 0),  # other relatives from phi 1/8
     "housemate": (400, 450, 400, 0, 200, 0),  # also a first talk without an edge
 }
-KIN_PHI = Fraction(1, 8)
+# phi from 1/8 as integers: a coefficient num/den is kin when 8 * num >= den.
+KIN_PHI = (1, 8)
 
 # Topics (ADR-0030 3)
 TOPIC_ALLTAG, TOPIC_LOB, TOPIC_NECKEN, TOPIC_KLATSCH, TOPIC_ERINNERN, TOPIC_ENTSCHULDIGUNG = range(6)
@@ -294,7 +294,8 @@ class Bond:
 
 
 def start_role(
-    partner: bool, other_is_my_parent: bool, other_is_my_child: bool, sibling: bool, phi: Fraction
+    partner: bool, other_is_my_parent: bool, other_is_my_child: bool, sibling: bool,
+    phi: Tuple[int, int],
 ) -> str:
     """The first matching role in the order of the table (ADR-0030 2). Everyone else
     (housemate, or a first talk without an edge) is 'housemate'."""
@@ -306,7 +307,7 @@ def start_role(
         return "child"
     if sibling:
         return "sibling"
-    if phi >= KIN_PHI:
+    if KIN_PHI[1] * phi[0] >= KIN_PHI[0] * phi[1]:  # phi = (numerator, denominator), integers
         return "kin"
     return "housemate"
 
@@ -671,8 +672,9 @@ def insert_belief(
     with the smallest certainty (then the older `since`, then the smaller key), never one
     with `secret` and never a VaterVon of the holder's own child; the newcomer counts as
     in ADR-0030 1 and, if it is the weakest, is not taken in; if there is no old one that
-    may fall, the newcomer is not taken in. READING: the protection applies to old beliefs
-    only; the newcomer competes unprotected. Returns (beliefs, dropped key, accepted)."""
+    may fall, the newcomer is not taken in. The protection holds for the newcomer too: a
+    protected newcomer is never the one that falls (ADR-0031 2 "nie einer mit secret").
+    Returns (beliefs, dropped key, accepted)."""
     assert new.key not in beliefs
     if len(beliefs) < cap:
         out = dict(beliefs)
@@ -685,7 +687,7 @@ def insert_belief(
     pool = [b for b in beliefs.values() if not protected(b)]
     if not pool:
         return dict(beliefs), None, False
-    victim = min(pool + [new], key=belief_eviction_order)
+    victim = min(pool if protected(new) else pool + [new], key=belief_eviction_order)
     if victim is new:
         return dict(beliefs), None, False
     out = {k: v for k, v in beliefs.items() if k != victim.key}
@@ -1047,12 +1049,12 @@ def check_bonds() -> None:
     expect("start kin", START_VALUES["kin"], (500, 500, 450, 0, 300, 0))
     expect("start housemate", START_VALUES["housemate"], (400, 450, 400, 0, 200, 0))
     expect("role order", ROLE_ORDER, ("partner", "parent", "child", "sibling", "kin", "housemate"))
-    expect("role: partner beats kin", start_role(True, False, False, False, Fraction(1, 2)), "partner")
-    expect("role: parent beats sibling", start_role(False, True, False, True, Fraction(1, 2)), "parent")
-    expect("role: child", start_role(False, False, True, False, Fraction(1, 2)), "child")
-    expect("role: sibling", start_role(False, False, False, True, Fraction(1, 2)), "sibling")
-    expect("role: kin at phi 1/8", start_role(False, False, False, False, Fraction(1, 8)), "kin")
-    expect("role: below 1/8 housemate", start_role(False, False, False, False, Fraction(1, 16)), "housemate")
+    expect("role: partner beats kin", start_role(True, False, False, False, (1, 2)), "partner")
+    expect("role: parent beats sibling", start_role(False, True, False, True, (1, 2)), "parent")
+    expect("role: child", start_role(False, False, True, False, (1, 2)), "child")
+    expect("role: sibling", start_role(False, False, False, True, (1, 2)), "sibling")
+    expect("role: kin at phi 1/8", start_role(False, False, False, False, (1, 8)), "kin")
+    expect("role: below 1/8 housemate", start_role(False, False, False, False, (1, 16)), "housemate")
 
     b = Bond(7, (500, 500, 500, 0, 600, 300), 0)
     expect("fade after 10 days", bond_values_at(b, 10 * DAY), (500, 500, 500, 0, 550, 200))
@@ -1262,6 +1264,12 @@ def check_beliefs() -> None:
     expect("belief: own child's VaterVon never falls", (vk in out, dropped == vk), (True, False))
     out, dropped, ok = insert_belief(full, new, set())
     expect("belief: another child's VaterVon can fall", dropped, vk)
+    weak_secret = Belief(vater_key(78), 5, 10, 1000, None, None, BETEILIGT, secret=True)
+    out, dropped, ok = insert_belief(full_beliefs(), weak_secret, set())
+    expect("belief: a weak secret newcomer still enters", (ok, dropped is not None, vater_key(78) in out), (True, True, True))
+    weak_own = Belief(vater_key(79), 6, 10, 1000, None, None, GESCHLOSSEN)
+    out, dropped, ok = insert_belief(full_beliefs(), weak_own, {79})
+    expect("belief: a weak own-child newcomer still enters", (ok, vater_key(79) in out), (True, True))
     allp = {kk(d): Belief(kk(d), None, 500, 100, 2, 2, GEHOERT, secret=True) for d in range(32)}
     out, dropped, ok = insert_belief(allp, new, set())
     expect("belief: only protected ones, newcomer not made", (dropped, ok), (None, False))
