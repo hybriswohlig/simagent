@@ -392,7 +392,7 @@ def projection(
         + seq([])  # pregnancies
         + seq([])  # archive
         + seq([])  # pool_used (projection 18)
-        + EMPTY_HOUSE  # the house (projection 19, ADR-0024 addendum of 2026-11-02)
+        + EMPTY_HOUSE  # the house (projection 20, ADR-0024 addendum of 2026-11-02)
     )
 
 
@@ -503,7 +503,7 @@ PAIR_AFTER_START = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used (projection 18)
-    + EMPTY_HOUSE  # the house (projection 19, ADR-0024 addendum of 2026-11-02)
+    + EMPTY_HOUSE  # the house (projection 20, ADR-0024 addendum of 2026-11-02)
 )
 
 # Save file of ADR-0006: header, projection, exceptions.
@@ -570,7 +570,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used (projection 18)
-    + EMPTY_HOUSE  # the house (projection 19, ADR-0024 addendum of 2026-11-02)
+    + EMPTY_HOUSE  # the house (projection 20, ADR-0024 addendum of 2026-11-02)
 )
 EMPTY_SAVE = header(DATA_HASH) + EMPTY_PROJECTION + seq([]) + varint(1) + seq([]) + seq([])
 

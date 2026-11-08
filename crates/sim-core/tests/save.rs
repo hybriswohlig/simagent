@@ -620,20 +620,6 @@ fn not_from_the_pool<S: serde::Serializer, T: Serialize>(
     serializer.collect_seq(sims.iter().map(|(id, sim)| (id, sim, None::<()>)))
 }
 
-/// The held places: the last map of the house part, whose length is written doubled, plus 1 if
-/// the memories follow (ADR-0030 section 5); none do here, so twice the count.
-fn doubled<S: serde::Serializer, T: Serialize>(
-    holds: &[T],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    use serde::ser::SerializeSeq;
-    let mut seq = serializer.serialize_seq(Some(holds.len() * 2))?;
-    for hold in holds {
-        seq.serialize_element(hold)?;
-    }
-    seq.end()
-}
-
 /// Where the encoder puts the series of the market rounds (ADR-0018 section 1).
 #[derive(Clone, Copy)]
 enum Round {
@@ -687,8 +673,10 @@ struct File {
     house_households: Vec<(u64, (String, bool))>,
     house_sims: Vec<(u64, TestInHouse)>,
     house_waits: Vec<(u64, ())>,
-    #[serde(serialize_with = "doubled")]
     house_holds: Vec<((u64, u16, u8), u64)>,
+    /// The memories (ADR-0030 section 5, projection 20): nobody remembers here, so that map is
+    /// empty and its elements never written.
+    house_social: Vec<(u64, ())>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
     plan_refs: Vec<(u64, i64)>,
@@ -737,6 +725,7 @@ impl File {
             house_sims: Vec::new(),
             house_waits: Vec::new(),
             house_holds: Vec::new(),
+            house_social: Vec::new(),
             plan_refs: vec![(2, 0), (1, 0), (2, 0), (2, 0), (2, 0)],
             next_event_id: 4,
             input_log: vec![(

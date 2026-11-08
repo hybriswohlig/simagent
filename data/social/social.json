@@ -42,7 +42,7 @@
       "id": "core:everyday",
       "min_age": 6,
       "max_age": 130,
-      "furniture": [],
+      "furniture": ["core:dining_table", "core:sofa", "core:tv"],
       "condition": "always",
       "steps": [
         { "who": "both", "value": "familiarity", "delta": 40 }
@@ -52,7 +52,7 @@
       "id": "core:praise",
       "min_age": 6,
       "max_age": 130,
-      "furniture": [],
+      "furniture": ["core:dining_table", "core:sofa"],
       "condition": { "affection_from": 500 },
       "steps": [
         { "who": "target", "value": "affection", "delta": 30 },
@@ -63,7 +63,7 @@
       "id": "core:tease",
       "min_age": 6,
       "max_age": 59,
-      "furniture": [],
+      "furniture": ["core:dining_table", "core:sofa", "core:toy_chest"],
       "condition": "always",
       "steps": [
         { "who": "target", "value": "grudge", "delta": 60 }
@@ -73,7 +73,7 @@
       "id": "core:gossip",
       "min_age": 6,
       "max_age": 130,
-      "furniture": [],
+      "furniture": ["core:dining_table", "core:sofa"],
       "condition": "gossip",
       "steps": []
     },
@@ -81,7 +81,7 @@
       "id": "core:recall",
       "min_age": 6,
       "max_age": 130,
-      "furniture": [],
+      "furniture": ["core:dining_table", "core:sofa", "core:tv"],
       "condition": "common_memory",
       "steps": [
         { "who": "both", "value": "affection", "delta": 20 }
@@ -91,7 +91,7 @@
       "id": "core:apology",
       "min_age": 6,
       "max_age": 130,
-      "furniture": [],
+      "furniture": ["core:dining_table", "core:sofa"],
       "condition": { "grudge_from": 300 },
       "steps": [
         { "who": "target", "value": "grudge", "delta": -200 },

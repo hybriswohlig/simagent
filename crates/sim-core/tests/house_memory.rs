@@ -451,11 +451,11 @@ fn moving_out_keeps_the_strongest_frozen() {
     );
 }
 
-/// A household that moves out freezes everyone's list (ADR-0030 section 1): the birth, 900 at 15
-/// a day, is 855 after three days; no `Forget` stays, no entry is written. Moving in again
-/// resumes it: after three more days the frozen line still reaches 0 where it would have (60
-/// days from the birth), and a memory that has faded to 0 meanwhile goes at once, caused by the
-/// `core:moved_in`.
+/// A household that moves out freezes everyone's list (ADR-0030 section 1, "Auszug und Tod"): the
+/// birth, 800 at 100 a day, is 600 after two days; the strength stays 600 however long the
+/// household is outside, no `Forget` stays, no entry is written. Moving in again sets `since` to
+/// that second and plans the `Forget` from it: 6 days later, whether it moves in a day or eight
+/// days after.
 #[test]
 fn a_household_moving_out_freezes_and_moving_in_resumes() {
     let out = BIRTH + 2 * DAY.as_secs();
@@ -470,49 +470,36 @@ fn a_household_moving_out_freezes_and_moving_in_resumes() {
         assert_eq!(run.forget_at(who), None);
         assert_eq!(run.about(who).len(), 1);
     }
-    // Back in at the third day: 600 at 100 a day from the second of the move, so 500 now and the
-    // zero where the line always had it, 8 days after the birth.
-    let back = out + DAY.as_secs();
-    run.advance(back - 1);
-    run.submit(Input::MoveIn(MoveIn { household: home }));
-    assert_eq!(run.memories(1).len(), 1);
-    assert_eq!(run.forget_at(1), Some(BIRTH + 8 * DAY.as_secs()));
-    assert_eq!(run.forget_at(2), Some(BIRTH + 8 * DAY.as_secs()));
-    run.advance(BIRTH + 8 * DAY.as_secs());
-    assert!(run.memories(1).is_empty());
-
-    // Out again with a memory and in after its zero: it goes at once.
-    let (mut run, home) = couple(eight_days(), 7);
-    run.advance(out - 1);
-    run.submit(Input::MoveOut(MoveOut { household: home }));
-    let late = BIRTH + 10 * DAY.as_secs();
-    run.advance(late - 1);
-    run.submit(Input::MoveIn(MoveIn { household: home }));
-    for who in [1, 2] {
-        assert!(run.memories(who).is_empty());
-        assert_eq!(run.forget_at(who), None);
-        let entries = run.about(who);
-        assert_eq!(entries.len(), 2, "{entries:?}");
+    // The frozen lists save and load.
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let (loaded, _) = World::load(&bytes, eight_days()).expect("loads");
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+    for back in [out + DAY.as_secs(), BIRTH + 10 * DAY.as_secs()] {
+        let (mut run, home) = couple(eight_days(), 7);
+        run.advance(out - 1);
+        run.submit(Input::MoveOut(MoveOut { household: home }));
+        run.advance(back - 1);
+        assert_eq!(run.memories(1)[0].strength, 600, "frozen outside");
+        run.submit(Input::MoveIn(MoveIn { household: home }));
+        for who in [1, 2] {
+            let list = run.memories(who);
+            assert_eq!((list[0].strength, list[0].since), (600, t(back)));
+            // 600 at 100 a day from the second of the move in: 6 days.
+            assert_eq!(run.forget_at(who), Some(back + 6 * DAY.as_secs()));
+            assert_eq!(
+                run.about(who).len(),
+                1,
+                "nothing is forgotten on the way in"
+            );
+        }
+        run.advance(back + 6 * DAY.as_secs());
+        assert!(run.memories(1).is_empty() && run.forget_at(1).is_none());
+        let faded = run.about(1).pop().expect("an entry");
         assert!(matches!(
-            entries[1],
-            (s, LogPayload::Forgot { reason: ForgetReason::Faded, .. }) if s == late
+            faded,
+            (s, LogPayload::Forgot { reason: ForgetReason::Faded, .. }) if s == back + 6 * DAY.as_secs()
         ));
     }
-    let moved_in = run
-        .log
-        .iter()
-        .rev()
-        .find(|entry| matches!(entry.payload, LogPayload::MovedIn { .. }))
-        .expect("moved in");
-    let forgot = run
-        .log
-        .iter()
-        .rev()
-        .find(|e| matches!(e.payload, LogPayload::Forgot { .. }));
-    assert_eq!(
-        caused_by(forgot.expect("forgot")),
-        vec![common::day::number(&moved_in.id)]
-    );
 }
 
 /// The two single founders live in houses of their own and pair by an input: both remember the
@@ -674,8 +661,9 @@ fn without_social_data_nobody_remembers() {
 }
 
 /// ADR-0030, "Konsequenzen": a run without a move-in plans no `Forget`, writes no entry of the
-/// memory and stays bit for bit what it was: the projection, the state hash and the log are the
-/// same with and without the social data (the data hash alone differs).
+/// memory and keeps its domain log and its events: they are the same with and without the social
+/// data, and so is the projection, which ends with the empty maps of the house part and of the
+/// memories (the data hash alone differs).
 #[test]
 fn a_run_without_move_in_does_not_change() {
     let run_with = |data: Data| {
@@ -691,14 +679,15 @@ fn a_run_without_move_in_does_not_change() {
             .iter()
             .any(|e| matches!(e.payload, LogPayload::Birth { .. }))
     );
+    let text = |run: &Run| serde_json::to_string(&run.log).expect("json");
+    assert_eq!(text(&plain), text(&social));
+    assert_eq!(plain.world.pending_events(), social.world.pending_events());
     assert_eq!(
         plain.world.canonical_bytes(),
         social.world.canonical_bytes()
     );
     assert_eq!(plain.world.state_hash(), social.world.state_hash());
-    let text = |run: &Run| serde_json::to_string(&run.log).expect("json");
-    assert_eq!(text(&plain), text(&social));
-    assert_eq!(plain.world.pending_events(), social.world.pending_events());
+    assert!(social.world.canonical_bytes().ends_with(&[0, 0, 0, 0, 0]));
     assert!(social.log.iter().all(|e| !matches!(
         e.payload,
         LogPayload::Remembered { .. } | LogPayload::Forgot { .. }

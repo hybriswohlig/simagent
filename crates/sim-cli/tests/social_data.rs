@@ -12,6 +12,12 @@ const SOCIAL: &str = include_str!("../../../data/social/social.json");
 /// social data after the houses; without them it is 0a08eab115b75093.
 const DATA_HASH: u64 = 0x0e70_775a_2466_6892;
 
+/// The repository's data, for the kinds of furniture of its houses.
+fn repository() -> &'static sim_core::data::Data {
+    static DATA: std::sync::OnceLock<sim_core::data::Data> = std::sync::OnceLock::new();
+    DATA.get_or_init(|| core_data().expect("data"))
+}
+
 fn file() -> Value {
     serde_json::from_str(SOCIAL).expect("the file")
 }
@@ -20,13 +26,14 @@ fn file() -> Value {
 fn refused(change: impl FnOnce(&mut Value)) -> String {
     let mut social = file();
     change(&mut social);
-    let error = social_from(&social.to_string()).expect_err("refused");
+    let error = social_from(&social.to_string(), repository().houses().expect("houses"))
+        .expect_err("refused");
     error.to_string()
 }
 
 #[test]
 fn the_repository_social_data_loads_with_the_numbers_of_the_adrs() {
-    let social = social_from(SOCIAL).expect("loads");
+    let social = social_from(SOCIAL, repository().houses().expect("houses")).expect("loads");
     let limits = &social.limits;
     // The limits 32, 32, 8, 3600, 34, 16 of ADR-0030 section 6 and the others of both ADRs.
     assert_eq!(
@@ -108,6 +115,27 @@ fn the_repository_social_data_loads_with_the_numbers_of_the_adrs() {
         [
             step(Who::Target, BondValue::Grudge, -200),
             step(Who::Target, BondValue::Trust, 60)
+        ]
+    );
+    // The kinds of furniture each topic may take place at, by their data ids.
+    let furniture: Vec<Vec<&str>> = (topics.iter())
+        .map(|topic| topic.furniture.iter().map(|id| id.as_str()).collect())
+        .collect();
+    let (table, sofa, tv, toys) = (
+        "core:dining_table",
+        "core:sofa",
+        "core:tv",
+        "core:toy_chest",
+    );
+    assert_eq!(
+        furniture,
+        [
+            vec![table, sofa, tv],
+            vec![table, sofa],
+            vec![table, sofa, toys],
+            vec![table, sofa],
+            vec![table, sofa, tv],
+            vec![table, sofa],
         ]
     );
     // The choice and the beliefs, ADR-0030 section 4, ADR-0031 sections 2 to 5.

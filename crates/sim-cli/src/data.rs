@@ -8,6 +8,7 @@ use serde_json::Value;
 use sim_core::data::{Calibrated, Data, Definitions, ShockKind, ShockTemplate, Unit};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
+use sim_core::house::data::HouseData;
 use sim_core::social::data::SocialData;
 
 use crate::error::CliError;
@@ -158,7 +159,7 @@ fn assemble(demography: &str, calibration: &str) -> Result<Data, CliError> {
     let definitions = definitions_from(demography, calibration, GENOME_MAP)?;
     let shocks = shocks_from(SHOCKS)?;
     let houses = house_data_from(NEEDS, DAY, KINDS, &HOUSES)?;
-    let social = social_from(SOCIAL)?;
+    let social = social_from(SOCIAL, &houses)?;
     Data::with_pool(definitions, POOL, frequencies_from(FREQUENCIES)?)
         .and_then(|data| data.with_shocks(shocks))
         .map(|data| data.with_houses(houses).with_social(social))
@@ -166,12 +167,14 @@ fn assemble(demography: &str, calibration: &str) -> Result<Data, CliError> {
 }
 
 /// The social data of `social/social.json` (ADR-0030 section 6): unknown fields and wrong types
-/// are refused here, the ranges by the core.
-pub fn social_from(text: &str) -> Result<SocialData, CliError> {
-    let file: SocialData = serde_json::from_str(text)
-        .map_err(|error| rejected(&format!("social/social.json: {error}")))?;
-    file.checked()
-        .map_err(|error| rejected(&format!("social/social.json: {error}")))
+/// are refused here, the ranges and the kinds of furniture its topics name (against `houses`) by
+/// the core.
+pub fn social_from(text: &str, houses: &HouseData) -> Result<SocialData, CliError> {
+    let refused = |error: &dyn std::fmt::Display| rejected(&format!("social/social.json: {error}"));
+    let file: SocialData = serde_json::from_str(text).map_err(|e| refused(&e))?;
+    let file = file.checked().map_err(|e| refused(&e))?;
+    file.furniture_known(houses).map_err(|e| refused(&e))?;
+    Ok(file)
 }
 
 /// The values of a `simagent.settings` document by name, as written: version 1, each value

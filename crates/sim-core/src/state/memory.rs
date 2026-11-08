@@ -158,8 +158,8 @@ pub(crate) fn on_forget(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'
 }
 
 /// A person leaves a moved-in household now (ADR-0030 section 1, "Auszug und Tod"): one who lives
-/// on keeps its `keep_on_move_out` strongest memories, frozen at their strength now with
-/// `since = now`, and no event (its `Forget` is cancelled with the other events of the house); one
+/// on keeps its `keep_on_move_out` strongest memories, frozen at their strength now (they do not
+/// fade while it is outside; `since` is this second until it moves in again), and no event (its `Forget` is cancelled with the other events of the house); one
 /// who died or left the town loses all of them. Nothing is written per memory: the entry of the
 /// move or the death is the cause.
 pub(super) fn leave(domain: &mut DomainState, data: &Data, sim: SimId, now: SimTime) {
@@ -179,13 +179,17 @@ pub(super) fn leave(domain: &mut DomainState, data: &Data, sim: SimId, now: SimT
 }
 
 /// A person with memories comes into a moved-in household, caused by `by` (its `core:moved_in`):
-/// what has faded to 0 since goes at once, then its `Forget` is planned (ADR-0030 section 1).
+/// what it kept on moving out did not fade while it was outside, so each strength stands as it
+/// was frozen and `since` is now; then its `Forget` is planned (ADR-0030 section 1, "Auszug und
+/// Tod"). A frozen strength of 0 is forgotten in this second.
 pub(super) fn resume(domain: &mut DomainState, sim: SimId, by: EventId, ctx: &mut SimCtx<'_, '_>) {
-    if !domain.house.social.memories.contains_key(&sim) {
+    let now = ctx.now();
+    let Some(list) = domain.house.social.memories.get_mut(&sim) else {
         return;
+    };
+    for memory in list.iter_mut() {
+        memory.since = now;
     }
-    let cause = Causes::new(Cause::Event(by));
-    let by = fade(domain, sim, &cause, ctx).unwrap_or(by);
     plan_forget(domain, sim, by, ctx);
 }
 

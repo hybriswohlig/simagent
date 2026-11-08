@@ -12,6 +12,7 @@ use core::ops::RangeInclusive;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
+use crate::house::data::HouseData;
 
 /// The ids of the six kinds of memory of phase 3, in the order of their numbers (ADR-0030
 /// section 1, "Was erinnert wird"): a talk, the birth of an own child, the death of a relative,
@@ -129,8 +130,8 @@ pub struct BondStarts {
     pub housemate: [u16; 6],
 }
 
-/// A topic of a talk (ADR-0030 section 3): the ages of both, the furniture it may take place
-/// at (none named means any sociable one), its condition and the steps of its outcome.
+/// A topic of a talk (ADR-0030 section 3): the ages of both, the kinds of furniture it may take
+/// place at (the houses' kinds, by id; the `sociable` flag comes with the talk), its condition and the steps of its outcome.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Topic {
@@ -238,6 +239,8 @@ pub enum SocialError {
     /// Not one to twelve topics, a repeated id, a first topic that is not always allowed, ages
     /// out of order, a repeated furniture, or a threshold or step out of range.
     Topics,
+    /// A topic names a kind of furniture the houses do not have (`SocialData::furniture_known`).
+    Furniture,
     /// Company or avoid outside 1 to 10^8, a company threshold above 2000 (a sum of two values) or
     /// a trust threshold above 1000.
     Choice,
@@ -253,6 +256,7 @@ impl fmt::Display for SocialError {
             SocialError::MemoryKind => "social.memory_kind",
             SocialError::Bonds => "social.bonds",
             SocialError::Topics => "social.topics",
+            SocialError::Furniture => "social.furniture",
             SocialError::Choice => "social.choice",
             SocialError::Beliefs => "social.beliefs",
         })
@@ -299,6 +303,17 @@ impl SocialData {
             && all_unique(topics.iter().map(|topic| &topic.id))
             && topics.iter().all(fits);
         ok.then_some(()).ok_or(SocialError::Topics)
+    }
+
+    /// Whether every kind of furniture a topic names is one of `houses` (the kinds in the order of
+    /// their ids), checked where both are read.
+    pub fn furniture_known(&self, houses: &HouseData) -> Result<(), SocialError> {
+        let known = |id: &DataId| houses.kind(id).is_some();
+        let all = self
+            .topics
+            .iter()
+            .all(|topic| topic.furniture.iter().all(known));
+        all.then_some(()).ok_or(SocialError::Furniture)
     }
 
     /// The kind with this number, if the data has it.

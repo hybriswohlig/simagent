@@ -1530,22 +1530,25 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
     assert_eq!(watching(0, weak), Ok(()));
 }
 
-/// The projection of the house part (ADR-0030 section 5): without memories it is the four
-/// lengths as before, so a run without a move-in keeps its bytes. The length of `holds` carries
-/// whether the memories follow: twice its count, plus 1 if they do; the bytes below are by hand
-/// from postcard's rules (varints, zigzag for the signed values, the array of two others as two
-/// options, no length in front).
+/// The projection of the house part (ADR-0030 section 5, projection 20): its four maps as before,
+/// then the memories as a fifth map, so a run without a move-in has five zero lengths; the bytes
+/// below are by hand from postcard's rules (varints, zigzag for the signed values, the array of
+/// two others as two options, no length in front).
 #[test]
-fn the_house_part_adds_no_byte_without_memories() {
+fn the_house_part_ends_with_the_memories() {
     use sim_core::social::memory::Memory;
     use sim_core::social::state::Social;
 
     let encoded = |state: &HouseState| postcard::to_allocvec(state).expect("bytes");
-    assert_eq!(encoded(&HouseState::default()), [0, 0, 0, 0]);
+    assert_eq!(encoded(&HouseState::default()), [0, 0, 0, 0, 0]);
 
     let mut held = HouseState::default();
     held.holds.insert((household(1), 2, 3), sim(4));
-    assert_eq!(encoded(&held), [0, 0, 0, 2, 1, 2, 3, 4], "twice the count");
+    assert_eq!(
+        encoded(&held),
+        [0, 0, 0, 1, 1, 2, 3, 4, 0],
+        "the holds as before"
+    );
 
     let memory = Memory {
         kind: 1,
@@ -1563,7 +1566,7 @@ fn the_house_part_adds_no_byte_without_memories() {
         ..HouseState::default()
     };
     let bytes = [
-        0, 0, 0, 1, // households, sims, waits; holds: none, memories follow
+        0, 0, 0, 0, // households, sims, waits, holds: none
         1, 1, 1, // memories: one person, sim 1, one memory
         1, 1, 2, 1, 3, // kind 1, with Some(2) and Some(3)
         0xB0, 9, // at 600: zigzag 1200
@@ -1577,20 +1580,8 @@ fn the_house_part_adds_no_byte_without_memories() {
         postcard::from_bytes::<HouseState>(&bytes),
         Ok(remembering.clone())
     );
-
-    let mut both = remembering.clone();
-    both.holds = held.holds.clone();
-    let mut expected = vec![0, 0, 0, 3, 1, 2, 3, 4];
-    expected.extend_from_slice(&bytes[4..]);
-    assert_eq!(encoded(&both), expected);
-    assert_eq!(postcard::from_bytes::<HouseState>(&expected), Ok(both));
-
-    // A flag over no memories reads, but does not encode back: a load refuses it as not
-    // canonical.
-    let flagged = postcard::from_bytes::<HouseState>(&[0, 0, 0, 1, 0]).expect("reads");
-    assert_eq!(encoded(&flagged), [0, 0, 0, 0]);
     assert!(
-        postcard::from_bytes::<HouseState>(&[0, 0, 0, 1]).is_err(),
+        postcard::from_bytes::<HouseState>(&bytes[..4]).is_err(),
         "memories missing"
     );
 

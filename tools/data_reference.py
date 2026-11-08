@@ -1554,7 +1554,14 @@ def social_checked(doc: dict) -> dict:
     return doc
 
 
-def social_suffix(doc) -> bytes:
+def social_furniture(doc: dict, kinds) -> None:
+    """Every kind of furniture a topic names is a kind of the houses (`kinds`, the parsed
+    kinds.json), as `SocialData::furniture_known` checks where both are read."""
+    known = {kind["id"] for kind in kinds}
+    assert all(f in known for topic in doc["topics"] for f in topic["furniture"]), "social.furniture"
+
+
+def social_suffix(doc, kinds=None) -> bytes:
     """The postcard that the data hash appends for the social data, the `SocialData` of the core
     in the order of its fields (ADR-0030 section 6; postcard rules as above, u8 raw, the arrays
     of six as their elements, an enum variant with a number as its index and then the number):
@@ -1577,10 +1584,13 @@ def social_suffix(doc) -> bytes:
                    refute_ppm: u32, refute_trust, refute_grudge, heard_aimed_trust,
                    heard_aimed_grudge, heard_other_trust: i16, deeds: [id] } }
 
-    Empty for data without a social file (None)."""
+    The kinds of furniture of the topics are checked against `kinds`, the kinds of the houses, if
+    given. Empty for data without a social file (None)."""
     if doc is None:
         return b""
     doc = social_checked(doc)
+    if kinds is not None:
+        social_furniture(doc, kinds)
     out = b""
     limits = doc["limits"]
     for name in SOCIAL_LIMITS:
@@ -1683,7 +1693,8 @@ def repository_hash(data_dir: Path) -> int:
         out += pool_suffix(head["pool_seed"], xxhash.xxh3_64_intdigest(pool, seed=0), frequencies)
     out += shocks_suffix(shock_templates(data_dir))
     out += houses_suffix(house_files(data_dir))
-    out += social_suffix(social_files(data_dir))
+    houses = house_files(data_dir)
+    out += social_suffix(social_files(data_dir), None if houses is None else houses[2])
     return xxhash.xxh3_64_intdigest(out, seed=0)
 
 
@@ -1763,7 +1774,7 @@ def main(argv):
         social = social_files(data_dir)
         print(
             f"social kinds {len(social['memory']['kinds']) if social else 0} topics {len(social['topics']) if social else 0}"
-            f" suffix_bytes {len(social_suffix(social))}"
+            f" suffix_bytes {len(social_suffix(social, files[2] if files else None))}"
             f" data_hash_without_social {xxhash.xxh3_64_intdigest(without + houses_suffix(files), seed=0):016x}"
             f" data_hash {repository_hash(data_dir):016x}"
         )

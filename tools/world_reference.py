@@ -721,7 +721,7 @@ FOUNDER_ALLELE = 28
 # playtest) change the repository's day, kinds and houses (the weekend's end of the night, whom
 # a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
 # no year hash and no log hash of a run without one: core 57, the projection stays 19.
-PROJECTION_VERSION = 19
+PROJECTION_VERSION = 20
 # Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler)
 # change the repository's needs, day and kinds (each need's comfort, the longest time-filler,
 # the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
@@ -735,11 +735,11 @@ PROJECTION_VERSION = 19
 # runs of the game's data (a new data hash) from the first series the gate plans that her wish
 # alone would not; a run on the extract or a fixture keeps its year hashes and its log: core 60,
 # the projection stays 19.
-# The social data (ADR-0030 section 6) enter the repository's data and the memory of a person in
-# a house joins the house part of the projection after `holds` (the count of `holds` is written
-# doubled, plus 1 if memories follow, so a house part without them has its four zero lengths):
-# a new data hash, so a log or save of the repository's data changes, no year hash and no log
-# hash of a run without a household in a house: core 63, the projection stays 19.
+# The social data (ADR-0030 section 6) enter the repository's data, the memories of a person in a
+# house join the house part of the projection as a fifth map after `holds` (`EMPTY_HOUSE` has five
+# zero lengths), and `Forget` (kind 24) and `core:remembered`/`core:forgot` join the codes: a new
+# data hash, so a log or save of the repository's data changes, every year hash once more, no log
+# hash of a run without a household in a house: projection 20, core 63.
 CORE_VERSION = 63
 
 FORMAT_VERSION = 2
@@ -1417,7 +1417,7 @@ class Data:
             self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
         # The social data (ADR-0030 section 6): checked and appended after the houses.
         if social is not None:
-            hashed += data_reference.social_suffix(social)
+            hashed += data_reference.social_suffix(social, None if houses is None else houses[2])
             self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
         assert self.hash == xxhash.xxh3_64_intdigest(hashed, seed=0)
         # What the measurement reads (design note of the measurement, section 1): every trait
@@ -6450,13 +6450,13 @@ def pool_origin_bytes(origin) -> bytes:
 
 # The four empty maps of the house (`house_households`, `house_sims`, `house_waits`,
 # `house_holds`), each a postcard length 0.
-EMPTY_HOUSE = bytes([0, 0, 0, 0])
+EMPTY_HOUSE = bytes([0, 0, 0, 0, 0])
 
 
 def used_households_bytes(used: list) -> bytes:
     """`pool_used: Vec<u32>`, the households of the pool used (indices into the file, in
     arrival order), the field of the projection before the house (`EMPTY_HOUSE` without
-    `MoveIn`; decision of NOTES.md, projection 19)."""
+    `MoveIn`; decision of NOTES.md, projection 19, five maps from projection 20)."""
     return seq([varint(index) for index in used])
 
 
@@ -6496,7 +6496,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used
-    + EMPTY_HOUSE  # the house (projection 19)
+    + EMPTY_HOUSE  # the house (projection 20)
 )
 
 
