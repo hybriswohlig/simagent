@@ -151,6 +151,11 @@ pub(crate) fn on_birth(
         conception::note_child(domain, child);
         onset::on_creation(domain, data, child, born, switch_on, ctx);
         household::born_into(domain, child, mother, ctx);
+        let father = pregnancy.father.or_else(|| {
+            let pool = pregnancy.pool_father;
+            pool.and_then(|key| domain.keys.get(&key).copied())
+        });
+        super::memory::child_born(domain, data, (mother, father), child, born, ctx);
         children.push((child, born));
     }
     // Then per child its first birthday, its deaths and its leaving home: as at an arrival,

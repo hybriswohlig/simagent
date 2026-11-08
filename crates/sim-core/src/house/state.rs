@@ -5,7 +5,9 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
-use serde::{Deserialize, Serialize};
+use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
+use serde::ser::{SerializeMap, SerializeStruct};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::data_id::DataId;
 use crate::house::choice::{CRITICAL, next_choice};
@@ -17,6 +19,7 @@ use crate::house::day::{day_departure, next_night, work_draw};
 use crate::house::need::{EMPTY, FULL, NeedSample};
 use crate::house::reserve::{Band, Doing, Reserve, ReserveRules};
 use crate::ids::{HouseholdId, SimId};
+use crate::social::state::Social;
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
 /// At most this many households live in a house at once (ADR-0024 section 6).
@@ -100,8 +103,12 @@ pub struct Decisions {
     pub count: u16,
 }
 
-/// The house part of the domain state, each map in the projection after `pool_used`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The house part of the domain state, each map in the projection after `pool_used`, then the
+/// social part (ADR-0030 section 5). The projection holds `social` only if it is not empty, so a
+/// run without `MoveIn` keeps its bytes: postcard writes the length of `holds` as twice its
+/// count plus 1 if the social part follows it (`Wire`); a reader takes the low bit as that flag,
+/// and the canonical check of a load refuses a flag set over an empty part.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HouseState {
     pub households: BTreeMap<HouseholdId, MovedIn>,
     pub sims: BTreeMap<SimId, InHouse>,
@@ -110,6 +117,8 @@ pub struct HouseState {
     pub waits: BTreeMap<(HouseholdId, u16), Vec<(SimTime, SimId)>>,
     /// The places held for a waiter, per object and place.
     pub holds: BTreeMap<(HouseholdId, u16, u8), SimId>,
+    /// What the persons remember (ADR-0030 section 1).
+    pub social: Social,
 }
 
 impl HouseState {
@@ -119,6 +128,7 @@ impl HouseState {
             sims: BTreeMap::new(),
             waits: BTreeMap::new(),
             holds: BTreeMap::new(),
+            social: Social::new(),
         }
     }
 
@@ -127,6 +137,137 @@ impl HouseState {
             && self.sims.is_empty()
             && self.waits.is_empty()
             && self.holds.is_empty()
+            && self.social.is_empty()
+    }
+}
+
+/// The five fields as a text format writes them (the projection is postcard only).
+#[derive(Serialize, Deserialize)]
+#[serde(rename = "HouseState")]
+struct Plain {
+    households: BTreeMap<HouseholdId, MovedIn>,
+    sims: BTreeMap<SimId, InHouse>,
+    waits: BTreeMap<(HouseholdId, u16), Vec<(SimTime, SimId)>>,
+    holds: BTreeMap<(HouseholdId, u16, u8), SimId>,
+    social: Social,
+}
+
+/// `holds` as postcard encodes it in `HouseState`: its count doubled, plus 1 if the social part
+/// follows.
+struct Wire<'a>(&'a BTreeMap<(HouseholdId, u16, u8), SimId>, bool);
+
+impl Serialize for Wire<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let code = self.0.len() * 2 + usize::from(self.1);
+        let mut map = serializer.serialize_map(Some(code))?;
+        for (place, holder) in self.0 {
+            map.serialize_entry(place, holder)?;
+        }
+        map.end()
+    }
+}
+
+/// `holds` and the flag read back from `Wire`.
+struct Unwire(BTreeMap<(HouseholdId, u16, u8), SimId>, bool);
+
+impl<'de> Deserialize<'de> for Unwire {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Unwire, D::Error> {
+        struct Entries;
+        impl<'de> Visitor<'de> for Entries {
+            type Value = Unwire;
+
+            fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str("the holds of a house part")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Unwire, A::Error> {
+                let code = map
+                    .size_hint()
+                    .ok_or_else(|| A::Error::custom("the length of the holds"))?;
+                let mut holds = BTreeMap::new();
+                for _ in 0..code / 2 {
+                    let (place, holder) = (map.next_entry()?)
+                        .ok_or_else(|| A::Error::custom("the entries of the holds"))?;
+                    holds.insert(place, holder);
+                }
+                Ok(Unwire(holds, code % 2 == 1))
+            }
+        }
+        deserializer.deserialize_map(Entries)
+    }
+}
+
+impl Serialize for HouseState {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            let plain = Plain {
+                households: self.households.clone(),
+                sims: self.sims.clone(),
+                waits: self.waits.clone(),
+                holds: self.holds.clone(),
+                social: self.social.clone(),
+            };
+            return plain.serialize(serializer);
+        }
+        let social = !self.social.is_empty();
+        let mut out = serializer.serialize_struct("HouseState", 4 + usize::from(social))?;
+        out.serialize_field("households", &self.households)?;
+        out.serialize_field("sims", &self.sims)?;
+        out.serialize_field("waits", &self.waits)?;
+        out.serialize_field("holds", &Wire(&self.holds, social))?;
+        if social {
+            out.serialize_field("social", &self.social)?;
+        }
+        out.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for HouseState {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<HouseState, D::Error> {
+        if deserializer.is_human_readable() {
+            let plain = Plain::deserialize(deserializer)?;
+            return Ok(HouseState {
+                households: plain.households,
+                sims: plain.sims,
+                waits: plain.waits,
+                holds: plain.holds,
+                social: plain.social,
+            });
+        }
+        struct Fields;
+        impl<'de> Visitor<'de> for Fields {
+            type Value = HouseState;
+
+            fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str("a house part")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<HouseState, A::Error> {
+                fn field<'de, T: Deserialize<'de>, A: SeqAccess<'de>>(
+                    seq: &mut A,
+                    name: &'static str,
+                ) -> Result<T, A::Error> {
+                    seq.next_element()?.ok_or_else(|| A::Error::custom(name))
+                }
+                let households = field(&mut seq, "households")?;
+                let sims = field(&mut seq, "sims")?;
+                let waits = field(&mut seq, "waits")?;
+                let Unwire(holds, social) = field(&mut seq, "holds")?;
+                let social = match social {
+                    true => field(&mut seq, "social")?,
+                    false => Social::new(),
+                };
+                Ok(HouseState {
+                    households,
+                    sims,
+                    waits,
+                    holds,
+                    social,
+                })
+            }
+        }
+        const FIELDS: [&str; 5] = ["households", "sims", "waits", "holds", "social"];
+        deserializer.deserialize_struct("HouseState", &FIELDS, Fields)
     }
 }
 

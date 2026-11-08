@@ -41,6 +41,7 @@ pub mod phenotype;
 pub mod pool;
 pub mod presentation;
 pub mod rng;
+pub mod social;
 mod state;
 pub mod time;
 pub mod trace;

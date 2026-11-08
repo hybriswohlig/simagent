@@ -73,6 +73,8 @@ pub enum EventPayload {
     /// A person's reserve reaches `level`, half its capacity or 0 (ADR-0026, addendum of
     /// 2026-11-06 on hunger at 0).
     ReserveCrossing { sim: SimId, level: u16 },
+    /// The earliest zero of a person's memories: it forgets what has faded (ADR-0030 section 1).
+    Forget { sim: SimId },
 }
 
 impl EventPayload {
@@ -99,6 +101,7 @@ impl EventPayload {
     pub const BEDTIME: EventKind = EventKind(21);
     pub const STAND_UP: EventKind = EventKind(22);
     pub const RESERVE_CROSSING: EventKind = EventKind(23);
+    pub const FORGET: EventKind = EventKind(24);
 
     /// Whether this is a house event (ADR-0024, addendum of 2026-11-02).
     pub fn is_house(&self) -> bool {
@@ -116,6 +119,7 @@ impl EventPayload {
                 | EventPayload::Bedtime { .. }
                 | EventPayload::StandUp { .. }
                 | EventPayload::ReserveCrossing { .. }
+                | EventPayload::Forget { .. }
         )
     }
 }
@@ -141,7 +145,8 @@ impl Payload for EventPayload {
             | EventPayload::Decide { .. }
             | EventPayload::Bedtime { .. }
             | EventPayload::StandUp { .. }
-            | EventPayload::ReserveCrossing { .. } => EventClass::GENERAL,
+            | EventPayload::ReserveCrossing { .. }
+            | EventPayload::Forget { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
             EventPayload::Emigration { .. } => EventClass::EMIGRATION,
@@ -171,7 +176,8 @@ impl Payload for EventPayload {
             | EventPayload::Decide { sim }
             | EventPayload::Bedtime { sim }
             | EventPayload::StandUp { sim }
-            | EventPayload::ReserveCrossing { sim, .. } => EventSubject::sim(sim.get()),
+            | EventPayload::ReserveCrossing { sim, .. }
+            | EventPayload::Forget { sim } => EventSubject::sim(sim.get()),
             EventPayload::Separation { partnership } => {
                 EventSubject::partnership(partnership.get())
             }
@@ -204,6 +210,7 @@ impl Payload for EventPayload {
             EventPayload::Bedtime { .. } => EventPayload::BEDTIME,
             EventPayload::StandUp { .. } => EventPayload::STAND_UP,
             EventPayload::ReserveCrossing { .. } => EventPayload::RESERVE_CROSSING,
+            EventPayload::Forget { .. } => EventPayload::FORGET,
         }
     }
 }

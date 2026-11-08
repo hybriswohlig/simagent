@@ -211,6 +211,13 @@ impl World {
         self.pending_time(handle)
     }
 
+    /// The second of a person's one open `Forget` as the queue holds it (ADR-0030 section 1):
+    /// the earliest zero of its memories; `None` for anyone without one.
+    pub fn forget_at(&self, sim: SimId) -> Option<SimTime> {
+        let handle = *self.state.domain.pending.get(&(sim, state::Slot::Forget))?;
+        self.pending_time(handle)
+    }
+
     /// Where a person away or on its way out is and until when: the place and the second of
     /// its return (ADR-0024 section 4); `None` for anyone else.
     pub fn away(&self, sim: SimId) -> Option<(crate::house::state::Duty, SimTime)> {
@@ -297,7 +304,7 @@ impl WorldState {
                 state::params::apply_shock(&mut self.domain, &self.data, shock, &mut ctx);
             }
             Input::SeparatePartnership(pair) => {
-                state::partnership::apply_separate(&mut self.domain, pair, &mut ctx);
+                state::partnership::apply_separate(&mut self.domain, &self.data, pair, &mut ctx);
             }
             Input::TimeTogether(pair) => {
                 let window = state::together::apply(&self.domain, &self.data, pair, &mut ctx);
@@ -307,7 +314,7 @@ impl WorldState {
                 state::house::apply_move_in(&mut self.domain, &self.data, input, &mut ctx);
             }
             Input::MoveOut(input) => {
-                state::house::apply_move_out(&mut self.domain, input, &mut ctx);
+                state::house::apply_move_out(&mut self.domain, &self.data, input, &mut ctx);
             }
             Input::Command(input) => {
                 state::command::apply(&mut self.domain, &self.data, input, &mut ctx);
@@ -466,7 +473,12 @@ impl Handler<EventPayload, PlanRef> for WorldState {
                 state::birth::on_birth(&mut self.domain, &self.data, mother, &mut ctx);
             }
             EventPayload::Separation { partnership } => {
-                state::partnership::on_separation(&mut self.domain, partnership, &mut ctx);
+                state::partnership::on_separation(
+                    &mut self.domain,
+                    &self.data,
+                    partnership,
+                    &mut ctx,
+                );
             }
             EventPayload::MarketRound => {
                 state::market::on_round(&mut self.domain, &self.data, &mut ctx);
@@ -514,6 +526,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             }
             EventPayload::ReserveCrossing { sim, level } => {
                 state::reserve::on_crossing(&mut self.domain, sim, level, &mut ctx);
+            }
+            EventPayload::Forget { sim } => {
+                state::memory::on_forget(&mut self.domain, sim, &mut ctx);
             }
             EventPayload::Depart { sim, place, back } => {
                 let departure = (sim, place, back);
@@ -585,7 +600,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Decide { .. }
             | EventPayload::Bedtime { .. }
             | EventPayload::StandUp { .. }
-            | EventPayload::ReserveCrossing { .. } => {
+            | EventPayload::ReserveCrossing { .. }
+            | EventPayload::Forget { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }

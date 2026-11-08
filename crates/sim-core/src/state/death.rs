@@ -269,6 +269,10 @@ pub(crate) fn on_death(
         .and_then(|id| domain.partnerships.get(&id))
         .map(|p| if p.woman == sim { p.man } else { p.woman });
     partnership::end_with(domain, sim, EndedBy::Death, ctx);
+    if let Some(partner) = partner {
+        super::memory::partner_lost(domain, data, (sim, partner), entry, ctx);
+    }
+    super::memory::relative_died(domain, data, sim, entry, ctx);
     household::death_moves(domain, data, sim, household, partner, entry, ctx);
 }
 

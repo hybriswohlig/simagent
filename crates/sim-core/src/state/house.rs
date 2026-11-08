@@ -130,6 +130,7 @@ pub(crate) fn apply_move_in(
     // addendum of 2026-11-04).
     for sim in members {
         super::day::plan_series(domain, data, sim, entry, ctx);
+        super::memory::resume(domain, sim, entry, ctx);
     }
 }
 
@@ -150,7 +151,12 @@ pub(crate) fn check_move_out(
 }
 
 /// The household leaves its house now, with all its members; what they were doing ends.
-pub(crate) fn apply_move_out(domain: &mut DomainState, input: &MoveOut, ctx: &mut SimCtx<'_, '_>) {
+pub(crate) fn apply_move_out(
+    domain: &mut DomainState,
+    data: &Data,
+    input: &MoveOut,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     let household = input.household;
     let members = members(domain, household);
     let out = ctx.emit(
@@ -159,7 +165,7 @@ pub(crate) fn apply_move_out(domain: &mut DomainState, input: &MoveOut, ctx: &mu
         Causes::new(ctx.trigger()),
     );
     for sim in members {
-        let doing = forget(domain, sim, ctx);
+        let doing = forget(domain, data, sim, ctx);
         left(sim, doing, out, ctx);
     }
     end_house(domain, household, ctx);
@@ -337,13 +343,15 @@ fn cancel(
 }
 
 /// A person leaves the house part: its pending house events, its needs, its waiting
-/// positions and its holds. Returns what it was doing, with its needs now.
+/// positions and its holds, and its memories keep to the strongest (`memory::leave`). Returns
+/// what it was doing, with its needs now.
 fn forget(
     domain: &mut DomainState,
+    data: &Data,
     sim: SimId,
     ctx: &mut SimCtx<'_, '_>,
 ) -> Option<(Action, [u16; 5])> {
-    let house_events = (Slot::DayPlan, Slot::Reserve(u16::MAX));
+    let house_events = (Slot::DayPlan, Slot::Forget);
     cancel(domain, sim, house_events, ctx);
     let person = domain.house.sims.remove(&sim);
     for waiters in domain.house.waits.values_mut() {
@@ -352,6 +360,7 @@ fn forget(
     domain.house.waits.retain(|_, waiters| !waiters.is_empty());
     domain.house.holds.retain(|_, holder| *holder != sim);
     let now = ctx.now();
+    super::memory::leave(domain, data, sim, now);
     person.and_then(|person| Some((person.action?, person.needs.map(|need| need.value_at(now)))))
 }
 
@@ -395,7 +404,7 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
             && domain.house.households.contains_key(&from)
         {
             let held = super::action::held_by(domain, from, change.sim);
-            let doing = forget(domain, change.sim, ctx);
+            let doing = forget(domain, data, change.sim, ctx);
             let out = ctx.emit(
                 LogPayload::MovedOut { household: from },
                 alloc::vec![Subject::Sim(change.sim)],
@@ -421,6 +430,7 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
                 because(),
             );
             super::day::plan_series(domain, data, change.sim, entry, ctx);
+            super::memory::resume(domain, change.sim, entry, ctx);
             if morning {
                 let causes = Causes::new(Cause::Event(entry));
                 start_day(domain, data, change.sim, to, causes, ctx);
