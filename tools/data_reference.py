@@ -1400,6 +1400,226 @@ def houses_suffix(files) -> bytes:
     return out
 
 # ---------------------------------------------------------------------------------------
+# The social data (ADR-0030 section 6, ADR-0031): data/social/social.json.
+
+SOCIAL_MEMORY_KINDS = [
+    "core:talk",
+    "core:child_born",
+    "core:relative_died",
+    "core:partnership_began",
+    "core:partnership_ended",
+    "core:refuted",
+]
+SOCIAL_ROLES = ["partner", "parent", "child", "sibling", "kin", "housemate"]
+SOCIAL_BOND_VALUES = ["affection", "trust", "respect", "attraction", "familiarity", "grudge"]
+SOCIAL_WHO = ["both", "target"]
+SOCIAL_LIMITS = [
+    "memories", "bonds", "keep_on_move_out", "beliefs", "deeds", "deed_window_days", "min_age",
+    "talk_delay_seconds", "pair_gap_seconds", "talks_per_day", "entries_per_day", "talk_entries",
+]
+SOCIAL_BELIEFS = [
+    "heard_cap", "heard_floor", "heard_divisor", "confirm_step", "confirm_cap", "inferred_certainty",
+    "lie_ppm", "lie_grudge", "lie_certainty", "refute_ppm", "refute_trust", "refute_grudge",
+    "heard_aimed_trust", "heard_aimed_grudge", "heard_other_trust", "deeds",
+]
+SOCIAL_BELIEF_DELTAS = ["refute_trust", "refute_grudge", "heard_aimed_trust", "heard_aimed_grudge", "heard_other_trust"]
+SOCIAL_BELIEF_SCALES = ["heard_cap", "confirm_cap", "inferred_certainty", "lie_certainty", "lie_grudge"]
+
+
+def social_files(data_dir: Path):
+    """The parsed `social/social.json` of `data_dir`, or None without it (every fixture)."""
+    path = Path(data_dir) / "social" / "social.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def is_int(value) -> bool:
+    return type(value) is int
+
+
+def social_checked(doc: dict) -> dict:
+    """The checks of ADR-0030 section 6 and ADR-0031 as the core makes them (`SocialData`), in
+    the order of its error codes; a failed one names its code. Unknown or missing fields are
+    refused as `deny_unknown_fields` and the types refuse them. Returns the document."""
+    assert set(doc) == {"limits", "memory", "bonds", "topics", "choice", "beliefs"}, "social fields"
+    limits = doc["limits"]
+    assert set(limits) == set(SOCIAL_LIMITS) and all(is_int(limits[name]) for name in SOCIAL_LIMITS), "social fields"
+    assert 0 <= limits["min_age"] < 256, "social fields"
+    for name in SOCIAL_LIMITS:
+        assert 0 <= limits[name] < 2**32 if name.endswith("seconds") else 0 <= limits[name] < 2**16, "social fields"
+    assert (
+        1 <= limits["memories"] <= 64
+        and 1 <= limits["bonds"] <= 64
+        and 1 <= limits["keep_on_move_out"] <= limits["memories"]
+        and 1 <= limits["beliefs"] <= 64
+        and 1 <= limits["deeds"] <= 256
+        and 1 <= limits["deed_window_days"] <= 364
+        and 6 <= limits["min_age"] <= 130
+        and 60 <= limits["talk_delay_seconds"] <= 3600
+        and limits["talk_delay_seconds"] <= limits["pair_gap_seconds"] <= 86_400
+        and 1 <= limits["talks_per_day"] <= 64
+        and 1 <= limits["entries_per_day"] <= 1000
+        and 1 <= limits["talk_entries"] <= limits["entries_per_day"]
+    ), "social.limits"
+    memory = doc["memory"]
+    assert set(memory) == {"recall_step", "relative_phi_eighths", "kinds"}, "social fields"
+    assert is_int(memory["recall_step"]) and 0 <= memory["recall_step"] < 2**16, "social fields"
+    assert is_int(memory["relative_phi_eighths"]) and 0 <= memory["relative_phi_eighths"] < 256, "social fields"
+    assert 1 <= memory["recall_step"] <= 1000 and 1 <= memory["relative_phi_eighths"] <= 8, "social.memory"
+    for kind in memory["kinds"]:
+        assert set(kind) == {"id", "strength", "fade", "valence"}, "social fields"
+        assert isinstance(kind["id"], str) and all(is_int(kind[name]) for name in ("strength", "fade", "valence")), "social fields"
+        assert 0 <= kind["strength"] < 2**16 and 0 <= kind["fade"] < 2**16 and -(2**15) <= kind["valence"] < 2**15, "social fields"
+    assert [kind["id"] for kind in memory["kinds"]] == SOCIAL_MEMORY_KINDS, "social.memory_kind"
+    assert all(1 <= k["strength"] <= 1000 and k["fade"] <= 1000 and -1000 <= k["valence"] <= 1000 for k in memory["kinds"]), "social.memory_kind"
+    bonds = doc["bonds"]
+    assert set(bonds) == {"familiarity_fade", "grudge_fade", "start"}, "social fields"
+    assert is_int(bonds["familiarity_fade"]) and is_int(bonds["grudge_fade"]), "social fields"
+    assert 0 <= bonds["familiarity_fade"] < 2**16 and 0 <= bonds["grudge_fade"] < 2**16, "social fields"
+    start = bonds["start"]
+    assert set(start) == set(SOCIAL_ROLES), "social fields"
+    for role in SOCIAL_ROLES:
+        values = start[role]
+        assert len(values) == 6 and all(is_int(v) and 0 <= v < 2**16 for v in values), "social fields"
+    assert bonds["familiarity_fade"] <= 1000 and bonds["grudge_fade"] <= 1000, "social.bonds"
+    assert all(0 <= v <= 1000 for role in SOCIAL_ROLES for v in start[role]), "social.bonds"
+    topics = doc["topics"]
+    for topic in topics:
+        assert set(topic) == {"id", "min_age", "max_age", "furniture", "condition", "steps"}, "social fields"
+        assert isinstance(topic["id"], str) and all(isinstance(f, str) for f in topic["furniture"]), "social fields"
+        assert is_int(topic["min_age"]) and is_int(topic["max_age"]), "social fields"
+        assert 0 <= topic["min_age"] < 256 and 0 <= topic["max_age"] < 256, "social fields"
+        condition = topic["condition"]
+        if isinstance(condition, dict):
+            assert len(condition) == 1 and next(iter(condition)) in ("affection_from", "grudge_from"), "social fields"
+            assert is_int(next(iter(condition.values()))) and 0 <= next(iter(condition.values())) < 2**16, "social fields"
+        else:
+            assert condition in ("always", "common_memory", "gossip"), "social fields"
+        for step in topic["steps"]:
+            assert set(step) == {"who", "value", "delta"}, "social fields"
+            assert step["who"] in SOCIAL_WHO and step["value"] in SOCIAL_BOND_VALUES, "social fields"
+            assert is_int(step["delta"]) and -(2**15) <= step["delta"] < 2**15, "social fields"
+    ids = [topic["id"] for topic in topics]
+
+    def topic_fits(topic):
+        condition = topic["condition"]
+        threshold = True
+        if isinstance(condition, dict):
+            threshold = 0 <= next(iter(condition.values())) <= 1000
+        return (
+            topic["min_age"] <= topic["max_age"] <= OLDEST
+            and len(set(topic["furniture"])) == len(topic["furniture"])
+            and threshold
+            and all(-1000 <= step["delta"] <= 1000 for step in topic["steps"])
+        )
+
+    assert (
+        1 <= len(topics) <= 12
+        and topics[0]["condition"] == "always"
+        and len(set(ids)) == len(ids)
+        and all(topic_fits(topic) for topic in topics)
+    ), "social.topics"
+    choice = doc["choice"]
+    assert set(choice) == {"company", "avoid", "company_min_sum", "avoid_below_trust"}, "social fields"
+    assert all(is_int(v) and v >= 0 for v in choice.values()), "social fields"
+    assert choice["company"] < 2**32 and choice["avoid"] < 2**32, "social fields"
+    assert choice["company_min_sum"] < 2**16 and choice["avoid_below_trust"] < 2**16, "social fields"
+    assert (
+        1 <= choice["company"] <= 100_000_000
+        and 1 <= choice["avoid"] <= 100_000_000
+        and choice["company_min_sum"] <= 2000
+        and choice["avoid_below_trust"] <= 1000
+    ), "social.choice"
+    beliefs = doc["beliefs"]
+    assert set(beliefs) == set(SOCIAL_BELIEFS), "social fields"
+    plain = [name for name in SOCIAL_BELIEFS if name != "deeds"]
+    assert all(is_int(beliefs[name]) for name in plain) and all(isinstance(d, str) for d in beliefs["deeds"]), "social fields"
+    for name in plain:
+        if name in SOCIAL_BELIEF_DELTAS:
+            assert -(2**15) <= beliefs[name] < 2**15, "social fields"
+        elif name.endswith("ppm"):
+            assert 0 <= beliefs[name] < 2**32, "social fields"
+        else:
+            assert 0 <= beliefs[name] < 2**16, "social fields"
+    assert (
+        all(0 <= beliefs[name] <= 1000 for name in SOCIAL_BELIEF_SCALES)
+        and beliefs["heard_floor"] <= 1000
+        and 1 <= beliefs["heard_divisor"] <= 10_000
+        and beliefs["confirm_step"] <= 1000
+        and beliefs["lie_ppm"] <= 1_000_000
+        and beliefs["refute_ppm"] <= 1_000_000
+        and all(-1000 <= beliefs[name] <= 1000 for name in SOCIAL_BELIEF_DELTAS)
+        and 1 <= len(beliefs["deeds"]) <= 16
+        and len(set(beliefs["deeds"])) == len(beliefs["deeds"])
+    ), "social.beliefs"
+    return doc
+
+
+def social_suffix(doc) -> bytes:
+    """The postcard that the data hash appends for the social data, the `SocialData` of the core
+    in the order of its fields (ADR-0030 section 6; postcard rules as above, u8 raw, the arrays
+    of six as their elements, an enum variant with a number as its index and then the number):
+
+      SocialData { limits: Limits { memories: u16, bonds: u16, keep_on_move_out: u16, beliefs: u16,
+                   deeds: u16, deed_window_days: u16, min_age: u8, talk_delay_seconds: u32,
+                   pair_gap_seconds: u32, talks_per_day: u16, entries_per_day: u16,
+                   talk_entries: u16 },
+        memory: MemoryRules { recall_step: u16, relative_phi_eighths: u8,
+                   kinds: [MemoryKind { id, strength: u16, fade: u16, valence: i16 }] },
+        bonds: BondRules { familiarity_fade: u16, grudge_fade: u16,
+                   start: BondStarts { partner, parent, child, sibling, kin, housemate: [u16; 6] } },
+        topics: [Topic { id, min_age: u8, max_age: u8, furniture: [id],
+                   condition: Condition (0 always, 1 affection_from u16, 2 grudge_from u16,
+                   3 common_memory, 4 gossip), steps: [Step { who: Who (0 both, 1 target),
+                   value: BondValue (0 affection .. 5 grudge), delta: i16 }] }],
+        choice: ChoiceRules { company: u32, avoid: u32, company_min_sum: u16, avoid_below_trust: u16 },
+        beliefs: BeliefRules { heard_cap, heard_floor, heard_divisor, confirm_step, confirm_cap,
+                   inferred_certainty: u16, lie_ppm: u32, lie_grudge: u16, lie_certainty: u16,
+                   refute_ppm: u32, refute_trust, refute_grudge, heard_aimed_trust,
+                   heard_aimed_grudge, heard_other_trust: i16, deeds: [id] } }
+
+    Empty for data without a social file (None)."""
+    if doc is None:
+        return b""
+    doc = social_checked(doc)
+    out = b""
+    limits = doc["limits"]
+    for name in SOCIAL_LIMITS:
+        out += u8(limits[name]) if name == "min_age" else varint(limits[name])
+    memory = doc["memory"]
+    out += varint(memory["recall_step"]) + u8(memory["relative_phi_eighths"]) + varint(len(memory["kinds"]))
+    for kind in memory["kinds"]:
+        out += string(kind["id"]) + varint(kind["strength"]) + varint(kind["fade"]) + zigzag(kind["valence"])
+    bonds = doc["bonds"]
+    out += varint(bonds["familiarity_fade"]) + varint(bonds["grudge_fade"])
+    for role in SOCIAL_ROLES:
+        out += b"".join(varint(value) for value in bonds["start"][role])
+    out += varint(len(doc["topics"]))
+    for topic in doc["topics"]:
+        out += string(topic["id"]) + u8(topic["min_age"]) + u8(topic["max_age"])
+        out += varint(len(topic["furniture"])) + b"".join(string(f) for f in topic["furniture"])
+        condition = topic["condition"]
+        if isinstance(condition, dict):
+            (name, threshold), = condition.items()
+            out += varint(1 if name == "affection_from" else 2) + varint(threshold)
+        else:
+            out += varint(["always", None, None, "common_memory", "gossip"].index(condition))
+        out += varint(len(topic["steps"]))
+        for step in topic["steps"]:
+            out += varint(SOCIAL_WHO.index(step["who"])) + varint(SOCIAL_BOND_VALUES.index(step["value"])) + zigzag(step["delta"])
+    choice = doc["choice"]
+    out += varint(choice["company"]) + varint(choice["avoid"]) + varint(choice["company_min_sum"]) + varint(choice["avoid_below_trust"])
+    beliefs = doc["beliefs"]
+    for name in SOCIAL_BELIEFS:
+        if name == "deeds":
+            out += varint(len(beliefs[name])) + b"".join(string(d) for d in beliefs[name])
+        elif name in SOCIAL_BELIEF_DELTAS:
+            out += zigzag(beliefs[name])
+        else:
+            out += varint(beliefs[name])
+    return out
+
+
+# ---------------------------------------------------------------------------------------
 # The repository's pool (slice S5): data/pool/pool.bin and data/pool/pool_frequencies.json.
 
 POOL_MAGIC = b"SIMPOOL"
@@ -1452,7 +1672,8 @@ def repository_hash(data_dir: Path) -> int:
     checked by `frequencies_rejection`), with a `shocks.json` followed by its templates
     (`shocks_suffix`, ADR-0023 section 3); xxh3-64 with seed 0 of the concatenation. Without
     either it is the definitions alone (`data_hash`); with a `house/` followed by the houses
-    (`houses_suffix`, ADR-0025)."""
+    (`houses_suffix`, ADR-0025), and with a `social/social.json` followed by the social data
+    (`social_suffix`, ADR-0030 section 6)."""
     files = pool_files(data_dir)
     out = definitions_bytes(*game_documents(data_dir))
     if files is not None:
@@ -1462,6 +1683,7 @@ def repository_hash(data_dir: Path) -> int:
         out += pool_suffix(head["pool_seed"], xxhash.xxh3_64_intdigest(pool, seed=0), frequencies)
     out += shocks_suffix(shock_templates(data_dir))
     out += houses_suffix(house_files(data_dir))
+    out += social_suffix(social_files(data_dir))
     return xxhash.xxh3_64_intdigest(out, seed=0)
 
 
@@ -1535,6 +1757,14 @@ def main(argv):
         print(
             f"houses {listed} suffix_bytes {len(houses_suffix(files))}"
             f" data_hash_without_houses {xxhash.xxh3_64_intdigest(without, seed=0):016x}"
+            f" data_hash {repository_hash(data_dir):016x}"
+        )
+        # The social data (ADR-0030 section 6): the data hash above ends with them; the hash without.
+        social = social_files(data_dir)
+        print(
+            f"social kinds {len(social['memory']['kinds']) if social else 0} topics {len(social['topics']) if social else 0}"
+            f" suffix_bytes {len(social_suffix(social))}"
+            f" data_hash_without_social {xxhash.xxh3_64_intdigest(without + houses_suffix(files), seed=0):016x}"
             f" data_hash {repository_hash(data_dir):016x}"
         )
     # The threshold of each threshold disease that names its trait of liability (none in the
