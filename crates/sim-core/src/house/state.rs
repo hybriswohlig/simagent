@@ -243,18 +243,20 @@ impl<'de> Deserialize<'de> for HouseState {
             }
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<HouseState, A::Error> {
+                // The fields in order: households, sims, waits, holds, then social if flagged.
                 fn field<'de, T: Deserialize<'de>, A: SeqAccess<'de>>(
                     seq: &mut A,
-                    name: &'static str,
+                    at: usize,
                 ) -> Result<T, A::Error> {
-                    seq.next_element()?.ok_or_else(|| A::Error::custom(name))
+                    seq.next_element()?
+                        .ok_or_else(|| A::Error::invalid_length(at, &"a house part"))
                 }
-                let households = field(&mut seq, "households")?;
-                let sims = field(&mut seq, "sims")?;
-                let waits = field(&mut seq, "waits")?;
-                let Unwire(holds, social) = field(&mut seq, "holds")?;
+                let households = field(&mut seq, 0)?;
+                let sims = field(&mut seq, 1)?;
+                let waits = field(&mut seq, 2)?;
+                let Unwire(holds, social) = field(&mut seq, 3)?;
                 let social = match social {
-                    true => field(&mut seq, "social")?,
+                    true => field(&mut seq, 4)?,
                     false => Social::new(),
                 };
                 Ok(HouseState {
