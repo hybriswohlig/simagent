@@ -13,17 +13,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 
-/// The six kinds of memory of phase 3, in the order of their numbers (ADR-0030 section 1,
-/// "Was erinnert wird"): a talk, the birth of an own child, the death of a relative, the start
-/// and the end of the own partnership, a belief changed by a refutation.
-pub const MEMORY_KINDS: [&str; 6] = [
-    "core:talk",
-    "core:child_born",
-    "core:relative_died",
-    "core:partnership_began",
-    "core:partnership_ended",
-    "core:refuted",
-];
+/// The ids of the six kinds of memory of phase 3, in the order of their numbers (ADR-0030
+/// section 1, "Was erinnert wird"): a talk, the birth of an own child, the death of a relative,
+/// the start and the end of the own partnership, a belief changed by a refutation.
+pub fn memory_kinds() -> [DataId; 6] {
+    let id = |text| DataId::new(text).unwrap_or_else(|_| panic!("invariant social.kind_id"));
+    [
+        id("core:talk"),
+        id("core:child_born"),
+        id("core:relative_died"),
+        id("core:partnership_began"),
+        id("core:partnership_ended"),
+        id("core:refuted"),
+    ]
+}
 
 /// The number of the kind `core:talk`.
 pub const TALK: u16 = 0;
@@ -84,7 +87,7 @@ pub struct Limits {
 }
 
 /// The memory rules (ADR-0030 section 1): what a recall adds, from which kinship a death is
-/// remembered (`phi` at least this many eighths) and the kinds in the order of `MEMORY_KINDS`.
+/// remembered (`phi` at least this many eighths) and the kinds in the order of `memory_kinds`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryRules {
@@ -227,7 +230,7 @@ pub enum SocialError {
     Limits,
     /// A recall step outside 1 to 1000 or a kinship outside 1 to 8 eighths.
     Memory,
-    /// Not the six kinds of `MEMORY_KINDS` in their order, or one with a strength outside 1 to
+    /// Not the six kinds of `memory_kinds` in their order, or one with a strength outside 1 to
     /// 1000, a fade or a valence out of range.
     MemoryKind,
     /// A fade above 1000 or a bond value above 1000.
@@ -328,8 +331,9 @@ impl MemoryRules {
         {
             return Err(SocialError::Memory);
         }
-        let named = self.kinds.len() == MEMORY_KINDS.len()
-            && (self.kinds.iter().zip(MEMORY_KINDS)).all(|(kind, id)| kind.id.as_str() == id);
+        let required = memory_kinds();
+        let named = self.kinds.len() == required.len()
+            && (self.kinds.iter().zip(&required)).all(|(kind, id)| kind.id == *id);
         let fits = |kind: &MemoryKind| {
             (1..=1000).contains(&kind.strength)
                 && kind.fade <= 1000

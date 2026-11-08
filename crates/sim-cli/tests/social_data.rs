@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 use sim_cli::data::{core_data, social_from};
-use sim_core::social::data::{BondValue, Condition, MEMORY_KINDS, Step, Who};
+use sim_core::social::data::{BondValue, Condition, Step, Who, memory_kinds};
 
 const SOCIAL: &str = include_str!("../../../data/social/social.json");
 
@@ -54,8 +54,9 @@ fn the_repository_social_data_loads_with_the_numbers_of_the_adrs() {
         (6, 600, 8)
     );
     // The six kinds of memory in the order of their numbers.
-    let ids: Vec<&str> = social.memory.kinds.iter().map(|k| k.id.as_str()).collect();
-    assert_eq!(ids, MEMORY_KINDS);
+    let ids: Vec<_> = social.memory.kinds.iter().map(|k| k.id.clone()).collect();
+    assert_eq!(ids, memory_kinds());
+    assert_eq!(ids[1].as_str(), "core:child_born");
     assert_eq!(social.memory.recall_step, 300);
     assert_eq!(social.memory.relative_phi_eighths, 1);
     // The start values of a bond by role, ADR-0030 section 2.

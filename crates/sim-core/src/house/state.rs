@@ -266,8 +266,7 @@ impl<'de> Deserialize<'de> for HouseState {
                 })
             }
         }
-        const FIELDS: [&str; 5] = ["households", "sims", "waits", "holds", "social"];
-        deserializer.deserialize_struct("HouseState", &FIELDS, Fields)
+        deserializer.deserialize_tuple(5, Fields)
     }
 }
 
