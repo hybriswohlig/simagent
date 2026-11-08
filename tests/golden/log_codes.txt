@@ -38,6 +38,8 @@ payload 30 core:collapsed
 payload 31 core:accident
 payload 32 core:weakened
 payload 33 core:wasted
+payload 34 core:remembered
+payload 35 core:forgot
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -201,3 +203,5 @@ end_reason 3 critical
 end_reason 4 obligation
 end_reason 5 command
 end_reason 6 collapse
+forget_reason 0 faded
+forget_reason 1 displaced

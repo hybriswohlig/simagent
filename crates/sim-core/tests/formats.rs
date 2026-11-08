@@ -25,7 +25,9 @@ use sim_core::input::{
     InputStamp, RejectCode, Start,
 };
 use sim_core::lineage::{GenomeKey, LineageKey};
-use sim_core::log::{Cause, Causes, DrawRef, EndReason, LogEntry, LogPayload, PlanRef, Subject};
+use sim_core::log::{
+    Cause, Causes, DrawRef, EndReason, ForgetReason, LogEntry, LogPayload, PlanRef, Subject,
+};
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::presentation::kin::{Foster, KinWord};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
@@ -1125,6 +1127,18 @@ fn all_payloads() -> Vec<LogPayload> {
         },
         LogPayload::Weakened { capacity: 1000 },
         LogPayload::Wasted { capacity: 500 },
+        LogPayload::Remembered {
+            kind: 1,
+            with: [Some(sim(2)), Some(sim(5))],
+            at: SimTime::from_secs(600),
+            strength: 900,
+        },
+        LogPayload::Forgot {
+            kind: 1,
+            with: [Some(sim(2)), None],
+            at: SimTime::from_secs(600),
+            reason: ForgetReason::Faded,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1162,7 +1176,9 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Collapsed { .. }
             | LogPayload::Accident { .. }
             | LogPayload::Weakened { .. }
-            | LogPayload::Wasted { .. } => {}
+            | LogPayload::Wasted { .. }
+            | LogPayload::Remembered { .. }
+            | LogPayload::Forgot { .. } => {}
         }
     }
     payloads
@@ -1665,6 +1681,14 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(reasons.iter().map(|r| line("end_reason", r)));
+    // Why a memory was lost (ADR-0030 section 1).
+    let forgets = [ForgetReason::Faded, ForgetReason::Displaced];
+    for reason in &forgets {
+        match reason {
+            ForgetReason::Faded | ForgetReason::Displaced => {}
+        }
+    }
+    actual.extend(forgets.iter().map(|r| line("forget_reason", r)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

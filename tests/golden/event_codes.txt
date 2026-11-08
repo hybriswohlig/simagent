@@ -33,3 +33,4 @@ kind decide 20
 kind bedtime 21
 kind stand_up 22
 kind reserve_crossing 23
+kind forget 24
