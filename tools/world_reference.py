@@ -721,7 +721,7 @@ FOUNDER_ALLELE = 28
 # playtest) change the repository's day, kinds and houses (the weekend's end of the night, whom
 # a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
 # no year hash and no log hash of a run without one: core 57, the projection stays 19.
-PROJECTION_VERSION = 20
+PROJECTION_VERSION = 21
 # Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler)
 # change the repository's needs, day and kinds (each need's comfort, the longest time-filler,
 # the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
@@ -740,7 +740,11 @@ PROJECTION_VERSION = 20
 # zero lengths), and `Forget` (kind 24) and `core:remembered`/`core:forgot` join the codes: a new
 # data hash, so a log or save of the repository's data changes, every year hash once more, no log
 # hash of a run without a household in a house: projection 20, core 63.
-CORE_VERSION = 63
+# The bonds (ADR-0030 section 2) join the social part after the memories, so the empty house
+# is six zero lengths, and `core:bond_formed`, `core:bond_changed`, `core:bond_dropped` follow
+# `core:forgot`. A run without `MoveIn` gains one zero byte and the core version; its log does
+# not change: projection 21, core 64.
+CORE_VERSION = 64
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -6449,14 +6453,16 @@ def pool_origin_bytes(origin) -> bytes:
 
 
 # The four empty maps of the house (`house_households`, `house_sims`, `house_waits`,
-# `house_holds`), each a postcard length 0.
-EMPTY_HOUSE = bytes([0, 0, 0, 0, 0])
+# `house_holds`) and the two of the social part (memories, then bonds), each a postcard
+# length 0 (ADR-0030 section 5, projection 21).
+EMPTY_HOUSE = bytes([0, 0, 0, 0, 0, 0])
 
 
 def used_households_bytes(used: list) -> bytes:
     """`pool_used: Vec<u32>`, the households of the pool used (indices into the file, in
     arrival order), the field of the projection before the house (`EMPTY_HOUSE` without
-    `MoveIn`; decision of NOTES.md, projection 19, five maps from projection 20)."""
+    `MoveIn`; decision of NOTES.md, projection 19, five maps from projection 20, six from
+    projection 21)."""
     return seq([varint(index) for index in used])
 
 
@@ -6496,7 +6502,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used
-    + EMPTY_HOUSE  # the house (projection 20)
+    + EMPTY_HOUSE  # the house (projection 21)
 )
 
 
