@@ -1056,12 +1056,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":63"#, r#""core_version":64"#);
+    replace_in(&log, r#""core_version":64"#, r#""core_version":65"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 64, this is 63"
+        "error: replay_foreign_core_version: the input log is of core version 65, this is 64"
     );
-    replace_in(&log, r#""core_version":64"#, r#""core_version":63"#);
+    replace_in(&log, r#""core_version":65"#, r#""core_version":64"#);
     replace_in(&log, "01ce3a4b0ac58e6f", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),

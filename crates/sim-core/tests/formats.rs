@@ -1139,6 +1139,16 @@ fn all_payloads() -> Vec<LogPayload> {
             at: SimTime::from_secs(600),
             reason: ForgetReason::Faded,
         },
+        LogPayload::BondFormed {
+            other: sim(4),
+            values: [700, 700, 500, 500, 600, 0],
+        },
+        LogPayload::BondChanged {
+            other: sim(4),
+            before: [700, 700, 500, 500, 600, 0],
+            after: [730, 700, 520, 500, 640, 0],
+        },
+        LogPayload::BondDropped { other: sim(4) },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1178,7 +1188,10 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Weakened { .. }
             | LogPayload::Wasted { .. }
             | LogPayload::Remembered { .. }
-            | LogPayload::Forgot { .. } => {}
+            | LogPayload::Forgot { .. }
+            | LogPayload::BondFormed { .. }
+            | LogPayload::BondChanged { .. }
+            | LogPayload::BondDropped { .. } => {}
         }
     }
     payloads

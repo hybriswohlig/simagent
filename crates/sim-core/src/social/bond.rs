@@ -86,7 +86,8 @@ impl Bond {
         for &(index, delta) in steps {
             let next = i32::from(values[index]) + i32::from(delta);
             let clamped = next.clamp(0, i32::from(MOST));
-            values[index] = u16::try_from(clamped).unwrap_or_else(|_| panic!("invariant bond.value"));
+            values[index] =
+                u16::try_from(clamped).unwrap_or_else(|_| panic!("invariant bond.value"));
         }
         self.values = values;
         self.since = now;
@@ -317,7 +318,12 @@ mod tests {
             t(0),
             5,
             10,
-            &[(AFFECTION, 30), (TRUST, -80), (FAMILIARITY, 40), (GRUDGE, 100)],
+            &[
+                (AFFECTION, 30),
+                (TRUST, -80),
+                (FAMILIARITY, 40),
+                (GRUDGE, 100),
+            ],
         );
         assert_eq!(high.values, [1000, 0, 500, 0, 1000, 1000]);
     }
@@ -335,11 +341,19 @@ mod tests {
         let protected = |other: SimId| other.get() < 110;
         let new = bond(200, [400, 450, 400, 0, 200, 0], 0);
         let outcome = insert(&mut bonds, new, t(0), 5, 10, 32, protected);
-        assert_eq!(outcome, Formation::Formed { dropped: Some(id(122)) });
+        assert_eq!(
+            outcome,
+            Formation::Formed {
+                dropped: Some(id(122))
+            }
+        );
         assert_eq!(bonds.len(), 32);
         assert!(bonds.windows(2).all(|pair| pair[0].other < pair[1].other));
         assert_eq!(
-            bonds.iter().find(|bond| bond.other == id(200)).map(|bond| bond.values),
+            bonds
+                .iter()
+                .find(|bond| bond.other == id(200))
+                .map(|bond| bond.values),
             Some([400, 450, 400, 0, 200, 0])
         );
         assert!(bonds.iter().all(|bond| bond.other != id(122)));
@@ -352,7 +366,12 @@ mod tests {
         faded[20] = bond(120, [300, 500, 400, 0, 250, 0], 0);
         let at = t(10 * DAY.as_secs());
         let outcome = insert(&mut faded, new, at, 5, 10, 32, protected);
-        assert_eq!(outcome, Formation::Formed { dropped: Some(id(131)) });
+        assert_eq!(
+            outcome,
+            Formation::Formed {
+                dropped: Some(id(131))
+            }
+        );
 
         // Everyone protected: the list is unchanged and the new bond is not formed.
         let mut held: Vec<Bond> = (100..132)

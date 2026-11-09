@@ -75,8 +75,10 @@ fn role_of(domain: &mut DomainState, data: &Data, holder: SimId, other: SimId) -
     let partner = open_partners(domain, holder, other);
     let mine = parents_of(domain, holder);
     let theirs = parents_of(domain, other);
-    let other_is_my_parent = mine.is_some_and(|parents| parents.mother == other || parents.father == other);
-    let other_is_my_child = theirs.is_some_and(|parents| parents.mother == holder || parents.father == holder);
+    let other_is_my_parent =
+        mine.is_some_and(|parents| parents.mother == other || parents.father == other);
+    let other_is_my_child =
+        theirs.is_some_and(|parents| parents.mother == holder || parents.father == holder);
     let sibling = full_siblings(mine, theirs);
     let kin = market::phi(domain, data, holder, other) >= KIN_PHI;
     bond::start_role(partner, other_is_my_parent, other_is_my_child, sibling, kin)
@@ -86,7 +88,9 @@ fn role_of(domain: &mut DomainState, data: &Data, holder: SimId, other: SimId) -
 fn protected(domain: &mut DomainState, data: &Data, owner: SimId) -> BTreeSet<SimId> {
     let household = domain.sims.get(&owner).map(|person| person.household);
     let others: Vec<SimId> = (domain.house.social.bonds.get(&owner))
-        .map_or_else(Vec::new, |list| list.iter().map(|bond| bond.other).collect());
+        .map_or_else(Vec::new, |list| {
+            list.iter().map(|bond| bond.other).collect()
+        });
     let mut kept = BTreeSet::new();
     for other in others {
         let mate = household.is_some_and(|household| {
@@ -101,7 +105,8 @@ fn protected(domain: &mut DomainState, data: &Data, owner: SimId) -> BTreeSet<Si
 
 /// Whether `owner` already has a bond to `other`.
 fn has_bond(domain: &DomainState, owner: SimId, other: SimId) -> bool {
-    (domain.house.social.bonds.get(&owner)).is_some_and(|list| list.iter().any(|bond| bond.other == other))
+    (domain.house.social.bonds.get(&owner))
+        .is_some_and(|list| list.iter().any(|bond| bond.other == other))
 }
 
 /// Forms each missing bond of `pairs`, in the order given. `cause` is the entry
@@ -135,9 +140,15 @@ fn form_pairs(
         let kept = protected(domain, data, holder);
         let outcome = {
             let list = domain.house.social.bonds.entry(holder).or_default();
-            bond::insert(list, new, now, familiarity_fade, grudge_fade, cap, |other| {
-                kept.contains(&other)
-            })
+            bond::insert(
+                list,
+                new,
+                now,
+                familiarity_fade,
+                grudge_fade,
+                cap,
+                |other| kept.contains(&other),
+            )
         };
         if (domain.house.social.bonds.get(&holder)).is_some_and(Vec::is_empty) {
             domain.house.social.bonds.remove(&holder);

@@ -1530,8 +1530,8 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
     assert_eq!(watching(0, weak), Ok(()));
 }
 
-/// The projection of the house part (ADR-0030 section 5, projection 20): its four maps as before,
-/// then the memories as a fifth map, so a run without a move-in has five zero lengths; the bytes
+/// The projection of the house part (ADR-0030 section 5, projection 21): its four maps as before,
+/// then the memories and the bonds, so a run without a move-in has six zero lengths; the bytes
 /// below are by hand from postcard's rules (varints, zigzag for the signed values, the array of
 /// two others as two options, no length in front).
 #[test]
@@ -1540,14 +1540,14 @@ fn the_house_part_ends_with_the_memories() {
     use sim_core::social::state::Social;
 
     let encoded = |state: &HouseState| postcard::to_allocvec(state).expect("bytes");
-    assert_eq!(encoded(&HouseState::default()), [0, 0, 0, 0, 0]);
+    assert_eq!(encoded(&HouseState::default()), [0, 0, 0, 0, 0, 0]);
 
     let mut held = HouseState::default();
     held.holds.insert((household(1), 2, 3), sim(4));
     assert_eq!(
         encoded(&held),
-        [0, 0, 0, 1, 1, 2, 3, 4, 0],
-        "the holds as before"
+        [0, 0, 0, 1, 1, 2, 3, 4, 0, 0],
+        "the holds as before, then the two empty social maps"
     );
 
     let memory = Memory {
@@ -1562,6 +1562,7 @@ fn the_house_part_ends_with_the_memories() {
     let remembering = HouseState {
         social: Social {
             memories: BTreeMap::from([(sim(1), vec![memory])]),
+            bonds: BTreeMap::new(),
         },
         ..HouseState::default()
     };
@@ -1574,6 +1575,7 @@ fn the_house_part_ends_with_the_memories() {
         0x84, 7, // strength 900
         0xB0, 9,  // since 600
         15, // fade
+        0,  // bonds: none
     ];
     assert_eq!(encoded(&remembering), bytes);
     assert_eq!(

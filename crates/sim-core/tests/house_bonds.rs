@@ -66,9 +66,13 @@ fn quiet() -> Data {
 
 /// One bond per person: a birth into a couple cannot drop the partner edge.
 fn one_bond() -> Data {
-    data_with(1e-9, 1.0, Some(&|file| {
-        file["limits"]["bonds"] = json!(1);
-    }))
+    data_with(
+        1e-9,
+        1.0,
+        Some(&|file| {
+            file["limits"]["bonds"] = json!(1);
+        }),
+    )
 }
 
 /// An accident rate of 3 a year and the repository's social data.
@@ -198,7 +202,10 @@ fn is_bond(payload: &LogPayload) -> bool {
 }
 
 fn bond_log(run: &Run) -> Vec<&LogEntry> {
-    run.log.iter().filter(|entry| is_bond(&entry.payload)).collect()
+    run.log
+        .iter()
+        .filter(|entry| is_bond(&entry.payload))
+        .collect()
 }
 
 fn formed<'a>(run: &'a Run, who: u64, other: u64) -> &'a LogEntry {
@@ -255,9 +262,11 @@ fn sound(run: &Run) {
     for (&owner, list) in &run.world.state().house().social.bonds {
         assert!(!list.is_empty() && list.len() <= cap, "{owner:?}");
         assert!(list.windows(2).all(|pair| pair[0].other < pair[1].other));
-        assert!(list.iter().all(|bond| {
-            bond.other != owner && bond.values.iter().all(|value| *value <= 1000)
-        }));
+        assert!(
+            list.iter().all(|bond| {
+                bond.other != owner && bond.values.iter().all(|value| *value <= 1000)
+            })
+        );
     }
 }
 
@@ -275,7 +284,10 @@ fn the_start_table_is_the_one_of_the_reference() {
     assert_eq!(social.bonds.familiarity_fade, FAMILIARITY_FADE);
     assert_eq!(social.bonds.grudge_fade, GRUDGE_FADE);
     assert_eq!(social.limits.bonds, 32);
-    assert_eq!(PARTNER[ATTRACTION], 500, "only the partner starts with attraction");
+    assert_eq!(
+        PARTNER[ATTRACTION], 500,
+        "only the partner starts with attraction"
+    );
     for row in [PARENT, CHILD, SIBLING, KIN, HOUSEMATE] {
         assert_eq!(row[ATTRACTION], 0);
     }
@@ -310,7 +322,11 @@ fn a_move_in_forms_both_partner_edges() {
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].subjects, [Subject::Sim(sim(1))]);
     assert_eq!(entries[1].subjects, [Subject::Sim(sim(2))]);
-    assert!(entries.iter().all(|entry| !matches!(entry.payload, LogPayload::BondChanged { .. })));
+    assert!(
+        entries
+            .iter()
+            .all(|entry| !matches!(entry.payload, LogPayload::BondChanged { .. }))
+    );
     sound(&run);
 }
 
@@ -322,7 +338,10 @@ fn a_birth_forms_the_parent_and_child_edges() {
     run.advance(BIRTH);
     let born = &births(&run)[0];
     assert_eq!(born.at, BIRTH);
-    assert_eq!((born.mother, born.father, born.child), (sim(1), sim(2), sim(3)));
+    assert_eq!(
+        (born.mother, born.father, born.child),
+        (sim(1), sim(2), sim(3))
+    );
     for parent in [sim(1), sim(2)] {
         let bond = edge(&run, parent, sim(3));
         assert_eq!(bond.values, CHILD, "the parent's edge, attraction 0");
@@ -336,12 +355,7 @@ fn a_birth_forms_the_parent_and_child_edges() {
         .into_iter()
         .filter(|entry| entry.t.as_secs() == BIRTH)
         .collect();
-    let expect = [
-        (1, 3, CHILD),
-        (2, 3, CHILD),
-        (3, 1, PARENT),
-        (3, 2, PARENT),
-    ];
+    let expect = [(1, 3, CHILD), (2, 3, CHILD), (3, 1, PARENT), (3, 2, PARENT)];
     assert_eq!(at_birth.len(), expect.len());
     for (entry, (owner, other, values)) in at_birth.iter().zip(expect) {
         assert_eq!(entry.subjects, [Subject::Sim(sim(owner))]);
@@ -514,7 +528,11 @@ fn familiarity_falls_and_a_move_out_settles_it_until_reentry() {
         bond.values_at(t(later), FAMILIARITY_FADE, GRUDGE_FADE)[FAMILIARITY],
         500
     );
-    assert_eq!(bond_log(&run).len(), 2, "moving does not write a bond entry");
+    assert_eq!(
+        bond_log(&run).len(),
+        2,
+        "moving does not write a bond entry"
+    );
     sound(&run);
 }
 
@@ -549,7 +567,11 @@ fn a_separation_settles_the_leaver_and_leaves_the_stayer() {
 fn a_protected_bond_is_not_dropped_and_the_new_one_is_not_formed() {
     let (mut run, _) = couple(one_bond(), 7);
     run.advance(BIRTH);
-    assert!(bond_log(&run).iter().all(|entry| !matches!(entry.payload, LogPayload::BondDropped { .. })));
+    assert!(
+        bond_log(&run)
+            .iter()
+            .all(|entry| !matches!(entry.payload, LogPayload::BondDropped { .. }))
+    );
     assert_eq!(run.bonds(1), vec![edge(&run, sim(1), sim(2))]);
     assert_eq!(run.bonds(2), vec![edge(&run, sim(2), sim(1))]);
     assert!(run.bonds(1).iter().all(|bond| bond.other != sim(3)));
@@ -597,8 +619,14 @@ fn an_unprotected_bond_falls_so_the_child_can_form() {
     );
     assert_eq!(caused_by(at_birth[0]), vec![born.entry]);
     assert_eq!(at_birth[1].subjects, [Subject::Sim(sim(1))]);
-    assert_eq!(at_birth[1].payload, LogPayload::BondDropped { other: sim(2) });
-    assert_eq!(caused_by(at_birth[1]), vec![common::day::number(&at_birth[0].id)]);
+    assert_eq!(
+        at_birth[1].payload,
+        LogPayload::BondDropped { other: sim(2) }
+    );
+    assert_eq!(
+        caused_by(at_birth[1]),
+        vec![common::day::number(&at_birth[0].id)]
+    );
     assert_eq!(
         at_birth[2].payload,
         LogPayload::BondFormed {
@@ -652,8 +680,16 @@ fn a_death_drops_the_dead_persons_bonds_only() {
     let his = edge(&run, sim(2), sim(1));
     assert_eq!(his.values, PARTNER);
     assert_eq!(his.since, t(MOVED_IN));
-    assert!(bond_log(&run).iter().all(|entry| entry.t.as_secs() != mother_dies));
-    assert!(bond_log(&run).iter().all(|entry| !matches!(entry.payload, LogPayload::BondDropped { .. })));
+    assert!(
+        bond_log(&run)
+            .iter()
+            .all(|entry| entry.t.as_secs() != mother_dies)
+    );
+    assert!(
+        bond_log(&run)
+            .iter()
+            .all(|entry| !matches!(entry.payload, LogPayload::BondDropped { .. }))
+    );
     sound(&run);
 }
 
@@ -718,7 +754,10 @@ fn later_same_width(since: i64, clock: i64) -> i64 {
     let max_zig = (1u128 << (7 * width)) - 1;
     let later = i64::try_from(max_zig / 2).expect("fits");
     assert!(later > clock + 1);
-    assert_eq!(postcard::to_allocvec(&t(later)).expect("bytes").len(), width);
+    assert_eq!(
+        postcard::to_allocvec(&t(later)).expect("bytes").len(),
+        width
+    );
     later
 }
 
@@ -767,10 +806,16 @@ fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
 
     let load = |bytes: &[u8]| World::load(bytes, data.clone()).err();
     let hers = run.bonds(1);
-    let partner = hers.iter().find(|bond| bond.other == sim(2)).expect("the partner");
+    let partner = hers
+        .iter()
+        .find(|bond| bond.other == sim(2))
+        .expect("the partner");
     let mut strong = *partner;
     strong.values[0] = 1001;
-    assert_eq!(load(&spliced(&bytes, partner, &strong)), Some(LoadError::Inconsistent));
+    assert_eq!(
+        load(&spliced(&bytes, partner, &strong)),
+        Some(LoadError::Inconsistent)
+    );
     let mut self_bond = *partner;
     self_bond.other = sim(1);
     assert_eq!(
@@ -783,10 +828,16 @@ fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
         load(&spliced(&bytes, partner, &unknown)),
         Some(LoadError::Inconsistent)
     );
-    let child_bond = hers.iter().find(|bond| bond.values == CHILD).expect("a child");
+    let child_bond = hers
+        .iter()
+        .find(|bond| bond.values == CHILD)
+        .expect("a child");
     let mut late = *child_bond;
     late.since = t(later_same_width(child_bond.since.as_secs(), at));
-    assert_eq!(load(&spliced(&bytes, child_bond, &late)), Some(LoadError::Inconsistent));
+    assert_eq!(
+        load(&spliced(&bytes, child_bond, &late)),
+        Some(LoadError::Inconsistent)
+    );
 
     let (first, second) = (hers[hers.len() - 2], hers[hers.len() - 1]);
     assert!(first.other < second.other);
@@ -814,6 +865,9 @@ fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
     assert_eq!(load(&old_core), Some(LoadError::ForeignCoreVersion));
     let mut old_projection = bytes.clone();
     old_projection[proj_at] = 0x14;
-    assert_eq!(load(&old_projection), Some(LoadError::ForeignProjectionVersion));
+    assert_eq!(
+        load(&old_projection),
+        Some(LoadError::ForeignProjectionVersion)
+    );
     assert!(load(&bytes).is_none());
 }

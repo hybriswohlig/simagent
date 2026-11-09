@@ -662,8 +662,8 @@ fn without_social_data_nobody_remembers() {
 
 /// ADR-0030, "Konsequenzen": a run without a move-in plans no `Forget`, writes no entry of the
 /// memory and keeps its domain log and its events: they are the same with and without the social
-/// data, and so is the projection, which ends with the empty maps of the house part and of the
-/// memories (the data hash alone differs).
+/// data, and so is the projection, which ends with the empty maps of the house part, of the
+/// memories and of the bonds (the data hash alone differs).
 #[test]
 fn a_run_without_move_in_does_not_change() {
     let run_with = |data: Data| {
@@ -687,7 +687,12 @@ fn a_run_without_move_in_does_not_change() {
         social.world.canonical_bytes()
     );
     assert_eq!(plain.world.state_hash(), social.world.state_hash());
-    assert!(social.world.canonical_bytes().ends_with(&[0, 0, 0, 0, 0]));
+    assert!(
+        social
+            .world
+            .canonical_bytes()
+            .ends_with(&[0, 0, 0, 0, 0, 0])
+    );
     assert!(social.log.iter().all(|e| !matches!(
         e.payload,
         LogPayload::Remembered { .. } | LogPayload::Forgot { .. }
