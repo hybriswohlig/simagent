@@ -128,10 +128,12 @@ pub(crate) fn apply_move_in(
     }
     // Every member has its plan at 5:00 from its `core:moved_in` (ADR-0024 section 2 and its
     // addendum of 2026-11-04).
-    for sim in members {
+    for &sim in &members {
         super::day::plan_series(domain, data, sim, entry, ctx);
         super::memory::resume(domain, sim, entry, ctx);
+        super::bond::resume(domain, sim, ctx.now());
     }
+    super::bond::on_move_in(domain, data, &members, entry, ctx);
 }
 
 /// Pure check of `MoveOut`.
@@ -361,6 +363,7 @@ fn forget(
     domain.house.holds.retain(|_, holder| *holder != sim);
     let now = ctx.now();
     super::memory::leave(domain, data, sim, now);
+    super::bond::leave(domain, data, sim, now);
     person.and_then(|person| Some((person.action?, person.needs.map(|need| need.value_at(now)))))
 }
 
@@ -431,6 +434,8 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
             );
             super::day::plan_series(domain, data, change.sim, entry, ctx);
             super::memory::resume(domain, change.sim, entry, ctx);
+            super::bond::resume(domain, change.sim, ctx.now());
+            super::bond::on_join(domain, data, to, change.sim, entry, ctx);
             if morning {
                 let causes = Causes::new(Cause::Event(entry));
                 start_day(domain, data, change.sim, to, causes, ctx);

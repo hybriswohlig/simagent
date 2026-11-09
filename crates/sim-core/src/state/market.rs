@@ -249,6 +249,19 @@ pub(crate) fn phi(domain: &mut DomainState, data: &Data, x: SimId, y: SimId) -> 
     value
 }
 
+/// Whether φ of `x` and `y` is at least `eighths` eighths. φ is a sum of powers of 1/2
+/// from the kinship function, so multiplying by 8 and comparing with an integer is exact.
+/// The same function the partner market uses.
+pub(crate) fn kin_from_eighths(
+    domain: &mut DomainState,
+    data: &Data,
+    x: SimId,
+    y: SimId,
+    eighths: u32,
+) -> bool {
+    phi(domain, data, x, y) * 8.0 >= f64::from(eighths)
+}
+
 /// φ of two persons of the town with the given cache, over their lineage keys.
 pub(crate) fn phi_with(
     cache: &mut KinshipCache<LineageKey>,

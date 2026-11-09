@@ -102,8 +102,8 @@ pub struct Decisions {
 }
 
 /// The house part of the domain state, each map in the projection after `pool_used`, then the
-/// social part (ADR-0030 section 5, projection 20): in a run without `MoveIn` it is one more
-/// empty map.
+/// social part (ADR-0030 section 5, projection 21): in a run without `MoveIn` it is two more
+/// empty maps, the memories and the bonds.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HouseState {
     pub households: BTreeMap<HouseholdId, MovedIn>,
@@ -113,7 +113,7 @@ pub struct HouseState {
     pub waits: BTreeMap<(HouseholdId, u16), Vec<(SimTime, SimId)>>,
     /// The places held for a waiter, per object and place.
     pub holds: BTreeMap<(HouseholdId, u16, u8), SimId>,
-    /// What the persons remember (ADR-0030 section 1).
+    /// What the persons remember and the bonds they hold (ADR-0030 sections 1 and 2).
     pub social: Social,
 }
 

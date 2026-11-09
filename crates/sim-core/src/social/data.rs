@@ -3,7 +3,8 @@
 //! their start strength, fade and valence, the start values of the bonds by role and their fades,
 //! the topics of a talk with conditions and steps, the choice's company and avoid, the beliefs'
 //! numbers and the limits. Only the memory part is used by the core so far; the rest is read and
-//! checked so that the data hash does not move again when its slice comes.
+//! checked so that the data hash does not move again when a later slice comes. The memory and
+//! the bonds are what the core uses so far.
 
 use alloc::vec::Vec;
 use core::fmt;
