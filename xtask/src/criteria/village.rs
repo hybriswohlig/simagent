@@ -72,7 +72,7 @@ pub fn village_plan(seed: u64, years: i64) -> Plan {
 }
 
 /// The repository's data: the documents under `data/`, the pool and its frequencies, the
-/// shock templates and the houses, and the game's life course data, as the CLI builds its
+/// shock templates, the houses and the social data, and the game's life course data, as the CLI builds its
 /// own.
 pub fn repository_data(root: &Path) -> Result<Data> {
     let demography = crate::map4::read(root, "data/calibration/demography.json")?;
@@ -100,13 +100,24 @@ pub fn repository_data(root: &Path) -> Result<Data> {
     let frequencies = crate::pool_file::finite(frequencies)?;
     let shocks = shocks(root)?;
     let houses = houses(root)?;
+    let social = social(root)?;
     let data = Data::with_pool(definitions, &pool, frequencies)
         .and_then(|data| data.with_shocks(shocks))
-        .map(|data| data.with_houses(houses))
+        .map(|data| data.with_houses(houses).with_social(social))
         .map_err(|e| format!("the repository's data: {e}"))?;
     // The game's life course data in place of the extract's (ADR-0017, addendum of
     // 2026-11-05).
     crate::prerun::with_game(root, data, &calibration, &map)
+}
+
+/// The social data of `data/social/social.json` (ADR-0030 section 6), checked by the core.
+fn social(root: &Path) -> Result<sim_core::social::data::SocialData> {
+    let path = root.join("data/social/social.json");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: sim_core::social::data::SocialData =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    file.checked()
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// The houses of `data/house/` as sim-cli reads them (ADR-0025): the rates, the day, the kinds

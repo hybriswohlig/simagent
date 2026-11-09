@@ -20,6 +20,7 @@ use crate::house::data::HouseData;
 use crate::lineage::LineageKey;
 use crate::mortality::{ACCIDENT_RANGE, GOMPERTZ_A_RANGE, GOMPERTZ_B_RANGE, Gompertz, MAX_SIGMA_G};
 use crate::pool::{Ancestor, Pool, PoolError, PoolHousehold, PoolPerson, PoolUnborn};
+use crate::social::data::SocialData;
 
 /// Format version of the calibration file (ADR-0009 section 2, ADR-0017 section 1).
 pub const CALIBRATION_FORMAT_VERSION: u32 = 7;
@@ -554,6 +555,9 @@ pub struct Data {
     /// The houses with the kinds of furniture, the rates of the needs and the rules of the
     /// day, if the data hold them (ADR-0024, ADR-0025).
     houses: Option<Arc<HouseData>>,
+    /// The social data: memory kinds, bonds, topics and the numbers of beliefs, if the data hold
+    /// them (ADR-0030 section 6, ADR-0031).
+    social: Option<Arc<SocialData>>,
 }
 
 /// The kind of a shock template with its values (ADR-0023 section 3 and its addendum of
@@ -1715,6 +1719,7 @@ impl Data {
             pool: None,
             shocks: Vec::new(),
             houses: None,
+            social: None,
         })
     }
 
@@ -1863,6 +1868,14 @@ impl Data {
         self
     }
 
+    /// The data with checked social data (ADR-0030 section 6, ADR-0031). They enter the data hash
+    /// after the houses as the postcard of the `SocialData`.
+    pub fn with_social(mut self, social: SocialData) -> Data {
+        self.social = Some(Arc::new(social));
+        self.hash = self.hashed();
+        self
+    }
+
     /// These data with another demography and genetics calibration. The genome map, the
     /// pool, the shocks and the houses stay. The pool was checked against the definitions
     /// these data already hold, and its persons keep the wish of those (ADR-0017, addendum of
@@ -1879,10 +1892,12 @@ impl Data {
         let pool = self.pool.clone();
         let shocks = self.shocks.clone();
         let houses = self.houses.clone();
+        let social = self.social.clone();
         let mut data = Data::new(definitions)?;
         data.pool = pool;
         data.shocks = shocks;
         data.houses = houses;
+        data.social = social;
         data.hash = data.hashed();
         Ok(data)
     }
@@ -1890,6 +1905,11 @@ impl Data {
     /// The houses of the data, if they hold them.
     pub fn houses(&self) -> Option<&HouseData> {
         self.houses.as_deref()
+    }
+
+    /// The social data, if the data hold them. Without them nothing remembers.
+    pub fn social(&self) -> Option<&SocialData> {
+        self.social.as_deref()
     }
 
     /// The template with this id, if the data hold it.
@@ -1900,7 +1920,8 @@ impl Data {
     /// The data hash (ADR-0007 section 3, ADR-0020 section 4, ADR-0023 section 3, ADR-0025):
     /// xxh3 of the definitions' bytes, followed by those of `(pool_seed, pool_hash,
     /// frequencies)` if the data hold a pool, by those of the shock templates if they hold
-    /// any, and by those of the houses if they hold them.
+    /// any, by those of the houses if they hold them and by those of the social data if they hold
+    /// them.
     fn hashed(&self) -> u64 {
         let mut bytes = encode(&self.definitions);
         if let Some(pool) = &self.pool {
@@ -1919,6 +1940,9 @@ impl Data {
                 houses.kinds(),
                 houses.defs(),
             )));
+        }
+        if let Some(social) = &self.social {
+            bytes.extend(encode(&**social));
         }
         stable_hash64(&bytes)
     }

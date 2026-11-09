@@ -648,6 +648,8 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:accident": "{0} schafft es nicht mehr zur Toilette",
   "payload core:weakened": "{0} wird geschwächt",
   "payload core:wasted": "{0} ist ausgezehrt",
+  "payload core:remembered": "{0} erinnert sich",
+  "payload core:forgot": "{0} vergisst etwas",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
   "cause event": "Folge eines Ereignisses",
@@ -813,4 +815,6 @@ export const CODES: { readonly [code: string]: string } = {
   "end_reason obligation": "Pflicht",
   "end_reason command": "Befehl",
   "end_reason collapse": "Zusammenbruch",
+  "forget_reason faded": "verblasst",
+  "forget_reason displaced": "verdrängt",
 };

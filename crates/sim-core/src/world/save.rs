@@ -415,6 +415,7 @@ pub(super) fn pending_index(
             EventPayload::Bedtime { sim } => (*sim, Slot::Bedtime),
             EventPayload::StandUp { sim } => (*sim, Slot::StandUp),
             EventPayload::ReserveCrossing { sim, level } => (*sim, Slot::Reserve(*level)),
+            EventPayload::Forget { sim } => (*sim, Slot::Forget),
             EventPayload::DayPlan { sim } => (*sim, Slot::DayPlan),
             EventPayload::Return { sim, .. } => (*sim, Slot::Return),
             EventPayload::Depart { sim, .. } => (*sim, Slot::Depart),
@@ -527,6 +528,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && births_consistent(loaded, &rules)
         && households_consistent(loaded, &rules)
         && house_consistent(loaded, data, now, (rules.opened, seed))
+        && state::memory::consistent(loaded, data)
         && queue_consistent(loaded, now, &rules)
         && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)
         && exceptions.plan_refs.iter().all(|plan| {
@@ -2834,6 +2836,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut bedtimes = BTreeSet::new();
     let mut stands = BTreeSet::new();
     let mut reserves = BTreeSet::new();
+    let mut forgets = BTreeSet::new();
     // Per crossing of a reserve: the sim, the insertion number and the level downwards.
     let mut planned_reserves = Vec::new();
     let clock = loaded.closed_through;
@@ -2971,6 +2974,11 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             EventPayload::ReserveCrossing { sim, level } => {
                 planned_reserves.push((*sim, entry.seq, Reverse(*level)));
                 entry.period.is_none() && reserves.insert((*sim, *level, entry.time))
+            }
+            // Once per person whose memories fade, at the earliest zero (ADR-0030 section 5).
+            EventPayload::Forget { sim } => {
+                let due = state::memory::forget_due(loaded, *sim);
+                entry.period.is_none() && forgets.insert(*sim) && due == Some(entry.time)
             }
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.
@@ -3151,6 +3159,9 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 .map(move |(level, at)| (sim, level, at))
         })
         .collect();
+    // Every person whose memories fade has its `Forget`.
+    let all_forgets_planned = (loaded.house.social.memories.keys())
+        .all(|sim| state::memory::forget_due(loaded, *sim).is_none() || forgets.contains(sim));
     planned_reserves.sort_unstable();
     let reserves_in_order =
         (planned_reserves.windows(2)).all(|pair| pair[0].0 != pair[1].0 || pair[0].2 < pair[1].2);
@@ -3207,6 +3218,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
         && crossings_in_order
         && reserves == due_reserves
         && reserves_in_order
+        && all_forgets_planned
         && all_walks_planned
         && round_seen
         && emigration_seen == rules.capacity.is_some()

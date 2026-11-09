@@ -8,6 +8,8 @@ use serde_json::Value;
 use sim_core::data::{Calibrated, Data, Definitions, ShockKind, ShockTemplate, Unit};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
+use sim_core::house::data::HouseData;
+use sim_core::social::data::SocialData;
 
 use crate::error::CliError;
 use crate::house::{Layout, house_data_from, layout_from};
@@ -23,6 +25,9 @@ const SHOCKS: &str = include_str!("../../../data/shocks.json");
 const NEEDS: &str = include_str!("../../../data/house/needs.json");
 const DAY: &str = include_str!("../../../data/house/day.json");
 const KINDS: &str = include_str!("../../../data/house/kinds.json");
+/// The social data (ADR-0030 section 6, ADR-0031): memory kinds, bonds, topics, the numbers of
+/// beliefs and the limits.
+const SOCIAL: &str = include_str!("../../../data/social/social.json");
 /// The houses with their names in the messages, in the order of the file names.
 const HOUSES: [(&str, &str); 3] = [
     (
@@ -154,10 +159,22 @@ fn assemble(demography: &str, calibration: &str) -> Result<Data, CliError> {
     let definitions = definitions_from(demography, calibration, GENOME_MAP)?;
     let shocks = shocks_from(SHOCKS)?;
     let houses = house_data_from(NEEDS, DAY, KINDS, &HOUSES)?;
+    let social = social_from(SOCIAL, &houses)?;
     Data::with_pool(definitions, POOL, frequencies_from(FREQUENCIES)?)
         .and_then(|data| data.with_shocks(shocks))
-        .map(|data| data.with_houses(houses))
+        .map(|data| data.with_houses(houses).with_social(social))
         .map_err(|error| rejected(&error.to_string()))
+}
+
+/// The social data of `social/social.json` (ADR-0030 section 6): unknown fields and wrong types
+/// are refused here, the ranges and the kinds of furniture its topics name (against `houses`) by
+/// the core.
+pub fn social_from(text: &str, houses: &HouseData) -> Result<SocialData, CliError> {
+    let refused = |error: &dyn std::fmt::Display| rejected(&format!("social/social.json: {error}"));
+    let file: SocialData = serde_json::from_str(text).map_err(|e| refused(&e))?;
+    let file = file.checked().map_err(|e| refused(&e))?;
+    file.furniture_known(houses).map_err(|e| refused(&e))?;
+    Ok(file)
 }
 
 /// The values of a `simagent.settings` document by name, as written: version 1, each value
@@ -597,7 +614,7 @@ mod tests {
         // The data hash of the built-in data, map 4 with the pool and its frequencies, the
         // shock templates and the houses, and the game's life course data, from
         // tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0x0a08_eab1_15b7_5093);
+        assert_eq!(core_data().expect("data").hash(), 0x01ce_3a4b_0ac5_8e6f);
     }
 
     /// The base game is the extract with the game's overlay (ADR-0017, addendum of

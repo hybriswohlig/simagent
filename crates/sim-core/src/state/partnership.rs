@@ -130,6 +130,7 @@ pub(crate) fn couple_of(
 /// ADR-0018 section 3, with the input as its only cause; its planned separation is struck.
 pub(crate) fn apply_separate(
     domain: &mut DomainState,
+    data: &Data,
     pair: &SeparatePartnership,
     ctx: &mut SimCtx<'_, '_>,
 ) {
@@ -140,7 +141,7 @@ pub(crate) fn apply_separate(
         ctx.cancel(handle);
     }
     let causes = Causes::new(ctx.trigger());
-    separate(domain, id, causes, ctx);
+    separate(domain, data, id, causes, ctx);
 }
 
 /// Why the couples of `Start` are rejected, if at all, in this order: a place beyond
@@ -232,6 +233,7 @@ pub(crate) fn pair_up_with(
     ctx: &mut SimCtx<'_, '_>,
 ) -> (PartnershipId, EventId) {
     let (id, entry) = ctx.create_partnership(woman, man, causes);
+    super::memory::partnership(domain, data, (woman, man), true, entry, ctx);
     domain.open.insert(woman, id);
     domain.open.insert(man, id);
     domain.partnerships.insert(
@@ -318,7 +320,12 @@ fn lineage_key(domain: &DomainState, sim: SimId) -> LineageKey {
 /// The budget of the separation of the partnership `id` ran out while both live: it ends
 /// now by separation, and with it her attempts; a running pregnancy stays (ADR-0018
 /// section 3). The entry names the plan and the draw of the budget as its causes.
-pub(crate) fn on_separation(domain: &mut DomainState, id: PartnershipId, ctx: &mut SimCtx<'_, '_>) {
+pub(crate) fn on_separation(
+    domain: &mut DomainState,
+    data: &Data,
+    id: PartnershipId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     let Some(partnership) = domain.partnerships.get(&id) else {
         panic!("invariant unknown_entity_id: partnership {}", id.get());
     };
@@ -334,12 +341,18 @@ pub(crate) fn on_separation(domain: &mut DomainState, id: PartnershipId, ctx: &m
         .unwrap_or_else(|| panic!("invariant partnership.count"));
     let draw = separation_key(her, k, his);
     let causes = Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw)));
-    separate(domain, id, causes, ctx);
+    separate(domain, data, id, causes, ctx);
 }
 
 /// The partnership `id` ends now by separation, its entry with `causes`, and with it her
 /// attempts; a running pregnancy stays, and the couple moves apart (ADR-0018 section 3).
-fn separate(domain: &mut DomainState, id: PartnershipId, causes: Causes, ctx: &mut SimCtx<'_, '_>) {
+fn separate(
+    domain: &mut DomainState,
+    data: &Data,
+    id: PartnershipId,
+    causes: Causes,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     let now = ctx.now();
     let Some(partnership) = domain.partnerships.get_mut(&id) else {
         panic!("invariant unknown_entity_id: partnership {}", id.get());
@@ -356,6 +369,7 @@ fn separate(domain: &mut DomainState, id: PartnershipId, causes: Causes, ctx: &m
         alloc::vec![Subject::Sim(woman), Subject::Sim(man)],
         causes,
     );
+    super::memory::partnership(domain, data, (woman, man), false, separated, ctx);
     conception::stop_attempts(domain, woman, ctx);
     household::separation_moves(domain, (woman, man), separated, ctx);
 }

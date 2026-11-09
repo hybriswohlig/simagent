@@ -314,6 +314,34 @@ pub enum LogPayload {
     /// A person's reserve of `capacity` fell to 0: it is wasted.
     #[serde(rename = "core:wasted")]
     Wasted { capacity: u16 },
+    /// A person (the subject) took a memory of `kind` (the number of its kind in the social
+    /// data) into its list: what happened at `at` with the persons `with` (ascending, a single
+    /// one first), `strength` as it starts (ADR-0030 section 1). The domain log is never read
+    /// back: the memory itself lives in the state.
+    #[serde(rename = "core:remembered")]
+    Remembered {
+        kind: u16,
+        with: [Option<SimId>; 2],
+        at: SimTime,
+        strength: u16,
+    },
+    /// A person (the subject) lost a memory: it faded to 0, or a newer one displaced it from a
+    /// full list (ADR-0030 section 1).
+    #[serde(rename = "core:forgot")]
+    Forgot {
+        kind: u16,
+        with: [Option<SimId>; 2],
+        at: SimTime,
+        reason: ForgetReason,
+    },
+}
+
+/// Why a memory was lost: its strength reached 0, or a newer one took its place in a full list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgetReason {
+    Faded,
+    Displaced,
 }
 
 /// Why an action ended (ADR-0026 section 4): its length was over, the need it fills was

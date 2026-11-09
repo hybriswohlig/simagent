@@ -25,7 +25,7 @@
     "living": 31,
     "archived": 15,
     "log_hash": "20943224d56e373d",
-    "state_hash": "cf08ec9aacfe01f3",
+    "state_hash": "07bddc15731efa16",
     "log_entries": 1236,
     "census": [
      [
@@ -1230,7 +1230,7 @@
     "living": 26,
     "archived": 23,
     "log_hash": "81454706dfff6580",
-    "state_hash": "679c5e313aca4932",
+    "state_hash": "384a795bb06eb716",
     "log_entries": 1712,
     "census": [
      [
@@ -2555,7 +2555,7 @@
     "living": 16,
     "archived": 36,
     "log_hash": "c830fcd8a6881dd3",
-    "state_hash": "ffc6b91a9efa000b",
+    "state_hash": "4e5a1d56bb8cefb8",
     "log_entries": 2051,
     "census": [
      [
@@ -4000,7 +4000,7 @@
     "living": 32,
     "archived": 20,
     "log_hash": "cce388b6f0e89bb6",
-    "state_hash": "758370ce5bb3e263",
+    "state_hash": "58e870fd4c53777e",
     "log_entries": 1394,
     "census": [
      [
@@ -5283,7 +5283,7 @@
     "living": 34,
     "archived": 14,
     "log_hash": "7192522df2ad6972",
-    "state_hash": "7f50db0d2d90e748",
+    "state_hash": "e21127eef522423a",
     "log_entries": 1269,
     "census": [
      [
@@ -6514,7 +6514,7 @@
     "living": 32,
     "archived": 16,
     "log_hash": "8921a48579ce1f9a",
-    "state_hash": "da603bc2790ab890",
+    "state_hash": "4b04a5572b076dc8",
     "log_entries": 1246,
     "census": [
      [

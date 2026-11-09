@@ -15,6 +15,7 @@ pub(crate) mod emigration;
 pub(crate) mod house;
 pub(crate) mod household;
 pub(crate) mod market;
+pub(crate) mod memory;
 pub(crate) mod onset;
 pub(crate) mod params;
 pub(crate) mod partnership;
@@ -329,6 +330,8 @@ pub(crate) enum Slot {
     /// The reserve reaching a level, half or 0 (ADR-0026, addendum of 2026-11-06 on hunger at
     /// 0).
     Reserve(u16),
+    /// The person's one forgetting, at the earliest zero of its memories (ADR-0030 section 1).
+    Forget,
 }
 
 impl DomainState {

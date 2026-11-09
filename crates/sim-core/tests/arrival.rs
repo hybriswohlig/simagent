@@ -2411,63 +2411,63 @@ const DATA_REJECTED_READER: [(&str, &str); 18] = [
 ];
 const CARRIED_BEFORE_POOL: (usize, u64) = (10965, 0xb22c_f951_60e1_a725);
 const LOAD_BASE_AT: i64 = 94348799;
-const LOAD_BASE: (usize, u64) = (21356, 0xae82_137a_b9b4_0e08);
+const LOAD_BASE: (usize, u64) = (21358, 0x48c1_1aa2_c45d_48f1);
 const LOAD_REJECTED: [Patch; 8] = [
     (
         "arrival_born_off_by_one",
         9935,
-        11420,
+        11422,
         "fd",
-        (21356, 0x2600_45a6_13ff_5757),
+        (21358, 0x9605_c758_fa79_262c),
     ),
     (
         "used_household_twice",
         13398,
-        7925,
+        7927,
         "210e27060903001b0b192a1f071721140d261816231c1a11100f2013251e02050c0e",
-        (21357, 0x532f_402d_08e2_44d6),
+        (21359, 0x9186_c69b_d90b_1e89),
     ),
     (
         "pool_child_arrived_not_born",
         10137,
-        11218,
+        11220,
         "82",
-        (21356, 0x9557_5841_14cf_256b),
+        (21358, 0xb9c5_f757_98e1_7f37),
     ),
     (
         "arrival_not_at_a_year_start",
         11157,
-        10100,
+        10102,
         "fdd3d0ea0bd7eac2caadb9a5bd0700e08380fcf180a0b124e0e9c8808e809b906080c09a8c80c09e0c829580f0a78498ab03a0b28880eeeda190c1018180c481809c8b81600000000000000000200100000001d7eac2caadb9a5bd0701ffcbd1cc0b82",
-        (21356, 0x002e_5237_94da_7805),
+        (21358, 0x6ed4_ca4f_5a4c_b401),
     ),
     (
         "arrival_year_not_its_year",
         11259,
-        10096,
+        10098,
         "02",
-        (21356, 0x5b67_c53f_a8be_873d),
+        (21358, 0x11c6_d505_621e_3f70),
     ),
     (
         "town_pregnancy_without_father",
         12716,
-        8638,
+        8640,
         "00",
-        (21355, 0x336e_f140_afbf_fe31),
+        (21357, 0x9bde_f15a_38ec_4725),
     ),
     (
         "arrival_partnership_formed_off",
         12428,
-        8927,
+        8929,
         "fd",
-        (21356, 0x4848_0b10_c37a_c545),
+        (21358, 0x6b94_5bc5_641d_fb04),
     ),
     (
         "arrival_without_pool",
         10019,
-        11317,
+        11319,
         "",
-        (21336, 0x8a96_5aac_778a_a99c),
+        (21338, 0x3f80_2504_7292_b32e),
     ),
 ];
 // arrival
@@ -2475,29 +2475,29 @@ const ARRIVAL_DATA_HASH: u64 = 0x5fc9_e48e_4e73_07db;
 const ARRIVAL_POOL_HASH: u64 = 0x6038_468a_a922_e37b;
 const ARRIVAL_START_INPUT: (usize, u64) = (6732, 0x2d60_9876_6eef_32aa);
 const ARRIVAL_YEAR_HASHES: [u64; 14] = [
-    0xb5b7_c12a_e423_b864,
-    0x5dd0_ec7e_6130_e9dd,
-    0x2316_afe8_2905_fbb8,
-    0x19a1_f319_44b8_bc94,
-    0x64c0_4b96_c8f6_30ec,
-    0x6d6d_5608_614a_4610,
-    0x6a52_c9bc_09e0_e177,
-    0xa1ea_84b7_e26e_98ee,
-    0xe987_514c_feb5_2f55,
-    0xf9b1_71cc_ed58_b2f1,
-    0xac90_5b01_ec1a_ad73,
-    0x41b1_9c1f_8bfa_9947,
-    0x414f_e999_4338_af1f,
-    0xd42f_60fd_2f80_d413,
+    0xf6fc_9d23_0180_f9b7,
+    0xd20e_c0b7_b4d9_66b8,
+    0x6d45_7051_66de_85d5,
+    0xf9c4_2d65_f291_90ba,
+    0x098d_3b2f_8fbe_374a,
+    0x1fef_60a9_7e90_cfe2,
+    0x7422_0ce2_b5d7_19a9,
+    0xac35_cde8_b819_18eb,
+    0x6d18_463c_2a25_98e8,
+    0xcf78_1164_d0cc_f46b,
+    0xb2cd_0334_629e_ef77,
+    0xc7d2_dc27_a094_081f,
+    0xcfc2_ad9f_f241_450e,
+    0x539c_ee94_f7bb_7601,
 ];
 const ARRIVAL_LOG: (usize, u64) = (1543, 0x0512_a03c_7e1f_9868);
 /// The state at the end of year 13, the reference's `arrival_state_hash` (its stop at the
 /// immigration of year 14 now runs on a copy of its world, so the row is the state at the
 /// end, the projection in its end save).
-const ARRIVAL_STATE_HASH: u64 = 0xdbf6_b324_6064_5043;
+const ARRIVAL_STATE_HASH: u64 = 0x813e_5cff_5d37_2d25;
 const ARRIVAL_END: i64 = 440294399;
-const ARRIVAL_SAVE_AFTER_START: (usize, u64) = (17019, 0x7117_1722_4e0a_72dc);
-const ARRIVAL_SAVE_END: (usize, u64) = (29402, 0xf082_8a02_5173_baba);
+const ARRIVAL_SAVE_AFTER_START: (usize, u64) = (17020, 0xccb6_159d_7367_1d80);
+const ARRIVAL_SAVE_END: (usize, u64) = (29405, 0xed63_af9d_0906_3557);
 const ARRIVAL_PEDIGREE: (usize, u64) = (523225, 0xe79d_3289_f510_3846);
 const ARRIVAL_USED: [usize; 43] = [
     14, 39, 6, 9, 3, 0, 27, 11, 25, 42, 31, 7, 23, 33, 20, 13, 38, 24, 22, 35, 28, 26, 17, 16, 15,
@@ -2518,8 +2518,8 @@ const ARRIVAL_MARKS: [Mark; 6] = [
     (
         "immigration_0",
         0,
-        (17019, 0x7117_1722_4e0a_72dc),
-        (17189, 0x27b4_a1f8_6c25_7c22),
+        (17020, 0xccb6_159d_7367_1d80),
+        (17190, 0x6231_3bc9_5a03_5ae7),
         &[
             (
                 "6300010034010101000dfbf7cfcf86f2c9d96a",
@@ -2538,8 +2538,8 @@ const ARRIVAL_MARKS: [Mark; 6] = [
     (
         "pool_child_without_father",
         14515200,
-        (18319, 0xa7a1_1a10_ce80_f50d),
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18320, 0x577b_7649_09f1_c4d2),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[
             (
                 "830180f0eb0d02003b002402014400030e636f72653a676573746174696f6e08bec2c4bfb28d9fcca201",
@@ -2568,8 +2568,8 @@ const ARRIVAL_MARKS: [Mark; 6] = [
     (
         "town_child_of_pool_persons",
         26611200,
-        (18827, 0x13bf_5fed_baa6_b29f),
-        (19032, 0x90cf_18a6_cfaf_99eb),
+        (18828, 0xbd08_1c74_5d45_6adc),
+        (19033, 0xe08c_368d_18fc_c771),
         &[
             (
                 "b70180b8b01903003c000d000c02016780a8a702030e636f72653a676573746174696f6e08b49498f0bdf2d0a517",
@@ -2596,8 +2596,8 @@ const ARRIVAL_MARKS: [Mark; 6] = [
     (
         "immigration_1",
         31449600,
-        (18979, 0x35c8_f886_0e34_72f1),
-        (19166, 0x4b4a_2306_ff46_c39b),
+        (18980, 0x291a_025b_f0d4_fc45),
+        (19167, 0x22e4_50c5_1a3a_2e41),
         &[
             (
                 "bc018088ff1d01003e010101000dd7eac2caadb9a5bd07",
@@ -2622,8 +2622,8 @@ const ARRIVAL_MARKS: [Mark; 6] = [
     (
         "carried_separation",
         84829122,
-        (21289, 0xb049_1450_ba4a_fe0e),
-        (21269, 0x50ce_69f2_f2ab_5597),
+        (21291, 0x71b6_7ebb_b4ed_0d66),
+        (21271, 0xd058_0fe3_f484_ba14),
         &[
             (
                 "ee02848ff35002003300320201600004128ec1c0dde3ddd8da940100e48ed2e6ecad8cc8a501090f",
@@ -2648,8 +2648,8 @@ const ARRIVAL_MARKS: [Mark; 6] = [
     (
         "immigrant_death",
         183152461,
-        (25158, 0x53de_d937_cb53_ed3d),
-        (25107, 0x65d5_8f9b_51c5_bb2c),
+        (25161, 0xb132_57bc_78b5_14cf),
+        (25110, 0xf320_c534_6918_433a),
         &[(
             "b0059abdd5ae0101003e0201bc018088ff1d0404d7eac2caadb9a5bd07a0bb8ca1c58498a01c01040f636f72653a73656e657363656e6365",
             Some(
@@ -2711,17 +2711,17 @@ const ORPHANS_DATA_HASH: u64 = 0x0cf9_cfca_70d4_fe3b;
 const ORPHANS_POOL_HASH: u64 = 0xd4df_4cb0_107f_39bd;
 const ORPHANS_START_INPUT: (usize, u64) = (5023, 0xc596_f8c8_1156_21dd);
 const ORPHANS_YEAR_HASHES: [u64; 5] = [
-    0xa2e2_3d90_39d4_ed8b,
-    0x0a4e_9a42_1e31_0c48,
-    0x4b77_337d_12da_f949,
-    0xa6e9_a867_554b_1ed9,
-    0x374c_39ab_2f08_8656,
+    0x2f67_d5ae_ca66_fade,
+    0x9156_d380_9cc9_6516,
+    0x9e2e_67b1_597c_69f1,
+    0x48ef_c4d9_13d1_922d,
+    0xe95c_c3cd_a26c_ea35,
 ];
 const ORPHANS_LOG: (usize, u64) = (303, 0xbf4f_b14f_3c0c_19af);
-const ORPHANS_STATE_HASH: u64 = 0x3ac3_5ba1_72df_e943;
+const ORPHANS_STATE_HASH: u64 = 0x66ed_2003_32ec_497f;
 const ORPHANS_END: i64 = 157247999;
-const ORPHANS_SAVE_AFTER_START: (usize, u64) = (13874, 0x22b3_96c3_0d80_f8a2);
-const ORPHANS_SAVE_END: (usize, u64) = (14595, 0x7128_4e55_2fe5_50b2);
+const ORPHANS_SAVE_AFTER_START: (usize, u64) = (13875, 0x0285_11b6_9d51_733d);
+const ORPHANS_SAVE_END: (usize, u64) = (14597, 0x2fa1_ad61_120d_e3e2);
 const ORPHANS_PEDIGREE: (usize, u64) = (175594, 0x1584_c3bd_b665_7953);
 const ORPHANS_USED: [usize; 19] = [
     2, 16, 5, 12, 6, 4, 14, 25, 1, 17, 15, 3, 18, 20, 7, 24, 9, 21, 23,
@@ -2738,8 +2738,8 @@ const ORPHANS_MARKS: [Mark; 3] = [
     (
         "succession_first",
         17104015,
-        (13986, 0x9823_a672_ba5a_d4b9),
-        (13845, 0x0d2c_174b_06eb_29a2),
+        (13987, 0x828b_de9c_9752_d190),
+        (13846, 0xd4db_ac7c_1d0e_755e),
         &[(
             "82019ef2a71001001e02015e000404d5b5dca580aceb9b26db86dcd7e8e9bbfac90100040f636f72653a646973656173655f7872",
             Some(
@@ -2750,8 +2750,8 @@ const ORPHANS_MARKS: [Mark; 3] = [
     (
         "succession_second",
         33206750,
-        (14253, 0x3b4c_cb46_01f3_f517),
-        (14158, 0xb919_d132_45b3_7d60),
+        (14253, 0x0e4f_bae4_0daa_f6ee),
+        (14158, 0xd872_8901_d87e_8ddd),
         &[(
             "8f01bcc7d51f01001602013f000404d7b09bb8acdba78d799aada6adcbb284bf7200040f636f72653a646973656173655f6172",
             Some(
@@ -2762,8 +2762,8 @@ const ORPHANS_MARKS: [Mark; 3] = [
     (
         "orphan_rule",
         119487822,
-        (14663, 0x5a4a_1d5f_b205_45e0),
-        (14538, 0xb7cb_53ff_05ab_9bd7),
+        (14665, 0x77e8_e7ff_dbff_def0),
+        (14540, 0x627d_ac5c_075c_d124),
         &[
             (
                 "83029cf5f97101001502013c000404c98382daf5bdb0b3d001a0bb8ca1c58498a01c00040f636f72653a73656e657363656e6365",
@@ -2819,31 +2819,31 @@ const RECORDS_DATA_HASH: u64 = 0x0cf9_cfca_70d4_fe3b;
 const RECORDS_POOL_HASH: u64 = 0xd4df_4cb0_107f_39bd;
 const RECORDS_START_INPUT: (usize, u64) = (4533, 0x9bbc_e64f_017c_f245);
 const RECORDS_YEAR_HASHES: [u64; 19] = [
-    0xdf38_6a68_0fa0_5808,
-    0xdeea_4459_62a4_3769,
-    0x4e2c_e494_daf1_a39c,
-    0x602b_3cc6_c046_574f,
-    0xbd53_a88a_49ce_25d8,
-    0xef88_dc4e_161e_abda,
-    0x2046_da6c_52a0_e168,
-    0xc6d2_9ee6_87e4_ed45,
-    0x8f2d_b626_f1ed_d45a,
-    0xbd18_c20e_50e4_2e94,
-    0x2e2e_ec2f_1000_45f5,
-    0x4007_ee64_f409_fa1e,
-    0x46e7_d44c_8fbe_a886,
-    0x8906_ccbf_b66f_ba29,
-    0xe809_43c4_8da1_cc1c,
-    0xf6ef_04eb_20fd_007c,
-    0x23c5_47b4_1ea1_56fe,
-    0xc9e0_4539_5700_ad9c,
-    0xbb1a_27ae_b8fc_20ff,
+    0x60e1_5f19_2bb7_ded7,
+    0x8c06_86e8_89f8_e096,
+    0x6d9d_2498_2ae7_c85c,
+    0xc6f0_cc23_1840_8896,
+    0x06bd_c3b3_5b28_f7d4,
+    0xc9a0_f92b_4c25_287f,
+    0x0c14_2c19_5e1c_086d,
+    0x1895_f0fe_2206_b7eb,
+    0xd235_60f4_4296_0641,
+    0x6105_28c4_40ed_6bac,
+    0x5995_74b5_a256_e1d2,
+    0xa047_285f_1e82_ce0b,
+    0xd321_597f_891a_8b90,
+    0xb7b5_ff83_6618_ce3e,
+    0x4ae2_74ff_fccc_1fa9,
+    0x4d60_db86_896a_f39d,
+    0xfa81_be8c_f593_f792,
+    0x7a9e_85cb_fc01_833a,
+    0x28ad_ded7_7446_c882,
 ];
 const RECORDS_LOG: (usize, u64) = (640, 0xdcc6_b7b3_420b_aa4e);
-const RECORDS_STATE_HASH: u64 = 0xc005_fe81_3b0d_4327;
+const RECORDS_STATE_HASH: u64 = 0xd4a6_6f7c_75d9_766c;
 const RECORDS_END: i64 = 597542399;
-const RECORDS_SAVE_AFTER_START: (usize, u64) = (12838, 0xd117_5717_2eb2_caec);
-const RECORDS_SAVE_END: (usize, u64) = (13984, 0xe9d5_09f7_1bba_bef1);
+const RECORDS_SAVE_AFTER_START: (usize, u64) = (12839, 0xe892_3cb9_79b6_918b);
+const RECORDS_SAVE_END: (usize, u64) = (13981, 0xc696_a374_4e20_258f);
 const RECORDS_PEDIGREE: (usize, u64) = (184813, 0x6029_5479_3ded_9589);
 const RECORDS_USED: [usize; 19] = [
     16, 23, 20, 13, 18, 14, 4, 1, 12, 2, 5, 25, 6, 8, 22, 9, 3, 7, 11,
@@ -2860,8 +2860,8 @@ const RECORDS_MARKS: [Mark; 2] = [
     (
         "orphan_rule",
         48234390,
-        (13113, 0x2bd8_f7cd_6a3e_0293),
-        (13052, 0x5039_9674_baf7_f5ab),
+        (13113, 0xafa8_2b14_0112_f7e2),
+        (13052, 0x5d9f_41c4_b235_0f1a),
         &[
             (
                 "9d01acfeff2d01000a02011e000404d897c7d8d99df5d059a0bb8ca1c58498a01c00040f636f72653a73656e657363656e6365",
@@ -2880,8 +2880,8 @@ const RECORDS_MARKS: [Mark; 2] = [
     (
         "mixed_child",
         595123200,
-        (13890, 0x0662_b8e9_5492_c1ea),
-        (13994, 0x6fba_0036_0acd_c043),
+        (13888, 0x8017_d243_4fe2_6b5c),
+        (13992, 0x5dc1_1984_3246_4970),
         &[
             (
                 "fc0480f0c6b704030026001a001f0201ed0480e0bda004030e636f72653a676573746174696f6e08feffe9a2d9e7fc84d801",
@@ -2952,8 +2952,8 @@ const RECORDS_FIRST_ENTRIES: [Entry; 6] = [
 // micro
 const MICRO_POOL: (usize, u64) = (10965, 0xb573_9923_292d_acde);
 const RECORDS_ARRANGE: ((usize, u64), (usize, u64), &[Entry]) = (
-    (13737, 0x7692_2f09_5a3f_0b1a),
-    (13812, 0x70c9_26ba_0106_4a97),
+    (13735, 0x0837_e602_8449_5df3),
+    (13810, 0x675c_308b_b354_c54f),
     &[
         (
             "e2048090ef9b0402001a001f0102020509",
@@ -2983,7 +2983,7 @@ const RECORDS_ARRANGE: ((usize, u64), (usize, u64), &[Entry]) = (
 );
 const EMPTY_DATA_HASH: u64 = 0xcee2_fddd_5f5f_8eef;
 const EMPTY_START_INPUT: (usize, u64) = (3633, 0x7798_c714_0068_4f55);
-const EMPTY_SAVE_AFTER_START: (usize, u64) = (9387, 0x1417_3ff5_d0d3_4afa);
+const EMPTY_SAVE_AFTER_START: (usize, u64) = (9388, 0x276d_12d3_09c2_6efa);
 const EMPTY_USED: [usize; 29] = [
     23, 28, 19, 21, 15, 11, 9, 27, 4, 26, 14, 7, 0, 10, 25, 1, 18, 20, 3, 12, 24, 2, 6, 8, 13, 16,
     17, 5, 22,
@@ -3002,30 +3002,30 @@ const LOAD_REJECTED_MORE: [Hunks; 4] = [
     (
         "carried_father_dropped",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
+        (17020, 0xccb6_159d_7367_1d80),
         &[(9226, 2, "00")],
-        (17018, 0xbe68_a0da_1819_60ad),
+        (17019, 0x44a6_fa7f_0ad1_cee5),
     ),
     (
         "town_series_missing",
         "records_save_after_arrange",
-        (13812, 0x70c9_26ba_0106_4a97),
-        &[(33, 1, "74"), (102, 15, ""), (8561, 1, "74"), (8598, 7, "")],
-        (13790, 0x8422_60f5_c8c6_c5cb),
+        (13810, 0x675c_308b_b354_c54f),
+        &[(33, 1, "74"), (102, 15, ""), (8562, 1, "74"), (8599, 7, "")],
+        (13788, 0xf212_86df_63bf_92c5),
     ),
     (
         "immigration_order_swapped",
         "load_base",
-        (21356, 0xae82_137a_b9b4_0e08),
+        (21358, 0x48c1_1aa2_c45d_48f1),
         &[(13429, 0, "0c"), (13430, 1, "")],
-        (21356, 0xd52e_59e4_6862_c16e),
+        (21358, 0xd18c_0c5c_ee7b_0030),
     ),
     (
         "unstarted_with_used_household",
         "unstarted",
-        (42, 0x08bc_6bf9_fd36_782f),
+        (43, 0x5e1b_8972_0aa6_d357),
         &[(33, 0, "01")],
-        (43, 0x9c8d_a082_4c7d_a68d),
+        (44, 0xf515_43c6_14a0_8ddb),
     ),
 ];
 const LEAVE_AT_START_POOL: (usize, u64) = (10965, 0xdddf_9836_2d63_5521);
@@ -3040,23 +3040,23 @@ const TIE_AT: i64 = 14_515_200;
 /// Her first attempt: the first month start after the pairing, not after the pause.
 const TIE_FIRST_ATTEMPT: i64 = 16_934_400;
 const TIE_START_INPUT: (usize, u64) = (6384, 0x8dd6_f6d6_0f79_dbd9);
-const TIE_SAVE_AT: (usize, u64) = (17399, 0x5869_2d68_e10f_2e3b);
-const TIE_SAVE_BEFORE_ATTEMPT: (usize, u64) = (17599, 0xff0a_5a62_6f96_afc2);
+const TIE_SAVE_AT: (usize, u64) = (17400, 0xd93d_d25a_18a1_0497);
+const TIE_SAVE_BEFORE_ATTEMPT: (usize, u64) = (17600, 0x9424_b113_109e_7c54);
 /// The save at `TIE_AT` with her series moved to after the pause of the birth.
 const TIE_COUNTED_BIRTH: (&[Hunk], (usize, u64)) = (
     &[
         (505, 14, ""),
         (741, 0, "80d0c32900eb0103250180a8a702"),
-        (10563, 5, ""),
-        (10634, 0, "7d80f0eb0d"),
+        (10564, 5, ""),
+        (10635, 0, "7d80f0eb0d"),
     ],
-    (17399, 0xf1c0_0b4a_55cb_586c),
+    (17400, 0x0473_db54_decf_c722),
 );
 
 const ARRANGED_CLOSE_KIN: Hunks = (
     "arrival_partnership_close_kin",
     "orphans_save_end",
-    (14595, 0x7128_4e55_2fe5_50b2),
+    (14597, 0x2fa1_ad61_120d_e3e2),
     &[
         (31, 3, "0a1a8b"),
         (1511, 0, "baaea9961300e902050900"),
@@ -3069,12 +3069,12 @@ const ARRANGED_CLOSE_KIN: Hunks = (
         (6650, 7, "090a0280a8fb9501001901000002000180a8fb9501"),
         (6691, 1, "0180a8fb9501"),
         (6771, 0, "01001980a8fb95"),
-        (9004, 1, "8b"),
-        (9374, 0, "b00280a8fb9501"),
-        (9516, 3, "b60202"),
-        (14542, 0, "fea7fb950102020a02"),
+        (9005, 1, "8b"),
+        (9375, 0, "b00280a8fb9501"),
+        (9517, 3, "b60202"),
+        (14543, 0, "fea7fb950102020a02"),
     ],
-    (14648, 0x686f_5698_2e7f_e86c),
+    (14650, 0xd822_ec93_aae1_385c),
 );
 
 /// The reference's states changed in one field (out4, its notes' section 5b).
@@ -3082,77 +3082,77 @@ const LOAD_REJECTED_FIELDS: [Hunks; 31] = [
     (
         "arrival_arrived_one_second_late",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(8735, 1, "02")],
-        (14595, 0xeca0_3222_c6f5_bf40),
+        (14597, 0xfa9c_ec43_93e3_620b),
     ),
     (
         "arrival_year_off_by_one",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(8736, 1, "01")],
-        (14595, 0x84ff_72de_196a_0464),
+        (14597, 0x60ff_1fd1_b081_e947),
     ),
     (
         "arrival_born_pool_changed",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4594, 1, "82")],
-        (14595, 0xf74d_a9eb_7c1c_a66e),
+        (14597, 0x77e5_48a8_a70c_c7ed),
     ),
     (
         "arrival_genome_key_changed",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4584, 1, "c8")],
-        (14595, 0xc1ca_a307_9ffb_dcbb),
+        (14597, 0xdb7e_b839_9ccb_0a91),
     ),
     (
         "arrival_pool_mother_changed",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4602, 9, "caeea683b29ea549")],
-        (14594, 0xf624_efe4_f8df_d4d5),
+        (14596, 0x65ee_f2f7_bce0_fe24),
     ),
     (
         "arrival_pool_father_changed",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4612, 10, "ddd0b2b8c5fbd04b")],
-        (14593, 0x6e0d_4a00_5ff7_494b),
+        (14595, 0xf4a4_99e4_4e31_ad9d),
     ),
     (
         "arrival_pool_social_parents_changed",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4622, 1, "01caeea683b29ea549")],
-        (14603, 0xc5fe_a6a0_c623_c52b),
+        (14605, 0x663b_ef66_8c4f_6611),
     ),
     (
         "arrival_sex_flipped",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(8593, 1, "00")],
-        (14595, 0x2a01_b4f7_8043_18de),
+        (14597, 0x950c_a5c4_4e45_b4d2),
     ),
     (
         "arrival_genome_changed",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4466, 1, "9a")],
-        (14595, 0x9bd8_698b_c0ca_76f1),
+        (14597, 0x32d0_180a_deef_7919),
     ),
     (
         "arrival_town_parents_set",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4580, 0, "011615")],
-        (14598, 0xa3f7_2b29_ae9e_c98f),
+        (14600, 0x821a_d18f_94c2_31f4),
     ),
     (
         "arrival_household_moved_to_another_year",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[
             (113, 19, ""),
             (641, 0, "92e3d6fd02001502049aada6adcbb284bf7200"),
@@ -3184,94 +3184,94 @@ const LOAD_REJECTED_FIELDS: [Hunks; 31] = [
             (3102, 2, "8088ff1d01"),
             (6560, 3, "c785ba"),
             (6665, 1, "8088ff1d"),
-            (9044, 2, ""),
-            (9220, 0, "0d8088ff1d"),
-            (9234, 5, "3a"),
-            (9254, 2, ""),
+            (9045, 2, ""),
+            (9221, 0, "0d8088ff1d"),
+            (9235, 5, "3a"),
+            (9255, 2, ""),
             (
-                9270,
+                9271,
                 14,
                 "33004e0038000d8088ff1d6300118088ff1d63002a000d8088ff1d",
             ),
-            (9292, 0, "118088ff1d"),
-            (9324, 2, ""),
-            (9344, 0, "118088ff1d"),
-            (9388, 8, "830180c0ba120d8088ff1d"),
-            (9422, 0, "0d8088ff1d"),
-            (9441, 4, ""),
-            (9494, 0, "0d8088ff1d"),
-            (9502, 0, "118088ff1d"),
-            (9511, 2, ""),
+            (9293, 0, "118088ff1d"),
+            (9325, 2, ""),
+            (9345, 0, "118088ff1d"),
+            (9389, 8, "830180c0ba120d8088ff1d"),
+            (9423, 0, "0d8088ff1d"),
+            (9442, 4, ""),
+            (9495, 0, "0d8088ff1d"),
+            (9503, 0, "118088ff1d"),
+            (9512, 2, ""),
         ],
-        (14649, 0xfdc6_0fb4_2801_3772),
+        (14651, 0xb95a_5d38_db1d_f32e),
     ),
     (
         "pool_child_genome_key_changed",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10408, 1, "bf")],
-        (18539, 0xe3ad_eee7_d38e_1328),
+        (18540, 0x0445_f6c7_4005_5c5e),
     ),
     (
         "pool_child_arrived_not_born",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10419, 2, "feef")],
-        (18539, 0x7482_f218_5cd4_662b),
+        (18540, 0xcdd8_68de_b324_d7f9),
     ),
     (
         "pool_child_arrival_year_off_by_one",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10423, 1, "01")],
-        (18539, 0xf5ba_885d_e6a4_f69b),
+        (18540, 0xaee8_12e4_6373_85fa),
     ),
     (
         "pool_child_pool_mother_changed",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10425, 9, "d7eac2caadb9a5bd07")],
-        (18539, 0xaf8d_ba2a_83d3_8e3b),
+        (18540, 0x622d_c34f_d94d_df61),
     ),
     (
         "pool_child_pool_father_changed",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10435, 10, "b9b4d4cad0ccd1b808")],
-        (18538, 0x772f_e790_4100_d41f),
+        (18539, 0x1728_75db_e945_ad6c),
     ),
     (
         "pool_child_social_parents_set",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10445, 1, "01cd9dd6b0cadf9ece6a")],
-        (18548, 0x47cf_d7ab_d9de_666b),
+        (18549, 0x1b8e_3ba7_cb89_600f),
     ),
     (
         "pool_child_sex_flipped",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10306, 1, "01")],
-        (18539, 0x5971_b5fe_43db_02b0),
+        (18540, 0xd027_3564_952c_4897),
     ),
     (
         "pool_child_genome_changed",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10318, 1, "94")],
-        (18539, 0x37a4_f7c7_b106_35b9),
+        (18540, 0x7ebe_fa10_5e06_196b),
     ),
     (
         "pool_child_town_parents_set",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(10405, 0, "012401")],
-        (18542, 0x6c64_b665_415d_4c73),
+        (18543, 0x206b_470d_6d91_cf4b),
     ),
     (
         "pool_child_born_after_the_clock",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[
             (803, 1, "82"),
             (1141, 1, "a8"),
@@ -3283,19 +3283,19 @@ const LOAD_REJECTED_FIELDS: [Hunks; 31] = [
             (10394, 1, "82"),
             (10419, 1, "82"),
         ],
-        (18539, 0x9ea2_0f2c_81d3_09d2),
+        (18540, 0x9452_cad7_caad_900e),
     ),
     (
         "pool_child_mother_not_an_arrival",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[(7674, 23, "011f01"), (11145, 1, "1d"), (11166, 1, "")],
-        (18518, 0xda7e_a4cf_741a_c84f),
+        (18519, 0xd6d7_adb9_0584_34a9),
     ),
     (
         "pool_child_mother_left_before_the_birth",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[
             (33, 1, "e7"),
             (315, 10, ""),
@@ -3309,69 +3309,69 @@ const LOAD_REJECTED_FIELDS: [Hunks; 31] = [
                 1,
                 "0224ffc3e1ce07feefeb0d0085d2bc82f8b2ead44dcd9dd6b0cadf9ece6a00809380ba8083a8b116a0b98280caab85a0870185c0c98a80c09188c001889b80d8cd81b0d52180f5d580ca848e806980c0fa8280e0a18aa00100000000000101021f01000001cd9dd6b0cadf9ece6a01ffb3e392070000000000",
             ),
-            (11180, 1, "e7"),
-            (11243, 2, ""),
-            (11371, 6, ""),
-            (11539, 2, ""),
-            (11800, 2, ""),
+            (11181, 1, "e7"),
+            (11244, 2, ""),
+            (11372, 6, ""),
+            (11540, 2, ""),
+            (11801, 2, ""),
         ],
-        (18474, 0xec54_024e_5b34_cb1b),
+        (18475, 0x7ecf_dfe5_1f4c_0cb4),
     ),
     (
         "no_pool_living_with_pool_origin",
         "founders_world",
-        (10820, 0xa209_1443_b674_936d),
+        (10821, 0x70e9_69fd_6573_6e3d),
         &[(243, 0, "000000010001ffd7e6a90600")],
-        (10832, 0x26e1_62c6_e086_5387),
+        (10833, 0x4d1e_80aa_686d_e63d),
     ),
     (
         "no_pool_archived_with_pool_origin",
         "founders_world",
-        (10820, 0xa209_1443_b674_936d),
+        (10821, 0x70e9_69fd_6573_6e3d),
         &[(348, 0, "0000010001ffbfadcf140000")],
-        (10832, 0x87b8_6a37_7711_5ccf),
+        (10833, 0xd3cd_29fa_3a50_0255),
     ),
     (
         "no_pool_used_household",
         "founders_world",
-        (10820, 0xa209_1443_b674_936d),
+        (10821, 0x70e9_69fd_6573_6e3d),
         &[(400, 0, "01")],
-        (10821, 0x12d2_6151_541c_0439),
+        (10822, 0x1fed_7d9a_99fd_a5ab),
     ),
     (
         "no_pool_pregnancy_without_father",
         "founders_world",
-        (10820, 0xa209_1443_b674_936d),
+        (10821, 0x70e9_69fd_6573_6e3d),
         &[(272, 2, "00")],
-        (10819, 0x948c_5bab_4529_c5e0),
+        (10820, 0xe5b1_8233_56ef_aced),
     ),
     (
         "no_pool_pregnancy_with_pool_father",
         "founders_world",
-        (10820, 0xa209_1443_b674_936d),
+        (10821, 0x70e9_69fd_6573_6e3d),
         &[(274, 1, "01d388fe84eef9bce93c")],
-        (10829, 0xf784_feec_441c_c7dd),
+        (10830, 0x9687_65e3_c314_eb47),
     ),
     (
         "arrival_social_parent_is_its_pool_parent",
         "orphans_save_end",
-        (14595, 0x7128_4e55_2fe5_50b2),
+        (14597, 0x2fa1_ad61_120d_e3e2),
         &[(4582, 1, "15")],
-        (14595, 0xe3a2_336f_67f2_50c5),
+        (14597, 0x973e_9cff_4e00_dbb5),
     ),
     (
         "arrival_moved_out_by_town_partnership_flag_false",
         "arrival_moved_out_by_town_partnership",
-        (13201, 0x2d9a_033b_b59e_7d3f),
+        (13201, 0x607a_a66f_a777_111c),
         &[(3747, 1, "00")],
-        (13201, 0x0ecf_88e7_16ab_2cab),
+        (13201, 0x6b4b_e178_d4bb_8b8b),
     ),
     (
         "brought_partnership_member_not_moved_out_moved_out",
         "brought_partnership_member_not_moved_out",
-        (17036, 0x5024_144c_8a7c_fad0),
+        (17037, 0x798e_53e2_f52f_5b9d),
         &[(3402, 1, "01")],
-        (17036, 0xc047_715b_d9f1_cc4a),
+        (17037, 0x9942_8fb9_85d2_795c),
     ),
 ];
 
@@ -3399,81 +3399,81 @@ const LOAD_REJECTED_CARRIED: [Hunks; 17] = [
     (
         "carried_series_one_month_late",
         "arrival_save_after_immigration_1",
-        (19166, 0x4b4a_2306_ff46_c39b),
+        (19167, 0x22e4_50c5_1a3a_2e41),
         &[
             (70, 13, ""),
             (168, 0, "0180a8a70280d8cd22004c0315"),
-            (11564, 2, ""),
-            (11598, 0, "2800"),
+            (11565, 2, ""),
+            (11599, 0, "2800"),
         ],
-        (19166, 0xcc25_db2a_8067_0765),
+        (19167, 0xc59f_c5f9_967a_3550),
     ),
     (
         "carried_series_before_its_start",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
+        (17020, 0xccb6_159d_7367_1d80),
         &[
             (42, 0, "00000a03030180a8a702"),
             (59, 13, ""),
-            (9878, 5, "0500600001"),
+            (9879, 5, "0500600001"),
         ],
-        (17016, 0x65cb_3aaf_6d6d_ca3d),
+        (17017, 0xa4cb_1a3d_5329_9dd8),
     ),
     (
         "carried_series_missing",
         "arrival_save_after_immigration_1",
-        (19166, 0x4b4a_2306_ff46_c39b),
+        (19167, 0x22e4_50c5_1a3a_2e41),
         &[
             (33, 1, "f1"),
             (70, 13, ""),
-            (11553, 1, "f1"),
-            (11563, 2, ""),
+            (11554, 1, "f1"),
+            (11564, 2, ""),
         ],
-        (19151, 0x622b_4adc_dc12_9f7a),
+        (19152, 0x2cc4_7d8a_251b_7faa),
     ),
     (
         "carried_series_past_fertility",
         "V3_carried_series_ended",
-        (22767, 0xe0d9_b520_f266_a5ee),
+        (22766, 0x9ed6_f157_21cd_48de),
         &[
             (33, 1, "b9"),
             (564, 0, "0180a8a70280b88f8801009b010328"),
-            (14884, 1, "b9"),
-            (15169, 0, "4900"),
+            (14885, 1, "b9"),
+            (15170, 0, "4900"),
         ],
-        (22784, 0x71c0_f6ad_3324_99e9),
+        (22783, 0xdfee_9998_f76f_dac5),
     ),
     (
         "carried_conception_before_its_series",
         "V4b_carried_conception_pregnant",
-        (18823, 0x3f2a_b4f2_1345_2efe),
+        (18824, 0x7204_d2b8_2e17_c2b1),
         &[
             (329, 0, "ab02042d0080d0c32900"),
             (357, 10, ""),
             (11095, 3, "c0ba12"),
-            (11379, 0, "b30180c0ba12"),
-            (11396, 6, ""),
+            (11380, 0, "b30180c0ba12"),
+            (11397, 6, ""),
         ],
-        (18823, 0xdc49_a91f_2a6c_c0ba),
+        (18824, 0xa35b_b8e2_c9b3_4f3b),
     ),
     (
         "pool_pregnancy_dropped",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
+        (17020, 0xccb6_159d_7367_1d80),
         &[
             (30, 1, "cb"),
             (198, 10, ""),
             (9224, 1, "05"),
             (9660, 89, ""),
-            (9874, 1, "cb"),
-            (9905, 2, ""),
+            (9875, 1, "cb"),
+            (9906, 2, ""),
         ],
-        (16918, 0xdd26_1e97_5141_180f),
+        (16919, 0x63a4_6418_f610_5b2d),
     ),
     (
         "pool_birth_vanished",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[
             (30, 4, "3b1120e5"),
             (472, 0, "98931000fc0103240180a8a70280"),
@@ -3487,21 +3487,21 @@ const LOAD_REJECTED_CARRIED: [Hunks; 17] = [
             (3721, 1, "39"),
             (7673, 1, "00"),
             (10291, 155, ""),
-            (11180, 1, "e5"),
-            (11274, 0, "830180f0eb0d"),
-            (11371, 6, ""),
-            (11389, 6, ""),
-            (11457, 16, "4a000c00"),
-            (11482, 6, ""),
-            (11613, 6, ""),
-            (11752, 6, ""),
+            (11181, 1, "e5"),
+            (11275, 0, "830180f0eb0d"),
+            (11372, 6, ""),
+            (11390, 6, ""),
+            (11458, 16, "4a000c00"),
+            (11483, 6, ""),
+            (11614, 6, ""),
+            (11753, 6, ""),
         ],
-        (18246, 0xf8d4_2dc0_affb_9199),
+        (18247, 0xbd38_23d0_083f_fc60),
     ),
     (
         "pool_child_born_one_second_early",
         "arrival_save_after_pool_child_without_father",
-        (18539, 0xa506_9a25_bc54_0e04),
+        (18540, 0x5071_d722_0c10_b7bf),
         &[
             (783, 0, "fef7ea2b00f701013b00"),
             (802, 10, ""),
@@ -3513,14 +3513,14 @@ const LOAD_REJECTED_CARRIED: [Hunks; 17] = [
             (10292, 2, "feef"),
             (10394, 2, "feef"),
             (10419, 2, "feef"),
-            (11382, 13, "830180f0eb0d850180f0eb0d86"),
+            (11383, 13, "830180f0eb0d850180f0eb0d86"),
         ],
-        (18539, 0xde46_23f1_e5aa_8c1a),
+        (18540, 0xca80_d31e_0665_3b42),
     ),
     (
         "pool_twin_missing",
         "V5_pool_twins_born",
-        (17823, 0xbe3f_ea7c_c56c_d4c7),
+        (17824, 0x6903_6a2c_ed95_6450),
         &[
             (30, 4, "381120d7"),
             (765, 10, ""),
@@ -3530,67 +3530,67 @@ const LOAD_REJECTED_CARRIED: [Hunks; 17] = [
             (3447, 1, "36"),
             (5059, 1, "01"),
             (9612, 125, ""),
-            (10579, 1, "d7"),
-            (10750, 5, ""),
-            (10800, 5, ""),
-            (10910, 5, ""),
-            (11043, 5, ""),
+            (10580, 1, "d7"),
+            (10751, 5, ""),
+            (10801, 5, ""),
+            (10911, 5, ""),
+            (11044, 5, ""),
         ],
-        (17616, 0xcf85_977a_bb7f_c6a5),
+        (17617, 0xef6d_2a68_d33c_7818),
     ),
     (
         "carried_attempt_plan_moved",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
-        &[(9883, 1, "01")],
-        (17019, 0x984c_fc93_f37e_74a8),
+        (17020, 0xccb6_159d_7367_1d80),
+        &[(9884, 1, "01")],
+        (17020, 0xaedb_35c1_17aa_d0d5),
     ),
     (
         "carried_birth_plan_moved",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
-        &[(9907, 1, "01")],
-        (17019, 0x29b6_de6d_04bc_a31f),
+        (17020, 0xccb6_159d_7367_1d80),
+        &[(9908, 1, "01")],
+        (17020, 0x68d6_6fdb_a22d_ceda),
     ),
     (
         "carried_separation_plan_moved",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
-        &[(10017, 1, "01")],
-        (17019, 0x87b7_0c03_9eac_18a7),
+        (17020, 0xccb6_159d_7367_1d80),
+        &[(10018, 1, "01")],
+        (17020, 0x3cc4_5c47_cf65_7964),
     ),
     (
         "carried_leave_home_plan_moved",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
-        &[(10047, 1, "01")],
-        (17019, 0xa87b_5d8e_2fe3_5343),
+        (17020, 0xccb6_159d_7367_1d80),
+        &[(10048, 1, "01")],
+        (17020, 0x676b_950a_d4d1_3909),
     ),
     (
         "carried_plan_planned_later",
         "arrival_save_end",
-        (29402, 0xf082_8a02_5173_baba),
-        &[(22009, 1, "82")],
-        (29402, 0x88c9_f7f7_3cd4_a76b),
+        (29405, 0xed63_af9d_0906_3557),
+        &[(22010, 1, "82")],
+        (29405, 0x29fd_8b0e_f77f_be2d),
     ),
     (
         "carried_plan_by_other_member",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
-        &[(10094, 1, "24")],
-        (17019, 0x16fb_5230_18fb_926f),
+        (17020, 0xccb6_159d_7367_1d80),
+        &[(10095, 1, "24")],
+        (17020, 0x24c5_af3b_9ec3_f33e),
     ),
     (
         "carried_plans_swapped",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
+        (17020, 0xccb6_159d_7367_1d80),
         &[(69, 1, "0b"), (2089, 1, "0a")],
-        (17019, 0x803d_aca7_0b98_31ac),
+        (17020, 0x45a9_0a18_53cd_0060),
     ),
     (
         "pool_child_of_a_cancelled_pregnancy",
         "V6_pool_pregnancy_cancelled",
-        (13001, 0xade1_7b10_da98_a677),
+        (13002, 0x5092_ea67_eb52_3d13),
         &[
             (30, 4, "200613a3"),
             (372, 0, "0090bc8d2100ad01011f"),
@@ -3615,16 +3615,16 @@ const LOAD_REJECTED_CARRIED: [Hunks; 17] = [
                 "1f90b48e03cebbc0d298e4dfdcb80101859680d5a184f0dd2f80c6d3808e8eb480da018780a38e80dcea0982858086de8290f929c0e69e80d88fafc02f81c0bb9780a4ca89e0010101000003d49ae3bbeacfeb962f0595c306608247400100000000000000000190b48e03f3e1e3d4baa3e9c22c27e19796a74e47400100000000000000000190b48e03db86dcd7e8e9bbfac90100000000000000000100000000000000000190b48e030000000f00011a000001cebbc0d298e4dfdcb8010090b48e0300018c8dc8be98e1f8837e01b4b68b96ebf1fbe1a60100",
             ),
             (7860, 1, "01"),
-            (7928, 1, "a3"),
-            (7999, 0, "6890b48e03"),
-            (8061, 0, "6890b48e03"),
-            (8117, 2, "6890b48e036890b48e0324006890b48e036890b48e03"),
-            (8145, 0, "6890b48e03"),
-            (8187, 0, "6890b48e03"),
-            (8225, 0, "6890b48e03"),
-            (8241, 1, "6b"),
+            (7929, 1, "a3"),
+            (8000, 0, "6890b48e03"),
+            (8062, 0, "6890b48e03"),
+            (8118, 2, "6890b48e036890b48e0324006890b48e036890b48e03"),
+            (8146, 0, "6890b48e03"),
+            (8188, 0, "6890b48e03"),
+            (8226, 0, "6890b48e03"),
+            (8242, 1, "6b"),
         ],
-        (13428, 0x47d5_56b5_8000_1cb1),
+        (13429, 0xa8aa_8d98_1708_c0ed),
     ),
 ];
 
@@ -3635,66 +3635,66 @@ const V4B_AT: i64 = 21_772_800;
 /// "arrival" when the pool twins of household 31 are born.
 const V5_TWINS_AT: i64 = 7_257_600;
 
-const V3_SAVE: (usize, u64) = (22767, 0xe0d9_b520_f266_a5ee);
-const V4_SAVE: (usize, u64) = (17470, 0x2b78_4269_9c02_a670);
-const V4B_SAVE: (usize, u64) = (18823, 0x3f2a_b4f2_1345_2efe);
-const V5_TWINS_SAVE: (usize, u64) = (17823, 0xbe3f_ea7c_c56c_d4c7);
-const V6_SAVE: (usize, u64) = (13001, 0xade1_7b10_da98_a677);
+const V3_SAVE: (usize, u64) = (22766, 0x9ed6_f157_21cd_48de);
+const V4_SAVE: (usize, u64) = (17471, 0x2cf1_bb99_0b9d_e209);
+const V4B_SAVE: (usize, u64) = (18824, 0x7204_d2b8_2e17_c2b1);
+const V5_TWINS_SAVE: (usize, u64) = (17824, 0x6903_6a2c_ed95_6450);
+const V6_SAVE: (usize, u64) = (13002, 0x5092_ea67_eb52_3d13);
 
 /// The reference's round 9 (out9, its notes' section 5g).
 const LOAD_REJECTED_ROUND_9: [Hunks; 5] = [
     (
         "immigration_period_not_a_year",
         "load_base",
-        (21356, 0xae82_137a_b9b4_0e08),
+        (21358, 0x48c1_1aa2_c45d_48f1),
         &[(44, 1, "82")],
-        (21356, 0xd9a7_a7e0_8fa9_6469),
+        (21358, 0x4633_ac2f_9ef6_d7e5),
     ),
     (
         "immigration_not_due",
         "load_base",
-        (21356, 0xae82_137a_b9b4_0e08),
+        (21358, 0x48c1_1aa2_c45d_48f1),
         &[
             (35, 13, ""),
             (877, 0, "018088ff1d80a0fc7700030901"),
-            (13439, 2, ""),
-            (13914, 0, "0100"),
+            (13440, 2, ""),
+            (13915, 0, "0100"),
         ],
-        (21356, 0x2160_c7b1_8c3c_60b2),
+        (21358, 0x7c22_3be4_0f84_79cd),
     ),
     (
         "immigration_persons_off_by_one",
         "load_base",
-        (21356, 0xae82_137a_b9b4_0e08),
+        (21358, 0x48c1_1aa2_c45d_48f1),
         &[(42, 1, "02")],
-        (21356, 0x27c8_5281_7abd_5445),
+        (21358, 0x6f80_e621_587a_ec3c),
     ),
     (
         "pool_mother_conceptions_off_by_one",
         "arrival_save_after_start",
-        (17019, 0x7117_1722_4e0a_72dc),
+        (17020, 0xccb6_159d_7367_1d80),
         &[(7151, 1, "02")],
-        (17019, 0x5a54_f76a_dab3_1297),
+        (17020, 0x2b84_b0f3_9cf6_c687),
     ),
     (
         "series_end_boundary_attempt_present",
         "series_end_boundary",
-        (17455, 0xf594_58d8_bcee_51cf),
+        (17456, 0x4f8c_6490_76c7_3627),
         &[
             (33, 1, "d3"),
             (88, 0, "80d0ce040067031c0180a8a702"),
-            (10277, 7, "d30146000100050036"),
+            (10278, 7, "d30146000100050036"),
         ],
-        (17470, 0xe32f_3799_ac8b_beee),
+        (17471, 0x42b8_972c_a7a2_a259),
     ),
 ];
 
 const SERIES_END_POOL: (usize, u64) = (10966, 0x22d1_2f86_e935_1dc9);
-const SERIES_END_SAVE: (usize, u64) = (17455, 0xf594_58d8_bcee_51cf);
-const IMMIGRANT_CHILD_YEAR_HASHES: [u64; 2] = [0x9d1e_805e_7851_5bae, 0xf8ba_3350_e1ed_608d];
+const SERIES_END_SAVE: (usize, u64) = (17456, 0x4f8c_6490_76c7_3627);
+const IMMIGRANT_CHILD_YEAR_HASHES: [u64; 2] = [0xdaea_3a29_3258_503e, 0x60fd_5307_b9af_4723];
 const IMMIGRANT_CHILD_LOG_HASH: u64 = 0x4752_8549_66b1_5afd;
-const IMMIGRANT_CHILD_STATE_HASH: u64 = 0x7411_7926_b247_7429;
-const IMMIGRANT_CHILD_SAVE: (usize, u64) = (20671, 0xda79_dea4_a3e4_4db2);
+const IMMIGRANT_CHILD_STATE_HASH: u64 = 0x4808_bb99_de78_1c88;
+const IMMIGRANT_CHILD_SAVE: (usize, u64) = (20671, 0x6bb3_df38_8aee_455c);
 
 /// The loader's household check: the living who moved out share a household only as the
 /// two partners of an open partnership. The reference (`tools/village_reference.py
@@ -3703,9 +3703,9 @@ const IMMIGRANT_CHILD_SAVE: (usize, u64) = (20671, 0xda79_dea4_a3e4_4db2);
 const LOAD_REJECTED_MOVED_IN: [Hunks; 1] = [(
     "load_base_moved_in",
     "load_base",
-    (21356, 0xae82_137a_b9b4_0e08),
+    (21358, 0x48c1_1aa2_c45d_48f1),
     &[(4923, 1, "01"), (12582, 1, "01fe97fd59")],
-    (21360, 0x6a1e_2596_8b6c_940f),
+    (21362, 0xe85f_cc3f_7b94_014c),
 )];
 
 #[test]

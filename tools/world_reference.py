@@ -721,7 +721,7 @@ FOUNDER_ALLELE = 28
 # playtest) change the repository's day, kinds and houses (the weekend's end of the night, whom
 # a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
 # no year hash and no log hash of a run without one: core 57, the projection stays 19.
-PROJECTION_VERSION = 19
+PROJECTION_VERSION = 20
 # Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler)
 # change the repository's needs, day and kinds (each need's comfort, the longest time-filler,
 # the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
@@ -735,7 +735,12 @@ PROJECTION_VERSION = 19
 # runs of the game's data (a new data hash) from the first series the gate plans that her wish
 # alone would not; a run on the extract or a fixture keeps its year hashes and its log: core 60,
 # the projection stays 19.
-CORE_VERSION = 62
+# The social data (ADR-0030 section 6) enter the repository's data, the memories of a person in a
+# house join the house part of the projection as a fifth map after `holds` (`EMPTY_HOUSE` has five
+# zero lengths), and `Forget` (kind 24) and `core:remembered`/`core:forgot` join the codes: a new
+# data hash, so a log or save of the repository's data changes, every year hash once more, no log
+# hash of a run without a household in a house: projection 20, core 63.
+CORE_VERSION = 63
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1375,7 +1380,7 @@ class Data:
     included, reads the overlaid life course data (`Data::with_calibration` after the pool,
     the templates and the houses); a pool person keeps the extract's wish (`pool_wish`)."""
 
-    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None, game=None):
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None, social=None, game=None):
         extract = data_reference.definitions_bytes(demography, calibration, genome_map)
         extract_wish = data_reference.strip(demography)
         if game is not None:
@@ -1409,6 +1414,10 @@ class Data:
         # The houses (ADR-0025): checked and appended after the templates.
         if houses is not None:
             hashed += data_reference.houses_suffix(houses)
+            self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
+        # The social data (ADR-0030 section 6): checked and appended after the houses.
+        if social is not None:
+            hashed += data_reference.social_suffix(social, None if houses is None else houses[2])
             self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
         assert self.hash == xxhash.xxh3_64_intdigest(hashed, seed=0)
         # What the measurement reads (design note of the measurement, section 1): every trait
@@ -1582,16 +1591,18 @@ class Data:
 def repository_data() -> Data:
     """The repository's data as the CLI builds them (slice S5): the documents under data/, the
     pool data/pool/pool.bin and its frequencies data/pool/pool_frequencies.json
-    (`Data::with_pool`), the shock templates of data/shocks.json (ADR-0023 section 3) and the
-    houses of data/house/ (ADR-0025)."""
+    (`Data::with_pool`), the shock templates of data/shocks.json (ADR-0023 section 3), the
+    houses of data/house/ (ADR-0025) and the social data of data/social/social.json (ADR-0030
+    section 6)."""
     files = data_reference.pool_files(ROOT / "data")
     assert files is not None, "the repository's data hold the pool (data/pool/)"
     pool, frequencies = files
     shocks = data_reference.shock_templates(ROOT / "data")
     assert shocks, "the repository's data hold the shock templates (data/shocks.json)"
     houses = data_reference.house_files(ROOT / "data")
+    social = data_reference.social_files(ROOT / "data")
     game = data_reference.game_overlay(ROOT / "data")
-    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, game=game)
+    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, social=social, game=game)
 
 
 # The map 3 fixture (design note of the switch, section 4): tests/golden/map3 holds the map 3
@@ -1752,7 +1763,7 @@ def repository() -> Data:
     """The repository's data as the CLI builds them (`repository_data`), read once; their data
     hash is checked against their own reference (`data_reference.repository_hash`: the
     definitions, then the pool's seed and hash and the frequencies, then the shock
-    templates, then the houses), and the definitions alone must hash to the pool's
+    templates, then the houses, then the social data), and the definitions alone must hash to the pool's
     `frozen_hash`."""
     if not _REPOSITORY:
         data = repository_data()
@@ -6439,13 +6450,13 @@ def pool_origin_bytes(origin) -> bytes:
 
 # The four empty maps of the house (`house_households`, `house_sims`, `house_waits`,
 # `house_holds`), each a postcard length 0.
-EMPTY_HOUSE = bytes([0, 0, 0, 0])
+EMPTY_HOUSE = bytes([0, 0, 0, 0, 0])
 
 
 def used_households_bytes(used: list) -> bytes:
     """`pool_used: Vec<u32>`, the households of the pool used (indices into the file, in
     arrival order), the field of the projection before the house (`EMPTY_HOUSE` without
-    `MoveIn`; decision of NOTES.md, projection 19)."""
+    `MoveIn`; decision of NOTES.md, projection 19, five maps from projection 20)."""
     return seq([varint(index) for index in used])
 
 
@@ -6485,7 +6496,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used
-    + EMPTY_HOUSE  # the house (projection 19)
+    + EMPTY_HOUSE  # the house (projection 20)
 )
 
 

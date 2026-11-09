@@ -615,7 +615,7 @@ fn load_rejects_invalid_queue() {
 fn event_codes_pinned() {
     let golden = include_str!("../../../tests/golden/event_codes.txt");
     let actual = format!(
-        "class immigration {}\nclass birth {}\nclass general {}\nclass death {}\nclass emigration {}\nclass observer {}\nsubject world {}\nsubject sim {}\nsubject partnership {}\nsubject household {}\nkind year_end {}\nkind birthday {}\nkind death {}\nkind conception_attempt {}\nkind birth {}\nkind separation {}\nkind market_round {}\nkind leave_home {}\nkind emigration {}\nkind immigration {}\nkind disease_onset {}\nkind house_morning {}\nkind day_plan {}\nkind return {}\nkind depart {}\nkind wake {}\nkind arrive {}\nkind action_end {}\nkind need_crossing {}\nkind decide {}\nkind bedtime {}\nkind stand_up {}\nkind reserve_crossing {}\n",
+        "class immigration {}\nclass birth {}\nclass general {}\nclass death {}\nclass emigration {}\nclass observer {}\nsubject world {}\nsubject sim {}\nsubject partnership {}\nsubject household {}\nkind year_end {}\nkind birthday {}\nkind death {}\nkind conception_attempt {}\nkind birth {}\nkind separation {}\nkind market_round {}\nkind leave_home {}\nkind emigration {}\nkind immigration {}\nkind disease_onset {}\nkind house_morning {}\nkind day_plan {}\nkind return {}\nkind depart {}\nkind wake {}\nkind arrive {}\nkind action_end {}\nkind need_crossing {}\nkind decide {}\nkind bedtime {}\nkind stand_up {}\nkind reserve_crossing {}\nkind forget {}\n",
         EventClass::IMMIGRATION.code(),
         EventClass::BIRTH.code(),
         EventClass::GENERAL.code(),
@@ -649,6 +649,7 @@ fn event_codes_pinned() {
         sim_core::world::EventPayload::BEDTIME.0,
         sim_core::world::EventPayload::STAND_UP.0,
         sim_core::world::EventPayload::RESERVE_CROSSING.0,
+        sim_core::world::EventPayload::FORGET.0,
     );
     let pinned: String = golden
         .lines()

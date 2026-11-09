@@ -412,11 +412,30 @@ const REPOSITORY_SHOCKS: &str = include_str!("../../../../data/shocks.json");
 const REPOSITORY_NEEDS: &str = include_str!("../../../../data/house/needs.json");
 const REPOSITORY_DAY: &str = include_str!("../../../../data/house/day.json");
 const REPOSITORY_KINDS: &str = include_str!("../../../../data/house/kinds.json");
+const REPOSITORY_SOCIAL: &str = include_str!("../../../../data/social/social.json");
 const REPOSITORY_HOUSES: [&str; 3] = [
     include_str!("../../../../data/house/houses/flat.json"),
     include_str!("../../../../data/house/houses/house.json"),
     include_str!("../../../../data/house/houses/terraced.json"),
 ];
+
+/// The social data of `data/social/social.json` as sim-cli reads them (ADR-0030 section 6).
+#[allow(dead_code, reason = "only the tests on the social layer need them")]
+pub fn repository_social() -> sim_core::social::data::SocialData {
+    repository_social_with(|_| {})
+}
+
+/// The social data of `data/social/social.json` changed by `change` first, then checked.
+#[allow(dead_code, reason = "only the tests on the social layer need them")]
+pub fn repository_social_with(
+    change: impl FnOnce(&mut Value),
+) -> sim_core::social::data::SocialData {
+    let mut social: Value = serde_json::from_str(REPOSITORY_SOCIAL).expect("json");
+    change(&mut social);
+    let social: sim_core::social::data::SocialData =
+        serde_json::from_value(social).expect("the social data");
+    social.checked().expect("checked")
+}
 
 /// The day `day` (a `day.json`) with every morning's end of the night that of a weekday: the
 /// weekend's later end (ADR-0026, addendum of 2026-11-04 after the playtest) as `until`. The
@@ -677,6 +696,7 @@ pub fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(repository_shocks()))
     .map(|data| data.with_houses(repository_houses()))
+    .map(|data| data.with_social(repository_social()))
     .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }

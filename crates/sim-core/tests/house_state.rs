@@ -130,6 +130,7 @@ fn legal() -> HouseState {
         ]),
         waits: BTreeMap::from([((household(1), 1), vec![(t(NOW - 60), sim(1))])]),
         holds: BTreeMap::new(),
+        social: Default::default(),
     }
 }
 
@@ -1519,6 +1520,7 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
             sims: BTreeMap::from([(sim(1), person)]),
             waits: BTreeMap::new(),
             holds: BTreeMap::new(),
+            social: Default::default(),
         };
         fillers_consistent(&state, Some(&houses), 7, member)
     };
@@ -1526,4 +1528,67 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
     assert_eq!(fed, Err(Broken::Filler));
     let weak = Reserve::new(1000, (400, t(begun - 2_000), -40), -40);
     assert_eq!(watching(0, weak), Ok(()));
+}
+
+/// The projection of the house part (ADR-0030 section 5, projection 20): its four maps as before,
+/// then the memories as a fifth map, so a run without a move-in has five zero lengths; the bytes
+/// below are by hand from postcard's rules (varints, zigzag for the signed values, the array of
+/// two others as two options, no length in front).
+#[test]
+fn the_house_part_ends_with_the_memories() {
+    use sim_core::social::memory::Memory;
+    use sim_core::social::state::Social;
+
+    let encoded = |state: &HouseState| postcard::to_allocvec(state).expect("bytes");
+    assert_eq!(encoded(&HouseState::default()), [0, 0, 0, 0, 0]);
+
+    let mut held = HouseState::default();
+    held.holds.insert((household(1), 2, 3), sim(4));
+    assert_eq!(
+        encoded(&held),
+        [0, 0, 0, 1, 1, 2, 3, 4, 0],
+        "the holds as before"
+    );
+
+    let memory = Memory {
+        kind: 1,
+        with: [Some(sim(2)), Some(sim(3))],
+        at: t(600),
+        valence: 900,
+        strength: 900,
+        since: t(600),
+        fade: 15,
+    };
+    let remembering = HouseState {
+        social: Social {
+            memories: BTreeMap::from([(sim(1), vec![memory])]),
+        },
+        ..HouseState::default()
+    };
+    let bytes = [
+        0, 0, 0, 0, // households, sims, waits, holds: none
+        1, 1, 1, // memories: one person, sim 1, one memory
+        1, 1, 2, 1, 3, // kind 1, with Some(2) and Some(3)
+        0xB0, 9, // at 600: zigzag 1200
+        0x88, 0x0E, // valence 900: zigzag 1800
+        0x84, 7, // strength 900
+        0xB0, 9,  // since 600
+        15, // fade
+    ];
+    assert_eq!(encoded(&remembering), bytes);
+    assert_eq!(
+        postcard::from_bytes::<HouseState>(&bytes),
+        Ok(remembering.clone())
+    );
+    assert!(
+        postcard::from_bytes::<HouseState>(&bytes[..4]).is_err(),
+        "memories missing"
+    );
+
+    // A text format keeps all five fields.
+    let value = serde_json::to_value(&remembering).expect("json");
+    assert_eq!(
+        serde_json::from_value::<HouseState>(value).expect("back"),
+        remembering
+    );
 }

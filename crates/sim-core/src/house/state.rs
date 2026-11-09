@@ -17,6 +17,7 @@ use crate::house::day::{day_departure, next_night, work_draw};
 use crate::house::need::{EMPTY, FULL, NeedSample};
 use crate::house::reserve::{Band, Doing, Reserve, ReserveRules};
 use crate::ids::{HouseholdId, SimId};
+use crate::social::state::Social;
 use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
 /// At most this many households live in a house at once (ADR-0024 section 6).
@@ -100,7 +101,9 @@ pub struct Decisions {
     pub count: u16,
 }
 
-/// The house part of the domain state, each map in the projection after `pool_used`.
+/// The house part of the domain state, each map in the projection after `pool_used`, then the
+/// social part (ADR-0030 section 5, projection 20): in a run without `MoveIn` it is one more
+/// empty map.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HouseState {
     pub households: BTreeMap<HouseholdId, MovedIn>,
@@ -110,6 +113,8 @@ pub struct HouseState {
     pub waits: BTreeMap<(HouseholdId, u16), Vec<(SimTime, SimId)>>,
     /// The places held for a waiter, per object and place.
     pub holds: BTreeMap<(HouseholdId, u16, u8), SimId>,
+    /// What the persons remember (ADR-0030 section 1).
+    pub social: Social,
 }
 
 impl HouseState {
@@ -119,6 +124,7 @@ impl HouseState {
             sims: BTreeMap::new(),
             waits: BTreeMap::new(),
             holds: BTreeMap::new(),
+            social: Social::new(),
         }
     }
 
@@ -127,6 +133,7 @@ impl HouseState {
             && self.sims.is_empty()
             && self.waits.is_empty()
             && self.holds.is_empty()
+            && self.social.is_empty()
     }
 }
 

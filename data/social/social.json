@@ -1,0 +1,126 @@
+{
+  "limits": {
+    "memories": 32,
+    "bonds": 32,
+    "keep_on_move_out": 8,
+    "beliefs": 32,
+    "deeds": 64,
+    "deed_window_days": 30,
+    "min_age": 6,
+    "talk_delay_seconds": 600,
+    "pair_gap_seconds": 3600,
+    "talks_per_day": 8,
+    "entries_per_day": 34,
+    "talk_entries": 16
+  },
+  "memory": {
+    "recall_step": 300,
+    "relative_phi_eighths": 1,
+    "kinds": [
+      { "id": "core:talk", "strength": 600, "fade": 60, "valence": 200 },
+      { "id": "core:child_born", "strength": 900, "fade": 15, "valence": 900 },
+      { "id": "core:relative_died", "strength": 900, "fade": 15, "valence": -900 },
+      { "id": "core:partnership_began", "strength": 800, "fade": 20, "valence": 700 },
+      { "id": "core:partnership_ended", "strength": 800, "fade": 20, "valence": -700 },
+      { "id": "core:refuted", "strength": 700, "fade": 50, "valence": -300 }
+    ]
+  },
+  "bonds": {
+    "familiarity_fade": 5,
+    "grudge_fade": 10,
+    "start": {
+      "partner": [700, 700, 500, 500, 600, 0],
+      "parent": [650, 650, 600, 0, 600, 0],
+      "child": [700, 600, 300, 0, 600, 0],
+      "sibling": [550, 550, 400, 0, 500, 0],
+      "kin": [500, 500, 450, 0, 300, 0],
+      "housemate": [400, 450, 400, 0, 200, 0]
+    }
+  },
+  "topics": [
+    {
+      "id": "core:everyday",
+      "min_age": 6,
+      "max_age": 130,
+      "furniture": ["core:dining_table", "core:sofa", "core:tv"],
+      "condition": "always",
+      "steps": [
+        { "who": "both", "value": "familiarity", "delta": 40 }
+      ]
+    },
+    {
+      "id": "core:praise",
+      "min_age": 6,
+      "max_age": 130,
+      "furniture": ["core:dining_table", "core:sofa"],
+      "condition": { "affection_from": 500 },
+      "steps": [
+        { "who": "target", "value": "affection", "delta": 30 },
+        { "who": "target", "value": "respect", "delta": 20 }
+      ]
+    },
+    {
+      "id": "core:tease",
+      "min_age": 6,
+      "max_age": 59,
+      "furniture": ["core:dining_table", "core:sofa", "core:toy_chest"],
+      "condition": "always",
+      "steps": [
+        { "who": "target", "value": "grudge", "delta": 60 }
+      ]
+    },
+    {
+      "id": "core:gossip",
+      "min_age": 6,
+      "max_age": 130,
+      "furniture": ["core:dining_table", "core:sofa"],
+      "condition": "gossip",
+      "steps": []
+    },
+    {
+      "id": "core:recall",
+      "min_age": 6,
+      "max_age": 130,
+      "furniture": ["core:dining_table", "core:sofa", "core:tv"],
+      "condition": "common_memory",
+      "steps": [
+        { "who": "both", "value": "affection", "delta": 20 }
+      ]
+    },
+    {
+      "id": "core:apology",
+      "min_age": 6,
+      "max_age": 130,
+      "furniture": ["core:dining_table", "core:sofa"],
+      "condition": { "grudge_from": 300 },
+      "steps": [
+        { "who": "target", "value": "grudge", "delta": -200 },
+        { "who": "target", "value": "trust", "delta": 60 }
+      ]
+    }
+  ],
+  "choice": {
+    "company": 8000,
+    "avoid": 8000,
+    "company_min_sum": 600,
+    "avoid_below_trust": 400
+  },
+  "beliefs": {
+    "heard_cap": 900,
+    "heard_floor": 500,
+    "heard_divisor": 1500,
+    "confirm_step": 50,
+    "confirm_cap": 900,
+    "inferred_certainty": 900,
+    "lie_ppm": 50000,
+    "lie_grudge": 700,
+    "lie_certainty": 900,
+    "refute_ppm": 500000,
+    "refute_trust": -120,
+    "refute_grudge": 150,
+    "heard_aimed_trust": -80,
+    "heard_aimed_grudge": 100,
+    "heard_other_trust": -20,
+    "deeds": ["core:teases", "core:gossips", "core:lies"]
+  }
+}

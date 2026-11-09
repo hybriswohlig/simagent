@@ -30,7 +30,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the repository's data, the definitions with the pool and its
 /// frequencies, from `tools/data_reference.py` (ADR-0007).
-const DATA_HASH: u64 = 0x0a08_eab1_15b7_5093;
+const DATA_HASH: u64 = 0x01ce_3a4b_0ac5_8e6f;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -585,6 +585,7 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
             "reserve_crossing",
             EventPayload::ReserveCrossing { sim, level: 500 },
         ),
+        ("forget", EventPayload::Forget { sim }),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -611,7 +612,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::Decide { .. }
                 | EventPayload::Bedtime { .. }
                 | EventPayload::StandUp { .. }
-                | EventPayload::ReserveCrossing { .. } => {}
+                | EventPayload::ReserveCrossing { .. }
+                | EventPayload::Forget { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -654,10 +656,12 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Accident { .. } => "core:accident",
         LogPayload::Weakened { .. } => "core:weakened",
         LogPayload::Wasted { .. } => "core:wasted",
+        LogPayload::Remembered { .. } => "core:remembered",
+        LogPayload::Forgot { .. } => "core:forgot",
     }
 }
 
-const LOG_KINDS: [&str; 34] = [
+const LOG_KINDS: [&str; 36] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -692,10 +696,12 @@ const LOG_KINDS: [&str; 34] = [
     "core:accident",
     "core:weakened",
     "core:wasted",
+    "core:remembered",
+    "core:forgot",
 ];
 
 /// The entries of the house: no golden scenario moves in yet (ADR-0024).
-const HOUSE_LOGS: [&str; 17] = [
+const HOUSE_LOGS: [&str; 19] = [
     "core:moved_in",
     "core:moved_out",
     "core:day_started",
@@ -713,6 +719,8 @@ const HOUSE_LOGS: [&str; 17] = [
     "core:accident",
     "core:weakened",
     "core:wasted",
+    "core:remembered",
+    "core:forgot",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -732,9 +740,10 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 }
 
 /// The house events (ADR-0024, addendum of 2026-11-02; the bedtime and getting up of ADR-0026,
-/// addenda of 2026-11-04; the reserve's crossings of its addendum of 2026-11-06): no golden scenario
+/// addenda of 2026-11-04; the reserve's crossings of its addendum of 2026-11-06; the forgetting of
+/// ADR-0030 section 1): no golden scenario
 /// moves in yet, so none of them runs.
-const HOUSE_EVENTS: [&str; 12] = [
+const HOUSE_EVENTS: [&str; 13] = [
     "house_morning",
     "day_plan",
     "return",
@@ -747,6 +756,7 @@ const HOUSE_EVENTS: [&str; 12] = [
     "bedtime",
     "stand_up",
     "reserve_crossing",
+    "forget",
 ];
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
@@ -774,6 +784,7 @@ fn golden_scenarios_cover_every_kind() {
             "event bedtime",
             "event stand_up",
             "event reserve_crossing",
+            "event forget",
             "log core:param_changed",
             "log core:separated",
             "log core:arrived",
@@ -796,7 +807,9 @@ fn golden_scenarios_cover_every_kind() {
             "log core:collapsed",
             "log core:accident",
             "log core:weakened",
-            "log core:wasted"
+            "log core:wasted",
+            "log core:remembered",
+            "log core:forgot"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, no partnership ends by separation, and nobody \
@@ -844,7 +857,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 23);
+    assert_eq!(kinds.len(), 24);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -852,7 +865,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 34);
+    assert_eq!(logs.len(), 36);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -928,6 +941,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event bedtime",
             "event stand_up",
             "event reserve_crossing",
+            "event forget",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",
@@ -960,7 +974,9 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:collapsed",
             "log core:accident",
             "log core:weakened",
-            "log core:wasted"
+            "log core:wasted",
+            "log core:remembered",
+            "log core:forgot"
         ]
     );
 }

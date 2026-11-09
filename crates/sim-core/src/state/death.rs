@@ -269,13 +269,17 @@ pub(crate) fn on_death(
         .and_then(|id| domain.partnerships.get(&id))
         .map(|p| if p.woman == sim { p.man } else { p.woman });
     partnership::end_with(domain, sim, EndedBy::Death, ctx);
+    if let Some(partner) = partner {
+        super::memory::partner_lost(domain, data, (sim, partner), entry, ctx);
+    }
+    super::memory::relative_died(domain, data, sim, entry, ctx);
     household::death_moves(domain, data, sim, household, partner, entry, ctx);
 }
 
 /// `sim` leaves the active population for the archive now, by `left_by`: what was planned
-/// for it is cancelled, and her running pregnancy ends with her, with all its children
-/// (her conception stays counted). Returns the household it lived in, which it has not
-/// left yet.
+/// for it is cancelled, it loses every memory (`memory::left_world`), and her running
+/// pregnancy ends with her, with all its children (her conception stays counted). Returns
+/// the household it lived in, which it has not left yet.
 pub(crate) fn archive(
     domain: &mut DomainState,
     sim: SimId,
@@ -321,6 +325,7 @@ pub(crate) fn archive(
             domain.lineage.remove(unborn.lineage_key);
         }
     }
+    super::memory::left_world(domain, sim, ctx);
     person.household
 }
 

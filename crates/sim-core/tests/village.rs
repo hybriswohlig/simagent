@@ -43,7 +43,7 @@ const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 
 // The data and the pool (the reference's `village_<seed>_config`).
-const DATA_HASH: u64 = 0x0a08_eab1_15b7_5093;
+const DATA_HASH: u64 = 0x01ce_3a4b_0ac5_8e6f;
 const POOL_HASH: u64 = 0x5cc9_dc3e_b6db_8524;
 const POOL_SEED: u64 = 0x11b0_19a2;
 const FROZEN_AT: i64 = 23_587_200_000;
@@ -89,6 +89,7 @@ fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(common::repository_shocks()))
     .map(|data| data.with_houses(common::repository_houses()))
+    .map(|data| data.with_social(common::repository_social()))
     .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }
@@ -178,8 +179,8 @@ const VILLAGES: [Village; 2] = [
         chosen: &SEED_2,
         start_input: (9742, 0x0184_8c0b_393c_fb29),
         entries: 161,
-        state_hash: 0x9830_19d4_4d5f_51f2,
-        save: (24705, 0xfe2e_ae56_6654_1968),
+        state_hash: 0xb17f_0f81_879b_9011,
+        save: (24706, 0x1b87_c8eb_0cd3_5ee4),
         kin: &[
             (9, 59, 1.0 / 256.0),
             (18, 61, 1.0 / 128.0),
@@ -199,8 +200,8 @@ const VILLAGES: [Village; 2] = [
         chosen: &SEED_3,
         start_input: (9732, 0xfe72_2ea4_8554_8193),
         entries: 161,
-        state_hash: 0xe199_e659_2d5c_dd90,
-        save: (24702, 0x103b_52ea_cef0_8b20),
+        state_hash: 0x2989_3a35_8858_b053,
+        save: (24703, 0x85a2_c5bf_e030_d437),
         kin: &[
             (6, 32, 1.0 / 128.0),
             (6, 50, 1.0 / 128.0),
@@ -581,40 +582,40 @@ fn a_village_start_is_rejected_as_the_reference_rejects_it() {
 // The village of seed 2 to the end of year 29 (the reference's `village_<seed>_run`).
 const RUN_END: i64 = 30 * Y - 1;
 const RUN_LOG: (usize, u64) = (2811, 0x0946_4c54_8a70_cd39);
-const RUN_SAVE_END: (usize, u64) = (29883, 0xd134_dc75_cd4b_5999);
-const RUN_STATE_HASH: u64 = 0x402f_5f90_5739_8b1c;
+const RUN_SAVE_END: (usize, u64) = (29878, 0x12cd_3f3d_4b4e_804c);
+const RUN_STATE_HASH: u64 = 0x6e6e_eee2_e826_7df2;
 const RUN_ARCHIVED: u64 = 28;
 const RUN_YEAR_HASHES: [u64; 30] = [
-    0x47ed_8e93_51f1_1577,
-    0x8ba2_db80_12c6_e1b9,
-    0xb99b_5c32_1d86_71ca,
-    0x1f95_1431_59b3_8afe,
-    0xe9cf_60aa_0702_a21d,
-    0x4d76_8575_f952_6c1b,
-    0x557c_b9dd_264e_7f3a,
-    0xb6be_0412_b84d_dc95,
-    0xe094_b4cd_2957_1068,
-    0x73d3_1bca_49be_07e7,
-    0xe0df_9a41_a98b_69b1,
-    0xab3f_ceaa_472f_7e67,
-    0x2fcf_2529_d2d2_7d47,
-    0x87ba_7219_de04_16db,
-    0x7929_f11a_1bda_90d2,
-    0x1416_9094_9254_44ce,
-    0xb12d_31dd_3252_0388,
-    0xfba2_4c2a_36e1_2aad,
-    0x6263_a2f9_ea87_7208,
-    0xbdba_46c0_4a5e_74f6,
-    0xb8e2_d2f8_2bab_6862,
-    0x79f0_baf0_1b3f_47e7,
-    0x4562_aa07_816d_6994,
-    0xf87d_2f7c_5475_e25f,
-    0x2cd0_4544_0c88_851d,
-    0x68b4_3dbf_d1df_0a79,
-    0x8e0c_7b6a_9323_e000,
-    0x4895_fa06_4ff5_0df8,
-    0x840f_5e9f_fd8c_af65,
-    0x9154_5d36_78a1_e288,
+    0x1a03_ac23_09e4_77ad,
+    0x57a9_f1f5_0825_4d4f,
+    0x93a9_4bb8_0cde_e3ab,
+    0x4c75_3343_ca33_2735,
+    0x955e_df0b_5f38_af8b,
+    0x29e5_d0d1_453a_cec5,
+    0x2e5c_5d7c_23bf_a945,
+    0x848a_bc70_e4ba_2706,
+    0xdab8_4d23_6aae_d640,
+    0x7a9d_12fa_b351_4a82,
+    0x3712_29e8_3699_4f37,
+    0xdc7e_362c_03d0_734d,
+    0x0ec6_7d27_2cdd_c8a2,
+    0x5873_ea7b_346e_87f3,
+    0x5f77_b050_a7b5_fc79,
+    0x460b_488d_9c50_de4e,
+    0xb1a2_dae5_604a_e3c1,
+    0x474e_1dc1_6792_c244,
+    0xeda7_351a_71a6_4404,
+    0x02cd_7985_654b_56ae,
+    0x3dc7_1466_dc7d_08ee,
+    0x7c03_90b4_de2d_b8bb,
+    0x503a_1d20_415c_8ac7,
+    0x4777_9f46_9956_9268,
+    0x87fe_b7bc_714c_22fd,
+    0xfb44_daeb_138c_9fdc,
+    0x4f10_ab3e_24f7_9dfd,
+    0x825e_2e13_a009_c4db,
+    0x34eb_5f1c_6105_1e05,
+    0x7790_028f_cb13_6e93,
 ];
 /// The living at the end of each year.
 const RUN_LIVING: [u64; 30] = [
@@ -639,9 +640,9 @@ type Hunk = (usize, usize, &'static str);
 /// The save of year 9 as (length, xxh3), the hunks of the reference's forged save and that
 /// save.
 const VILLAGE_MOVED_IN: ((usize, u64), &[Hunk], (usize, u64)) = (
-    (28309, 0xba6a_742f_b208_d546),
+    (28309, 0x32d3_c317_e0cf_20e1),
     &[(8662, 1, "01"), (14482, 1, "01fecff6ab02")],
-    (28314, 0xc0e3_4446_cca7_483b),
+    (28314, 0x9fcc_aa72_e647_9f6b),
 );
 
 /// The village of seed 2 over 30 years (`K` = 80): the year hashes, the living at each year
