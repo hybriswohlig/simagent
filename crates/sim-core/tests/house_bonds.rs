@@ -122,7 +122,7 @@ fn founder(years: i64, sex: Sex) -> Founder {
 }
 
 fn started(data: Data, seed: u64, founders: Vec<Founder>, couples: Vec<Couple>) -> Run {
-    started_tag(data, seed, "test:bonds", founders, couples)
+    started_tag(data, seed, "test:bonds", founders, couples, None)
 }
 
 /// `tag` is part of each founder's lineage key, and the accident draws are keyed by it.
@@ -132,6 +132,7 @@ fn started_tag(
     tag: &str,
     founders: Vec<Founder>,
     couples: Vec<Couple>,
+    capacity: Option<u64>,
 ) -> Run {
     let start = Start {
         world_seed: seed,
@@ -142,7 +143,7 @@ fn started_tag(
         },
         founders,
         couples,
-        capacity: None,
+        capacity,
         pool: None,
     };
     let mut world = World::new(data);
@@ -172,7 +173,14 @@ fn couple(data: Data, seed: u64) -> (Run, HouseholdId) {
 
 fn couple_tagged(data: Data, seed: u64, tag: &str) -> (Run, HouseholdId) {
     let founders = vec![founder(30, Sex::Female), founder(32, Sex::Male)];
-    let mut run = started_tag(data, seed, tag, founders, vec![Couple { woman: 0, man: 1 }]);
+    let mut run = started_tag(
+        data,
+        seed,
+        tag,
+        founders,
+        vec![Couple { woman: 0, man: 1 }],
+        None,
+    );
     run.advance(DAY.as_secs() - 2);
     let home = households(&run)[0];
     run.submit(Input::MoveIn(MoveIn { household: home }));
@@ -691,6 +699,87 @@ fn a_death_drops_the_dead_persons_bonds_only() {
             .all(|entry| !matches!(entry.payload, LogPayload::BondDropped { .. }))
     );
     sound(&run);
+}
+
+/// ADR-0030 section 2 keeps a leaver's own bonds "frozen like the memories". Memories are
+/// lost at death and at emigration, so the own bonds are too. Two days after the birth the
+/// household moves out, the same world as `a_death_outside_drops_the_frozen_memories`: each
+/// person keeps its bonds frozen. The woman dies later, outside any house. Her list goes and
+/// nothing is written per bond. The man keeps his bond to her. A save taken after her death
+/// loads: the owner of a bond list is a living sim.
+#[test]
+fn a_death_outside_drops_the_dead_persons_own_bonds() {
+    let (mother_dies, father_dies) = deaths_of_seed_10();
+    let out = BIRTH + 2 * DAY.as_secs();
+    assert!(out < mother_dies && mother_dies < father_dies);
+    let (mut run, home) = couple_tagged(accidents(), 10, "test:memory");
+    run.advance(out - 1);
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    let his = edge(&run, sim(2), sim(1));
+    assert!(run.bonds(1).iter().any(|bond| bond.other == sim(2)));
+    run.advance(mother_dies - 1);
+    assert_eq!(edge(&run, sim(2), sim(1)), his);
+    run.advance(mother_dies);
+    assert!(run.bonds(1).is_empty());
+    assert_eq!(edge(&run, sim(2), sim(1)), his);
+    assert!(
+        bond_log(&run)
+            .iter()
+            .all(|entry| entry.t.as_secs() != mother_dies)
+    );
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let (loaded, hashes) = World::load(&bytes, accidents()).expect("loads");
+    assert_eq!(hashes, run.out.year_hashes);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+    sound(&run);
+}
+
+/// The same reading for an emigration, on the world of
+/// `an_emigration_outside_drops_the_frozen_memories`: seed 10 and capacity 1, moved out two
+/// days after the birth. At the last second of the year the household leaves. Each leaver's
+/// own list goes and nothing is written per bond. A save taken after that loads.
+#[test]
+fn an_emigration_outside_drops_the_leavers_own_bonds() {
+    let out = BIRTH + 2 * DAY.as_secs();
+    let leaves = YEAR.as_secs() - 1;
+    assert!(out < leaves);
+    let founders = vec![founder(30, Sex::Female), founder(32, Sex::Male)];
+    let mut run = started_tag(
+        quiet(),
+        10,
+        "test:memory",
+        founders,
+        vec![Couple { woman: 0, man: 1 }],
+        Some(1),
+    );
+    run.advance(DAY.as_secs() - 2);
+    let home = households(&run)[0];
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    run.advance(out - 1);
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    let his = edge(&run, sim(2), sim(1));
+    assert!(run.bonds(1).iter().any(|bond| bond.other == sim(2)));
+    run.advance(leaves - 1);
+    assert_eq!(edge(&run, sim(2), sim(1)), his);
+    run.advance(leaves);
+    let gone = |who: u64| {
+        run.log.iter().any(|entry| {
+            entry.t.as_secs() == leaves
+                && entry.subjects == [Subject::Sim(sim(who))]
+                && matches!(entry.payload, LogPayload::Emigrated { .. })
+        })
+    };
+    assert!(gone(1) && gone(2) && gone(3));
+    assert!(run.bonds(1).is_empty() && run.bonds(2).is_empty() && run.bonds(3).is_empty());
+    assert!(
+        bond_log(&run)
+            .iter()
+            .all(|entry| entry.t.as_secs() != leaves)
+    );
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let (loaded, hashes) = World::load(&bytes, quiet()).expect("loads");
+    assert_eq!(hashes, run.out.year_hashes);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
 }
 
 /// A birth outside a house writes no bond. The household has not moved in.
