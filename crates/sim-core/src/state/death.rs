@@ -277,9 +277,9 @@ pub(crate) fn on_death(
 }
 
 /// `sim` leaves the active population for the archive now, by `left_by`: what was planned
-/// for it is cancelled, and her running pregnancy ends with her, with all its children
-/// (her conception stays counted). Returns the household it lived in, which it has not
-/// left yet.
+/// for it is cancelled, it loses every memory (`memory::left_world`), and her running
+/// pregnancy ends with her, with all its children (her conception stays counted). Returns
+/// the household it lived in, which it has not left yet.
 pub(crate) fn archive(
     domain: &mut DomainState,
     sim: SimId,
@@ -325,6 +325,7 @@ pub(crate) fn archive(
             domain.lineage.remove(unborn.lineage_key);
         }
     }
+    super::memory::left_world(domain, sim, ctx);
     person.household
 }
 

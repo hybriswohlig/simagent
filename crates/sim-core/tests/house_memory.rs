@@ -1,8 +1,8 @@
 //! ADR-0030 section 1 in a moved-in household: the memory of a person, written at the birth of
 //! an own child, the death of a relative, the start and the end of the own partnership; its
 //! strength and the one `Forget` at the earliest zero; displacement in a full list; what a person
-//! keeps on moving out and loses by dying; the save and the load. The expected values are the
-//! ADR's and `tools/social_reference.py --check`'s, by hand.
+//! keeps on moving out and loses by dying or by emigrating; the save and the load. The expected
+//! values are the ADR's and `tools/social_reference.py --check`'s, by hand.
 
 mod common;
 
@@ -137,7 +137,7 @@ fn founders() -> Vec<Founder> {
     vec![founder(30, Sex::Female), founder(32, Sex::Male)]
 }
 
-fn started(data: Data, seed: u64, couples: Vec<Couple>) -> Run {
+fn started(data: Data, seed: u64, couples: Vec<Couple>, capacity: Option<u64>) -> Run {
     let start = Start {
         world_seed: seed,
         founder_tag: DataId::new("test:memory").expect("valid"),
@@ -147,7 +147,7 @@ fn started(data: Data, seed: u64, couples: Vec<Couple>) -> Run {
         },
         founders: founders(),
         couples,
-        capacity: None,
+        capacity,
         pool: None,
     };
     let mut world = World::new(data);
@@ -172,7 +172,7 @@ fn households(run: &Run) -> Vec<HouseholdId> {
 /// A woman of 30 (sim 1) and a man of 32 (sim 2) as a couple, moved into their house at
 /// 23:59:59 of day 0, the first morning at 6:00 of day 1.
 fn couple(data: Data, seed: u64) -> (Run, HouseholdId) {
-    let mut run = started(data, seed, vec![Couple { woman: 0, man: 1 }]);
+    let mut run = started(data, seed, vec![Couple { woman: 0, man: 1 }], None);
     run.advance(DAY.as_secs() - 2);
     let home = households(&run)[0];
     run.submit(Input::MoveIn(MoveIn { household: home }));
@@ -507,7 +507,7 @@ fn a_household_moving_out_freezes_and_moving_in_resumes() {
 /// couple's household, outside a house, which freezes the list (ADR-0030 section 1).
 #[test]
 fn the_start_of_a_partnership_is_remembered_by_both() {
-    let mut run = started(quiet(), 7, Vec::new());
+    let mut run = started(quiet(), 7, Vec::new(), None);
     run.advance(DAY.as_secs() - 2);
     let homes = households(&run);
     assert_eq!(homes.len(), 2);
@@ -645,6 +645,121 @@ fn a_death_is_remembered_by_relatives_and_ends_a_persons_memories() {
     remembers_only_who_may(&run.world);
 }
 
+/// ADR-0030 section 1, "Auszug und Tod": two days after the birth the household moves out, so
+/// each parent keeps that one memory frozen at its strength then (900 at 15 a day is 870) with
+/// `since` that second and no `Forget`. The woman dies later, outside any moved-in household, and
+/// loses the list; nothing is written for the loss. The man still lives outside and keeps his.
+/// A save taken after her death loads: every memory owner is a living sim.
+#[test]
+fn a_death_outside_drops_the_frozen_memories() {
+    let (child_dies, mother_dies, _) = deaths_of_seed_10();
+    let out = BIRTH + 2 * DAY.as_secs();
+    assert!(out < child_dies && child_dies < mother_dies);
+    let (mut run, home) = couple(accidents(), 10);
+    run.advance(out - 1);
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    let frozen = |other: u64| Memory {
+        kind: CHILD_BORN,
+        with: [Some(sim(other)), Some(sim(3))],
+        at: t(BIRTH),
+        valence: 900,
+        strength: 870,
+        since: t(out),
+        fade: 15,
+    };
+    for (who, other) in [(1, 2), (2, 1)] {
+        assert_eq!(run.memories(who), vec![frozen(other)]);
+        assert_eq!(run.forget_at(who), None);
+    }
+    // Outside, the list does not fade, and a death in the town is not remembered.
+    run.advance(mother_dies - 1);
+    assert_eq!(run.memories(1), vec![frozen(2)]);
+    assert_eq!(run.forget_at(1), None);
+    let birth = LogPayload::Remembered {
+        kind: CHILD_BORN,
+        with: [Some(sim(2)), Some(sim(3))],
+        at: t(BIRTH),
+        strength: 900,
+    };
+    assert_eq!(run.about(1), vec![(BIRTH, birth.clone())]);
+    run.advance(mother_dies);
+    assert_eq!(death_of(&run, 1).map(|(at, _)| at), Some(mother_dies));
+    assert!(run.memories(1).is_empty());
+    assert_eq!(run.forget_at(1), None);
+    assert_eq!(run.about(1), vec![(BIRTH, birth)]);
+    assert_eq!(run.memories(2), vec![frozen(1)]);
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let (loaded, hashes) = World::load(&bytes, accidents()).expect("loads");
+    assert_eq!(hashes, run.out.year_hashes);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+}
+
+/// ADR-0030 section 1: a person who leaves the world loses every memory. Two days after the birth
+/// the household moves out, so each parent keeps that one memory frozen (900 at 15 a day is 870)
+/// with `since` that second and no `Forget`. It emigrates later, still outside a house: seed 10
+/// and capacity 1 give `e` = 1/2, and that household's draw for year 0 leaves, at the last second
+/// of the year. Both lists go and nothing is written for the loss. A save taken after the
+/// emigration loads: every memory owner is a living sim.
+#[test]
+fn an_emigration_outside_drops_the_frozen_memories() {
+    let out = BIRTH + 2 * DAY.as_secs();
+    let leaves = YEAR.as_secs() - 1;
+    assert!(out < leaves);
+    let mut run = started(quiet(), 10, vec![Couple { woman: 0, man: 1 }], Some(1));
+    run.advance(DAY.as_secs() - 2);
+    let home = households(&run)[0];
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    run.advance(out - 1);
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    let frozen = |other: u64| Memory {
+        kind: CHILD_BORN,
+        with: [Some(sim(other)), Some(sim(3))],
+        at: t(BIRTH),
+        valence: 900,
+        strength: 870,
+        since: t(out),
+        fade: 15,
+    };
+    for (who, other) in [(1, 2), (2, 1)] {
+        assert_eq!(run.memories(who), vec![frozen(other)]);
+        assert_eq!(run.forget_at(who), None);
+    }
+    // Outside, the list does not fade.
+    run.advance(leaves - 1);
+    assert_eq!(run.memories(1), vec![frozen(2)]);
+    assert_eq!(run.forget_at(1), None);
+    let birth = LogPayload::Remembered {
+        kind: CHILD_BORN,
+        with: [Some(sim(2)), Some(sim(3))],
+        at: t(BIRTH),
+        strength: 900,
+    };
+    assert_eq!(run.about(1), vec![(BIRTH, birth.clone())]);
+    assert!(
+        run.log
+            .iter()
+            .all(|entry| !matches!(entry.payload, LogPayload::Emigrated { .. }))
+    );
+    run.advance(leaves);
+    let gone = |who: u64| {
+        run.log.iter().any(|entry| {
+            entry.t.as_secs() == leaves
+                && entry.subjects == [Subject::Sim(sim(who))]
+                && matches!(entry.payload, LogPayload::Emigrated { .. })
+        })
+    };
+    assert!(gone(1) && gone(2) && gone(3));
+    assert!(run.memories(1).is_empty() && run.memories(2).is_empty());
+    assert!(run.world.state().house().social.is_empty());
+    assert_eq!(run.forget_at(1), None);
+    assert_eq!(run.forget_at(2), None);
+    assert_eq!(run.about(1), vec![(BIRTH, birth)]);
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let (loaded, hashes) = World::load(&bytes, quiet()).expect("loads");
+    assert_eq!(hashes, run.out.year_hashes);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+}
+
 /// Without social data nothing remembers even in a moved-in household, and nothing is planned.
 #[test]
 fn without_social_data_nobody_remembers() {
@@ -667,7 +782,7 @@ fn without_social_data_nobody_remembers() {
 #[test]
 fn a_run_without_move_in_does_not_change() {
     let run_with = |data: Data| {
-        let mut run = started(data, 7, vec![Couple { woman: 0, man: 1 }]);
+        let mut run = started(data, 7, vec![Couple { woman: 0, man: 1 }], None);
         run.advance(BIRTH + 30 * DAY.as_secs());
         run
     };

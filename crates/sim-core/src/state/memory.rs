@@ -1,7 +1,7 @@
 //! The memory of a person in a moved-in household (ADR-0030 section 1): what is written down
 //! (the birth of an own child, the death of a relative from φ = 1/8, the start and the end of the
 //! own partnership), the one open `Forget` per person at the earliest second a strength is 0,
-//! what a person keeps on moving out and what it loses by dying. The lists are in
+//! what a person keeps on moving out and what it loses by leaving the world. The lists are in
 //! `house::state::HouseState::social`; the strengths and the order of falling are
 //! `social::memory`. Nothing remembers without social data in the world's data.
 
@@ -178,6 +178,16 @@ pub(super) fn leave(domain: &mut DomainState, data: &Data, sim: SimId, now: SimT
     }
 }
 
+/// A person who leaves the world loses every memory, wherever it lived (ADR-0030 section 1).
+/// Nothing is written per memory. The open `Forget` is cancelled once: a list frozen on moving
+/// out has none left, and one still in a house loses the one it had.
+pub(super) fn left_world(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+    domain.house.social.memories.remove(&sim);
+    if let Some(handle) = domain.pending.remove(&(sim, Slot::Forget)) {
+        ctx.cancel(handle);
+    }
+}
+
 /// A person with memories comes into a moved-in household, caused by `by` (its `core:moved_in`):
 /// what it kept on moving out did not fade while it was outside, so each strength stands as it
 /// was frozen and `since` is now; then its `Forget` is planned (ADR-0030 section 1, "Auszug und
@@ -280,9 +290,12 @@ pub(super) fn relative_died(
         .filter(|&sim| remembers(domain, social, sim, now))
         .collect();
     candidates.sort_unstable();
-    let threshold = f64::from(social.memory.relative_phi_eighths) / 8.0;
     for sim in candidates {
-        if market::phi(domain, data, dead, sim) >= threshold {
+        // φ is a sum of powers of 1/2, the same kinship function as the partner market, so
+        // this comparison with an integer number of eighths is exact.
+        if market::phi(domain, data, dead, sim) * 8.0
+            >= f64::from(social.memory.relative_phi_eighths)
+        {
             let kind = (RELATIVE_DIED, others(Some(dead), None));
             remember(domain, data, sim, kind, by, ctx);
         }
