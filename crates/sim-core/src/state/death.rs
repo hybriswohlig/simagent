@@ -264,6 +264,8 @@ pub(crate) fn on_death(
         Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
     );
     let household = archive(domain, sim, LeftBy::Death { cause }, ctx);
+    // Wherever it lived: a moved-out list is frozen and the house no longer drops it.
+    super::memory::died(domain, sim, ctx);
     // The partner of the partnership this death ends may take over its children.
     let partner = partnership::open_partnership(domain, sim)
         .and_then(|id| domain.partnerships.get(&id))
