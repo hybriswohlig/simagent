@@ -744,7 +744,11 @@ PROJECTION_VERSION = 21
 # is six zero lengths, and `core:bond_formed`, `core:bond_changed`, `core:bond_dropped` follow
 # `core:forgot`. A run without `MoveIn` gains one zero byte and the core version; its log does
 # not change: projection 21, core 64.
-CORE_VERSION = 64
+# Company and avoid in a choice (ADR-0030 section 4) reserve `core:talked` and append
+# `core:company` after `core:bond_dropped`. No new state. A save keeps every byte but the core
+# version, and a run without a household in a house keeps its year hashes and its log: the
+# projection stays 21, core 65.
+CORE_VERSION = 65
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
