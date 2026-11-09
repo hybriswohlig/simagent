@@ -354,12 +354,12 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
         )
     );
     replace_in(&log, r#""core_version":64"#, r#""core_version":63"#);
-    replace_in(&log, "0e70775a24666892", "c3f04a38869c20d7");
+    replace_in(&log, "01ce3a4b0ac58e6f", "c3f04a38869c20d7");
     assert_eq!(
         fork(&parent, "5", &out),
-        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is 0e70775a24666892".to_owned())
+        Err("error: fork_foreign_data_hash: the parent run has data hash c3f04a38869c20d7, this is 01ce3a4b0ac58e6f".to_owned())
     );
-    replace_in(&log, "c3f04a38869c20d7", "0e70775a24666892");
+    replace_in(&log, "c3f04a38869c20d7", "01ce3a4b0ac58e6f");
     assert_eq!(fork(&parent, "5", &dir.join("restored")), Ok(()));
 
     // The resolved scenario must start as the input log does.
@@ -420,7 +420,7 @@ fn fork_rejects_a_foreign_or_incomplete_parent() {
     for (from, to) in [
         (r#""core_version":63"#, r#""core_version":64"#),
         (
-            r#""data_hash":"0e70775a24666892""#,
+            r#""data_hash":"01ce3a4b0ac58e6f""#,
             r#""data_hash":"c3f04a38869c20d7""#,
         ),
         (
