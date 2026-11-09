@@ -18,7 +18,7 @@ use crate::social::memory::Memory;
 /// list of a person who lives in a moved-in household is live (at most `limits.memories`
 /// entries, one open `Forget`); that of one who moved out is frozen (at most
 /// `limits.keep_on_move_out`, no event). Bonds have no event: outside a house they are
-/// settled and do not fall.
+/// settled and do not fall, until a death or an emigration drops the owner's list.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Social {
     pub memories: BTreeMap<SimId, Vec<Memory>>,

@@ -1,8 +1,9 @@
 //! The bonds of a person in a moved-in household (ADR-0030 section 2): one directed bond per
 //! other person, formed when a household moves in and when a child is born in the house, with
 //! the start values of the first matching role. A full list drops the weakest unprotected
-//! bond. On moving out the bonds stay and are settled; on a death they go. Nothing here
-//! changes a choice. The values and the eviction are `social::bond`.
+//! bond. On moving out the bonds stay and are settled. On a death or an emigration the
+//! owner's own list goes (`left_world`), wherever it lived, read like the memories. Nothing
+//! here changes a choice. The values and the eviction are `social::bond`.
 
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -221,10 +222,11 @@ pub(super) fn child_born(
     on_join(domain, data, person.household, child, born, ctx);
 }
 
-/// A person leaves a moved-in household now (ADR-0030 section 2, "Auszug und Tod"): one who
-/// lives on keeps every bond, familiarity and grudge written down at `now` (`since` is this
-/// second until the person moves in again); one who died or left the town loses all of them.
-/// Nothing is written per bond.
+/// A person leaves a moved-in household now (ADR-0030 section 2): one who lives on keeps
+/// every bond, familiarity and grudge written down at `now` (`since` is this second until
+/// the person moves in again). A plain move-out is this case. Nothing is written per bond.
+/// A death or an emigration drops the list in [`left_world`], including one frozen here; if
+/// this runs after the person has already left the world, the list is not put back.
 pub(super) fn leave(domain: &mut DomainState, data: &Data, sim: SimId, now: SimTime) {
     let Some(mut list) = domain.house.social.bonds.remove(&sim) else {
         return;
@@ -244,6 +246,15 @@ pub(super) fn leave(domain: &mut DomainState, data: &Data, sim: SimId, now: SimT
     }
 }
 
+/// A person who leaves the world loses every bond of their own, wherever the list lived
+/// (ADR-0030 section 2). The section keeps a leaver's own bonds "frozen like the memories";
+/// memories are lost at death and at emigration, so these bonds are too. A plain move-out
+/// still freezes them ([`leave`]). Bonds of others to this person stay and keep fading.
+/// Nothing is written per bond.
+pub(super) fn left_world(domain: &mut DomainState, sim: SimId) {
+    domain.house.social.bonds.remove(&sim);
+}
+
 /// A person with bonds comes into a moved-in household (ADR-0030 section 2): what was settled
 /// on moving out did not fall while the person was outside, so the values stay and `since`
 /// is `now`. No entry.
@@ -257,10 +268,10 @@ pub(super) fn resume(domain: &mut DomainState, sim: SimId, now: SimTime) {
 }
 
 /// Whether the bonds of a loaded state are ones the core can reach (ADR-0030 section 5):
-/// only with social data; each list belongs to a living person and is not empty, sorted by
-/// the other person without a repeat, at most `limits.bonds` long; each bond is to someone
-/// else who exists (living or archived), each value at most 1000, written down by the open
-/// second. There is no bond event.
+/// only with social data. The owner of a list is a living sim. The `other` of a bond is any
+/// known person, living or archived, and never the owner. Each list is not empty, sorted by
+/// the other person without a repeat, at most `limits.bonds` long; each value is at most
+/// 1000, written down by the open second. There is no bond event.
 pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
     let bonds = &loaded.house.social.bonds;
     if bonds.is_empty() {
