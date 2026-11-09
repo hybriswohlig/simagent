@@ -645,6 +645,55 @@ fn a_death_is_remembered_by_relatives_and_ends_a_persons_memories() {
     remembers_only_who_may(&run.world);
 }
 
+/// ADR-0030 section 1, "Auszug und Tod": two days after the birth the household moves out, so
+/// each parent keeps that one memory frozen at its strength then (900 at 15 a day is 870) with
+/// `since` that second and no `Forget`. The woman dies later, outside any moved-in household, and
+/// loses the list; nothing is written for the loss. The man still lives outside and keeps his.
+/// A save taken after her death loads: every memory owner is a living sim.
+#[test]
+fn a_death_outside_drops_the_frozen_memories() {
+    let (child_dies, mother_dies, _) = deaths_of_seed_10();
+    let out = BIRTH + 2 * DAY.as_secs();
+    assert!(out < child_dies && child_dies < mother_dies);
+    let (mut run, home) = couple(accidents(), 10);
+    run.advance(out - 1);
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    let frozen = |other: u64| Memory {
+        kind: CHILD_BORN,
+        with: [Some(sim(other)), Some(sim(3))],
+        at: t(BIRTH),
+        valence: 900,
+        strength: 870,
+        since: t(out),
+        fade: 15,
+    };
+    for (who, other) in [(1, 2), (2, 1)] {
+        assert_eq!(run.memories(who), vec![frozen(other)]);
+        assert_eq!(run.forget_at(who), None);
+    }
+    // Outside, the list does not fade, and a death in the town is not remembered.
+    run.advance(mother_dies - 1);
+    assert_eq!(run.memories(1), vec![frozen(2)]);
+    assert_eq!(run.forget_at(1), None);
+    let birth = LogPayload::Remembered {
+        kind: CHILD_BORN,
+        with: [Some(sim(2)), Some(sim(3))],
+        at: t(BIRTH),
+        strength: 900,
+    };
+    assert_eq!(run.about(1), vec![(BIRTH, birth.clone())]);
+    run.advance(mother_dies);
+    assert_eq!(death_of(&run, 1).map(|(at, _)| at), Some(mother_dies));
+    assert!(run.memories(1).is_empty());
+    assert_eq!(run.forget_at(1), None);
+    assert_eq!(run.about(1), vec![(BIRTH, birth)]);
+    assert_eq!(run.memories(2), vec![frozen(1)]);
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let (loaded, hashes) = World::load(&bytes, accidents()).expect("loads");
+    assert_eq!(hashes, run.out.year_hashes);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+}
+
 /// Without social data nothing remembers even in a moved-in household, and nothing is planned.
 #[test]
 fn without_social_data_nobody_remembers() {
