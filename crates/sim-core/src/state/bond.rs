@@ -17,10 +17,6 @@ use crate::social::bond::{self, Bond, Formation, Role};
 use crate::time::SimTime;
 use crate::world::SimCtx;
 
-/// φ from which a bond is kin, and protected from eviction (ADR-0030 section 2). The core's
-/// kinship is the Malécot coefficient as an `f64`; 1/8 is exact in that representation.
-const KIN_PHI: f64 = 0.125;
-
 /// The living members of `household`, by SimId.
 fn members(domain: &DomainState, household: crate::ids::HouseholdId) -> Vec<SimId> {
     (domain.members.get(&household))
@@ -81,7 +77,7 @@ fn role_of(domain: &mut DomainState, data: &Data, holder: SimId, other: SimId) -
     let other_is_my_child =
         theirs.is_some_and(|parents| parents.mother == holder || parents.father == holder);
     let sibling = full_siblings(mine, theirs);
-    let kin = market::phi(domain, data, holder, other) >= KIN_PHI;
+    let kin = market::kin_from_eighths(domain, data, holder, other, 1);
     bond::start_role(partner, other_is_my_parent, other_is_my_child, sibling, kin)
 }
 
@@ -97,7 +93,7 @@ fn protected(domain: &mut DomainState, data: &Data, owner: SimId) -> BTreeSet<Si
         let mate = household.is_some_and(|household| {
             (domain.sims.get(&other)).is_some_and(|person| person.household == household)
         });
-        if mate || market::phi(domain, data, owner, other) >= KIN_PHI {
+        if mate || market::kin_from_eighths(domain, data, owner, other, 1) {
             kept.insert(other);
         }
     }

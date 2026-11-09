@@ -291,11 +291,13 @@ pub(super) fn relative_died(
         .collect();
     candidates.sort_unstable();
     for sim in candidates {
-        // φ is a sum of powers of 1/2, the same kinship function as the partner market, so
-        // this comparison with an integer number of eighths is exact.
-        if market::phi(domain, data, dead, sim) * 8.0
-            >= f64::from(social.memory.relative_phi_eighths)
-        {
+        if market::kin_from_eighths(
+            domain,
+            data,
+            dead,
+            sim,
+            u32::from(social.memory.relative_phi_eighths),
+        ) {
             let kind = (RELATIVE_DIED, others(Some(dead), None));
             remember(domain, data, sim, kind, by, ctx);
         }
