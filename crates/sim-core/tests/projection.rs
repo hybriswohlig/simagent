@@ -118,7 +118,7 @@ fn the_projection_keeps_sex_genome_and_key_of_each_founder() {
         }))
         .expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(PAIR_AFTER_START));
-    assert_eq!(world.state_hash(), 0xc39f_a1aa_5598_f5c5);
+    assert_eq!(world.state_hash(), 0x053a_59c6_3e49_2535);
 }
 
 /// "tiny" with an override block right after `Start` (tools/state_reference.py): the
@@ -133,7 +133,7 @@ fn an_override_changes_the_world_parameters_in_the_projection() {
     });
     world.submit(block).expect("accepted");
     assert_eq!(world.canonical_bytes(), hex(TINY_OVERRIDDEN));
-    assert_eq!(world.state_hash(), 0x2df7_d138_6d61_16c7);
+    assert_eq!(world.state_hash(), 0xefd2_1478_992d_5b47);
     let log = world.take_log();
     assert_eq!(log.len(), 1);
     assert_eq!(
@@ -171,7 +171,7 @@ fn the_year_hash_is_what_the_observer_sees() {
     assert_ne!(TINY_YEAR_0_HASH, world.state_hash());
     assert_eq!(
         serde_json::to_string(&out.year_hashes[0]).expect("json"),
-        r#"{"year":0,"hash":"ba22a25a8366df04"}"#
+        r#"{"year":0,"hash":"c7a55fc6df9d5e24"}"#
     );
     assert!(
         serde_json::from_str::<YearHash>(r#"{"year":0,"hash":"6710517d804b1d20","x":1}"#).is_err()

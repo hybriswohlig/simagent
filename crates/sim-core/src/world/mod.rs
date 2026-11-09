@@ -995,17 +995,17 @@ mod tests {
     /// the Y as variant 1 with 0, mt 0), no affliction (0), no conception (0), no live
     /// birth (0), no partnership (0), household 1, not moved out (0), no parents (0), no
     /// social parents (0) and not from the pool (0). The used households of the pool (none,
-    /// 0) follow the archive, then the four empty maps of the house (ADR-0024, addendum of
-    /// 2026-11-02) and the empty map of the memories (ADR-0030 section 5).
+    /// 0) follow the archive, then the empty house: six zero bytes, the four maps and the
+    /// memories and the bonds (projection 21, `EMPTY_HOUSE` in tools/world_reference.py).
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());
         world.submit(start(&[-5])).expect("accepted");
         let before = world.canonical_bytes();
         assert_eq!(
-            before[before.len() - 7..],
-            [0; 7],
-            "an empty archive, no household used, an empty house"
+            before[before.len() - 8..],
+            [0; 8],
+            "an empty archive, no household used, an empty house of six zero bytes"
         );
         world
             .state
@@ -1013,11 +1013,11 @@ mod tests {
             .archive
             .insert(SimId::try_from(2).expect("valid"), archived());
         let mut expected = before.clone();
-        expected.truncate(before.len() - 7);
+        expected.truncate(before.len() - 8);
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
         expected.extend([
-            1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ]);
         assert_eq!(world.canonical_bytes(), expected);
     }

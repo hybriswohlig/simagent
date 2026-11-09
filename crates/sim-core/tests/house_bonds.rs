@@ -216,7 +216,7 @@ fn bond_log(run: &Run) -> Vec<&LogEntry> {
         .collect()
 }
 
-fn formed<'a>(run: &'a Run, who: u64, other: u64) -> &'a LogEntry {
+fn formed(run: &Run, who: u64, other: u64) -> &LogEntry {
     (run.log.iter())
         .find(|entry| {
             entry.subjects == [Subject::Sim(sim(who))]
