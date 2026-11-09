@@ -334,6 +334,24 @@ pub enum LogPayload {
         at: SimTime,
         reason: ForgetReason,
     },
+    /// A person (the subject) formed a bond to `other` with the start `values` (affection,
+    /// trust, respect, attraction, familiarity, grudge), each from 0 to 1000 (ADR-0030
+    /// section 2).
+    #[serde(rename = "core:bond_formed")]
+    BondFormed { other: SimId, values: [u16; 6] },
+    /// A person (the subject) changed its bond to `other`: the six values at this second
+    /// before the step and after it (ADR-0030 section 2). A later slice writes it; the
+    /// variant stands here so the log order is the one of that section.
+    #[serde(rename = "core:bond_changed")]
+    BondChanged {
+        other: SimId,
+        before: [u16; 6],
+        after: [u16; 6],
+    },
+    /// A person (the subject) lost its bond to `other`: a new bond took its place in a full
+    /// list (ADR-0030 section 2).
+    #[serde(rename = "core:bond_dropped")]
+    BondDropped { other: SimId },
 }
 
 /// Why a memory was lost: its strength reached 0, or a newer one took its place in a full list.
