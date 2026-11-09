@@ -1,7 +1,7 @@
 //! The memory of a person in a moved-in household (ADR-0030 section 1): what is written down
 //! (the birth of an own child, the death of a relative from φ = 1/8, the start and the end of the
 //! own partnership), the one open `Forget` per person at the earliest second a strength is 0,
-//! what a person keeps on moving out and what it loses by dying. The lists are in
+//! what a person keeps on moving out and what it loses by leaving the world. The lists are in
 //! `house::state::HouseState::social`; the strengths and the order of falling are
 //! `social::memory`. Nothing remembers without social data in the world's data.
 
@@ -178,10 +178,10 @@ pub(super) fn leave(domain: &mut DomainState, data: &Data, sim: SimId, now: SimT
     }
 }
 
-/// A person who died loses every memory and the open `Forget`, wherever it lived (ADR-0030
-/// section 1, "Wer stirbt, verliert alles"). Nothing is written per memory: the death is the
-/// cause. A list frozen on moving out has no `Forget` left; one still in a house does.
-pub(super) fn died(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
+/// A person who leaves the world loses every memory, wherever it lived (ADR-0030 section 1).
+/// Nothing is written per memory. The open `Forget` is cancelled once: a list frozen on moving
+/// out has none left, and one still in a house loses the one it had.
+pub(super) fn left_world(domain: &mut DomainState, sim: SimId, ctx: &mut SimCtx<'_, '_>) {
     domain.house.social.memories.remove(&sim);
     if let Some(handle) = domain.pending.remove(&(sim, Slot::Forget)) {
         ctx.cancel(handle);

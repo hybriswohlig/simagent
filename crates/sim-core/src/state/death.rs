@@ -264,8 +264,6 @@ pub(crate) fn on_death(
         Causes::new(ctx.trigger()).with(Cause::Random(DrawRef::from(draw))),
     );
     let household = archive(domain, sim, LeftBy::Death { cause }, ctx);
-    // Wherever it lived: a moved-out list is frozen and the house no longer drops it.
-    super::memory::died(domain, sim, ctx);
     // The partner of the partnership this death ends may take over its children.
     let partner = partnership::open_partnership(domain, sim)
         .and_then(|id| domain.partnerships.get(&id))
@@ -279,9 +277,9 @@ pub(crate) fn on_death(
 }
 
 /// `sim` leaves the active population for the archive now, by `left_by`: what was planned
-/// for it is cancelled, and her running pregnancy ends with her, with all its children
-/// (her conception stays counted). Returns the household it lived in, which it has not
-/// left yet.
+/// for it is cancelled, it loses every memory (`memory::left_world`), and her running
+/// pregnancy ends with her, with all its children (her conception stays counted). Returns
+/// the household it lived in, which it has not left yet.
 pub(crate) fn archive(
     domain: &mut DomainState,
     sim: SimId,
@@ -327,6 +325,7 @@ pub(crate) fn archive(
             domain.lineage.remove(unborn.lineage_key);
         }
     }
+    super::memory::left_world(domain, sim, ctx);
     person.household
 }
 
