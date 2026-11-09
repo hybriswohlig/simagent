@@ -83,7 +83,9 @@ pub fn mood(
 /// `values` in `room`, by object and then offer, each with its mood `moods(object, offer)` in
 /// percent: `(Σ weight · gain) · (100 + mood) / 100 − 50 · walking seconds`, truncated toward
 /// zero, and `(151 − v) · 10⁹` for each critical need the offer raises; the mood scales neither
-/// the walk nor that (ADR-0026, addendum of 2026-11-04 on the mood). The gain of a need the offer
+/// the walk, `bonus(object)`, nor that (ADR-0026, addendum of 2026-11-04 on the mood). `bonus` is
+/// company minus avoid for that furniture (ADR-0030 section 4), added after the scaled needs like
+/// the walk. A fallback offer is scored here, so it gets the bonus too. The gain of a need the offer
 /// raises is `min(rate · length / 3600, 1000 − v)`, with the length `seconds` or `max_seconds`
 /// and the rates of the age band of `age`; its weight `max(0, comfort − v)` (the addendum on
 /// comfort and the time-filler). An offer of sleep is open only in the person's night,
@@ -97,6 +99,7 @@ pub fn score(
     (age, values, room): (u8, [u16; 5], u8),
     (night_left, depart_in): (Option<i64>, Option<i64>),
     moods: impl Fn(u16, u16) -> i8,
+    bonus: impl Fn(u16) -> i64,
 ) -> Vec<Scored> {
     let Some(band) = age_band(age) else {
         return Vec::new();
@@ -122,7 +125,14 @@ pub fn score(
                 continue;
             }
             let mood = moods(object, offer);
-            let points = points(def, (data.rates(), band, length), values, walk, mood);
+            let points = points(
+                def,
+                (data.rates(), band, length),
+                values,
+                walk,
+                mood,
+                bonus(object),
+            );
             scored.push(Scored {
                 object,
                 offer,
@@ -135,13 +145,15 @@ pub fn score(
 }
 
 /// The points of one offer `def` of `length` seconds in the age band `band` for the needs
-/// `values`, `walk` the points its walk costs, with the mood `mood` (`score`).
+/// `values`, `walk` the points its walk costs, with the mood `mood` and the furniture's
+/// `bonus` (`score`).
 fn points(
     def: &OfferDef,
     (rates, band, length): (&NeedRates, usize, i64),
     values: [u16; 5],
     walk: i64,
     mood: i8,
+    bonus: i64,
 ) -> i64 {
     let (mut filled, mut critical) = (0, 0);
     for (need, value) in NEEDS.into_iter().zip(values) {
@@ -156,7 +168,7 @@ fn points(
             critical += i64::from(CRITICAL + 1 - value) * PER_CRITICAL_POINT;
         }
     }
-    filled * (100 + i64::from(mood)) / 100 - walk + critical
+    filled * (100 + i64::from(mood)) / 100 - walk + bonus + critical
 }
 
 /// The seconds offer `def` lasts begun with the needs `values` in the age band `band`, as its
@@ -514,7 +526,9 @@ pub fn urgent_part(def: &OfferDef, rates: &NeedRates, (age, values): (u8, [u16; 
 /// which comes first, and nothing is planned (ADR-0026, addendum of 2026-11-04 on comfort and the
 /// time-filler). `None` if nothing comes, or beyond the end of time. The needs keep the rates of
 /// their samples; the sample of a need that rises is weighed at its value at `start` for the most
-/// and full for the least, so both bounds only grow with time.
+/// and full for the least, so both bounds only grow with time. Company and avoid are not in this
+/// search: who sits is known when the choice runs, and `decide` adds them then. Here every offer
+/// is weighed with bonus 0, so a loaded world and a run plan the same second.
 pub fn next_choice(
     (house, data): (&House, &HouseData),
     (born, needs, room): (SimTime, &[NeedSample; 5], u8),
@@ -572,7 +586,7 @@ pub fn next_choice(
                     (true, None) => needs[n].value_at(start),
                     (false, _) => needs[n].value_at(at),
                 });
-                points(def, weighed, values, walk, mood) >= ENOUGH
+                points(def, weighed, values, walk, mood, 0) >= ENOUGH
             };
             // Only before the departure closes it; it runs longer the later it is chosen.
             let closes = |at: i64| {
@@ -596,7 +610,7 @@ pub fn next_choice(
             let mut found = surely;
             while minute < surely.unwrap_or(until) {
                 let mood = moods(SimTime::from_secs(minute), object, offer);
-                if points(def, weighed, values_at(minute), walk, mood) >= ENOUGH {
+                if points(def, weighed, values_at(minute), walk, mood, 0) >= ENOUGH {
                     found = Some(minute);
                     break;
                 }

@@ -3,7 +3,7 @@
 //! down, analytically, with no event. Affection, trust, respect and attraction stay until a
 //! later slice changes them. Everything is an integer. The state side (`state::bond`) forms
 //! bonds; this module is the pure part: the values at a second, settling them, a clamped
-//! step, the first matching role and insertion with eviction.
+//! step, the first matching role, insertion with eviction, and the choice's company and avoid.
 
 use alloc::vec::Vec;
 
@@ -196,6 +196,55 @@ pub fn insert(
         .unwrap_or_else(|at| at);
     list.insert(at, new);
     Formation::Formed { dropped }
+}
+
+/// Company and avoid for one piece of furniture (ADR-0030 section 4). `avoid` is positive and
+/// is subtracted. A row counts when `liked` or `avoided` is set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Company {
+    pub liked: Option<SimId>,
+    pub company: i64,
+    pub avoided: Option<SimId>,
+    pub avoid: i64,
+}
+
+/// The two components for the people `present` at one sociable furniture. `edge` is the
+/// chooser's bond to one of them at this second, the six values, or none. `liked` is the one
+/// whose affection plus familiarity is at least `min_sum` and the largest such sum, then the
+/// smaller id. `avoided` is the one whose trust is below `below` and the smallest such trust,
+/// then the smaller id. Each counts at most once. A person with no bond is skipped. `company`
+/// and `avoid` are the points from the data.
+pub fn choice_bonus(
+    present: &[SimId],
+    edge: impl Fn(SimId) -> Option<[u16; 6]>,
+    (company, avoid, min_sum, below): (i64, i64, u16, u16),
+) -> Company {
+    let mut there = present.to_vec();
+    there.sort_unstable();
+    there.dedup();
+    let (mut liked, mut best_sum) = (None, 0_u32);
+    let (mut avoided, mut worst_trust) = (None, 0_u16);
+    for other in there {
+        let Some(values) = edge(other) else {
+            continue;
+        };
+        let sum = u32::from(values[AFFECTION]) + u32::from(values[FAMILIARITY]);
+        if sum >= u32::from(min_sum) && liked.is_none_or(|_| sum > best_sum) {
+            liked = Some(other);
+            best_sum = sum;
+        }
+        let trust = values[TRUST];
+        if trust < below && avoided.is_none_or(|_| trust < worst_trust) {
+            avoided = Some(other);
+            worst_trust = trust;
+        }
+    }
+    Company {
+        liked,
+        company: if liked.is_some() { company } else { 0 },
+        avoided,
+        avoid: if avoided.is_some() { avoid } else { 0 },
+    }
 }
 
 #[cfg(test)]

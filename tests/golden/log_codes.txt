@@ -43,6 +43,8 @@ payload 35 core:forgot
 payload 36 core:bond_formed
 payload 37 core:bond_changed
 payload 38 core:bond_dropped
+payload 39 core:talked
+payload 40 core:company
 cause 0 event
 cause 1 plan
 cause 2 input

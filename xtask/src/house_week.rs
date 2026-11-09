@@ -253,7 +253,15 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
         let left = night(houses.day(), born, entry.t).map(|night| night.left(entry.t));
         let percent = houses.day().choice_mood_percent;
         let moods = |object, offer| mood(seed, key, entry.t, (object, offer), percent);
-        let weighed = score(house, houses, (years, needs, room), (left, None), moods).len();
+        let weighed = score(
+            house,
+            houses,
+            (years, needs, room),
+            (left, None),
+            moods,
+            |_| 0,
+        )
+        .len();
         counted.most_offers = counted.most_offers.max(weighed);
     }
     counted.with_needs = with_needs.len();

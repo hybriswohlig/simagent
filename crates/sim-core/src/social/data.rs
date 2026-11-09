@@ -2,9 +2,9 @@
 //! their checks. Everything is an integer; nothing here is a float. The kinds of memory with
 //! their start strength, fade and valence, the start values of the bonds by role and their fades,
 //! the topics of a talk with conditions and steps, the choice's company and avoid, the beliefs'
-//! numbers and the limits. Only the memory part is used by the core so far; the rest is read and
-//! checked so that the data hash does not move again when a later slice comes. The memory and
-//! the bonds are what the core uses so far.
+//! numbers and the limits. The memory, the bonds and the choice's company and avoid are what the
+//! core uses so far. The topics' outcomes and the beliefs are read and checked so the data hash
+//! does not move again when a later slice comes.
 
 use alloc::vec::Vec;
 use core::fmt;
@@ -320,6 +320,14 @@ impl SocialData {
     /// The kind with this number, if the data has it.
     pub fn kind(&self, kind: u16) -> Option<&MemoryKind> {
         self.memory.kinds.get(usize::from(kind))
+    }
+
+    /// Whether a topic names this kind of furniture. A choice then reads the bonds of whoever
+    /// sits there or is on the way (ADR-0030 section 4).
+    pub fn sociable(&self, kind: &DataId) -> bool {
+        self.topics
+            .iter()
+            .any(|topic| topic.furniture.iter().any(|id| id == kind))
     }
 }
 

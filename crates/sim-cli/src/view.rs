@@ -1112,12 +1112,12 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
         return no_choice();
     };
     let log = dir.join(files::EVENTS);
-    let (found, end) = match find_entry(&log, id) {
+    let (line, end) = match find_entry(&log, id) {
         Err(()) => return Response::error(500, "events_invalid"),
         Ok(None) => return no_choice(),
         Ok(Some(found)) => found,
     };
-    let Ok(found) = serde_json::from_str::<sim_core::log::LogEntry>(&found) else {
+    let Ok(found) = serde_json::from_str::<sim_core::log::LogEntry>(&line) else {
         return Response::error(500, "events_invalid");
     };
     let latest = match (&found.payload, found.subjects.as_slice()) {
@@ -1142,7 +1142,24 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
         ended,
         next: next.as_ref(),
     });
-    match world().and_then(|world| crate::why_answer(&world, &found, id, latest, ended)) {
+    let rows = match &found.payload {
+        LogPayload::Idle { .. } | LogPayload::ActionStarted { .. } => {
+            let choice_at = end.saturating_sub(u64::try_from(line.len()).unwrap_or(0));
+            match company_before(&log, choice_at, &found) {
+                Ok(rows) => rows,
+                Err(()) => return Response::error(500, "events_invalid"),
+            }
+        }
+        _ => Vec::new(),
+    };
+    match world().and_then(|world| {
+        crate::why_answer(&world, &found, id, latest, ended, |object| {
+            (rows.iter())
+                .find(|row| row.object == object)
+                .map(|row| row.company - row.avoid)
+                .unwrap_or(0)
+        })
+    }) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => no_choice(),
         Err(error) => Response::error(500, error.code),
@@ -1235,6 +1252,49 @@ fn later_choice(path: &Path, from: u64, sim: sim_core::ids::SimId) -> Result<boo
 
 /// How many bytes of the domain log the search for an entry reads one line after the other.
 const SEARCH_WINDOW: u64 = 1 << 16;
+
+/// The `core:company` rows of the choice that starts at byte `choice_start`, from the last such
+/// entry about the same person in the same second within `SEARCH_WINDOW` before it. Empty when
+/// the choice weighed no company. `Err` for a log it cannot read or a line it cannot parse.
+fn company_before(
+    path: &Path,
+    choice_start: u64,
+    choice: &sim_core::log::LogEntry,
+) -> Result<Vec<sim_core::log::Company>, ()> {
+    use sim_core::log::LogPayload;
+    use std::io::{Read, Seek, SeekFrom};
+    if choice_start == 0 {
+        return Ok(Vec::new());
+    }
+    let from = choice_start.saturating_sub(SEARCH_WINDOW);
+    let mut file = std::fs::File::open(path).map_err(drop)?;
+    file.seek(SeekFrom::Start(from)).map_err(drop)?;
+    let mut buf = vec![0_u8; usize::try_from(choice_start - from).map_err(drop)?];
+    file.read_exact(&mut buf).map_err(drop)?;
+    let start = if from == 0 {
+        0
+    } else {
+        match buf.iter().position(|byte| *byte == b'\n') {
+            Some(at) => at + 1,
+            None => return Ok(Vec::new()),
+        }
+    };
+    let text = std::str::from_utf8(&buf[start..]).map_err(drop)?;
+    let mut rows = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if !line.ends_with('\n') || !line.contains("\"core:company\"") {
+            continue;
+        }
+        let entry: sim_core::log::LogEntry = serde_json::from_str(line).map_err(drop)?;
+        if entry.t == choice.t
+            && entry.subjects == choice.subjects
+            && let LogPayload::Company { objects } = entry.payload
+        {
+            rows = objects;
+        }
+    }
+    Ok(rows)
+}
 
 /// The line of the domain log at `path` with the entry `id` and the byte after it: only a
 /// complete line (the command line appends whole lines, a last one without its line end it is

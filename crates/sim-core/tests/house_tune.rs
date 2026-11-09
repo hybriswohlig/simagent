@@ -85,7 +85,14 @@ fn a_need_weighs_from_its_comfort() {
     let houses = common::repository_houses();
     let house = terraced(&houses);
     let at = |values: [u16; 5], room: u8| {
-        score(house, &houses, (30, values, room), (None, None), no_mood)
+        score(
+            house,
+            &houses,
+            (30, values, room),
+            (None, None),
+            no_mood,
+            |_| 0,
+        )
     };
     let hungry = |hunger: u16| [hunger, 1000, 1000, 1000, 1000];
     assert_eq!(points_of(&at(hungry(600), 1), 0), Some(40_000 - 250));
@@ -655,9 +662,17 @@ fn an_offer_that_runs_into_the_departure_is_closed() {
         .house(&DataId::new("core:flat").expect("id"))
         .expect("the flat");
     let open = |values: [u16; 5], depart_in: Option<i64>| -> Vec<u16> {
-        (score(flat, &houses, (30, values, 0), (None, depart_in), no_mood).iter())
-            .map(|scored| scored.object)
-            .collect()
+        (score(
+            flat,
+            &houses,
+            (30, values, 0),
+            (None, depart_in),
+            no_mood,
+            |_| 0,
+        )
+        .iter())
+        .map(|scored| scored.object)
+        .collect()
     };
     assert_eq!(open(MORNING_VALUES, Some(600)), [1, 5]);
     assert_eq!(open(MORNING_VALUES, None), [0, 1, 2, 3, 4, 5, 6]);

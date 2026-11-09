@@ -12,11 +12,11 @@
 
 mod common;
 
-use common::day::{Run, MORNING};
-use serde_json::{json, Value};
+use common::day::{MORNING, Run};
+use serde_json::{Value, json};
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
-use sim_core::house::choice::{choose, score, Choice, Scored, ENOUGH};
+use sim_core::house::choice::{Choice, ENOUGH, Scored, choose, score};
 use sim_core::house::data::HouseData;
 use sim_core::house::state::{Action, Place};
 use sim_core::ids::SimId;
@@ -95,21 +95,18 @@ fn company_crosses_the_threshold_and_stays_outside_the_mood() {
     // Television: fun weighs 200 and the gain is capped at the 200 still missing; 3 s from the hall.
     assert_eq!(points_of(&plain, 3, 0), 200 * 200 - 150);
     assert_eq!(200 * 200 - 150, 39_850);
-    assert!(39_850 < ENOUGH);
+    const { assert!(39_850 < ENOUGH) };
     let with_tv = score(house, &houses, morning, open, no_mood, |object| {
-        if object == 3 {
-            8_000
-        } else {
-            0
-        }
+        if object == 3 { 8_000 } else { 0 }
     });
     assert_eq!(points_of(&with_tv, 3, 0), 39_850 + 8_000);
-    assert!(39_850 + 8_000 >= ENOUGH);
-    // Toilet and shower are the only morning offers already past 40 000.
+    const { assert!(39_850 + 8_000 >= ENOUGH) };
+    // Toilet and shower are the only morning offers already past 40 000. Both taken, the
+    // choice waits for the toilet; it does not take the television until company carries it over.
     let busy = [5, 6];
     assert_eq!(
         choose((house, &houses), (30, MORNING_VALUES), &plain, &busy, None),
-        Choice::Idle
+        Choice::Wait(5)
     );
     assert_eq!(
         choose(
@@ -129,47 +126,33 @@ fn company_crosses_the_threshold_and_stays_outside_the_mood() {
 
     // Sit: fun 200 · 60, mood +10 scales only that, then the walk of 3 s. The bonus stays 8 000.
     let warm = |object, offer| {
-        if (object, offer) == (2, 1) {
-            10
-        } else {
-            0
-        }
+        if (object, offer) == (2, 1) { 10 } else { 0 }
     };
     let cool = score(house, &houses, morning, open, warm, |_| 0);
     let warmed = score(house, &houses, morning, open, warm, |object| {
-        if object == 2 {
-            8_000
-        } else {
-            0
-        }
+        if object == 2 { 8_000 } else { 0 }
     });
     assert_eq!(points_of(&cool, 2, 1), 12_000 * 110 / 100 - 150);
     assert_eq!(12_000 * 110 / 100 - 150, 13_050);
     assert_eq!(points_of(&warmed, 2, 1), 13_050 + 8_000);
     assert_eq!((13_050 + 8_000) - 13_050, 8_000);
     let seated = score(house, &houses, morning, open, no_mood, |object| {
-        if object == 2 {
-            8_000
-        } else {
-            0
-        }
+        if object == 2 { 8_000 } else { 0 }
     });
     assert_eq!(points_of(&seated, 2, 1), (12_000 - 150) + 8_000);
 
     let cancelled = score(house, &houses, morning, open, no_mood, |object| {
-        if object == 2 {
-            8_000 - 8_000
+        // Equal company and avoid: the scored bonus is their difference.
+        let (company, avoid) = if object == 2 {
+            (RULES.0, RULES.1)
         } else {
-            0
-        }
+            (0, 0)
+        };
+        company - avoid
     });
     assert_eq!(points_of(&cancelled, 2, 1), points_of(&plain, 2, 1));
     let avoided = score(house, &houses, morning, open, no_mood, |object| {
-        if object == 2 {
-            -8_000
-        } else {
-            0
-        }
+        if object == 2 { -8_000 } else { 0 }
     });
     assert_eq!(points_of(&seated, 2, 1) - points_of(&plain, 2, 1), 8_000);
     assert_eq!(points_of(&plain, 2, 1) - points_of(&avoided, 2, 1), 8_000);
@@ -190,14 +173,10 @@ fn company_outweighs_a_longer_walk_and_never_a_critical_need() {
     assert_eq!(points_of(&plain, 3, 0), 200 * 200 - 150);
     assert_eq!((100 * 400 - 200, 200 * 200 - 150), (39_800, 39_850));
     let with_table = score(house, &houses, morning, open, no_mood, |object| {
-        if object == 0 {
-            8_000
-        } else {
-            0
-        }
+        if object == 0 { 8_000 } else { 0 }
     });
     assert_eq!(points_of(&with_table, 0, 0), 39_800 + 8_000);
-    assert!(39_800 + 8_000 > 39_850);
+    assert!(points_of(&with_table, 0, 0) > points_of(&plain, 3, 0));
     let busy = [5, 6];
     assert_eq!(
         choose(
@@ -218,11 +197,7 @@ fn company_outweighs_a_longer_walk_and_never_a_critical_need() {
     // Hunger 150 is critical. The table raises it; the sofa does not, so 8 000 stays ordinary.
     let hungry = [150, 1_000, 700, 900, 800];
     let with_sofa = score(house, &houses, (30, hungry, 0), open, no_mood, |object| {
-        if object == 2 {
-            8_000
-        } else {
-            0
-        }
+        if object == 2 { 8_000 } else { 0 }
     });
     let table = 550 * 600 - 200 + 1_000_000_000;
     let sofa = 200 * 60 - 150 + 8_000;
@@ -420,18 +395,21 @@ fn her_choice(run: &Run) -> (usize, &LogEntry) {
 fn no_company_entry_while_nobody_sits() {
     let (mut run, _) = Run::moved_in(company_data(common::repository_social()));
     run.advance(MORNING);
-    assert!(run
-        .log
-        .iter()
-        .all(|entry| !matches!(entry.payload, LogPayload::Company { .. })));
-    assert!(run
-        .log
-        .iter()
-        .any(|entry| { about(entry, 1) && matches!(entry.payload, LogPayload::Idle { .. }) }));
-    assert!(run
-        .log
-        .iter()
-        .any(|entry| { about(entry, 2) && matches!(entry.payload, LogPayload::Idle { .. }) }));
+    assert!(
+        run.log
+            .iter()
+            .all(|entry| !matches!(entry.payload, LogPayload::Company { .. }))
+    );
+    assert!(
+        run.log
+            .iter()
+            .any(|entry| { about(entry, 1) && matches!(entry.payload, LogPayload::Idle { .. }) })
+    );
+    assert!(
+        run.log
+            .iter()
+            .any(|entry| { about(entry, 2) && matches!(entry.payload, LogPayload::Idle { .. }) })
+    );
 }
 
 /// At 18:00 the television alone brings 40 070 and the sofa 39 750. His being on the way to the
@@ -439,7 +417,7 @@ fn no_company_entry_while_nobody_sits() {
 #[test]
 fn partners_in_the_evening_sit_together() {
     assert_eq!((SOFA_ALONE, TV_ALONE, SOFA_WITH), (39_750, 40_070, 47_750));
-    assert!(SOFA_ALONE < ENOUGH && TV_ALONE >= ENOUGH && SOFA_WITH > TV_ALONE);
+    const { assert!(SOFA_ALONE < ENOUGH && TV_ALONE >= ENOUGH && SOFA_WITH > TV_ALONE) };
     let houses = company_houses();
     let home = houses
         .house(&DataId::new("test:company").expect("id"))
@@ -448,11 +426,7 @@ fn partners_in_the_evening_sit_together() {
     let open = (None, None);
     let alone = score(home, &houses, there, open, no_mood, |_| 0);
     let joined = score(home, &houses, there, open, no_mood, |object| {
-        if object == 0 {
-            8_000
-        } else {
-            0
-        }
+        if object == 0 { 8_000 } else { 0 }
     });
     assert_eq!(points_of(&alone, 0, 0), SOFA_ALONE);
     assert_eq!(points_of(&alone, 1, 0), TV_ALONE);

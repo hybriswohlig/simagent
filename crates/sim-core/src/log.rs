@@ -352,6 +352,34 @@ pub enum LogPayload {
     /// list (ADR-0030 section 2).
     #[serde(rename = "core:bond_dropped")]
     BondDropped { other: SimId },
+    /// Reserved for the talk slice (ADR-0030 section 3 step 7 and section 5). Nothing writes
+    /// it yet, so `talked` stays before `company`. `topic` is 0 to 5 in the order Alltag, Lob,
+    /// Necken, Klatsch, Erinnern, Entschuldigung. `actor` is the one who praises, teases or
+    /// apologizes, and none for the other topics. `object` is the furniture, as in [`Company`].
+    #[serde(rename = "core:talked")]
+    Talked {
+        other: SimId,
+        object: u16,
+        topic: u8,
+        actor: Option<SimId>,
+    },
+    /// A choice weighed company and avoid at sociable furniture (ADR-0030 section 4).
+    /// Written before `core:action_started` or `core:idle`, only when some furniture has a
+    /// component. `objects` is ascending by object. `avoid` is positive and is subtracted.
+    #[serde(rename = "core:company")]
+    Company { objects: Vec<Company> },
+}
+
+/// One sociable furniture a choice weighed (ADR-0030 section 4). `avoid` is positive and is
+/// subtracted. `liked` and `avoided` are the people the two components named.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Company {
+    pub object: u16,
+    pub liked: Option<SimId>,
+    pub company: i64,
+    pub avoided: Option<SimId>,
+    pub avoid: i64,
 }
 
 /// Why a memory was lost: its strength reached 0, or a newer one took its place in a full list.
