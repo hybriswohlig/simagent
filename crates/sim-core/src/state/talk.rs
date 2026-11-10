@@ -261,9 +261,10 @@ pub(super) fn on_seated(
 }
 
 /// `sim` stops sitting now (ADR-0030 section 3, "Gleiche Sekunde" and "Abbruch"). A Talk due
-/// this second whose partner is still at the same seat runs first, and plans no successor.
-/// Every other open Talk of `sim` is cancelled. A partner who is not there is not an orphan:
-/// the event simply does not run.
+/// this second runs first when the partner is still at the same seat and section 3 still
+/// allows it, and plans no successor. A failed check writes nothing and plans nothing. The
+/// event is cancelled either way. Every other open Talk of `sim` is cancelled. A partner
+/// who is not there is not an orphan: the event simply does not run.
 pub(super) fn on_stand_up(
     domain: &mut DomainState,
     data: &Data,
@@ -278,7 +279,9 @@ pub(super) fn on_stand_up(
     for (other, handle) in due {
         let (a, b) = ordered(sim, other);
         clear(domain, a, b);
-        if let Some((object, kind)) = together(domain, data, a, b) {
+        if let Some((object, kind)) = together(domain, data, a, b)
+            && may(domain, data, a, b, now, false)
+        {
             run(domain, data, (a, b), object, &kind, false, ctx);
         }
         ctx.cancel(handle);
