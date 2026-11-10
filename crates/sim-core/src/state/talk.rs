@@ -1,12 +1,14 @@
 //! A talk of two people at one sociable furniture (ADR-0030 section 3). Planning follows an
-//! arrival; the run is the event, or the same-second end that must happen first. Klatsch is
-//! never allowed (`social::talk::gossip_allowed`). The seen deed of Necken, gossip, refutation
-//! and the memory "Widerlegung" wait for beliefs (ADR-0031).
+//! arrival; the run is the event, or the same-second end that must happen first. Necken writes
+//! the seen deed `neckt`. Klatsch, when one of the two has material, passes one statement on
+//! and writes the seen deed `lästert` (ADR-0031 sections 2 and 3). Refutation and the memory
+//! "Widerlegung" wait for a later slice. A reason to lie stays false until the lie slice.
 
 use alloc::vec;
 use alloc::vec::Vec;
 
 use super::action::person_mut;
+use super::belief::{self, Heard, HeardStore};
 use super::bond::{Formed, form_one, formation_refused};
 use super::memory::{WroteMemory, others, plan_forget, remember};
 use super::{DomainState, Slot, whole_years};
@@ -18,11 +20,16 @@ use crate::house::state::Place;
 use crate::ids::{EventId, HouseholdId, MAX_JS_SAFE, SimId};
 use crate::log::{Cause, Causes, LogPayload, Subject};
 use crate::rng::WorldSeed;
+use crate::social::belief::{
+    Belief, Statement, choose_speaker, gossip_material, has_lie_reason, heard_bond_steps,
+    said_belief,
+};
+use crate::social::bond::TRUST;
 use crate::social::data::TALK;
 use crate::social::memory::Memory;
 use crate::social::talk::{
-    TalkFacts, TalkPair, choose_topic, house_day, interests, recall_strength, talk_conditions,
-    topic_actor, topic_outcome,
+    GOSSIP, TEASE, TalkFacts, TalkPair, choose_topic, house_day, interests, recall_strength,
+    talk_conditions, topic_actor, topic_outcome,
 };
 use crate::time::{SimDuration, SimTime};
 use crate::world::{EventPayload, SimCtx};
@@ -483,9 +490,10 @@ fn recall(
     found.since = now;
 }
 
-/// Steps 0, 1, 2, 6, 7 and 8 of section 3 "Ablauf". `plan_next` is false when an end of this
-/// second runs the talk: the two do not both stay, so no successor is planned.
-fn run(
+/// Steps 0 to 4, 6, 7 and 8 of section 3 "Ablauf". Step 5, refutation, is a later slice.
+/// `plan_next` is false when an end of this second runs the talk: the two do not both stay,
+/// so no successor is planned.
+pub(crate) fn run(
     domain: &mut DomainState,
     data: &Data,
     pair: (SimId, SimId),
@@ -519,6 +527,23 @@ fn run(
     let interest_a = interests(WorldSeed::new(seed), domain.key_of(a));
     let interest_b = interests(WorldSeed::new(seed), domain.key_of(b));
     let shared = shared_memory(domain, a, b, now);
+    // Steps 0 and 2 do not change beliefs, so the material is the same before the topic.
+    let seated = at_furniture(domain, home, object);
+    let held_a = (domain.house.social.beliefs.get(&a))
+        .cloned()
+        .unwrap_or_default();
+    let held_b = (domain.house.social.beliefs.get(&b))
+        .cloned()
+        .unwrap_or_default();
+    let material_a = gossip_material(a, &held_a, b, &held_b, &seated);
+    let material_b = gossip_material(b, &held_b, a, &held_a, &seated);
+    // `has_lie_reason` stays false until the lie slice (ADR-0031 section 4).
+    let reason_a = has_lie_reason(a, b).then_some(a);
+    let reason_b = has_lie_reason(b, a).then_some(b);
+    let gossip = !material_a.is_empty()
+        || !material_b.is_empty()
+        || reason_a.is_some()
+        || reason_b.is_some();
     let view = TalkPair {
         a,
         b,
@@ -529,6 +554,7 @@ fn run(
         interest_a: &interest_a,
         interest_b: &interest_b,
         common_memory: shared.is_some(),
+        gossip,
     };
     let topic = choose_topic(social, &view, kind);
     let actor = topic_actor(social, topic, &view);
@@ -561,8 +587,60 @@ fn run(
             charge(&mut entries_b, 1);
         }
     }
-    // Step 3, the seen deed `neckt` (`core:believed`), waits for beliefs (ADR-0031).
-    // Steps 4 and 5, gossip and refutation, and the memory "Widerlegung", wait for them too.
+    let mut charges = Charges {
+        a,
+        b,
+        day,
+        entries_a: &mut entries_a,
+        entries_b: &mut entries_b,
+    };
+    if topic == TEASE {
+        let actor = actor.unwrap_or_else(|| panic!("invariant talk.actor"));
+        let target = if actor == a { b } else { a };
+        let teases = DataId::new("core:teases").unwrap_or_else(|_| panic!("invariant belief.deed"));
+        let kind = deed_kind(data, &teases);
+        belief::record_deed(domain, data, actor, kind, target, day, now);
+        let statement = Statement::Tat {
+            doer: actor,
+            kind,
+            other: target,
+            day,
+        };
+        cause = offer_seen(
+            domain,
+            data,
+            statement,
+            (home, object),
+            &mut charges,
+            cause,
+            ctx,
+        );
+    }
+    if topic == GOSSIP
+        && let Some(speaker) = choose_speaker(a, &material_a, reason_a, b, &material_b, reason_b)
+        && let Some(said) = said_belief(if speaker == a {
+            &material_a
+        } else {
+            &material_b
+        })
+    {
+        cause = pass_on(
+            domain,
+            data,
+            &Pass {
+                speaker,
+                said,
+                place: (home, object),
+                day,
+                now,
+                fade,
+            },
+            &mut charges,
+            cause,
+            ctx,
+        );
+    }
+    // Step 5, refutation, and the memory "Widerlegung" wait for a later slice.
     let recall_topic =
         (social.topics.get(topic)).is_some_and(|row| row.id.as_str() == "core:recall");
     if recall_topic && let Some((left, right)) = shared {
@@ -614,6 +692,227 @@ fn run(
     let handle = ctx.schedule(at, EventPayload::Talk { a, b }, talked);
     domain.pending.insert((a, Slot::Talk(b)), handle);
     domain.pending.insert((b, Slot::Talk(a)), handle);
+}
+
+/// The two participants' running totals for this talk. A third person is charged through
+/// [`add_entries`] at once, because their total is not written at the end of [`run`].
+struct Charges<'a> {
+    a: SimId,
+    b: SimId,
+    day: i64,
+    entries_a: &'a mut u16,
+    entries_b: &'a mut u16,
+}
+
+impl Charges<'_> {
+    fn add(&mut self, who: SimId, n: u16) {
+        if who == self.a {
+            charge(self.entries_a, n);
+        } else if who == self.b {
+            charge(self.entries_b, n);
+        }
+    }
+}
+
+/// One said statement and where it is said.
+struct Pass {
+    speaker: SimId,
+    said: Belief,
+    place: (HouseholdId, u16),
+    day: i64,
+    now: SimTime,
+    fade: (u16, u16),
+}
+
+/// The deed number of `id` in `beliefs.deeds`.
+fn deed_kind(data: &Data, id: &DataId) -> u16 {
+    let social = data
+        .social()
+        .unwrap_or_else(|| panic!("invariant belief.social"));
+    let at = (social.beliefs.deeds.iter())
+        .position(|kind| kind == id)
+        .unwrap_or_else(|| panic!("invariant belief.deed"));
+    u16::try_from(at).unwrap_or_else(|_| panic!("invariant belief.deed"))
+}
+
+/// Everyone at `object` in `household`, ascending [`SimId`], of any age.
+fn at_furniture(domain: &DomainState, household: HouseholdId, object: u16) -> Vec<SimId> {
+    let mut ids = Vec::new();
+    for (id, person) in &domain.house.sims {
+        let same = (domain.sims.get(id)).is_some_and(|sim| sim.household == household);
+        let seated = matches!(person.place, Place::Room(_))
+            && person.action.is_some_and(|action| action.object == object);
+        if same && seated {
+            ids.push(*id);
+        }
+    }
+    ids
+}
+
+fn holds_bond(domain: &DomainState, owner: SimId, other: SimId) -> bool {
+    (domain.house.social.bonds.get(&owner))
+        .is_some_and(|list| list.iter().any(|bond| bond.other == other))
+}
+
+/// Trust of `holder` in `other` after the topic's bond steps. An existing edge is read at
+/// `now`. A missing edge uses the role's start value and is not formed.
+///
+/// READING (ADR-0031 section 2): the start value is the fallback. `edge_at` would report 0
+/// for a missing edge, which is not that start value.
+fn trust_in(
+    domain: &mut DomainState,
+    data: &Data,
+    holder: SimId,
+    other: SimId,
+    now: SimTime,
+    fade: (u16, u16),
+) -> u16 {
+    if holds_bond(domain, holder, other) {
+        edge_at(domain, holder, other, now, fade)[TRUST]
+    } else {
+        super::bond::start_trust(domain, data, holder, other)
+    }
+}
+
+/// Everyone of `min_age` or older at the furniture sees `statement`. A third person needs
+/// two free places of the day's 34, even when the write is one entry (ADR-0030 section 5).
+/// The two participants are not third persons: their 16 free places were required to plan
+/// the talk. Only entries actually written are charged.
+fn offer_seen(
+    domain: &mut DomainState,
+    data: &Data,
+    statement: Statement,
+    place: (HouseholdId, u16),
+    charges: &mut Charges<'_>,
+    mut cause: Cause,
+    ctx: &mut SimCtx<'_, '_>,
+) -> Cause {
+    let social = data
+        .social()
+        .unwrap_or_else(|| panic!("invariant belief.social"));
+    let min_age = u32::from(social.limits.min_age);
+    let now = ctx.now();
+    let (household, object) = place;
+    for holder in at_furniture(domain, household, object) {
+        if years(domain, holder, now) < min_age {
+            continue;
+        }
+        let third = holder != charges.a && holder != charges.b;
+        if third {
+            let (_, used) = counts(domain, holder, charges.day);
+            let free = social.limits.entries_per_day.saturating_sub(used);
+            if free < 2 {
+                continue;
+            }
+        }
+        match belief::store_seen(domain, data, holder, statement, cause.clone(), ctx) {
+            belief::Store::Unchanged => {}
+            belief::Store::Wrote { last, entries } => {
+                cause = Cause::Event(last);
+                if third {
+                    add_entries(domain, holder, charges.day, entries);
+                } else {
+                    charges.add(holder, entries);
+                }
+            }
+        }
+    }
+    cause
+}
+
+/// Step 4 (ADR-0030 section 3, ADR-0031 section 3): `core:told`, the hearer's belief, one
+/// bond step when the belief was stored and was not a confirmation, then the speaker's deed
+/// `lästert` about the doer of the said statement, seen by everyone old enough at the
+/// furniture. The deed is recorded even when a viewer already holds it.
+///
+/// READING: the bond step is on the hearer's edge to the doer, not to the speaker. If that
+/// edge does not exist, none is formed and no `core:bond_changed` is written.
+fn pass_on(
+    domain: &mut DomainState,
+    data: &Data,
+    pass: &Pass,
+    charges: &mut Charges<'_>,
+    cause: Cause,
+    ctx: &mut SimCtx<'_, '_>,
+) -> Cause {
+    let social = data
+        .social()
+        .unwrap_or_else(|| panic!("invariant belief.social"));
+    let hearer = if pass.speaker == charges.a {
+        charges.b
+    } else {
+        charges.a
+    };
+    let told = ctx.emit(
+        LogPayload::Told {
+            to: hearer,
+            statement: pass.said.statement,
+            certainty: pass.said.certainty,
+            lie: false,
+        },
+        vec![Subject::Sim(pass.speaker)],
+        Causes::new(cause),
+    );
+    let mut cause = Cause::Event(told);
+    charges.add(pass.speaker, 1);
+    let trust = trust_in(domain, data, hearer, pass.speaker, pass.now, pass.fade);
+    match belief::store_heard(
+        domain,
+        data,
+        hearer,
+        Heard {
+            incoming: pass.said.statement,
+            speaker: pass.speaker,
+            speaker_certainty: pass.said.certainty,
+            speaker_belief: Some(pass.said),
+            trust,
+        },
+        cause.clone(),
+        ctx,
+    ) {
+        HeardStore::Unchanged => {}
+        HeardStore::Confirmed { last, entries } => {
+            cause = Cause::Event(last);
+            charges.add(hearer, entries);
+        }
+        HeardStore::Stored { last, entries } => {
+            cause = Cause::Event(last);
+            charges.add(hearer, entries);
+            if let Some(steps) = heard_bond_steps(hearer, pass.said.statement, &social.beliefs)
+                && let Some(doer) = pass.said.statement.doer()
+                && holds_bond(domain, hearer, doer)
+            {
+                let (before, after) =
+                    change_bond(domain, hearer, doer, &steps, pass.now, pass.fade);
+                if before != after {
+                    let id = ctx.emit(
+                        LogPayload::BondChanged {
+                            other: doer,
+                            before,
+                            after,
+                        },
+                        vec![Subject::Sim(hearer)],
+                        Causes::new(cause),
+                    );
+                    cause = Cause::Event(id);
+                    charges.add(hearer, 1);
+                }
+            }
+        }
+    }
+    let Statement::Tat { doer, .. } = pass.said.statement else {
+        panic!("invariant talk.gossip");
+    };
+    let gossips = DataId::new("core:gossips").unwrap_or_else(|_| panic!("invariant belief.deed"));
+    let kind = deed_kind(data, &gossips);
+    belief::record_deed(domain, data, pass.speaker, kind, doer, pass.day, pass.now);
+    let statement = Statement::Tat {
+        doer: pass.speaker,
+        kind,
+        other: doer,
+        day: pass.day,
+    };
+    offer_seen(domain, data, statement, pass.place, charges, cause, ctx)
 }
 
 /// The memory "Gespräch" for `owner`, about `other`. Returns the cause of the next entry and
@@ -715,7 +1014,7 @@ pub(crate) fn counters_ok(loaded: &LoadedState, data: &Data) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::bond::{Listed, listed};
+    use super::super::bond::{Listed, listed, listed_larger_full};
     use super::{formation_refused, may};
     use crate::time::SimTime;
 
@@ -776,5 +1075,42 @@ mod tests {
                 true
             ));
         }
+    }
+
+    /// The larger id's list is full and protected. The smaller id has room and no bond to
+    /// the larger one. Either call order is refused (ADR-0030 sections 2 and 3).
+    #[test]
+    fn a_full_list_on_the_larger_id_may_not_talk() {
+        let mut case = listed_larger_full();
+        let (larger, smaller) = (case.holder, case.newcomer);
+        assert!(smaller < larger);
+        assert!(formation_refused(
+            &mut case.domain,
+            &case.data,
+            larger,
+            smaller
+        ));
+        assert!(!formation_refused(
+            &mut case.domain,
+            &case.data,
+            smaller,
+            larger
+        ));
+        assert!(!may(
+            &mut case.domain,
+            &case.data,
+            smaller,
+            larger,
+            at(),
+            true
+        ));
+        assert!(!may(
+            &mut case.domain,
+            &case.data,
+            larger,
+            smaller,
+            at(),
+            true
+        ));
     }
 }

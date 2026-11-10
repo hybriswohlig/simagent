@@ -15,7 +15,8 @@ use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::mortality::accident_age;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
-use sim_core::social::bond::GRUDGE;
+use sim_core::social::belief::{Basis, Belief, LAESTERT, NECKT, Statement};
+use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::TALK;
 use sim_core::time::{SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
@@ -225,6 +226,32 @@ fn counts(run: &Run, id: u64) -> (u16, u16) {
     (person.talks, person.entries)
 }
 
+fn belief(run: &Run, owner: u64, statement: Statement) -> Belief {
+    let list = &run.world.state().house().social.beliefs[&sim(owner)];
+    *list
+        .iter()
+        .find(|belief| belief.statement == statement)
+        .expect("belief")
+}
+
+fn neckt(doer: u64, other: u64, day: i64) -> Statement {
+    Statement::Tat {
+        doer: sim(doer),
+        kind: NECKT,
+        other: sim(other),
+        day,
+    }
+}
+
+fn laestert(doer: u64, other: u64, day: i64) -> Statement {
+    Statement::Tat {
+        doer: sim(doer),
+        kind: LAESTERT,
+        other: sim(other),
+        day,
+    }
+}
+
 /// Move-in at 20:00 is house day 0 through 05:59 the next calendar day, and day 1 at 06:00.
 #[test]
 fn a_move_in_at_20_00_starts_house_day_0() {
@@ -275,10 +302,28 @@ fn partners_tease_and_talk_again_an_hour_later() {
     assert!(memory_about(&run, 2, 1, first));
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 60);
     assert_eq!(bond(&run, 1, 2)[GRUDGE], 0);
-    assert_eq!(counts(&run, 1), (1, 2));
-    assert_eq!(counts(&run, 2), (1, 3));
+    // The first Necken of the day also writes one `core:believed` for each of the two.
+    assert_eq!(counts(&run, 1), (1, 3));
+    assert_eq!(counts(&run, 2), (1, 4));
     let since = run.world.state().house().households[&home].since;
     let day = sim_core::social::talk::house_day(t(first), since);
+    assert_eq!(day, 1);
+    let seen = neckt(1, 2, day);
+    for owner in [1, 2] {
+        let held = belief(&run, owner, seen);
+        assert_eq!(held.certainty, 1000);
+        assert_eq!(held.basis, Basis::Gesehen);
+        assert_eq!(held.source, None);
+        assert_eq!(held.origin, None);
+        assert!(!held.secret);
+        assert_eq!(held.since, t(first));
+    }
+    let deeds = &run.world.state().house().social.deeds[&sim(1)];
+    assert_eq!(deeds.items.len(), 1);
+    assert_eq!(deeds.items[0].kind, NECKT);
+    assert_eq!(deeds.items[0].other, sim(2));
+    assert_eq!(deeds.items[0].day, day);
+    assert!(!run.world.state().house().social.deeds.contains_key(&sim(2)));
     assert_eq!(run.world.state().house().sims[&sim(1)].talk_day, day);
     assert_eq!(
         run.world.state().house().households[&home].last_talk[&(sim(1), sim(2))],
@@ -289,8 +334,15 @@ fn partners_tease_and_talk_again_an_hour_later() {
     run.advance(second);
     assert_eq!(talked(&run).len(), 2);
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 120);
-    assert_eq!(counts(&run, 1), (2, 4));
-    assert_eq!(counts(&run, 2), (2, 6));
+    // The same statement is already seen, so the second Necken adds no belief. The deed is
+    // still appended.
+    assert_eq!(counts(&run, 1), (2, 5));
+    assert_eq!(counts(&run, 2), (2, 7));
+    assert_eq!(
+        run.world.state().house().social.deeds[&sim(1)].items.len(),
+        2
+    );
+    assert_eq!(run.world.state().house().social.beliefs[&sim(1)].len(), 1);
     assert_eq!(
         run.world.talk_at(sim(1), sim(2)),
         Some(t(second + PAIR_GAP))
@@ -346,8 +398,8 @@ fn an_action_end_in_the_same_second_runs_the_talk() {
     let spoken = talked(&run);
     assert_eq!(spoken.len(), 1);
     assert_eq!(spoken[0].t, t(at));
-    assert_eq!(counts(&run, 1), (1, 2));
-    assert_eq!(counts(&run, 2), (1, 3));
+    assert_eq!(counts(&run, 1), (1, 3));
+    assert_eq!(counts(&run, 2), (1, 4));
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 60);
     assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
     let order: Vec<_> = (run.log.iter())
@@ -362,53 +414,55 @@ fn an_action_end_in_the_same_second_runs_the_talk() {
     assert!(talked_at < ended_at);
 }
 
-/// Six Necken leave him 18 entries, so 16 of the day's 34 are free and the next talk is
+/// Five Necken leave him 16 entries, so 18 of the day's 34 are free and the next talk is
 /// planned (ADR-0030 sections 3 and 5). It is due in the second the meals end. The child
-/// sits down first and teases each parent, which writes him 3 more entries. 13 free is
-/// below the 16 a talk needs, so that end does not run the talk: the counts, the grudge
-/// and the last talk stay, and nothing is planned. The end still cancels the event.
+/// sits down first. She teases the child, and he, at the same table with two free places,
+/// sees that deed. The child then teases him. He has 13 free, below the 16 a talk needs, so
+/// that end does not run the couple's talk: the counts, the grudge and the last talk stay,
+/// and nothing is planned. The end still cancels the event.
 ///
 /// Day 0 move-in is 86 399 and the first morning is 108 000. The walk starts at 108 001
-/// and reaches the table at 108 006. Talks fall at 108 606 and every 3 600 s: the sixth at
-/// 126 606, the seventh at 130 206. The meal is 22 200 s, and 108 006 + 22 200 = 130 206.
-/// The child is sent at 126 607, arrives at 126 612 and talks at 127 212; those successors
-/// are at 130 812, after the meal. Necken writes 2 entries for the actor and 3 for the
-/// target. She acts in the six couple talks (12) and with the child (14). He is the target
-/// of the six (18) and of the child's tease (21). The child writes 3, then 2. His grudge toward
-/// her is 6 * 60 = 360; one hour fades none (`10 * 3 600 / 86 400` = 0). The house day at
-/// 130 206 is 1, so the counters do not reset.
+/// and reaches the table at 108 006. Talks fall at 108 606 and every 3 600 s: the fifth at
+/// 123 006, the sixth at 126 606. The meal is 18 600 s, and 108 006 + 18 600 = 126 606.
+/// The child is sent at 123 007, arrives at 123 012 and talks at 123 612; those successors
+/// are at 127 212, after the meal. The first Necken of a statement writes one `core:believed`
+/// besides the memory and the talk, and the target's bond step. A repeat does not. She acts
+/// in the five couple talks (11) and teases the child (14), then sees the child's tease (15).
+/// He is the target of the five (16), sees her tease (17) and is the child's target (21).
+/// The child writes 4, then 3. His grudge toward her is 5 * 60 = 300; one hour fades none
+/// (`10 * 3 600 / 86 400` = 0). The house day at 126 606 is 1, so the counters do not reset.
 #[test]
 fn an_action_end_in_the_same_second_skips_a_talk_without_sixteen_free_entries() {
-    const MEAL: u32 = 22_200;
+    const MEAL: u32 = 18_600;
     let born = [-30 * year(), -32 * year(), -10 * year()];
     let (mut run, home) =
         day::Run::family(without_departure(MEAL), 0x5EED, "test:social", &born, 0);
     let arrival = arrive(&mut run, MORNING, &[(1, DINING), (2, DINING), (3, FRIDGE)]);
     let first = arrival + TALK_DELAY;
-    let sixth = first + 5 * PAIR_GAP;
-    let seventh = sixth + PAIR_GAP;
+    let fifth = first + 4 * PAIR_GAP;
+    let sixth = fifth + PAIR_GAP;
     assert_eq!(arrival, 108_006);
+    assert_eq!(fifth, 123_006);
     assert_eq!(sixth, 126_606);
-    assert_eq!(seventh, 130_206);
-    assert_eq!(seventh, arrival + i64::from(MEAL));
+    assert_eq!(sixth, arrival + i64::from(MEAL));
     let since = run.world.state().house().households[&home].since;
     assert_eq!(since, t(86_399));
-    assert_eq!(sim_core::social::talk::house_day(t(seventh), since), 1);
+    assert_eq!(sim_core::social::talk::house_day(t(sixth), since), 1);
 
-    run.advance(sixth);
-    assert_eq!(talked(&run).len(), 6);
-    assert_eq!(counts(&run, 1), (6, 12));
-    assert_eq!(counts(&run, 2), (6, 18));
+    run.advance(fifth);
+    assert_eq!(talked(&run).len(), 5);
+    assert_eq!(counts(&run, 1), (5, 11));
+    assert_eq!(counts(&run, 2), (5, 16));
     assert_eq!(counts(&run, 3), (0, 0));
-    assert_eq!(bond(&run, 2, 1)[GRUDGE], 360);
-    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(seventh)));
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 300);
+    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(sixth)));
 
     run.submit(command(3, DINING));
-    let child_arrival = sixth + 1 + WITHIN_ROOM;
+    let child_arrival = fifth + 1 + WITHIN_ROOM;
     let child_talk = child_arrival + TALK_DELAY;
-    assert_eq!(child_arrival, 126_612);
-    assert_eq!(child_talk, 127_212);
-    assert!(child_talk + PAIR_GAP > seventh);
+    assert_eq!(child_arrival, 123_012);
+    assert_eq!(child_talk, 123_612);
+    assert!(child_talk + PAIR_GAP > sixth);
     run.advance(child_talk);
     let joined = (run.log.iter().rev())
         .find_map(|entry| match entry.payload {
@@ -424,33 +478,40 @@ fn an_action_end_in_the_same_second_skips_a_talk_without_sixteen_free_entries() 
         })
         .expect("the child walks to the table");
     let walk = u32::try_from(WITHIN_ROOM).expect("fits");
-    assert_eq!(joined, (sixth + 1, walk, DINING));
+    assert_eq!(joined, (fifth + 1, walk, DINING));
     assert!(
         talked(&run)
             .iter()
             .all(|entry| { matches!(entry.payload, LogPayload::Talked { topic: 2, .. }) })
     );
-    assert_eq!(talked(&run).len(), 8);
-    assert_eq!(counts(&run, 1), (7, 14));
-    assert_eq!(counts(&run, 2), (7, 21));
-    assert_eq!(counts(&run, 3), (2, 5));
-    assert_eq!(bond(&run, 2, 1)[GRUDGE], 360);
-    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(seventh)));
+    assert_eq!(talked(&run).len(), 7);
+    assert_eq!(counts(&run, 1), (6, 15));
+    assert_eq!(counts(&run, 2), (6, 21));
+    assert_eq!(counts(&run, 3), (2, 7));
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 300);
+    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(sixth)));
+    let watched = neckt(1, 3, 1);
+    let held = belief(&run, 2, watched);
+    assert_eq!(held.certainty, 1000);
+    assert_eq!(held.basis, Basis::Gesehen);
+    assert_eq!(held.source, None);
+    assert_eq!(held.origin, None);
+    assert!(!held.secret);
 
-    run.advance(seventh);
-    assert_eq!(counts(&run, 1), (7, 14));
-    assert_eq!(counts(&run, 2), (7, 21));
-    assert_eq!(counts(&run, 3), (2, 5));
-    assert_eq!(bond(&run, 2, 1)[GRUDGE], 360);
-    assert_eq!(talked(&run).len(), 8);
-    assert!(talked(&run).iter().all(|entry| entry.t != t(seventh)));
+    run.advance(sixth);
+    assert_eq!(counts(&run, 1), (6, 15));
+    assert_eq!(counts(&run, 2), (6, 21));
+    assert_eq!(counts(&run, 3), (2, 7));
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 300);
+    assert_eq!(talked(&run).len(), 7);
+    assert!(talked(&run).iter().all(|entry| entry.t != t(sixth)));
     assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
     assert_eq!(
         run.world.state().house().households[&home].last_talk[&(sim(1), sim(2))],
-        t(sixth)
+        t(fifth)
     );
     assert!((run.log.iter()).any(|entry| {
-        entry.t == t(seventh) && matches!(entry.payload, LogPayload::ActionEnded { .. })
+        entry.t == t(sixth) && matches!(entry.payload, LogPayload::ActionEnded { .. })
     }));
 }
 
@@ -526,9 +587,15 @@ fn a_death_in_the_same_second_comes_after_the_talk() {
     );
     run.advance(at);
     assert_eq!(talked(&run).len(), 1);
-    assert_eq!(counts(&run, 1), (1, 2));
+    assert_eq!(counts(&run, 1), (1, 3));
     assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
     assert!(!run.world.state().house().sims.contains_key(&sim(2)));
+    let social = &run.world.state().house().social;
+    assert!(social.beliefs.contains_key(&sim(1)));
+    assert!(social.deeds.contains_key(&sim(1)));
+    assert!(!social.beliefs.contains_key(&sim(2)));
+    assert!(!social.deeds.contains_key(&sim(2)));
+    assert_eq!(run.world.state().living(), 1);
 }
 
 /// Moving out in the talk's second cancels it before it runs. It writes nothing.
@@ -542,6 +609,144 @@ fn moving_out_at_the_talk_cancels_it() {
     run.advance(at);
     assert!(talked(&run).is_empty());
     assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
+}
+
+/// Moving out after a Necken keeps the beliefs and the deed. The two stay alive and leave
+/// the house part (ADR-0031 section 1).
+#[test]
+fn moving_out_freezes_beliefs_and_deeds() {
+    let (mut run, home) = couple(7_200);
+    let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
+    let first = arrival + TALK_DELAY;
+    run.advance(first);
+    let since = run.world.state().house().households[&home].since;
+    let day = sim_core::social::talk::house_day(t(first), since);
+    let seen = neckt(1, 2, day);
+    assert_eq!(belief(&run, 1, seen).certainty, 1000);
+    assert_eq!(
+        run.world.state().house().social.deeds[&sim(1)].items.len(),
+        1
+    );
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    run.advance(first + 1);
+    assert_eq!(run.world.state().living(), 2);
+    assert!(!run.world.state().house().sims.contains_key(&sim(1)));
+    assert!(!run.world.state().house().sims.contains_key(&sim(2)));
+    let held = belief(&run, 1, seen);
+    assert_eq!(held.certainty, 1000);
+    assert_eq!(held.basis, Basis::Gesehen);
+    assert_eq!(belief(&run, 2, seen).basis, Basis::Gesehen);
+    let deeds = &run.world.state().house().social.deeds[&sim(1)];
+    assert_eq!(deeds.items.len(), 1);
+    assert_eq!(deeds.items[0].kind, NECKT);
+    assert_eq!(deeds.items[0].other, sim(2));
+    assert_eq!(deeds.items[0].day, day);
+}
+
+/// A seen deed passes on as Klatsch once the teaser has left the table. Founder 0 is 60, so
+/// Necken is closed and Klatsch wins. The hearer's trust in the speaker is the partner start
+/// 700, so a seen 1000 is heard at `floor(1000 * (500 + 700) / 1500)` = 800. The bond step
+/// is −20 trust on the hearer's edge to the doer. That edge is a housemate's (founders have
+/// no parents), start trust 450, so it is 430. `core:told` carries the speaker's certainty.
+#[test]
+fn a_seen_deed_is_passed_on_with_the_heard_certainty_and_the_bond_step() {
+    let born = [-60 * year(), -32 * year(), -10 * year()];
+    let (mut run, home) =
+        day::Run::family(without_departure(7_200), 0x5EED, "test:social", &born, 0);
+    let arrival = arrive(&mut run, MORNING, &[(1, FRIDGE), (2, DINING), (3, DINING)]);
+    let first = arrival + TALK_DELAY;
+    assert_eq!(first, 108_606);
+    run.advance(first);
+    let since = run.world.state().house().households[&home].since;
+    let day = sim_core::social::talk::house_day(t(first), since);
+    assert_eq!(day, 1);
+    let teased = neckt(3, 2, day);
+    assert_eq!(belief(&run, 2, teased).certainty, 1000);
+    assert_eq!(belief(&run, 3, teased).basis, Basis::Gesehen);
+    assert!(
+        !run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .contains_key(&sim(1))
+    );
+    assert_eq!(counts(&run, 3), (1, 3));
+    assert_eq!(counts(&run, 2), (1, 4));
+    assert_eq!(counts(&run, 1), (0, 0));
+
+    run.submit(command(3, FRIDGE));
+    run.submit(command(1, DINING));
+    let back = first + 1 + WITHIN_ROOM;
+    let gossip_at = back + TALK_DELAY;
+    assert_eq!(back, 108_612);
+    assert_eq!(gossip_at, 109_212);
+    run.advance(gossip_at);
+    assert_eq!(run.world.talk_at(sim(2), sim(3)), None);
+    let spoken = talked(&run);
+    assert_eq!(spoken.len(), 2);
+    assert_eq!(
+        spoken[1].payload,
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+    assert_eq!(spoken[1].t, t(gossip_at));
+    assert!(run.log.iter().any(|entry| {
+        entry.t == t(gossip_at)
+            && entry.subjects == vec![Subject::Sim(sim(2))]
+            && matches!(
+                entry.payload,
+                LogPayload::Told {
+                    to,
+                    statement,
+                    certainty: 1000,
+                    lie: false,
+                } if to == sim(1) && statement == teased
+            )
+    }));
+    let heard = belief(&run, 1, teased);
+    assert_eq!(heard.certainty, 800);
+    assert_eq!(heard.basis, Basis::Gehoert);
+    assert_eq!(heard.source, Some(sim(2)));
+    assert_eq!(heard.origin, Some(sim(2)));
+    assert_eq!(heard.since, t(gossip_at));
+    assert!(!heard.secret);
+    assert_eq!(bond(&run, 1, 3)[TRUST], 430);
+    let passed = laestert(2, 3, day);
+    for owner in [1_u64, 2] {
+        let held = belief(&run, owner, passed);
+        assert_eq!(held.certainty, 1000);
+        assert_eq!(held.basis, Basis::Gesehen);
+        assert_eq!(held.source, None);
+        assert_eq!(held.origin, None);
+        assert!(!held.secret);
+    }
+    assert!(
+        run.world.state().house().social.beliefs[&sim(3)]
+            .iter()
+            .all(|held| held.statement != passed)
+    );
+    let deeds = &run.world.state().house().social.deeds[&sim(2)];
+    assert_eq!(deeds.items.len(), 1);
+    assert_eq!(deeds.items[0].kind, LAESTERT);
+    assert_eq!(deeds.items[0].other, sim(3));
+    assert_eq!(deeds.items[0].day, day);
+    assert_eq!(
+        run.world.state().house().social.deeds[&sim(3)].items[0].kind,
+        NECKT
+    );
+    assert!(!run.world.state().house().social.deeds.contains_key(&sim(1)));
+    assert_eq!(counts(&run, 3), (1, 3));
+    assert_eq!(counts(&run, 2), (2, 8));
+    assert_eq!(counts(&run, 1), (1, 5));
+    assert_eq!(
+        run.world.talk_at(sim(1), sim(2)),
+        Some(t(gossip_at + PAIR_GAP))
+    );
 }
 
 /// Standing up the second before the talk cancels it. A cancelled talk does not count.
@@ -654,16 +859,31 @@ fn a_save_between_two_talks_loads_and_an_old_one_does_not() {
     let mut out = YearOut::default();
     loaded.advance_until(&mut out, t(second), &mut |_| false);
     run.advance(second);
-    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
-    let tail: Vec<&LogEntry> = run
-        .log
-        .iter()
-        .filter(|entry| entry.t > t(between))
-        .collect();
+    // Beliefs and deeds are omitted from the projection until the save slice (ADR-0031
+    // section 7). The loaded world therefore sees the deed for the first time and writes
+    // one `core:believed` per person. The entry counts are one higher, and the log is not
+    // the same. The slice that stores the lists restores an identical continuation.
+    assert_eq!(loaded.state().house().sims[&sim(1)].entries, 6);
+    assert_eq!(loaded.state().house().sims[&sim(2)].entries, 8);
+    assert_eq!(run.world.state().house().sims[&sim(1)].entries, 5);
+    assert_eq!(run.world.state().house().sims[&sim(2)].entries, 7);
     assert_eq!(
-        serde_json::to_string(&loaded.take_log()).expect("json"),
-        serde_json::to_string(&tail).expect("json")
+        loaded.talk_at(sim(1), sim(2)),
+        run.world.talk_at(sim(1), sim(2))
     );
+    let loaded_log = loaded.take_log();
+    let believed = |log: &[LogEntry], at: i64| {
+        log.iter()
+            .filter(|entry| {
+                entry.t == t(at) && matches!(entry.payload, LogPayload::Believed { .. })
+            })
+            .count()
+    };
+    assert_eq!(believed(&loaded_log, second), 2);
+    assert_eq!(believed(&run.log, second), 0);
+    assert!(loaded_log.iter().any(|entry| {
+        entry.t == t(second) && matches!(entry.payload, LogPayload::Talked { topic: 2, .. })
+    }));
 
     let load = |bytes: &[u8]| World::load(bytes, data.clone()).err();
     let limits = data.social().expect("social").limits.clone();

@@ -19,6 +19,7 @@ use crate::ids::{EventId, HouseholdId, InputSeq, PartnershipId, SimId};
 use crate::lineage::{GenomeKey, LineageKey};
 use crate::params::ParamChange;
 use crate::rng::DrawKey;
+use crate::social::belief::{Basis, Statement};
 use crate::time::SimTime;
 
 /// Companion data of every planned event: the entry that planned it and when.
@@ -368,6 +369,38 @@ pub enum LogPayload {
     /// component. `objects` is ascending by object. `avoid` is positive and is subtracted.
     #[serde(rename = "core:company")]
     Company { objects: Vec<Company> },
+    /// A person (the subject) came to hold `statement` (ADR-0031 section 5). `replaced` is
+    /// the same key with different content. A confirmation that rose is `replaced: false`.
+    #[serde(rename = "core:believed")]
+    Believed {
+        statement: Statement,
+        certainty: u16,
+        basis: Basis,
+        source: Option<SimId>,
+        origin: Option<SimId>,
+        replaced: bool,
+    },
+    /// A belief of a different key fell out of a full list (ADR-0031 section 5). A same-key
+    /// replacement does not write this.
+    #[serde(rename = "core:unbelieved")]
+    Unbelieved { statement: Statement },
+    /// A person (the subject) told `to` the `statement`, at the certainty the speaker holds.
+    /// `lie` stays false until the lie slice (ADR-0031 sections 3 and 5).
+    #[serde(rename = "core:told")]
+    Told {
+        to: SimId,
+        statement: Statement,
+        certainty: u16,
+        lie: bool,
+    },
+    /// Reserved so the order is believed, unbelieved, told, refuted (ADR-0031 section 5).
+    /// Nothing writes it until the refutation slice.
+    #[serde(rename = "core:refuted")]
+    Refuted {
+        by: SimId,
+        statement: Statement,
+        source: Option<SimId>,
+    },
 }
 
 /// One sociable furniture a choice weighed (ADR-0030 section 4). `avoid` is positive and is

@@ -3,6 +3,7 @@
 
 pub(crate) mod action;
 pub(crate) mod arrival;
+pub(crate) mod belief;
 pub(crate) mod birth;
 pub(crate) mod birthday;
 pub(crate) mod bond;

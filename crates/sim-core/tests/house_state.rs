@@ -1585,6 +1585,8 @@ fn the_house_part_ends_with_the_memories() {
         social: Social {
             memories: BTreeMap::from([(sim(1), vec![memory])]),
             bonds: BTreeMap::new(),
+            beliefs: BTreeMap::new(),
+            deeds: BTreeMap::new(),
         },
         ..HouseState::default()
     };

@@ -1102,4 +1102,107 @@ mod tests {
         world.submit(start(&[-1])).expect_err("already started");
         assert_eq!(world.inputs.next_seq.peek(), 2);
     }
+
+    /// `run` writes nothing when the larger id's bond list is full and protected and the
+    /// smaller id has room (ADR-0030 sections 2 and 3). `may` already refuses the plan;
+    /// this is the same check at the start of the run, before any entry.
+    #[test]
+    fn a_refused_bond_on_the_larger_id_writes_nothing() {
+        use super::ctx::{IdCounters, LogBuffer, SimCtx};
+        use crate::log::{Cause, PlanRef};
+        use crate::state::bond::listed_larger_full;
+        use crate::state::talk::run;
+        use crate::time::{Handler, Scheduler, SchedulerSnapshot, SnapshotEntry};
+
+        let case = listed_larger_full();
+        let smaller = case.newcomer;
+        let larger = case.holder;
+        let bonds = case.domain.house.social.bonds.clone();
+        let by = serde_json::from_str("1").expect("event");
+        let mut sched = Scheduler::restore(SchedulerSnapshot {
+            closed_through: SimTime::from_secs(0),
+            next_seq: 2,
+            entries: alloc::vec![SnapshotEntry {
+                time: SimTime::from_secs(1),
+                micro: 0,
+                seq: 1,
+                payload: EventPayload::Talk {
+                    a: smaller,
+                    b: larger,
+                },
+                period: None,
+                meta: PlanRef {
+                    by,
+                    planned_at: SimTime::from_secs(0),
+                },
+            }],
+        })
+        .expect("queue");
+
+        struct Probe {
+            domain: crate::state::DomainState,
+            data: crate::data::Data,
+            smaller: crate::ids::SimId,
+            larger: crate::ids::SimId,
+            log_empty: bool,
+        }
+
+        impl Handler<EventPayload, PlanRef> for Probe {
+            type Out = ();
+
+            fn on_domain(
+                &mut self,
+                _ev: Fired<EventPayload, PlanRef>,
+                ctx: &mut Ctx<'_, EventPayload, PlanRef>,
+            ) {
+                let mut ids = IdCounters::new();
+                let mut log = LogBuffer::new();
+                let mut trace = TraceBuffer::default();
+                let mut sim = SimCtx::new(
+                    ctx,
+                    &mut ids,
+                    &mut log,
+                    &mut trace,
+                    Cause::Plan(PlanRef {
+                        by: serde_json::from_str("1").expect("event"),
+                        planned_at: SimTime::from_secs(0),
+                    }),
+                );
+                let kind = crate::data_id::DataId::new("core:dining_table").expect("kind");
+                run(
+                    &mut self.domain,
+                    &self.data,
+                    (self.smaller, self.larger),
+                    0,
+                    &kind,
+                    false,
+                    &mut sim,
+                );
+                self.log_empty = log.is_empty();
+            }
+
+            fn on_observer(
+                &self,
+                _ev: &Fired<EventPayload, PlanRef>,
+                _sched: &Scheduler<EventPayload, PlanRef>,
+                _out: &mut (),
+            ) {
+            }
+        }
+
+        let mut probe = Probe {
+            domain: case.domain,
+            data: case.data,
+            smaller,
+            larger,
+            log_empty: false,
+        };
+        let mut out = ();
+        sched.advance_until(&mut probe, &mut out, SimTime::from_secs(1), &mut |_| false);
+        assert!(probe.log_empty);
+        assert_eq!(probe.domain.house.social.bonds, bonds);
+        assert!(probe.domain.house.social.beliefs.is_empty());
+        assert!(probe.domain.house.social.deeds.is_empty());
+        assert!(sched.snapshot().entries.is_empty());
+    }
 }

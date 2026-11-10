@@ -45,6 +45,10 @@ payload 37 core:bond_changed
 payload 38 core:bond_dropped
 payload 39 core:talked
 payload 40 core:company
+payload 41 core:believed
+payload 42 core:unbelieved
+payload 43 core:told
+payload 44 core:refuted
 cause 0 event
 cause 1 plan
 cause 2 input
