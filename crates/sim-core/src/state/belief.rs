@@ -6,12 +6,13 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{DomainState, whole_years};
+use super::{DomainState, whole_years, years_between};
+use crate::canonical::LoadedState;
 use crate::data::Data;
 use crate::ids::{EventId, SimId};
 use crate::log::{Cause, Causes, LogPayload, Subject};
 use crate::social::belief::{
-    Belief, BeliefInsertion, Statement, StatementKey, Taken, find, hear, insert, see,
+    Basis, Belief, BeliefInsertion, Statement, StatementKey, Taken, find, hear, insert, see,
 };
 use crate::social::data::SocialData;
 use crate::time::SimTime;
@@ -289,4 +290,99 @@ pub(super) fn leave(domain: &mut DomainState, sim: SimId) {
 pub(super) fn left_world(domain: &mut DomainState, sim: SimId) {
     domain.house.social.beliefs.remove(&sim);
     domain.house.social.deeds.remove(&sim);
+}
+
+/// Whether the beliefs and deeds of a loaded state are ones the core can reach (ADR-0031
+/// section 7). Only with social data. The owner of a list is a living person of at least
+/// `min_age` at the open second (a child under 6 holds neither; the ADR names beliefs, and
+/// deeds use the same age gate because nothing writes them earlier). A belief list is not
+/// empty, sorted by key without a repeat, at most `limits.beliefs` long. Certainty is at most
+/// 1000. `widerlegt` is only 0 or 1000. `secret` is only a `VaterVon` whose holder is the
+/// child's mother. A deed list is not empty, at most `limits.deeds` long, in creation order
+/// (the days do not go backwards), and each day is one the core writes.
+///
+/// READING: the ADR also says no deed day lies outside the window. The core drops such a day
+/// only when the next deed is recorded, a move-out freezes the list, and a later `MoveIn`
+/// counts house days from a new `since`. A reachable list can hold an older day, or a day
+/// after the household's current today. Those are not refused. A negative day is never
+/// written, and is refused. A remaining deed is not from before `dropped_day`.
+pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
+    let beliefs = &loaded.house.social.beliefs;
+    let deeds = &loaded.house.social.deeds;
+    if beliefs.is_empty() && deeds.is_empty() {
+        return true;
+    }
+    let Some(social) = data.social() else {
+        return false;
+    };
+    let Some(now) = loaded.closed_through.as_secs().checked_add(1) else {
+        return false;
+    };
+    let known = |sim: SimId| loaded.sims.contains_key(&sim) || loaded.archive.contains_key(&sim);
+    let of_age = |owner: SimId| {
+        let Some(person) = loaded.sims.get(&owner) else {
+            return false;
+        };
+        let Some(age) = years_between(person.born.as_secs(), now) else {
+            return false;
+        };
+        age >= u32::from(social.limits.min_age)
+    };
+    let kinds = social.beliefs.deeds.len();
+    let belief_cap = usize::from(social.limits.beliefs);
+    let deed_cap = usize::from(social.limits.deeds);
+    let beliefs_ok = beliefs.iter().all(|(&owner, list)| {
+        let fits = |belief: &Belief| {
+            let secret_ok = !belief.secret
+                || matches!(
+                    belief.statement,
+                    Statement::VaterVon { child, .. } if mother_of(loaded, child) == Some(owner)
+                );
+            let certainty_ok = belief.certainty <= 1000
+                && (belief.basis != Basis::Widerlegt
+                    || belief.certainty == 0
+                    || belief.certainty == 1000);
+            let statement_ok = match belief.statement {
+                Statement::VaterVon { child, man } => known(child) && known(man),
+                Statement::Tat {
+                    doer, kind, other, ..
+                } => known(doer) && known(other) && usize::from(kind) < kinds,
+            };
+            let heard_from = belief.source.is_none_or(&known) && belief.origin.is_none_or(&known);
+            secret_ok && certainty_ok && statement_ok && heard_from && belief.since.as_secs() <= now
+        };
+        of_age(owner)
+            && !list.is_empty()
+            && list.len() <= belief_cap
+            && list.windows(2).all(|pair| pair[0].key() < pair[1].key())
+            && list.iter().all(fits)
+    });
+    let deeds_ok = deeds.iter().all(|(&owner, record)| {
+        let kept = |day: i64| record.dropped_day.is_none_or(|dropped| day >= dropped);
+        of_age(owner)
+            && !(record.items.is_empty() && record.dropped_day.is_none())
+            && record.items.len() <= deed_cap
+            && record
+                .items
+                .windows(2)
+                .all(|pair| pair[0].day <= pair[1].day)
+            && record.items.iter().all(|deed| {
+                usize::from(deed.kind) < kinds
+                    && deed.other != owner
+                    && known(deed.other)
+                    && deed.day >= 0
+                    && kept(deed.day)
+            })
+    });
+    beliefs_ok && deeds_ok
+}
+
+/// The mother of `child`, living or archived.
+fn mother_of(loaded: &LoadedState, child: SimId) -> Option<SimId> {
+    let parents = loaded
+        .sims
+        .get(&child)
+        .and_then(|person| person.parents)
+        .or_else(|| loaded.archive.get(&child).and_then(|person| person.parents))?;
+    Some(parents.mother)
 }

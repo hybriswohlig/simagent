@@ -829,12 +829,12 @@ fn version_bytes(bytes: &[u8]) -> (usize, usize) {
     let core_at = bytes.len() - rest.len();
     let (core, rest) = postcard::take_from_bytes::<u32>(rest).expect("core");
     assert_eq!(core, CORE_VERSION);
-    assert_eq!(bytes[core_at], 0x42);
+    assert_eq!(bytes[core_at], 0x43);
     let (_, rest) = postcard::take_from_bytes::<u64>(rest).expect("hash");
     let proj_at = bytes.len() - rest.len();
     let (projection, _) = postcard::take_from_bytes::<u32>(rest).expect("projection");
     assert_eq!(projection, PROJECTION_VERSION);
-    assert_eq!(bytes[proj_at], 0x16);
+    assert_eq!(bytes[proj_at], 0x17);
     (core_at, proj_at)
 }
 
@@ -872,8 +872,8 @@ fn second_birth_at() -> i64 {
 #[test]
 fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
     assert_eq!(FORMAT_VERSION, 2);
-    assert_eq!(CORE_VERSION, 66);
-    assert_eq!(PROJECTION_VERSION, 22);
+    assert_eq!(CORE_VERSION, 67);
+    assert_eq!(PROJECTION_VERSION, 23);
     let second = second_birth_at();
     let (mut run, _) = couple(quiet(), 7);
     let at = second + 3 * DAY.as_secs() + 5;
@@ -951,10 +951,10 @@ fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
 
     let (core_at, proj_at) = version_bytes(&bytes);
     let mut old_core = bytes.clone();
-    old_core[core_at] = 0x3F;
+    old_core[core_at] = 0x42;
     assert_eq!(load(&old_core), Some(LoadError::ForeignCoreVersion));
     let mut old_projection = bytes.clone();
-    old_projection[proj_at] = 0x14;
+    old_projection[proj_at] = 0x16;
     assert_eq!(
         load(&old_projection),
         Some(LoadError::ForeignProjectionVersion)

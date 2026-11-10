@@ -1551,25 +1551,26 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
     assert_eq!(watching(0, weak), Ok(()));
 }
 
-/// The projection of the house part (ADR-0030 section 5, projection 22): its four maps as before,
-/// then the memories and the bonds, so a run without a move-in has six zero lengths. The talk
-/// adds no map; its counters and last-talk seconds are fields of a person and a household, and
-/// an open Talk is a queue event. The bytes below are by hand from postcard's rules (varints,
-/// zigzag for the signed values, the array of two others as two options, no length in front).
+/// The projection of the house part (ADR-0030 section 5, ADR-0031 section 7, projection 23):
+/// its four maps as before, then the memories, the bonds, the beliefs and the deeds, so a run
+/// without a move-in has eight zero lengths. The talk adds no map; its counters and last-talk
+/// seconds are fields of a person and a household, and an open Talk is a queue event. The bytes
+/// below are by hand from postcard's rules (varints, zigzag for the signed values, the array of
+/// two others as two options, no length in front).
 #[test]
 fn the_house_part_ends_with_the_memories() {
     use sim_core::social::memory::Memory;
     use sim_core::social::state::Social;
 
     let encoded = |state: &HouseState| postcard::to_allocvec(state).expect("bytes");
-    assert_eq!(encoded(&HouseState::default()), [0, 0, 0, 0, 0, 0]);
+    assert_eq!(encoded(&HouseState::default()), [0, 0, 0, 0, 0, 0, 0, 0]);
 
     let mut held = HouseState::default();
     held.holds.insert((household(1), 2, 3), sim(4));
     assert_eq!(
         encoded(&held),
-        [0, 0, 0, 1, 1, 2, 3, 4, 0, 0],
-        "the holds as before, then the two empty social maps"
+        [0, 0, 0, 1, 1, 2, 3, 4, 0, 0, 0, 0],
+        "the holds as before, then the four empty social maps"
     );
 
     let memory = Memory {
@@ -1600,6 +1601,8 @@ fn the_house_part_ends_with_the_memories() {
         0xB0, 9,  // since 600
         15, // fade
         0,  // bonds: none
+        0,  // beliefs: none
+        0,  // deeds: none
     ];
     assert_eq!(encoded(&remembering), bytes);
     assert_eq!(
@@ -1610,6 +1613,57 @@ fn the_house_part_ends_with_the_memories() {
         postcard::from_bytes::<HouseState>(&bytes[..4]).is_err(),
         "memories missing"
     );
+
+    // One Tat belief and one deed, the bytes by hand. Belief: map of one, sim 1, one belief,
+    // Tat (1), doer 2, kind 0, other 3, day 1 (zigzag 2), certainty 1000 (`0xE8 0x07`),
+    // since 600 (zigzag 1200, `0xB0 0x09`), no source, no origin, gesehen (1), not secret.
+    // Deed: map of one, sim 1, one item, kind 0, other 3, day 1, no dropped day.
+    use sim_core::social::belief::{Basis, Belief, Deed, Deeds, Statement};
+    let belief = Belief {
+        statement: Statement::Tat {
+            doer: sim(2),
+            kind: 0,
+            other: sim(3),
+            day: 1,
+        },
+        certainty: 1000,
+        since: t(600),
+        source: None,
+        origin: None,
+        basis: Basis::Gesehen,
+        secret: false,
+    };
+    let deeds = Deeds {
+        items: vec![Deed {
+            kind: 0,
+            other: sim(3),
+            day: 1,
+        }],
+        dropped_day: None,
+    };
+    let holding = HouseState {
+        social: Social {
+            memories: BTreeMap::new(),
+            bonds: BTreeMap::new(),
+            beliefs: BTreeMap::from([(sim(1), vec![belief])]),
+            deeds: BTreeMap::from([(sim(1), deeds)]),
+        },
+        ..HouseState::default()
+    };
+    let held_bytes = [
+        0, 0, 0, 0, // households, sims, waits, holds: none
+        0, 0, // memories, bonds: none
+        1, 1, 1, // beliefs: one person, sim 1, one belief
+        1, 2, 0, 3, 2, // Tat, doer 2, kind 0, other 3, day 1
+        0xE8, 0x07, // certainty 1000
+        0xB0, 0x09, // since 600
+        0, 0, // source, origin
+        1, 0, // gesehen, not secret
+        1, 1, 1, // deeds: one person, sim 1, one deed
+        0, 3, 2, // kind 0, other 3, day 1
+        0, // dropped day: none
+    ];
+    assert_eq!(encoded(&holding), held_bytes);
 
     // A text format keeps all five fields.
     let value = serde_json::to_value(&remembering).expect("json");

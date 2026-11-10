@@ -1,8 +1,6 @@
 //! The social part of the state (ADR-0030 section 5, ADR-0031 section 7): the memories, the
 //! bonds, the beliefs and the deeds of the persons, by person. It lives in the house part of
-//! the projection (`house::state::HouseState`) and is empty in a run without `MoveIn`. Beliefs
-//! and deeds are skipped until the save slice, so a save of this slice still encodes the two
-//! maps it encoded before.
+//! the projection (`house::state::HouseState`) and is empty in a run without `MoveIn`.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -28,11 +26,9 @@ use crate::social::memory::Memory;
 pub struct Social {
     pub memories: BTreeMap<SimId, Vec<Memory>>,
     pub bonds: BTreeMap<SimId, Vec<Bond>>,
-    /// Skipped until the save slice stores them (ADR-0031 section 7). Empty on load.
-    #[serde(skip)]
+    /// Sorted by statement key (ADR-0031 section 7). Empty on a person who holds none.
     pub beliefs: BTreeMap<SimId, Vec<Belief>>,
-    /// Skipped until the save slice stores them. Empty on load.
-    #[serde(skip)]
+    /// In the order the deeds came about (ADR-0031 section 7). Empty on a person who has none.
     pub deeds: BTreeMap<SimId, Deeds>,
 }
 

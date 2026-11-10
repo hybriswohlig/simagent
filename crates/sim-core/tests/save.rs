@@ -704,6 +704,10 @@ struct File {
     /// last-talk seconds are fields of the person and the household above, and an open Talk
     /// is a queue event.
     house_bonds: Vec<(u64, ())>,
+    /// The beliefs (ADR-0031 section 7, projection 23): nobody holds one here.
+    house_beliefs: Vec<(u64, ())>,
+    /// The deeds (ADR-0031 section 7, projection 23): nobody has one here.
+    house_deeds: Vec<(u64, ())>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
     plan_refs: Vec<(u64, i64)>,
@@ -723,9 +727,9 @@ impl File {
             round: Round::Due,
             magic: *b"SIMAGENT",
             format_version: 2,
-            core_version: 66,
+            core_version: 67,
             data_hash: DATA_HASH,
-            projection_version: 22,
+            projection_version: 23,
             world_seed: Some(0xff),
             world_params: Some(params(false)),
             closed_through: -1,
@@ -754,6 +758,8 @@ impl File {
             house_holds: Vec::new(),
             house_social: Vec::new(),
             house_bonds: Vec::new(),
+            house_beliefs: Vec::new(),
+            house_deeds: Vec::new(),
             plan_refs: vec![(2, 0), (1, 0), (2, 0), (2, 0), (2, 0)],
             next_event_id: 4,
             input_log: vec![(
@@ -2205,7 +2211,7 @@ fn a_save_at_the_end_of_time_is_refused_without_a_panic() {
 fn the_test_encoder_matches_the_reference() {
     assert_eq!(File::tiny().bytes(), hex(TINY_SAVE_AFTER_START));
     assert_eq!(FORMAT_VERSION, 2);
-    assert_eq!(CORE_VERSION, 66);
+    assert_eq!(CORE_VERSION, 67);
 }
 
 // ---------------------------------------------------------------------------------

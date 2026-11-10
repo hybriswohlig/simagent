@@ -836,7 +836,7 @@ fn version_at(bytes: &[u8]) -> (usize, usize) {
 /// A save between two talks loads and runs on to the same log. The loader refuses day
 /// counters over their caps (the cap itself is a reachable state), a last-talk pair out of
 /// order, after the clock or of someone outside the household, a Talk whose smaller id is
-/// not first, and a Talk of someone who is not there. A save of core 65 or projection 21
+/// not first, and a Talk of someone who is not there. A save of core 66 or projection 22
 /// is refused. The format stays 2.
 #[test]
 fn a_save_between_two_talks_loads_and_an_old_one_does_not() {
@@ -859,31 +859,16 @@ fn a_save_between_two_talks_loads_and_an_old_one_does_not() {
     let mut out = YearOut::default();
     loaded.advance_until(&mut out, t(second), &mut |_| false);
     run.advance(second);
-    // Beliefs and deeds are omitted from the projection until the save slice (ADR-0031
-    // section 7). The loaded world therefore sees the deed for the first time and writes
-    // one `core:believed` per person. The entry counts are one higher, and the log is not
-    // the same. The slice that stores the lists restores an identical continuation.
-    assert_eq!(loaded.state().house().sims[&sim(1)].entries, 6);
-    assert_eq!(loaded.state().house().sims[&sim(2)].entries, 8);
-    assert_eq!(run.world.state().house().sims[&sim(1)].entries, 5);
-    assert_eq!(run.world.state().house().sims[&sim(2)].entries, 7);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+    let tail: Vec<&LogEntry> = run
+        .log
+        .iter()
+        .filter(|entry| entry.t > t(between))
+        .collect();
     assert_eq!(
-        loaded.talk_at(sim(1), sim(2)),
-        run.world.talk_at(sim(1), sim(2))
+        serde_json::to_string(&loaded.take_log()).expect("json"),
+        serde_json::to_string(&tail).expect("json")
     );
-    let loaded_log = loaded.take_log();
-    let believed = |log: &[LogEntry], at: i64| {
-        log.iter()
-            .filter(|entry| {
-                entry.t == t(at) && matches!(entry.payload, LogPayload::Believed { .. })
-            })
-            .count()
-    };
-    assert_eq!(believed(&loaded_log, second), 2);
-    assert_eq!(believed(&run.log, second), 0);
-    assert!(loaded_log.iter().any(|entry| {
-        entry.t == t(second) && matches!(entry.payload, LogPayload::Talked { topic: 2, .. })
-    }));
 
     let load = |bytes: &[u8]| World::load(bytes, data.clone()).err();
     let limits = data.social().expect("social").limits.clone();
@@ -956,13 +941,204 @@ fn a_save_between_two_talks_loads_and_an_old_one_does_not() {
 
     let (core_at, proj_at) = version_at(&bytes);
     let mut old_core = bytes.clone();
-    old_core[core_at] = 0x41;
+    old_core[core_at] = 0x42;
     assert_eq!(load(&old_core), Some(LoadError::ForeignCoreVersion));
     let mut old_projection = bytes.clone();
-    old_projection[proj_at] = 0x15;
+    old_projection[proj_at] = 0x16;
     assert_eq!(
         load(&old_projection),
         Some(LoadError::ForeignProjectionVersion)
     );
     assert!(load(&bytes).is_none());
+}
+
+fn refuse(data: &sim_core::data::Data, bytes: &[u8], from: &[u8], to: &[u8]) {
+    assert_eq!(
+        World::load(&spliced(bytes, from, to), data.clone()).err(),
+        Some(LoadError::Inconsistent)
+    );
+}
+
+/// The two deeds of the second Necken stay in the save and run on. A day that goes
+/// backwards, a negative day, a kind the data does not list and an unknown other are
+/// refused (ADR-0031 section 7). Certainty 900 still loads. Certainty 1001, `widerlegt`
+/// at 500 and `secret` on a `Tat` do not.
+#[test]
+fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
+    let data = data(7_200, 2);
+    let (mut run, _) = couple(7_200);
+    let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
+    let second = arrival + TALK_DELAY + PAIR_GAP;
+    run.advance(second);
+    let deeds = run.world.state().house().social.deeds[&sim(1)].clone();
+    assert_eq!(deeds.items.len(), 2);
+    assert_eq!(deeds.items[0].day, 1);
+    assert_eq!(deeds.items[1].day, 1);
+    let beliefs = run.world.state().house().social.beliefs[&sim(1)].clone();
+    assert_eq!(beliefs.len(), 1);
+    assert_eq!(beliefs[0].certainty, 1000);
+    assert_eq!(beliefs[0].basis, Basis::Gesehen);
+    assert!(!beliefs[0].secret);
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let (loaded, _) = World::load(&bytes, data.clone()).expect("loaded");
+    assert_eq!(loaded.state().house().social.deeds[&sim(1)].items.len(), 2);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+
+    let one = encode(&deeds.items[0]);
+    let pair = [one.clone(), one.clone()].concat();
+    let mut earlier = deeds.items[1];
+    earlier.day = 0;
+    refuse(
+        &data,
+        &bytes,
+        &pair,
+        &[one.clone(), encode(&earlier)].concat(),
+    );
+    let mut negative = deeds.items[0];
+    negative.day = -1;
+    refuse(
+        &data,
+        &bytes,
+        &pair,
+        &[encode(&negative), one.clone()].concat(),
+    );
+    let mut bad_kind = deeds.items[1];
+    bad_kind.kind = 3;
+    refuse(
+        &data,
+        &bytes,
+        &pair,
+        &[one.clone(), encode(&bad_kind)].concat(),
+    );
+    let mut unknown = deeds.items[1];
+    unknown.other = sim(50);
+    refuse(&data, &bytes, &pair, &[one, encode(&unknown)].concat());
+
+    let owned = [encode(&sim(1)), encode(&beliefs)].concat();
+    let mut sure = beliefs.clone();
+    sure[0].certainty = 900;
+    assert!(
+        World::load(
+            &spliced(&bytes, &owned, &[encode(&sim(1)), encode(&sure)].concat()),
+            data.clone()
+        )
+        .is_ok()
+    );
+    let mut over = beliefs.clone();
+    over[0].certainty = 1001;
+    refuse(
+        &data,
+        &bytes,
+        &owned,
+        &[encode(&sim(1)), encode(&over)].concat(),
+    );
+    let mut refuted = beliefs.clone();
+    refuted[0].certainty = 500;
+    refuted[0].basis = Basis::Widerlegt;
+    refuse(
+        &data,
+        &bytes,
+        &owned,
+        &[encode(&sim(1)), encode(&refuted)].concat(),
+    );
+    let mut secret = beliefs.clone();
+    secret[0].secret = true;
+    refuse(
+        &data,
+        &bytes,
+        &owned,
+        &[encode(&sim(1)), encode(&secret)].concat(),
+    );
+}
+
+/// Two beliefs on one person: swapping them, or giving them one key, is refused. A child
+/// under 6 holds neither list (ADR-0031 section 7).
+#[test]
+fn a_child_under_six_holds_no_belief_and_two_beliefs_stay_sorted() {
+    let quiet = without_departure(7_200);
+    let born = [-60 * year(), -32 * year(), -10 * year()];
+    let (mut run, _) = day::Run::family(quiet.clone(), 0x5EED, "test:social", &born, 0);
+    let arrival = arrive(&mut run, MORNING, &[(1, FRIDGE), (2, DINING), (3, DINING)]);
+    let first = arrival + TALK_DELAY;
+    run.advance(first);
+    run.submit(command(3, FRIDGE));
+    run.submit(command(1, DINING));
+    let gossip_at = first + 1 + WITHIN_ROOM + TALK_DELAY;
+    run.advance(gossip_at);
+    let beliefs = run.world.state().house().social.beliefs.clone();
+    let heard = &beliefs[&sim(1)];
+    assert_eq!(heard.len(), 2);
+    assert!(heard[0].key() < heard[1].key());
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    assert!(World::load(&bytes, quiet.clone()).is_ok());
+
+    let mut swapped = heard.clone();
+    swapped.swap(0, 1);
+    let owned = [encode(&sim(1)), encode(heard)].concat();
+    refuse(
+        &quiet,
+        &bytes,
+        &owned,
+        &[encode(&sim(1)), encode(&swapped)].concat(),
+    );
+    let mut duplicated = heard.clone();
+    duplicated[1].statement = duplicated[0].statement;
+    assert_eq!(encode(heard).len(), encode(&duplicated).len());
+    refuse(
+        &quiet,
+        &bytes,
+        &owned,
+        &[encode(&sim(1)), encode(&duplicated)].concat(),
+    );
+
+    let young = data(7_200, 3);
+    let (mut run, _) = day::Run::family(
+        young.clone(),
+        0x5EED,
+        "test:social",
+        &[-30 * year(), -32 * year(), -3 * year()],
+        0,
+    );
+    let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
+    run.advance(arrival + TALK_DELAY);
+    let now = run.world.closed_through().as_secs() + 1;
+    let born = run.world.state().born(sim(3)).expect("the child");
+    let age = (now - born.as_secs()).div_euclid(year());
+    assert!(age < 6);
+    assert!(
+        !run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .contains_key(&sim(3))
+    );
+    assert!(
+        run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .contains_key(&sim(2))
+    );
+    let beliefs = run.world.state().house().social.beliefs.clone();
+    let mut forged = beliefs.clone();
+    let list = forged.remove(&sim(2)).expect("an adult");
+    forged.insert(sim(3), list);
+    assert_eq!(encode(&beliefs).len(), encode(&forged).len());
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    assert!(World::load(&bytes, young.clone()).is_ok());
+    refuse(&young, &bytes, &encode(&beliefs), &encode(&forged));
+
+    let deeds = run.world.state().house().social.deeds.clone();
+    assert!(!deeds.contains_key(&sim(3)));
+    let holder = [1_u64, 2]
+        .into_iter()
+        .find(|id| deeds.contains_key(&sim(*id)))
+        .expect("a deed");
+    let mut forged_deeds = deeds.clone();
+    let own = forged_deeds.remove(&sim(holder)).expect("the teaser");
+    forged_deeds.insert(sim(3), own);
+    assert_eq!(encode(&deeds).len(), encode(&forged_deeds).len());
+    refuse(&young, &bytes, &encode(&deeds), &encode(&forged_deeds));
 }
