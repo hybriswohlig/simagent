@@ -712,3 +712,69 @@ pub(crate) fn counters_ok(loaded: &LoadedState, data: &Data) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::bond::{Listed, listed};
+    use super::{formation_refused, may};
+    use crate::time::SimTime;
+
+    /// The cap in ADR-0030 section 2. Both are 30, the home is one household, and nothing
+    /// else in section 3 blocks a talk at second 0.
+    fn at() -> SimTime {
+        SimTime::from_secs(0)
+    }
+
+    fn refused(case: &mut Listed) -> bool {
+        let (holder, newcomer) = (case.holder, case.newcomer);
+        formation_refused(&mut case.domain, &case.data, holder, newcomer)
+    }
+
+    /// A missing bond a full protected list cannot take is not a talk, in either order
+    /// (ADR-0030 section 2 and section 3).
+    #[test]
+    fn a_full_list_of_protected_bonds_may_not_talk_either_way() {
+        let mut case = listed(32, false);
+        assert!(refused(&mut case));
+        let (holder, newcomer) = (case.holder, case.newcomer);
+        assert!(!may(
+            &mut case.domain,
+            &case.data,
+            holder,
+            newcomer,
+            at(),
+            true
+        ));
+        assert!(!may(
+            &mut case.domain,
+            &case.data,
+            newcomer,
+            holder,
+            at(),
+            true
+        ));
+    }
+
+    /// One droppable bond, or a list under the cap, is not a refusal. The smaller id first
+    /// may talk. The larger id first is the pair order, which is never a talk.
+    #[test]
+    fn a_list_that_can_take_the_bond_may_talk() {
+        for (bonds, drop_last) in [(32, true), (31, false)] {
+            let mut case = listed(bonds, drop_last);
+            assert!(!refused(&mut case), "{bonds} bonds, drop_last {drop_last}");
+            let (holder, newcomer) = (case.holder, case.newcomer);
+            assert!(
+                may(&mut case.domain, &case.data, holder, newcomer, at(), true),
+                "{bonds} bonds, drop_last {drop_last}"
+            );
+            assert!(!may(
+                &mut case.domain,
+                &case.data,
+                newcomer,
+                holder,
+                at(),
+                true
+            ));
+        }
+    }
+}

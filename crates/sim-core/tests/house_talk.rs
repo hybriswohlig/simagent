@@ -8,18 +8,16 @@ mod common;
 
 use common::day::{self, MORNING, Run};
 use sim_core::canonical::PROJECTION_VERSION;
-use sim_core::data::Data;
-use sim_core::data_id::DataId;
-use sim_core::genome::Sex;
-use sim_core::ids::{EventId, HouseholdId, SimId};
-use sim_core::input::{
-    Command, Couple, Founder, Input, MoveIn, MoveOut, SeparatePartnership, Start,
-};
+use sim_core::data_id::{Code, DataId};
+use sim_core::ids::{HouseholdId, SimId};
+use sim_core::input::{Command, Input, MoveIn, MoveOut};
+use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, LogPayload, Subject};
-use sim_core::params::WorldParams;
+use sim_core::mortality::accident_age;
+use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::bond::GRUDGE;
 use sim_core::social::data::TALK;
-use sim_core::time::{DAY, MONTH, SimTime, YEAR};
+use sim_core::time::{SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{EventPayload, FORMAT_VERSION, LoadError, World, YearOut};
 
@@ -45,17 +43,19 @@ fn data(meal: u32, people: u8) -> sim_core::data::Data {
         2,
         60,
         include_str!("../../../data/house/day.json"),
+        1e-9,
     )
 }
 
 /// As `data`, with `dining_slots` at the table, a fridge offer of `fridge_secs`, and the day
-/// file `day`.
+/// file `day`. `accident_male` is his accident per year; hers stays at 1e-9.
 fn scene(
     meal: u32,
     people: u8,
     dining_slots: u8,
     fridge_secs: u32,
     day: &str,
+    accident_male: f64,
 ) -> sim_core::data::Data {
     let kinds = format!(
         r#"[
@@ -89,7 +89,12 @@ fn scene(
     }}"#
     );
     let houses = common::houses_from(&day::rates(1, 0, 0), day, &kinds, &[&house]);
-    common::death_data(1e-9, None, serde_json::json!([]))
+    let (mut calibration, genome_map) = common::death_files(1e-9, None, serde_json::json!([]));
+    calibration["values"]["core:accident_male"]["value"] = serde_json::json!(accident_male);
+    let definitions = common::definitions_with(common::demography(), calibration, genome_map)
+        .expect("definitions");
+    sim_core::data::Data::new(definitions)
+        .expect("checked")
         .with_houses(houses)
         .with_social(common::repository_social())
 }
@@ -143,7 +148,7 @@ fn without_departure(meal: u32) -> sim_core::data::Data {
             "\"from_age\": 7,\n    \"until_age\": 8,",
         );
     assert_ne!(day, repository, "the ages in the day file still bind");
-    scene(meal, 3, 3, meal, &day)
+    scene(meal, 3, 3, meal, &day, 1e-9)
 }
 
 /// Commands `seats` at 06:00:01, after the morning's own walks have begun, and runs to the
@@ -449,16 +454,76 @@ fn an_action_end_in_the_same_second_skips_a_talk_without_sixteen_free_entries() 
     }));
 }
 
+/// The accident budget of founder 1 of `test:social` at seed `0x5EED`, the same draw `Start`
+/// uses for `core:accident`.
+fn accident_budget() -> f64 {
+    let tag = DataId::new("test:social").expect("tag");
+    let lineage = LineageKey::founder(&tag, 1);
+    Draws::new(WorldSeed::new(0x5EED)).exponential(
+        DrawKey {
+            tag: tags::DEATH_BUDGET,
+            subject: lineage.into(),
+            occasion: Code::new("core:accident").expect("code").key(),
+            detail: 0,
+        },
+        1.0,
+    )
+}
+
+/// Seconds from the start until an accident at age 32 with this budget and rate. The 32 years
+/// he already has at second 0 cancel (`mortality::accident_age`).
+fn accident_due(budget: f64, rate: f64) -> i64 {
+    let years = accident_age(32.0, budget, rate) - 32.0;
+    SimDuration::from_years_ceil(years).expect("due").as_secs()
+}
+
+/// His accident per year so the death is due at `at`. `at - 0.5` is inside the second `ceil`
+/// lands on. The rate stays inside the accident range, and a JSON number does not move it.
+fn male_accident_at(at: i64) -> f64 {
+    let budget = accident_budget();
+    let half_second = SimDuration::from_secs(1).as_years() / 2.0;
+    let span = SimDuration::from_secs(at).as_years() - half_second;
+    let rate = budget / span;
+    assert!(
+        (1e-9..=1000.0).contains(&rate),
+        "the rate {rate} is outside the accident range"
+    );
+    let stored = serde_json::json!(rate);
+    let loaded = stored.as_f64().expect("a finite rate");
+    assert_eq!(accident_due(budget, loaded), at, "the stored rate");
+    rate
+}
+
 /// A death in the talk's second is later than the talk. The talk counts; its successor does not
-/// survive the death.
+/// survive the death. His accident is due in that second (`Slot::Death`); class runs the talk
+/// first (ADR-0002). The meal is still open.
 #[test]
 fn a_death_in_the_same_second_comes_after_the_talk() {
-    let (mut run, _) = couple(7_200);
+    let at = MORNING + 1 + WITHIN_ROOM + TALK_DELAY;
+    let rate = male_accident_at(at);
+    let born = [-30 * year(), -32 * year()];
+    let (mut run, _) = day::Run::family(
+        scene(
+            7_200,
+            2,
+            2,
+            60,
+            include_str!("../../../data/house/day.json"),
+            rate,
+        ),
+        0x5EED,
+        "test:social",
+        &born,
+        0,
+    );
     let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
-    let at = arrival + TALK_DELAY;
-    run.advance(at - 1);
-    let by = run.log.last().expect("an entry").id;
-    run.world.inject_accident(sim(2), by);
+    assert_eq!(arrival + TALK_DELAY, at);
+    let loaded = run.world.data().genetics().accident_male;
+    assert_eq!(
+        accident_due(accident_budget(), loaded),
+        at,
+        "the loaded rate"
+    );
     run.advance(at);
     assert_eq!(talked(&run).len(), 1);
     assert_eq!(counts(&run, 1), (1, 2));
@@ -680,215 +745,4 @@ fn a_save_between_two_talks_loads_and_an_old_one_does_not() {
         Some(LoadError::ForeignProjectionVersion)
     );
     assert!(load(&bytes).is_none());
-}
-
-/// Needs stay put, so the two fill time at the fridge (not sociable) instead of eating and
-/// talking. School is only age 7 and work only age 8, so the adults and a child of 6 never
-/// leave: a return would drop the bladder under the critical line and a command to the table
-/// is then refused. The toilet, shower and sofa run for four hours: a minute each lets the
-/// child who turns 6 decide two hundred times that afternoon, and the day allows fewer
-/// (`house.decision_budget`).
-fn breeding_data() -> Data {
-    let repository = include_str!("../../../data/house/day.json");
-    let day = repository
-        .replace(
-            r#""school": {"from_age": 6, "until_age": 18"#,
-            r#""school": {"from_age": 7, "until_age": 8"#,
-        )
-        .replace(
-            "\"from_age\": 18,\n    \"until_age\": 67,",
-            "\"from_age\": 8,\n    \"until_age\": 9,",
-        );
-    assert_ne!(day, repository, "the ages in the day file still bind");
-    let kinds = r#"[
-      {"id": "core:dining_table", "slots": 2, "offers": [
-        {"id": "eat", "rates": {"hunger": 1}, "seconds": 7200, "min_age": 0, "max_age": 130}]},
-      {"id": "core:fridge", "slots": 4, "offers": [
-        {"id": "snack", "rates": {"fun": 1}, "seconds": 14400, "min_age": 0, "max_age": 130, "fallback": true}]},
-      {"id": "core:toilet", "slots": 4, "offers": [
-        {"id": "use", "rates": {"bladder": 1}, "seconds": 14400, "min_age": 0, "max_age": 130}]},
-      {"id": "core:shower", "slots": 4, "offers": [
-        {"id": "shower", "rates": {"hygiene": 1}, "seconds": 14400, "min_age": 0, "max_age": 130}]},
-      {"id": "core:sofa", "slots": 1, "offers": [
-        {"id": "sit", "rates": {"fun": 1}, "seconds": 14400, "min_age": 0, "max_age": 130}]},
-      {"id": "core:bed", "slots": 4, "offers": [
-        {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]}
-    ]"#;
-    let house = r#"{
-      "id": "test:talk", "capacity": 2,
-      "rooms": [{"id": "hall", "entrance": true}, {"id": "den"}],
-      "child_day_room": "den", "child_night_room": "den", "dwell_room": "den",
-      "doors": [{"a": "hall", "b": "den", "seconds": 1}],
-      "objects": [
-        {"kind": "core:dining_table", "room": "hall"},
-        {"kind": "core:fridge", "room": "hall"},
-        {"kind": "core:toilet", "room": "hall"},
-        {"kind": "core:shower", "room": "hall"},
-        {"kind": "core:sofa", "room": "hall"},
-        {"kind": "core:bed", "room": "hall"}]
-    }"#;
-    let rates = serde_json::json!({
-        "awake": {
-            "hunger": [0, 0, 0, 0],
-            "energy": [0, 0, 0, 0],
-            "bladder": [0, 0, 0, 0],
-            "hygiene": [0, 0, 0, 0],
-            "fun": [0, 0, 0, 0]
-        },
-        "asleep": {
-            "hunger": [0, 0, 0, 0],
-            "energy": [1, 1, 1, 1],
-            "bladder": [0, 0, 0, 0],
-            "hygiene": [0, 0, 0, 0],
-            "fun": [0, 0, 0, 0]
-        },
-        "comfort": [1000, 1000, 1000, 1000, 1000]
-    })
-    .to_string();
-    let houses = common::houses_from(&rates, &day, kinds, &[house]);
-    let (mut calibration, genome_map) = common::death_files(1e-9, None, serde_json::json!([]));
-    let mut demography = common::demography();
-    common::window_fertility(&mut calibration, &mut demography, 1.0);
-    demography["values"]["core:pregnancy_length"]["value"] = serde_json::json!(1.0);
-    let definitions =
-        common::definitions_with(demography, calibration, genome_map).expect("definitions");
-    Data::new(definitions)
-        .expect("checked")
-        .with_houses(houses)
-        .with_social(common::repository_social())
-}
-
-fn bond_len(run: &Run, id: u64) -> usize {
-    (run.world.state().house().social.bonds.get(&sim(id)))
-        .map(|list| list.len())
-        .unwrap_or(0)
-}
-
-/// Drops the log and returns the last entry, which a later accident names.
-fn through(run: &mut Run, until: i64) -> EventId {
-    run.world
-        .advance_until(&mut run.out, t(until), &mut |_| false);
-    run.world.take_log().last().expect("an entry").id
-}
-
-fn founder_of(years: i64, sex: Sex) -> Founder {
-    Founder {
-        born: t(-years * year()),
-        sex,
-        alleles: common::dummy(0, 0),
-    }
-}
-
-fn has_bond(run: &Run, owner: u64, other: SimId) -> bool {
-    (run.world.state().house().social.bonds.get(&sim(owner)))
-        .is_some_and(|list| list.iter().any(|bond| bond.other == other))
-}
-
-/// The other's list is full of protected bonds, so the missing bond is refused (ADR-0030
-/// section 2). The talk is neither planned nor run, and it writes nothing.
-///
-/// Her series starts the month after the pairing (day 28) and a pregnancy of one month with
-/// no pause gives a birth every 56 days. The 31st birth is day 1 736: the partner bond plus
-/// 31 children is 32, every one protected. The other couple's one child is not kin. Both of
-/// that child's parents die after the list is full, and the orphan rule fosters the child
-/// here; her list cannot take the bond. The child turns 6 on day 2 240, a Monday, so the
-/// first Saturday both are home and awake at 07:00 is day 2 245. The hall walk is 5 s and the
-/// talk would be 600 s after the arrival.
-#[test]
-fn a_full_list_of_protected_bonds_plans_no_talk_with_a_new_housemate() {
-    let first_birth = 2 * MONTH.as_secs();
-    let full = 62 * MONTH.as_secs();
-    assert_eq!(first_birth, 56 * DAY.as_secs(), "month 2");
-    assert_eq!(full, 31 * first_birth, "birth 31, partner + 31 bonds");
-    let birthday = first_birth + 6 * year();
-    assert_eq!(birthday / DAY.as_secs(), 2_240);
-    assert_eq!(
-        birthday.rem_euclid(7 * DAY.as_secs()),
-        0,
-        "Monday, as day 0"
-    );
-    let saturday = birthday + 5 * DAY.as_secs();
-    // `night.until_weekend` of the bands 0 and 2, 07:00.
-    let wake = saturday + 25_200;
-
-    let founders = vec![
-        founder_of(25, Sex::Female),
-        founder_of(27, Sex::Male),
-        founder_of(25, Sex::Female),
-        founder_of(27, Sex::Male),
-    ];
-    let start = Start {
-        world_seed: 7,
-        founder_tag: DataId::new("test:social").expect("tag"),
-        world_params: WorldParams {
-            hereditary_diseases: false,
-            nutrition: Vec::new(),
-        },
-        founders,
-        couples: vec![Couple { woman: 0, man: 1 }, Couple { woman: 2, man: 3 }],
-        capacity: None,
-        pool: None,
-    };
-    let mut run = Run {
-        world: World::new(breeding_data()),
-        out: YearOut::default(),
-        log: Vec::new(),
-    };
-    run.submit(Input::Start(start));
-    through(&mut run, DAY.as_secs() - 2);
-    let home = run
-        .world
-        .state()
-        .household_of(sim(1))
-        .expect("her household");
-    assert_ne!(run.world.state().household_of(sim(3)), Some(home));
-    run.submit(Input::MoveIn(MoveIn { household: home }));
-
-    through(&mut run, first_birth);
-    run.submit(Input::SeparatePartnership(SeparatePartnership {
-        woman: sim(3),
-        man: sim(4),
-    }));
-    let hers = run.world.state().household_of(sim(3)).expect("hers");
-    let stayed: Vec<SimId> = run.world.state().members(hers).collect();
-    assert_eq!(stayed.len(), 2, "the child stays with her");
-    let child = stayed.into_iter().find(|id| *id != sim(3)).expect("child");
-    assert!(
-        !has_bond(&run, 1, child),
-        "the other household formed nothing here"
-    );
-
-    let by = through(&mut run, full);
-    assert_eq!(bond_len(&run, 1), 32);
-    assert!(!has_bond(&run, 1, child));
-    run.world.inject_accident(sim(4), by);
-    let closed = run.world.closed_through().as_secs() + 1;
-    let by = through(&mut run, closed);
-    run.world.inject_accident(sim(3), by);
-    let closed = run.world.closed_through().as_secs() + 1;
-    through(&mut run, closed);
-    assert_eq!(run.world.state().household_of(child), Some(home));
-    assert_eq!(bond_len(&run, 1), 32, "a full protected list forms nothing");
-    assert!(!has_bond(&run, 1, child));
-    let hers_before = run.world.state().house().social.bonds[&sim(1)].clone();
-
-    run.log.clear();
-    let arrival = arrive(&mut run, wake, &[(1, DINING), (child.get(), DINING)]);
-    assert_eq!(arrival, wake + 1 + WITHIN_ROOM);
-    let due = arrival + TALK_DELAY;
-    assert_eq!(run.world.talk_at(sim(1), child), None, "no talk is planned");
-    run.advance(due);
-    assert!(talked(&run).is_empty(), "the talk does not run");
-    assert_eq!(run.world.talk_at(sim(1), child), None);
-    assert_eq!(run.world.state().house().social.bonds[&sim(1)], hers_before);
-    assert!(!has_bond(&run, 1, child));
-    assert!(run.log.iter().all(|entry| {
-        !matches!(
-            entry.payload,
-            LogPayload::BondFormed { .. }
-                | LogPayload::BondDropped { .. }
-                | LogPayload::BondChanged { .. }
-                | LogPayload::Talked { .. }
-        )
-    }));
 }
