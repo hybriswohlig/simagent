@@ -115,6 +115,14 @@ pub fn interests(seed: WorldSeed, lineage: LineageKey) -> [u16; TOPICS] {
     })
 }
 
+/// The topic numbers with an actor (ADR-0030 section 3: 1 Lob, 2 Necken, 5 Entschuldigung). The
+/// number is the topic's place in the data and the occasion of its interest draw.
+pub const PRAISE: usize = 1;
+/// Necken.
+pub const TEASE: usize = 2;
+/// Entschuldigung.
+pub const APOLOGY: usize = 5;
+
 /// What a recall writes: the strength at now plus the recall step, at most 1000.
 pub fn recall_strength(strength: u16, step: u16) -> u16 {
     let sum = u32::from(strength).saturating_add(u32::from(step));
@@ -124,13 +132,12 @@ pub fn recall_strength(strength: u16, step: u16) -> u16 {
 /// Who praises, teases or apologises. Other topics have no actor. Lob and Necken: the larger
 /// interest, a tie the smaller [`SimId`]. Entschuldigung: the smaller own-edge grudge, a tie
 /// the smaller [`SimId`] (ADR-0030 section 3; the reference's reading of "kleinerer Groll").
-pub fn topic_actor(social: &SocialData, topic: usize, pair: &TalkPair<'_>) -> Option<SimId> {
-    let name = topic_name(social, topic);
-    if name == "core:praise" || name == "core:tease" {
+pub fn topic_actor(_social: &SocialData, topic: usize, pair: &TalkPair<'_>) -> Option<SimId> {
+    if topic == PRAISE || topic == TEASE {
         let ia = interest_at(pair.interest_a, topic);
         let ib = interest_at(pair.interest_b, topic);
         Some(if ib > ia { pair.b } else { pair.a })
-    } else if name == "core:apology" {
+    } else if topic == APOLOGY {
         let ga = pair.edge_ab[GRUDGE];
         let gb = pair.edge_ba[GRUDGE];
         Some(if gb < ga { pair.b } else { pair.a })
@@ -246,14 +253,6 @@ pub fn topic_outcome(social: &SocialData, topic: usize, pair: &TalkPair<'_>) -> 
         });
     }
     out
-}
-
-fn topic_name(social: &SocialData, topic: usize) -> &str {
-    social
-        .topics
-        .get(topic)
-        .map(|row| row.id.as_str())
-        .unwrap_or("")
 }
 
 fn interest_at(interests: &[u16], topic: usize) -> u16 {
