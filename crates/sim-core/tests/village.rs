@@ -179,8 +179,8 @@ const VILLAGES: [Village; 2] = [
         chosen: &SEED_2,
         start_input: (9742, 0x0184_8c0b_393c_fb29),
         entries: 161,
-        state_hash: 0x971f_05e2_6c0f_e1e9,
-        save: (24707, 0xee44_febe_32bb_ed1f),
+        state_hash: 0xe12e_6b47_0c89_0354,
+        save: (24709, 0x7703_3030_de93_e5d9),
         kin: &[
             (9, 59, 1.0 / 256.0),
             (18, 61, 1.0 / 128.0),
@@ -200,8 +200,8 @@ const VILLAGES: [Village; 2] = [
         chosen: &SEED_3,
         start_input: (9732, 0xfe72_2ea4_8554_8193),
         entries: 161,
-        state_hash: 0xea50_1186_41d1_fd51,
-        save: (24704, 0xd3e3_9b8e_7c6d_2251),
+        state_hash: 0x6007_1e69_1a83_5278,
+        save: (24706, 0xf3c2_751e_d463_fd04),
         kin: &[
             (6, 32, 1.0 / 128.0),
             (6, 50, 1.0 / 128.0),
