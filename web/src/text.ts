@@ -653,7 +653,7 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:bond_formed": "{0} knüpft eine Beziehung",
   "payload core:bond_changed": "{0} ändert eine Beziehung",
   "payload core:bond_dropped": "{0} löst eine Beziehung",
-  "payload core:talked": "{0} spricht",
+  "payload core:talked": "{0} redet mit {1}",
   "payload core:company": "{0} setzt sich dazu",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
