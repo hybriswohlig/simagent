@@ -33,12 +33,30 @@ const TOILET: u16 = 2;
 /// the entrance walks `WITHIN_ROOM` seconds. The fridge, toilet and shower have four places,
 /// so a command is not refused because a morning walk still holds the one place.
 fn data(meal: u32, people: u8) -> sim_core::data::Data {
+    scene(
+        meal,
+        people,
+        2,
+        60,
+        include_str!("../../../data/house/day.json"),
+    )
+}
+
+/// As `data`, with `dining_slots` at the table, a fridge offer of `fridge_secs`, and the day
+/// file `day`.
+fn scene(
+    meal: u32,
+    people: u8,
+    dining_slots: u8,
+    fridge_secs: u32,
+    day: &str,
+) -> sim_core::data::Data {
     let kinds = format!(
         r#"[
-      {{"id": "core:dining_table", "slots": 2, "offers": [
+      {{"id": "core:dining_table", "slots": {dining_slots}, "offers": [
         {{"id": "eat", "rates": {{"hunger": 1}}, "seconds": {meal}, "min_age": 0, "max_age": 130}}]}},
       {{"id": "core:fridge", "slots": 4, "offers": [
-        {{"id": "snack", "rates": {{"hunger": 1}}, "seconds": 60, "min_age": 0, "max_age": 130}}]}},
+        {{"id": "snack", "rates": {{"hunger": 1}}, "seconds": {fridge_secs}, "min_age": 0, "max_age": 130}}]}},
       {{"id": "core:toilet", "slots": 4, "offers": [
         {{"id": "use", "rates": {{"bladder": 1}}, "seconds": 60, "min_age": 0, "max_age": 130}}]}},
       {{"id": "core:shower", "slots": 4, "offers": [
@@ -64,7 +82,6 @@ fn data(meal: u32, people: u8) -> sim_core::data::Data {
         {{"kind": "core:bed", "room": "hall"}}]
     }}"#
     );
-    let day = include_str!("../../../data/house/day.json");
     let houses = common::houses_from(&day::rates(1, 0, 0), day, &kinds, &[&house]);
     common::death_data(1e-9, None, serde_json::json!([]))
         .with_houses(houses)
@@ -105,11 +122,34 @@ fn four() -> (Run, HouseholdId) {
     day::Run::family(data(7_200, 4), 0x5EED, "test:social", &born, 0)
 }
 
+/// Three founders and meals of `meal` seconds at a three-place table. School is only the age
+/// of 6 and work only the age of 7, so the child of 10 and the adults have no departure and
+/// stay through the afternoon. The repository day would send the child out at 07:40.
+fn without_departure(meal: u32) -> sim_core::data::Data {
+    let repository = include_str!("../../../data/house/day.json");
+    let day = repository
+        .replace(
+            r#""school": {"from_age": 6, "until_age": 18"#,
+            r#""school": {"from_age": 6, "until_age": 7"#,
+        )
+        .replace(
+            "\"from_age\": 18,\n    \"until_age\": 67,",
+            "\"from_age\": 7,\n    \"until_age\": 8,",
+        );
+    assert_ne!(day, repository, "the ages in the day file still bind");
+    scene(meal, 3, 3, meal, &day)
+}
+
 /// Commands `seats` at 06:00:01, after the morning's own walks have begun, and runs to the
 /// arrival. Returns that second. The walk is the 5 s inside the hall.
 fn seat(run: &mut Run, seats: &[(u64, u16)]) -> i64 {
-    run.advance(MORNING);
-    let now = MORNING + 1;
+    arrive(run, MORNING, seats)
+}
+
+/// As `seat`, measured from `morning` instead of the first morning.
+fn arrive(run: &mut Run, morning: i64, seats: &[(u64, u16)]) -> i64 {
+    run.advance(morning);
+    let now = morning + 1;
     for &(id, object) in seats {
         run.submit(command(id, object));
     }
@@ -309,6 +349,98 @@ fn an_action_end_in_the_same_second_runs_the_talk() {
         .position(|entry| matches!(entry.payload, LogPayload::ActionEnded { .. }))
         .expect("the action ended");
     assert!(talked_at < ended_at);
+}
+
+/// Six Necken leave him 18 entries, so 16 of the day's 34 are free and the next talk is
+/// planned (ADR-0030 sections 3 and 5). It is due in the second the meals end. The child
+/// sits down first and teases each parent, which writes him 3 more entries. 13 free is
+/// below the 16 a talk needs, so that end does not run the talk: the counts, the grudge
+/// and the last talk stay, and nothing is planned. The end still cancels the event.
+///
+/// Day 0 move-in is 86 399 and the first morning is 108 000. The walk starts at 108 001
+/// and reaches the table at 108 006. Talks fall at 108 606 and every 3 600 s: the sixth at
+/// 126 606, the seventh at 130 206. The meal is 22 200 s, and 108 006 + 22 200 = 130 206.
+/// The child is sent at 126 607, arrives at 126 612 and talks at 127 212; those successors
+/// are at 130 812, after the meal. Necken writes 2 entries for the actor and 3 for the
+/// target. She acts in the six couple talks (12) and with the child (14). He is the target
+/// of the six (18) and of the child's tease (21). The child writes 3, then 2. His grudge toward
+/// her is 6 * 60 = 360; one hour fades none (`10 * 3 600 / 86 400` = 0). The house day at
+/// 130 206 is 1, so the counters do not reset.
+#[test]
+fn an_action_end_in_the_same_second_skips_a_talk_without_sixteen_free_entries() {
+    const MEAL: u32 = 22_200;
+    let born = [-30 * year(), -32 * year(), -10 * year()];
+    let (mut run, home) =
+        day::Run::family(without_departure(MEAL), 0x5EED, "test:social", &born, 0);
+    let arrival = arrive(&mut run, MORNING, &[(1, DINING), (2, DINING), (3, FRIDGE)]);
+    let first = arrival + TALK_DELAY;
+    let sixth = first + 5 * PAIR_GAP;
+    let seventh = sixth + PAIR_GAP;
+    assert_eq!(arrival, 108_006);
+    assert_eq!(sixth, 126_606);
+    assert_eq!(seventh, 130_206);
+    assert_eq!(seventh, arrival + i64::from(MEAL));
+    let since = run.world.state().house().households[&home].since;
+    assert_eq!(since, t(86_399));
+    assert_eq!(sim_core::social::talk::house_day(t(seventh), since), 1);
+
+    run.advance(sixth);
+    assert_eq!(talked(&run).len(), 6);
+    assert_eq!(counts(&run, 1), (6, 12));
+    assert_eq!(counts(&run, 2), (6, 18));
+    assert_eq!(counts(&run, 3), (0, 0));
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 360);
+    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(seventh)));
+
+    run.submit(command(3, DINING));
+    let child_arrival = sixth + 1 + WITHIN_ROOM;
+    let child_talk = child_arrival + TALK_DELAY;
+    assert_eq!(child_arrival, 126_612);
+    assert_eq!(child_talk, 127_212);
+    assert!(child_talk + PAIR_GAP > seventh);
+    run.advance(child_talk);
+    let joined = (run.log.iter().rev())
+        .find_map(|entry| match entry.payload {
+            LogPayload::ActionStarted {
+                object: got,
+                walk_secs,
+                commanded: true,
+                ..
+            } if entry.subjects == vec![Subject::Sim(sim(3))] => {
+                Some((entry.t.as_secs(), walk_secs, got))
+            }
+            _ => None,
+        })
+        .expect("the child walks to the table");
+    let walk = u32::try_from(WITHIN_ROOM).expect("fits");
+    assert_eq!(joined, (sixth + 1, walk, DINING));
+    assert!(
+        talked(&run)
+            .iter()
+            .all(|entry| { matches!(entry.payload, LogPayload::Talked { topic: 2, .. }) })
+    );
+    assert_eq!(talked(&run).len(), 8);
+    assert_eq!(counts(&run, 1), (7, 14));
+    assert_eq!(counts(&run, 2), (7, 21));
+    assert_eq!(counts(&run, 3), (2, 5));
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 360);
+    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(seventh)));
+
+    run.advance(seventh);
+    assert_eq!(counts(&run, 1), (7, 14));
+    assert_eq!(counts(&run, 2), (7, 21));
+    assert_eq!(counts(&run, 3), (2, 5));
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 360);
+    assert_eq!(talked(&run).len(), 8);
+    assert!(talked(&run).iter().all(|entry| entry.t != t(seventh)));
+    assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
+    assert_eq!(
+        run.world.state().house().households[&home].last_talk[&(sim(1), sim(2))],
+        t(sixth)
+    );
+    assert!((run.log.iter()).any(|entry| {
+        entry.t == t(seventh) && matches!(entry.payload, LogPayload::ActionEnded { .. })
+    }));
 }
 
 /// A death in the talk's second is later than the talk. The talk counts; its successor does not
