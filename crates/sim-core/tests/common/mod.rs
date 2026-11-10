@@ -437,6 +437,22 @@ pub fn repository_social_with(
     social.checked().expect("checked")
 }
 
+/// The repository's social data after `change`, with every topic's furniture list empty.
+/// `SocialData::sociable` is then false for every kind, so a house run plans no talk.
+/// Talks have their own tests in `house_talk.rs`.
+#[allow(dead_code, reason = "the house tests of bonds and memories use it")]
+pub fn repository_social_without_talks(
+    change: impl FnOnce(&mut Value),
+) -> sim_core::social::data::SocialData {
+    repository_social_with(|file| {
+        change(file);
+        let topics = file["topics"].as_array_mut().expect("topics");
+        for topic in topics {
+            topic["furniture"] = json!([]);
+        }
+    })
+}
+
 /// The day `day` (a `day.json`) with every morning's end of the night that of a weekday: the
 /// weekend's later end (ADR-0026, addendum of 2026-11-04 after the playtest) as `until`. The
 /// tests that begin on a Saturday only to have no duty use it, so that their first morning at

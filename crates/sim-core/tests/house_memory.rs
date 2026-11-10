@@ -36,7 +36,8 @@ fn t(secs: i64) -> SimTime {
 
 /// Test data: accident `accident` per year, the woman's fertility window with a certain
 /// conception at the first month start and a pregnancy of `months`, the repository's houses and,
-/// if given, the social data after `change`.
+/// if given, the social data after `change`. The topics name no furniture, so no talk is planned.
+/// Talks have their own tests in `house_talk.rs`.
 fn data_with(accident: f64, months: f64, social: Option<&dyn Fn(&mut Value)>) -> Data {
     let (mut calibration, genome_map) = common::death_files(accident, None, json!([]));
     let mut demography = common::demography();
@@ -47,7 +48,7 @@ fn data_with(accident: f64, months: f64, social: Option<&dyn Fn(&mut Value)>) ->
         .expect("checked")
         .with_houses(common::repository_houses());
     match social {
-        Some(change) => data.with_social(common::repository_social_with(change)),
+        Some(change) => data.with_social(common::repository_social_without_talks(change)),
         None => data,
     }
 }
