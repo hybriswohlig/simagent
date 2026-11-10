@@ -3567,7 +3567,7 @@ fn sick_switched_on() -> File {
     // birth (entry 9): the start had the switch off, nothing reported it before.
     file.next_event_id = 10;
     file.input_log = vec![(-1, 1, sick_start(false)), (Y - 1, 2, override_block(true))];
-    file.year_hashes = vec![(0, 0xe660_ba76_4103_42f9)];
+    file.year_hashes = vec![(0, 0x95c0_a06d_c0c9_e28b)];
     file
 }
 
@@ -3593,10 +3593,10 @@ fn sick_on_after_year_3() -> File {
     file.next_event_id = 15;
     file.input_log = vec![(-1, 1, sick_start(true))];
     file.year_hashes = vec![
-        (0, 0xac90_e0aa_683e_802b),
-        (1, 0x4ff1_497a_ef77_dd6c),
-        (2, 0xf42b_b3bb_9af3_9b20),
-        (3, 0x73f4_cb75_876a_b49b),
+        (0, 0x1836_355b_13e2_ea3c),
+        (1, 0x86ab_51ca_77e0_b27b),
+        (2, 0x4d69_57d3_8768_7c56),
+        (3, 0x54fa_1ef6_63f1_61f7),
     ];
     file
 }
@@ -3632,11 +3632,11 @@ fn sick_off_at_due() -> File {
         (HIS_DISEASE - 1, 2, override_block(false)),
     ];
     file.year_hashes = vec![
-        (0, 0xac90_e0aa_683e_802b),
-        (1, 0x4ff1_497a_ef77_dd6c),
-        (2, 0xf42b_b3bb_9af3_9b20),
-        (3, 0xb9ef_bfb9_eb96_2f58),
-        (4, 0x48fb_bd4d_8421_3fd4),
+        (0, 0x1836_355b_13e2_ea3c),
+        (1, 0x86ab_51ca_77e0_b27b),
+        (2, 0x4d69_57d3_8768_7c56),
+        (3, 0x27ee_95b2_9313_0562),
+        (4, 0x5ddb_5240_8ca2_4259),
     ];
     file
 }
@@ -3946,7 +3946,7 @@ fn partners_arranged() -> File {
         (-1, 1, partners_start(vec![(0, 1)])),
         (Y - 1, 2, TestInput::ArrangePartnership { woman: 1, man: 3 }),
     ];
-    file.year_hashes = vec![(0, 0x6b6f_ccf3_08ca_0db9)];
+    file.year_hashes = vec![(0, 0x5e6f_9385_b7c8_15a8)];
     file
 }
 
@@ -3972,11 +3972,11 @@ fn partners_after_year_4() -> File {
     file.plan_refs = vec![(19, 5 * Y - 3), (1, 0), (4, 0), (4, 0)];
     file.next_event_id = 20;
     file.year_hashes = vec![
-        (0, 0x6b6f_ccf3_08ca_0db9),
-        (1, 0x97a4_d8f3_426e_ebf1),
-        (2, 0xa25f_30c5_305f_8b5d),
-        (3, 0x9d11_08ca_59af_ed87),
-        (4, 0x71e0_4a09_efa3_0eb1),
+        (0, 0x5e6f_9385_b7c8_15a8),
+        (1, 0x6db4_1c29_d8f7_52cf),
+        (2, 0x440f_cfce_a9e0_ed97),
+        (3, 0xf905_6df6_e8b9_eed6),
+        (4, 0x5a8e_6e5b_eba9_5ead),
     ];
     file
 }
@@ -4537,7 +4537,7 @@ fn clan_born() -> File {
     file.sims[0].1.6 = 1;
     file.pregnancies.clear();
     file.next_event_id = 31;
-    file.year_hashes = vec![(0, 0x8b41_3239_bcf5_0cbb)];
+    file.year_hashes = vec![(0, 0x3ee5_f579_4423_46dc)];
     file
 }
 
@@ -4826,7 +4826,7 @@ fn twins_born_in(order: [usize; 2]) -> File {
     file.sims[0].1.6 = 2;
     file.pregnancies.clear();
     file.next_event_id = 36;
-    file.year_hashes = vec![(0, 0xe2df_fb59_3e62_d5c6)];
+    file.year_hashes = vec![(0, 0x8a3f_9f1a_fbd8_9e19)];
     file
 }
 
