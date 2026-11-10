@@ -20,7 +20,8 @@ use crate::house::state::{
     filler_end_if,
 };
 use crate::ids::{EventId, HouseholdId, SimId};
-use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
+use crate::log::{Cause, Causes, Company, EndReason, LogPayload, Subject};
+use crate::social::bond::choice_bonus;
 use crate::time::{SimDuration, SimTime, day_index};
 use crate::world::{EventPayload, SimCtx};
 
@@ -278,8 +279,11 @@ fn busy(house: &House, houses: &HouseData, taken: &BTreeSet<(u16, u8)>) -> Vec<u
 /// of 2026-11-04 on the mood), an offer that would run into today's departure closed: it walks
 /// to the chosen offer, holding the smallest free place of its object; or it idles, waiting for
 /// an object if the choice says so. By day one idle and waiting for nothing walks to its
-/// time-filler instead, if one is free (the addendum on comfort and the time-filler). Each choice
-/// counts against the day's budget and cancels a pending `Decide`.
+/// time-filler instead, if one is free (the addendum on comfort and the time-filler). For a
+/// sociable furniture where someone of the household sits or is on the way, it adds the data's
+/// company and subtracts its avoid, outside the mood, and writes `core:company` before the choice
+/// when either counts (ADR-0030 section 4). Each choice counts against the day's budget and
+/// cancels a pending `Decide`.
 pub(crate) fn decide(
     domain: &mut DomainState,
     data: &Data,
@@ -329,7 +333,15 @@ pub(crate) fn decide(
     let moods = |object, offer| mood(seed, key, now, (object, offer), percent);
     let leaves = departure(houses.day(), birth, || work_draw(seed, key), now);
     let depart_in = leaves.map(|leaves| (leaves - now).as_secs());
-    let scored = score(house, houses, (age, needs, room), (left, depart_in), moods);
+    let (nets, rows) = company_of(domain, data, household, house, sim, now);
+    let scored = score(
+        house,
+        houses,
+        (age, needs, room),
+        (left, depart_in),
+        moods,
+        |object| nets.get(usize::from(object)).copied().unwrap_or(0),
+    );
     let choice = choose(
         (house, houses),
         (age, needs),
@@ -369,6 +381,13 @@ pub(crate) fn decide(
         super::reserve::walk(domain, data, sim, house.walk_to(room, object), now)
     });
     let arrive = walk.and_then(|walk| now.checked_add(SimDuration::from_secs(i64::from(walk))));
+    if !rows.is_empty() {
+        ctx.emit(
+            LogPayload::Company { objects: rows },
+            vec![Subject::Sim(sim)],
+            causes.clone(),
+        );
+    }
     let (Some(chosen), Some(walk_secs), Some(arrive)) = (chosen, walk, arrive) else {
         let waits = match choice {
             Choice::Wait(object) => Some(object),
@@ -436,6 +455,76 @@ pub(crate) fn decide(
     if let Some(place) = held.filter(|&place| place != (chosen.0, slot)) {
         release(domain, household, place, entry, ctx);
     }
+}
+
+/// Company and avoid for this choice, and the log rows of the furniture where one of them
+/// counts (ADR-0030 section 4). Someone there is another member of the household with an action
+/// on that object, sitting or still on the way. A bare hold is not enough, and a person with no
+/// bond is skipped. Without social data the bonus is 0 and there is no row.
+fn company_of(
+    domain: &DomainState,
+    data: &Data,
+    household: HouseholdId,
+    house: &House,
+    sim: SimId,
+    now: SimTime,
+) -> (Vec<i64>, Vec<Company>) {
+    let Some(social) = data.social() else {
+        return (Vec::new(), Vec::new());
+    };
+    let Some(members) = domain.members.get(&household) else {
+        return (Vec::new(), Vec::new());
+    };
+    let rules = &social.choice;
+    let familiarity = social.bonds.familiarity_fade;
+    let grudge = social.bonds.grudge_fade;
+    let bonds = domain.house.social.bonds.get(&sim);
+    let objects = &house.def().objects;
+    let mut nets = vec![0; objects.len()];
+    let mut rows = Vec::new();
+    for (object, def) in (0_u16..).zip(objects) {
+        if !social.sociable(&def.kind) {
+            continue;
+        }
+        let mut present = Vec::new();
+        for other in members {
+            if *other == sim {
+                continue;
+            }
+            let there = (domain.house.sims.get(other))
+                .and_then(|person| person.action)
+                .is_some_and(|action| action.object == object);
+            if there {
+                present.push(*other);
+            }
+        }
+        let weighed = choice_bonus(
+            &present,
+            |other| {
+                let list = bonds?;
+                let at = list.binary_search_by_key(&other, |bond| bond.other).ok()?;
+                Some(list[at].values_at(now, familiarity, grudge))
+            },
+            (
+                i64::from(rules.company),
+                i64::from(rules.avoid),
+                rules.company_min_sum,
+                rules.avoid_below_trust,
+            ),
+        );
+        if weighed.liked.is_none() && weighed.avoided.is_none() {
+            continue;
+        }
+        nets[usize::from(object)] = weighed.company - weighed.avoid;
+        rows.push(Company {
+            object,
+            liked: weighed.liked,
+            company: weighed.company,
+            avoided: weighed.avoided,
+            avoid: weighed.avoid,
+        });
+    }
+    (nets, rows)
 }
 
 /// How a walk begins: by a choice, as a time-filler or not, or by a command (ADR-0024 section 5).

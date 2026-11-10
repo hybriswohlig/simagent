@@ -26,7 +26,8 @@ use sim_core::input::{
 };
 use sim_core::lineage::{GenomeKey, LineageKey};
 use sim_core::log::{
-    Cause, Causes, DrawRef, EndReason, ForgetReason, LogEntry, LogPayload, PlanRef, Subject,
+    Cause, Causes, Company, DrawRef, EndReason, ForgetReason, LogEntry, LogPayload, PlanRef,
+    Subject,
 };
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::presentation::kin::{Foster, KinWord};
@@ -1149,6 +1150,21 @@ fn all_payloads() -> Vec<LogPayload> {
             after: [730, 700, 520, 500, 640, 0],
         },
         LogPayload::BondDropped { other: sim(4) },
+        LogPayload::Talked {
+            other: sim(4),
+            object: 2,
+            topic: 1,
+            actor: Some(sim(4)),
+        },
+        LogPayload::Company {
+            objects: vec![Company {
+                object: 2,
+                liked: Some(sim(5)),
+                company: 8000,
+                avoided: Some(sim(9)),
+                avoid: 8000,
+            }],
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1191,7 +1207,9 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Forgot { .. }
             | LogPayload::BondFormed { .. }
             | LogPayload::BondChanged { .. }
-            | LogPayload::BondDropped { .. } => {}
+            | LogPayload::BondDropped { .. }
+            | LogPayload::Talked { .. }
+            | LogPayload::Company { .. } => {}
         }
     }
     payloads

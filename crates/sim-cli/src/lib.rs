@@ -650,13 +650,16 @@ fn places_taken(
 /// choice raised also when the choice waits for a taken object: what the offer it waits for
 /// raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page). For the person's latest
 /// choice in the log, `latest`, its reserve at the clock as the house answer gives it (version 9,
-/// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `None` for any other entry.
+/// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `bonus(object)` is that
+/// furniture's company minus its avoid, from the choice's `core:company` entry, outside the mood;
+/// 0 where that entry has no row for it (ADR-0030 section 4). `None` for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
     id: u64,
     latest: bool,
     ended: Option<Ended<'_>>,
+    bonus: impl Fn(u16) -> i64,
 ) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::choice::ENOUGH;
     use sim_core::house::day::{departure, next_night, night, work_draw};
@@ -743,7 +746,7 @@ pub fn why_answer(
         tier,
         leaves,
     };
-    let scored = scored_offers(world, (house, houses), &choice)?;
+    let scored = scored_offers(world, (house, houses), &choice, bonus)?;
     let chosen = match chosen {
         None => None,
         Some((object, offer)) => {
@@ -1095,7 +1098,7 @@ fn waited_offer(
         tier,
         leaves: departure(houses.day(), born, || work_draw(seed, key), entry.t),
     };
-    let scored = scored_offers(world, (house, houses), &choice)?;
+    let scored = scored_offers(world, (house, houses), &choice, |_| 0)?;
     let of_it: Vec<sim_core::house::choice::Scored> = (scored.into_iter())
         .filter(|scored| scored.object == *waited)
         .collect();
@@ -1204,7 +1207,8 @@ struct ChoiceAt<'a> {
 
 /// The points of every offer open in `choice` recomputed with `house::choice::score` from its
 /// room and needs and the person's age and night in its second, each with the person's mood
-/// for it then (none for a command), the most first (a tie to the smaller object, then offer).
+/// for it then (none for a command), plus `bonus(object)` outside the mood, the most first (a tie
+/// to the smaller object, then offer).
 fn scored_offers(
     world: &World,
     (house, houses): (
@@ -1212,6 +1216,7 @@ fn scored_offers(
         &sim_core::house::data::HouseData,
     ),
     choice: &ChoiceAt<'_>,
+    bonus: impl Fn(u16) -> i64,
 ) -> Result<Vec<sim_core::house::choice::Scored>, CliError> {
     use sim_core::house::choice::{age, mood, score};
     use sim_core::house::day::night;
@@ -1234,7 +1239,7 @@ fn scored_offers(
     };
     let depart_in = choice.leaves.map(|leaves| (leaves - choice.at).as_secs());
     let values = (age, choice.needs, choice.room);
-    let mut scored = score(house, houses, values, (left, depart_in), moods);
+    let mut scored = score(house, houses, values, (left, depart_in), moods, bonus);
     scored.sort_by_key(|scored| {
         (
             core::cmp::Reverse(scored.points),
@@ -1388,7 +1393,7 @@ fn compared_now(
         tier: &tier,
         leaves,
     };
-    let scored = scored_offers(world, (house, houses), &choice)?;
+    let scored = scored_offers(world, (house, houses), &choice, |_| 0)?;
     let mut offers = offer_values(house, houses, &choice, &scored, age)?;
     offers.extend(departure_closed(house, houses, &choice, age)?);
     Ok(Some(

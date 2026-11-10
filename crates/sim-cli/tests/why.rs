@@ -101,7 +101,25 @@ fn why_recomputes_the_choice() {
             LogPayload::ActionStarted { filler: true, .. }
         );
         let ended = end.filter(|_| filled);
-        let Some(answer) = why_answer(&world, entry, 0, false, ended).expect("recomputes") else {
+        let bonus = |object: u16| -> i64 {
+            let Some(LogPayload::Company { objects }) = (log[..at].iter())
+                .rev()
+                .find(|other| {
+                    other.t == entry.t
+                        && other.subjects == entry.subjects
+                        && matches!(other.payload, LogPayload::Company { .. })
+                })
+                .map(|other| &other.payload)
+            else {
+                return 0;
+            };
+            (objects.iter())
+                .find(|row| row.object == object)
+                .map(|row| row.company - row.avoid)
+                .unwrap_or(0)
+        };
+        let Some(answer) = why_answer(&world, entry, 0, false, ended, bonus).expect("recomputes")
+        else {
             continue;
         };
         let number = |value: &serde_json::Value| value.as_i64().expect("a number");

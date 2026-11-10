@@ -3981,7 +3981,7 @@ fn why_names_what_is_urgent() {
         },
         ..hers
     };
-    let why = sim_cli::why_answer(&world, &entry, 7, false, None)
+    let why = sim_cli::why_answer(&world, &entry, 7, false, None, |_| 0)
         .expect("answers")
         .expect("a choice");
     assert_eq!(why["version"], json!(9));
@@ -4066,7 +4066,7 @@ fn why_names_the_departure_of_a_commanded_offer_it_closes() {
         })
         .expect("her commanded walk");
     assert_eq!(commanded.t, SimTime::from_secs(depart - 1_200));
-    let why = sim_cli::why_answer(&world, commanded, 9, false, None)
+    let why = sim_cli::why_answer(&world, commanded, 9, false, None, |_| 0)
         .expect("answers")
         .expect("a choice");
     assert_eq!(why["commanded"], json!(true));
@@ -4169,7 +4169,7 @@ fn why_names_what_a_time_filler_ends_for_when_a_wait_follows() {
             ended: &ended,
             next: Some(&next),
         };
-        let why = sim_cli::why_answer(&world, &filler, 9, false, Some(end))
+        let why = sim_cli::why_answer(&world, &filler, 9, false, Some(end), |_| 0)
             .expect("answers")
             .expect("a choice");
         assert_eq!(why["version"], json!(9));
@@ -4275,7 +4275,7 @@ fn why_compares_an_idle_person_at_the_clock() {
         "too_short": null}});
     let asked: sim_core::log::LogEntry = serde_json::from_value(asked).expect("an entry");
     let world = sim_cli::load_world(&run).expect("the world");
-    let same = sim_cli::why_answer(&world, &asked, 0, false, None)
+    let same = sim_cli::why_answer(&world, &asked, 0, false, None, |_| 0)
         .expect("answers")
         .expect("a choice");
     let open = |answer: &Value| -> Vec<Value> {
