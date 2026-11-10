@@ -498,6 +498,27 @@ struct TestInHouse {
     decisions: (i64, u16),
     collapsed: bool,
     reserve: TestReserve,
+    talk_day: i64,
+    talks: u16,
+    entries: u16,
+}
+
+/// A household in its house, in the field order of [`sim_core::house::state::MovedIn`].
+#[derive(Clone, Serialize)]
+struct TestMovedIn {
+    house: String,
+    morning: bool,
+    since: i64,
+    last_talk: Vec<((u64, u64), i64)>,
+}
+
+fn moved_house(house: impl Into<String>, morning: bool) -> TestMovedIn {
+    TestMovedIn {
+        house: house.into(),
+        morning,
+        since: 0,
+        last_talk: Vec::new(),
+    }
 }
 
 /// A reserve as (capacity, value, at, rate, energy extra).
@@ -670,7 +691,7 @@ struct File {
     /// The house (ADR-0024, addendum of 2026-11-02): the households moved in as (id,
     /// (house, morning)), the persons with needs, the held places as ((household, object,
     /// place), sim); nobody waits here, so that map is empty and its elements never written.
-    house_households: Vec<(u64, (String, bool))>,
+    house_households: Vec<(u64, TestMovedIn)>,
     house_sims: Vec<(u64, TestInHouse)>,
     house_waits: Vec<(u64, ())>,
     house_holds: Vec<((u64, u16, u8), u64)>,
@@ -808,7 +829,7 @@ fn a_save_keeps_the_house() {
         let house = house.to_owned();
         move |f: &mut File| {
             f.data_hash = hash;
-            f.house_households = vec![(household, (house, morning))];
+            f.house_households = vec![(household, moved_house(house, morning))];
         }
     };
     // Her plan at the first 5:00 after the clock.
@@ -844,7 +865,7 @@ fn a_save_keeps_the_house() {
     refused(&File::tiny().with(waiting(7 * 3_600, morning.clone())));
     refused(&File::tiny().with(|f| {
         waiting(6 * 3_600, morning.clone())(f);
-        f.house_households[0].1.1 = true;
+        f.house_households[0].1.morning = true;
     }));
     // Her plan missing, at 6:00, twice, or once only.
     for morning_came in [false, true] {
@@ -873,7 +894,7 @@ fn a_save_keeps_the_house() {
     refused(&File::tiny().with(moved(2, "core:flat", true)));
     // Without houses in the data nothing can be moved in.
     let without = File::tiny().with(|f| {
-        f.house_households = vec![(1, ("core:flat".into(), true))];
+        f.house_households = vec![(1, moved_house("core:flat", true))];
         plan_at(f, 5 * 3_600, Some(DAY));
     });
     assert_eq!(load_error(&without), Some(LoadError::Inconsistent));
@@ -1313,6 +1334,9 @@ fn seven(
         ),
         collapsed: false,
         reserve: DERIVED,
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     }
 }
 
@@ -1389,7 +1413,7 @@ fn flat_file(
         }
     }
     f.year_hashes = (0..7).map(|year| (year, 7)).collect();
-    f.house_households = vec![(1, ("core:flat".into(), true))];
+    f.house_households = vec![(1, moved_house("core:flat", true))];
     let mut person = person;
     let mut events = events;
     if person.reserve == DERIVED {
@@ -1624,6 +1648,10 @@ fn a_save_keeps_the_night() {
         decisions: idle.decisions,
         collapsed: false,
         reserve: DERIVED,
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let end = |at: i64| event(at, Payload::ActionEnd { sim: 1 });
     let asleep = slept(eight + 2 * 3_600);
@@ -1812,7 +1840,7 @@ fn a_save_keeps_the_plan_before_the_morning() {
                 }
             }
             f.year_hashes = (0..7).map(|year| (year, 7)).collect();
-            f.house_households = vec![(1, ("core:flat".into(), false))];
+            f.house_households = vec![(1, moved_house("core:flat", false))];
             let morning = Payload::HouseMorning { household: 1 };
             let mut events = vec![(SEVEN_SIX, 0, 0, morning, None)];
             if plan {
@@ -1855,7 +1883,7 @@ fn a_save_after_a_move_in_in_the_second_of_the_plan() {
             }
         }
         f.year_hashes = (0..7).map(|year| (year, 7)).collect();
-        f.house_households = vec![(1, ("core:flat".into(), false))];
+        f.house_households = vec![(1, moved_house("core:flat", false))];
         let morning = Payload::HouseMorning { household: 1 };
         let series = (plan, 0, 0, Payload::DayPlan { sim: 1 }, Some(DAY));
         for mut entry in [(SEVEN_SIX, 0, 0, morning, None), series] {
@@ -2017,6 +2045,10 @@ fn a_save_keeps_the_day() {
         decisions: home.decisions,
         collapsed: false,
         reserve: DERIVED,
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let noon = SCHOOL_DAY + 12 * 3_600;
     assert_eq!(loads(noon, &away, std::slice::from_ref(&returns)), None);

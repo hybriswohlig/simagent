@@ -84,6 +84,9 @@ fn person(place: Place, action: Option<Action>) -> InHouse {
         },
         collapsed: false,
         reserve: Reserve::full(1000, needs()[0].at()),
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     }
 }
 
@@ -121,6 +124,9 @@ fn legal() -> HouseState {
             MovedIn {
                 house: DataId::new("core:flat").expect("id"),
                 morning: true,
+
+                since: sim_core::time::SimTime::from_secs(0),
+                last_talk: std::collections::BTreeMap::new(),
             },
         )]),
         sims: BTreeMap::from([
@@ -239,6 +245,9 @@ fn the_households_are_checked() {
             let moved = MovedIn {
                 house: DataId::new("core:flat").expect("id"),
                 morning: false,
+
+                since: sim_core::time::SimTime::from_secs(0),
+                last_talk: std::collections::BTreeMap::new(),
             };
             s.households.insert(household(id), moved);
         }
@@ -248,6 +257,9 @@ fn the_households_are_checked() {
         let moved = MovedIn {
             house: DataId::new("core:flat").expect("id"),
             morning: false,
+
+            since: sim_core::time::SimTime::from_secs(0),
+            last_talk: std::collections::BTreeMap::new(),
         };
         s.households.insert(household(3), moved);
     });
@@ -873,6 +885,9 @@ fn waiters_and_holds_are_checked() {
             MovedIn {
                 house: DataId::new("core:house").expect("id"),
                 morning: true,
+
+                since: sim_core::time::SimTime::from_secs(0),
+                last_talk: std::collections::BTreeMap::new(),
             },
         );
         s.sims.insert(sim(4), person(Place::Room(0), None));
@@ -1508,6 +1523,9 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
             },
             collapsed: false,
             reserve,
+            talk_day: 0,
+            talks: 0,
+            entries: 0,
         };
         let state = HouseState {
             households: BTreeMap::from([(
@@ -1515,6 +1533,9 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
                 MovedIn {
                     house: DataId::new("test:long").expect("id"),
                     morning: true,
+
+                    since: sim_core::time::SimTime::from_secs(0),
+                    last_talk: std::collections::BTreeMap::new(),
                 },
             )]),
             sims: BTreeMap::from([(sim(1), person)]),

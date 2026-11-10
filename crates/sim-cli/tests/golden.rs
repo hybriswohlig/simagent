@@ -586,6 +586,13 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
             EventPayload::ReserveCrossing { sim, level: 500 },
         ),
         ("forget", EventPayload::Forget { sim }),
+        (
+            "talk",
+            EventPayload::Talk {
+                a: sim,
+                b: sim_core::ids::SimId::try_from(2).expect("valid"),
+            },
+        ),
     ];
     all.into_iter()
         .map(|(name, payload)| {
@@ -613,7 +620,8 @@ fn event_kinds() -> Vec<(&'static str, EventClass, EventKind)> {
                 | EventPayload::Bedtime { .. }
                 | EventPayload::StandUp { .. }
                 | EventPayload::ReserveCrossing { .. }
-                | EventPayload::Forget { .. } => {}
+                | EventPayload::Forget { .. }
+                | EventPayload::Talk { .. } => {}
             }
             (name, payload.class(), payload.kind())
         })
@@ -758,7 +766,7 @@ fn uncovered(stats: &RunStats, log: &[LogEntry]) -> Vec<String> {
 /// addenda of 2026-11-04; the reserve's crossings of its addendum of 2026-11-06; the forgetting of
 /// ADR-0030 section 1): no golden scenario
 /// moves in yet, so none of them runs.
-const HOUSE_EVENTS: [&str; 13] = [
+const HOUSE_EVENTS: [&str; 14] = [
     "house_morning",
     "day_plan",
     "return",
@@ -772,6 +780,7 @@ const HOUSE_EVENTS: [&str; 13] = [
     "stand_up",
     "reserve_crossing",
     "forget",
+    "talk",
 ];
 
 /// ADR-0003 6.3: in the golden scenarios every event kind runs and every log kind
@@ -800,6 +809,7 @@ fn golden_scenarios_cover_every_kind() {
             "event stand_up",
             "event reserve_crossing",
             "event forget",
+            "event talk",
             "log core:param_changed",
             "log core:separated",
             "log core:arrived",
@@ -877,7 +887,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(name, _, kind)| (name.to_owned(), kind.0.to_string()))
         .collect();
     assert_eq!(kinds, registered(event_codes, "kind"));
-    assert_eq!(kinds.len(), 24);
+    assert_eq!(kinds.len(), 25);
     // `payload <index> <name>`
     let log_codes = include_str!("../../../tests/golden/log_codes.txt");
     let logs: Vec<String> = registered(log_codes, "payload")
@@ -962,6 +972,7 @@ fn the_coverage_check_reports_missing_kinds() {
             "event stand_up",
             "event reserve_crossing",
             "event forget",
+            "event talk",
             "log core:founder_added",
             "log core:birthday",
             "log core:param_changed",

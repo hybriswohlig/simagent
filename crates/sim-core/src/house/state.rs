@@ -26,11 +26,16 @@ pub const MAX_HOUSEHOLDS: usize = 64;
 /// At most this many choices per person and calendar day (ADR-0024 section 6).
 pub const MAX_DECISIONS: u16 = 200;
 
-/// A household in its house; `morning` once its first `HouseMorning` has come.
+/// A household in its house; `morning` once its first `HouseMorning` has come. `since` is the
+/// second it moved in, from which the house day is counted (ADR-0030 section 3). `last_talk`
+/// is the second of the last Talk that took place, per pair of this household (the smaller
+/// id first); a cancelled Talk writes nothing here.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MovedIn {
     pub house: DataId,
     pub morning: bool,
+    pub since: SimTime,
+    pub last_talk: BTreeMap<(SimId, SimId), SimTime>,
 }
 
 /// A person with needs (ADR-0024 sections 1, 2 and 4, ADR-0026), in the order hunger,
@@ -46,6 +51,14 @@ pub struct InHouse {
     pub decisions: Decisions,
     pub collapsed: bool,
     pub reserve: Reserve,
+    /// The house day [`Self::talks`] and [`Self::entries`] belong to. A different day reads
+    /// as zero, which is the reset at 06:00 (ADR-0030 section 3).
+    pub talk_day: i64,
+    /// Talks this person held on `talk_day`, at most `talks_per_day`.
+    pub talks: u16,
+    /// Social entries of talks this person was a subject of on `talk_day`, at most
+    /// `entries_per_day`.
+    pub entries: u16,
 }
 
 /// Where a person with needs is (ADR-0025 section 5). A walk with an action leads to its

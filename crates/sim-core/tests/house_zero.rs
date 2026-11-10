@@ -1229,6 +1229,10 @@ fn getting_up_needs_energy_above_0() {
         decisions: Decisions { day: 1, count: 0 },
         collapsed: true,
         reserve: Reserve::full(1000, t(fell)),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     assert_eq!(stand_up(&lying(six - 72), &rules, born), Some(t(six)));
     assert_eq!(

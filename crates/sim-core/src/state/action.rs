@@ -940,6 +940,7 @@ pub(super) fn interrupt(
     causes: Causes,
     ctx: &mut SimCtx<'_, '_>,
 ) -> EventId {
+    super::talk::on_stand_up(domain, data, sim, ctx);
     for slot in [Slot::Arrive, Slot::End] {
         if let Some(handle) = domain.pending.remove(&(sim, slot)) {
             ctx.cancel(handle);
@@ -1048,6 +1049,7 @@ pub(crate) fn on_arrive(
         let handle = ctx.schedule(end, EventPayload::ActionEnd { sim }, entry);
         domain.pending.insert((sim, Slot::End), handle);
     }
+    super::talk::on_seated(domain, data, sim, entry, ctx);
 }
 
 /// A person's action ends (ADR-0026 section 4): `full` if the need it fills is full, else
@@ -1065,6 +1067,7 @@ pub(crate) fn on_action_end(
     if !at_object {
         panic!("invariant house.orphan_event");
     }
+    super::talk::on_stand_up(domain, data, sim, ctx);
     let full = |offer: &OfferDef, needs: [u16; 5]| {
         if (offer.until_full).is_some_and(|need| needs[need_index(need)] == FULL) {
             EndReason::Full

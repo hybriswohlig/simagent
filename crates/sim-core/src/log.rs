@@ -340,8 +340,8 @@ pub enum LogPayload {
     #[serde(rename = "core:bond_formed")]
     BondFormed { other: SimId, values: [u16; 6] },
     /// A person (the subject) changed its bond to `other`: the six values at this second
-    /// before the step and after it (ADR-0030 section 2). A later slice writes it; the
-    /// variant stands here so the log order is the one of that section.
+    /// before the step and after it (ADR-0030 section 2). The talk writes one per bond
+    /// whose values changed.
     #[serde(rename = "core:bond_changed")]
     BondChanged {
         other: SimId,
@@ -352,10 +352,10 @@ pub enum LogPayload {
     /// list (ADR-0030 section 2).
     #[serde(rename = "core:bond_dropped")]
     BondDropped { other: SimId },
-    /// Reserved for the talk slice (ADR-0030 section 3 step 7 and section 5). Nothing writes
-    /// it yet, so `talked` stays before `company`. `topic` is 0 to 5 in the order Alltag, Lob,
-    /// Necken, Klatsch, Erinnern, Entschuldigung. `actor` is the one who praises, teases or
-    /// apologizes, and none for the other topics. `object` is the furniture, as in [`Company`].
+    /// A talk took place (ADR-0030 section 3 step 7 and section 5). `topic` is 0 to 5 in the
+    /// order Alltag, Lob, Necken, Klatsch, Erinnern, Entschuldigung. `actor` is the one who
+    /// praises, teases or apologizes, and none for the other topics. `object` is the furniture,
+    /// as in [`Company`]. The chronicle names the two people; the topic stays in the entry.
     #[serde(rename = "core:talked")]
     Talked {
         other: SimId,

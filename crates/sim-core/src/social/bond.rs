@@ -73,7 +73,7 @@ impl Bond {
 
     /// Writes both fading values at `now`, then adds each step and clamps to 0..=1000.
     /// Returns the six values at `now` before the steps. One call is one `core:bond_changed`
-    /// (before, after); this slice does not write that entry.
+    /// (before, after) when the talk writes the entry.
     pub fn apply(
         &mut self,
         now: SimTime,

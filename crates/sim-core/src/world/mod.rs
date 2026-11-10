@@ -18,7 +18,7 @@ use core::cell::RefCell;
 
 use crate::canonical::{self, YearHash};
 use crate::data::Data;
-use crate::ids::{Counter, InputSeq, SimId};
+use crate::ids::{Counter, EventId, InputSeq, SimId};
 use crate::input::{Input, InputRecord, InputRejected, InputStamp};
 use crate::log::{Cause, LogEntry, PlanRef};
 use crate::params::WorldParams;
@@ -216,6 +216,28 @@ impl World {
     pub fn forget_at(&self, sim: SimId) -> Option<SimTime> {
         let handle = *self.state.domain.pending.get(&(sim, state::Slot::Forget))?;
         self.pending_time(handle)
+    }
+
+    /// The second of the open Talk of this pair, the smaller id first (ADR-0030 section 3).
+    pub fn talk_at(&self, a: SimId, b: SimId) -> Option<SimTime> {
+        let (a, b) = if a < b { (a, b) } else { (b, a) };
+        let handle = *self.state.domain.pending.get(&(a, state::Slot::Talk(b)))?;
+        self.pending_time(handle)
+    }
+
+    /// Puts an accident of `sim` on the queue at the next open second. The death is not in
+    /// `Slot::Death`: a Talk of that second does not defer for it, and class still runs the
+    /// Talk first (ADR-0002). `by` is an entry that already exists.
+    #[doc(hidden)]
+    pub fn inject_accident(&mut self, sim: SimId, by: EventId) {
+        let mut ctx = self.sched.input_ctx();
+        let at = ctx.now();
+        let cause = state::death::accident().key();
+        ctx.schedule(
+            at,
+            EventPayload::Death { sim, cause },
+            PlanRef { by, planned_at: at },
+        );
     }
 
     /// Where a person away or on its way out is and until when: the place and the second of
@@ -537,6 +559,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Return { sim, place } => {
                 state::day::on_return(&mut self.domain, &self.data, (sim, place), &mut ctx);
             }
+            EventPayload::Talk { a, b } => {
+                state::talk::on_talk(&mut self.domain, &self.data, a, b, &mut ctx);
+            }
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);
     }
@@ -601,7 +626,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Bedtime { .. }
             | EventPayload::StandUp { .. }
             | EventPayload::ReserveCrossing { .. }
-            | EventPayload::Forget { .. } => {
+            | EventPayload::Forget { .. }
+            | EventPayload::Talk { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }

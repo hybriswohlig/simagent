@@ -451,6 +451,10 @@ fn no_time_filler_two_minutes_before_school() {
         decisions: Decisions { day: 1, count: 1 },
         collapsed: false,
         reserve: Reserve::full(1000, t(second)),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let end = |second: i64, (object, offer, walk): (u16, u16, u32)| {
         let person = girl_at(second);

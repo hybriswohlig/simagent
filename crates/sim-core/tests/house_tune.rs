@@ -414,6 +414,10 @@ fn a_time_filler_ends_at_its_length_the_departure_bedtime_or_after_four_hours() 
         decisions: sim_core::house::state::Decisions { day: 1, count: 1 },
         collapsed: false,
         reserve: Reserve::full(1000, t(begun)),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let fun = |mut person: InHouse, begun: i64| {
         person.needs[4] = NeedSample::new(800, t(begun), 100);
@@ -736,6 +740,10 @@ fn the_departure_closes_a_toilet_by_its_end_after_the_walk() {
         decisions: sim_core::house::state::Decisions { day: 1, count: 1 },
         collapsed: false,
         reserve: Reserve::full(1000, arrived),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     person.needs[2] = falling.with_rate(arrived, 12_000);
     let born = t(-30 * Y);
@@ -1197,6 +1205,10 @@ fn a_walk_into_the_night_saved_on_its_way_runs_on_the_same() {
         decisions: sim_core::house::state::Decisions { day: 1, count: 4 },
         collapsed: false,
         reserve: Reserve::full(1000, t(bedtime - 2)),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let (houses, house) = tune_house(&data);
     let who = (t(-70 * Y), key, 7);

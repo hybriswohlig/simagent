@@ -106,9 +106,86 @@ fn has_bond(domain: &DomainState, owner: SimId, other: SimId) -> bool {
         .is_some_and(|list| list.iter().any(|bond| bond.other == other))
 }
 
+/// What forming one bond wrote.
+pub(super) enum Formed {
+    /// `core:bond_formed`, and `core:bond_dropped` when one fell out. `last` is the later
+    /// entry; `entries` is how many named the holder.
+    Wrote { last: EventId, entries: u16 },
+    /// The list was full and every bond in it is protected.
+    Refused,
+}
+
+/// Forms the missing bond of `holder` to `other`. `None` without social data, or when the
+/// bond already exists. `cause` is what `core:bond_formed` names; a bond that fell out
+/// follows as `core:bond_dropped` caused by that entry. An empty list is not stored.
+pub(super) fn form_one(
+    domain: &mut DomainState,
+    data: &Data,
+    holder: SimId,
+    other: SimId,
+    cause: Cause,
+    ctx: &mut SimCtx<'_, '_>,
+) -> Option<Formed> {
+    let social = data.social()?;
+    if has_bond(domain, holder, other) {
+        return None;
+    }
+    let now = ctx.now();
+    let cap = usize::from(social.limits.bonds);
+    let familiarity_fade = social.bonds.familiarity_fade;
+    let grudge_fade = social.bonds.grudge_fade;
+    let starts = social.bonds.start.clone();
+    let role = role_of(domain, data, holder, other);
+    let new = Bond {
+        other,
+        values: bond::values_for(&starts, role),
+        since: now,
+    };
+    let kept = protected(domain, data, holder);
+    let outcome = {
+        let list = domain.house.social.bonds.entry(holder).or_default();
+        bond::insert(
+            list,
+            new,
+            now,
+            familiarity_fade,
+            grudge_fade,
+            cap,
+            |other| kept.contains(&other),
+        )
+    };
+    if (domain.house.social.bonds.get(&holder)).is_some_and(Vec::is_empty) {
+        domain.house.social.bonds.remove(&holder);
+    }
+    match outcome {
+        Formation::Refused => Some(Formed::Refused),
+        Formation::Formed { dropped } => {
+            let wrote = ctx.emit(
+                LogPayload::BondFormed {
+                    other,
+                    values: new.values,
+                },
+                alloc::vec![Subject::Sim(holder)],
+                Causes::new(cause),
+            );
+            let (last, entries) = match dropped {
+                Some(other) => {
+                    let dropped_id = ctx.emit(
+                        LogPayload::BondDropped { other },
+                        alloc::vec![Subject::Sim(holder)],
+                        Causes::new(Cause::Event(wrote)),
+                    );
+                    (dropped_id, 2)
+                }
+                None => (wrote, 1),
+            };
+            Some(Formed::Wrote { last, entries })
+        }
+    }
+}
+
 /// Forms each missing bond of `pairs`, in the order given. `cause` is the entry
-/// `core:bond_formed` names; a bond that fell out follows as `core:bond_dropped` caused by
-/// that entry. An empty list is not stored. Without social data, nothing is formed.
+/// `core:bond_formed` names. Without social data, nothing is formed.
 fn form_pairs(
     domain: &mut DomainState,
     data: &Data,
@@ -116,58 +193,8 @@ fn form_pairs(
     cause: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let Some(social) = data.social() else {
-        return;
-    };
-    let now = ctx.now();
-    let cap = usize::from(social.limits.bonds);
-    let familiarity_fade = social.bonds.familiarity_fade;
-    let grudge_fade = social.bonds.grudge_fade;
-    let starts = social.bonds.start.clone();
     for (holder, other) in pairs {
-        if has_bond(domain, holder, other) {
-            continue;
-        }
-        let role = role_of(domain, data, holder, other);
-        let new = Bond {
-            other,
-            values: bond::values_for(&starts, role),
-            since: now,
-        };
-        let kept = protected(domain, data, holder);
-        let outcome = {
-            let list = domain.house.social.bonds.entry(holder).or_default();
-            bond::insert(
-                list,
-                new,
-                now,
-                familiarity_fade,
-                grudge_fade,
-                cap,
-                |other| kept.contains(&other),
-            )
-        };
-        if (domain.house.social.bonds.get(&holder)).is_some_and(Vec::is_empty) {
-            domain.house.social.bonds.remove(&holder);
-        }
-        let Formation::Formed { dropped } = outcome else {
-            continue;
-        };
-        let wrote = ctx.emit(
-            LogPayload::BondFormed {
-                other,
-                values: new.values,
-            },
-            alloc::vec![Subject::Sim(holder)],
-            Causes::new(Cause::Event(cause)),
-        );
-        if let Some(other) = dropped {
-            ctx.emit(
-                LogPayload::BondDropped { other },
-                alloc::vec![Subject::Sim(holder)],
-                Causes::new(Cause::Event(wrote)),
-            );
-        }
+        let _ = form_one(domain, data, holder, other, Cause::Event(cause), ctx);
     }
 }
 

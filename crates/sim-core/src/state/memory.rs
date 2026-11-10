@@ -39,26 +39,33 @@ fn remembers(domain: &DomainState, social: &SocialData, sim: SimId, now: SimTime
         && whole_years(person.born, now) >= u32::from(social.limits.min_age)
 }
 
+/// What [`remember`] wrote for the owner.
+pub(super) enum WroteMemory {
+    /// `core:remembered` only.
+    Kept(EventId),
+    /// `core:remembered` and the `core:forgot` of the memory it displaced. The id is the
+    /// later entry.
+    Displaced(EventId),
+}
+
 /// `owner` remembers a memory of `kind` with the others `with`, happening now, if it lives in a
 /// moved-in household and is old enough (ADR-0030 section 1, "Neu"): the kind gives the strength,
 /// the fade and the valence; a full list lets the weakest of its entries and the new one fall,
-/// and if that is the new one nothing is written. `core:remembered` names `cause`, an entry of
-/// this handler; a displaced memory follows as `core:forgot` caused by it. Then the person's
-/// `Forget` is planned anew.
+/// and if that is the new one nothing is written. `core:remembered` names `cause`; a displaced
+/// memory follows as `core:forgot` caused by it. Then the person's `Forget` is planned anew.
+/// `None` when nothing was written.
 pub(super) fn remember(
     domain: &mut DomainState,
     data: &Data,
     owner: SimId,
     (kind, with): (u16, [Option<SimId>; 2]),
-    cause: EventId,
+    cause: Cause,
     ctx: &mut SimCtx<'_, '_>,
-) {
-    let Some(social) = data.social() else {
-        return;
-    };
+) -> Option<WroteMemory> {
+    let social = data.social()?;
     let now = ctx.now();
     if !remembers(domain, social, owner, now) {
-        return;
+        return None;
     }
     let Some(rule) = social.kind(kind) else {
         panic!("invariant memory.kind");
@@ -76,7 +83,7 @@ pub(super) fn remember(
     let list = domain.house.social.memories.entry(owner).or_default();
     let outcome = insert(list, new, now, cap);
     if outcome == Insertion::Refused {
-        return;
+        return None;
     }
     let subjects = vec![Subject::Sim(owner)];
     let wrote = LogPayload::Remembered {
@@ -85,8 +92,8 @@ pub(super) fn remember(
         at: now,
         strength: new.strength,
     };
-    let mut last = ctx.emit(wrote, subjects.clone(), Causes::new(Cause::Event(cause)));
-    if let Insertion::Displaced(old) = outcome {
+    let mut last = ctx.emit(wrote, subjects.clone(), Causes::new(cause));
+    let kept = if let Insertion::Displaced(old) = outcome {
         let lost = LogPayload::Forgot {
             kind: old.kind,
             with: old.with,
@@ -94,15 +101,24 @@ pub(super) fn remember(
             reason: ForgetReason::Displaced,
         };
         last = ctx.emit(lost, subjects, Causes::new(Cause::Event(last)));
-    }
+        WroteMemory::Displaced(last)
+    } else {
+        WroteMemory::Kept(last)
+    };
     plan_forget(domain, owner, last, ctx);
+    Some(kept)
 }
 
 /// The person's one `Forget` anew after a change of its list (ADR-0030 section 1): the open one
 /// is cancelled, and one is planned at the earliest second a strength is 0, by the entry `by`;
 /// none for a list without a fading memory or without a list. A zero of this very second that
 /// has not run yet is planned in this second, after the handler.
-fn plan_forget(domain: &mut DomainState, sim: SimId, by: EventId, ctx: &mut SimCtx<'_, '_>) {
+pub(super) fn plan_forget(
+    domain: &mut DomainState,
+    sim: SimId,
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     if let Some(handle) = domain.pending.remove(&(sim, Slot::Forget)) {
         ctx.cancel(handle);
     }
@@ -215,9 +231,16 @@ pub(super) fn child_born(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let kind = |other: Option<SimId>| (CHILD_BORN, others(other, Some(child)));
-    remember(domain, data, mother, kind(father), born, ctx);
+    let _ = remember(domain, data, mother, kind(father), Cause::Event(born), ctx);
     if let Some(father) = father {
-        remember(domain, data, father, kind(Some(mother)), born, ctx);
+        let _ = remember(
+            domain,
+            data,
+            father,
+            kind(Some(mother)),
+            Cause::Event(born),
+            ctx,
+        );
     }
 }
 
@@ -237,20 +260,20 @@ pub(super) fn partnership(
     } else {
         PARTNERSHIP_ENDED
     };
-    remember(
+    let _ = remember(
         domain,
         data,
         woman,
         (kind, others(Some(man), None)),
-        by,
+        Cause::Event(by),
         ctx,
     );
-    remember(
+    let _ = remember(
         domain,
         data,
         man,
         (kind, others(Some(woman), None)),
-        by,
+        Cause::Event(by),
         ctx,
     );
 }
@@ -265,7 +288,7 @@ pub(super) fn partner_lost(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let kind = (PARTNERSHIP_ENDED, others(Some(dead), None));
-    remember(domain, data, partner, kind, by, ctx);
+    let _ = remember(domain, data, partner, kind, Cause::Event(by), ctx);
 }
 
 /// Everyone in a moved-in household who is old enough and a relative of `dead`, by ascending
@@ -299,7 +322,7 @@ pub(super) fn relative_died(
             u32::from(social.memory.relative_phi_eighths),
         ) {
             let kind = (RELATIVE_DIED, others(Some(dead), None));
-            remember(domain, data, sim, kind, by, ctx);
+            let _ = remember(domain, data, sim, kind, Cause::Event(by), ctx);
         }
     }
 }

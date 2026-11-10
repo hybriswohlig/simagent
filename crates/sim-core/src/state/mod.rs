@@ -22,6 +22,7 @@ pub(crate) mod params;
 pub(crate) mod partnership;
 pub(crate) mod reserve;
 pub(crate) mod start;
+pub(crate) mod talk;
 pub(crate) mod together;
 pub(crate) mod zero;
 
@@ -331,6 +332,9 @@ pub(crate) enum Slot {
     /// The reserve reaching a level, half or 0 (ADR-0026, addendum of 2026-11-06 on hunger at
     /// 0).
     Reserve(u16),
+    /// A Talk with the other person (ADR-0030 section 3). Both hold the same event; `Forget`
+    /// stays last so leaving the house cancels a Talk with the other house events.
+    Talk(SimId),
     /// The person's one forgetting, at the earliest zero of its memories (ADR-0030 section 1).
     Forget,
 }
