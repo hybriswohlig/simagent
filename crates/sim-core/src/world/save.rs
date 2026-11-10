@@ -415,6 +415,12 @@ pub(super) fn pending_index(
             EventPayload::Bedtime { sim } => (*sim, Slot::Bedtime),
             EventPayload::StandUp { sim } => (*sim, Slot::StandUp),
             EventPayload::ReserveCrossing { sim, level } => (*sim, Slot::Reserve(*level)),
+            EventPayload::Talk { a, b } => {
+                let handle = EventHandle::from_seq(entry.seq);
+                index.insert((*a, Slot::Talk(*b)), handle);
+                index.insert((*b, Slot::Talk(*a)), handle);
+                continue;
+            }
             EventPayload::Forget { sim } => (*sim, Slot::Forget),
             EventPayload::DayPlan { sim } => (*sim, Slot::DayPlan),
             EventPayload::Return { sim, .. } => (*sim, Slot::Return),
@@ -1399,7 +1405,7 @@ fn house_consistent(
         |id: SimId| (loaded.sims.get(&id)).map(|sim| (sim.household, sim.born, sim.lineage_key));
     let fillers =
         crate::house::state::fillers_consistent(&loaded.house, data.houses(), seed, keyed);
-    checked.is_ok() && children.is_ok() && fillers.is_ok()
+    checked.is_ok() && children.is_ok() && fillers.is_ok() && state::talk::counters_ok(loaded, data)
 }
 
 fn households_consistent(loaded: &LoadedState, rules: &Rules<'_>) -> bool {
@@ -2838,6 +2844,7 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
     let mut stands = BTreeSet::new();
     let mut reserves = BTreeSet::new();
     let mut forgets = BTreeSet::new();
+    let mut talks = BTreeSet::new();
     // Per crossing of a reserve: the sim, the insertion number and the level downwards.
     let mut planned_reserves = Vec::new();
     let clock = loaded.closed_through;
@@ -2980,6 +2987,12 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             EventPayload::Forget { sim } => {
                 let due = state::memory::forget_due(loaded, *sim);
                 entry.period.is_none() && forgets.insert(*sim) && due == Some(entry.time)
+            }
+            // One open Talk per pair, both seated at one sociable object (ADR-0030 section 5).
+            EventPayload::Talk { a, b } => {
+                entry.period.is_none()
+                    && talks.insert((*a, *b))
+                    && state::talk::open_talk_ok(loaded, rules.data, *a, *b)
             }
             EventPayload::YearEnd => {
                 // A second series is rejected at once; a count could overflow.

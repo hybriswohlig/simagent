@@ -721,7 +721,7 @@ FOUNDER_ALLELE = 28
 # playtest) change the repository's day, kinds and houses (the weekend's end of the night, whom
 # a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
 # no year hash and no log hash of a run without one: core 57, the projection stays 19.
-PROJECTION_VERSION = 21
+PROJECTION_VERSION = 22
 # Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler)
 # change the repository's needs, day and kinds (each need's comfort, the longest time-filler,
 # the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
@@ -748,7 +748,13 @@ PROJECTION_VERSION = 21
 # `core:company` after `core:bond_dropped`. No new state. A save keeps every byte but the core
 # version, and a run without a household in a house keeps its year hashes and its log: the
 # projection stays 21, core 65.
-CORE_VERSION = 65
+# The talk (ADR-0030 section 3 and section 5) stores the day counters on the person in the
+# house, the last-talk second of each pair on the household, and an open Talk in the queue.
+# No new map, so the empty house stays six zero lengths. The save format stays 2: that state
+# is fields of records the format already holds, and the projection version is what an old
+# save fails. A run without MoveIn keeps its log; every year hash changes once: projection 22,
+# core 66.
+CORE_VERSION = 66
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -6458,7 +6464,8 @@ def pool_origin_bytes(origin) -> bytes:
 
 # The four empty maps of the house (`house_households`, `house_sims`, `house_waits`,
 # `house_holds`) and the two of the social part (memories, then bonds), each a postcard
-# length 0 (ADR-0030 section 5, projection 21).
+# length 0. The talk adds none: its counters and last-talk seconds live in those records
+# and an open Talk lives in the queue (ADR-0030 section 5, projection 22).
 EMPTY_HOUSE = bytes([0, 0, 0, 0, 0, 0])
 
 
@@ -6466,7 +6473,7 @@ def used_households_bytes(used: list) -> bytes:
     """`pool_used: Vec<u32>`, the households of the pool used (indices into the file, in
     arrival order), the field of the projection before the house (`EMPTY_HOUSE` without
     `MoveIn`; decision of NOTES.md, projection 19, five maps from projection 20, six from
-    projection 21)."""
+    projection 21 and still six at projection 22)."""
     return seq([varint(index) for index in used])
 
 
@@ -6506,7 +6513,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used
-    + EMPTY_HOUSE  # the house (projection 21)
+    + EMPTY_HOUSE  # the house (projection 22: six zero lengths, talk state in the records)
 )
 
 

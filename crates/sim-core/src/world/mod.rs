@@ -218,6 +218,13 @@ impl World {
         self.pending_time(handle)
     }
 
+    /// The second of the open Talk of this pair, the smaller id first (ADR-0030 section 3).
+    pub fn talk_at(&self, a: SimId, b: SimId) -> Option<SimTime> {
+        let (a, b) = if a < b { (a, b) } else { (b, a) };
+        let handle = *self.state.domain.pending.get(&(a, state::Slot::Talk(b)))?;
+        self.pending_time(handle)
+    }
+
     /// Where a person away or on its way out is and until when: the place and the second of
     /// its return (ADR-0024 section 4); `None` for anyone else.
     pub fn away(&self, sim: SimId) -> Option<(crate::house::state::Duty, SimTime)> {
@@ -537,6 +544,9 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             EventPayload::Return { sim, place } => {
                 state::day::on_return(&mut self.domain, &self.data, (sim, place), &mut ctx);
             }
+            EventPayload::Talk { a, b } => {
+                state::talk::on_talk(&mut self.domain, &self.data, a, b, &mut ctx);
+            }
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);
     }
@@ -601,7 +611,8 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             | EventPayload::Bedtime { .. }
             | EventPayload::StandUp { .. }
             | EventPayload::ReserveCrossing { .. }
-            | EventPayload::Forget { .. } => {
+            | EventPayload::Forget { .. }
+            | EventPayload::Talk { .. } => {
                 panic!("invariant world.domain_in_observer_phase")
             }
         }
@@ -996,7 +1007,9 @@ mod tests {
     /// birth (0), no partnership (0), household 1, not moved out (0), no parents (0), no
     /// social parents (0) and not from the pool (0). The used households of the pool (none,
     /// 0) follow the archive, then the empty house: six zero bytes, the four maps and the
-    /// memories and the bonds (projection 21, `EMPTY_HOUSE` in tools/world_reference.py).
+    /// memories and the bonds (projection 22, `EMPTY_HOUSE` in tools/world_reference.py).
+    /// The talk adds none of these: its counters and last-talk seconds live in the person
+    /// and the household, and an open Talk lives in the queue.
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());

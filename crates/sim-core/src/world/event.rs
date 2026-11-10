@@ -75,6 +75,9 @@ pub enum EventPayload {
     ReserveCrossing { sim: SimId, level: u16 },
     /// The earliest zero of a person's memories: it forgets what has faded (ADR-0030 section 1).
     Forget { sim: SimId },
+    /// A talk of two people at one sociable furniture (ADR-0030 section 3). `a` is the smaller
+    /// id. Kind 25, class general, subject `a`.
+    Talk { a: SimId, b: SimId },
 }
 
 impl EventPayload {
@@ -102,6 +105,7 @@ impl EventPayload {
     pub const STAND_UP: EventKind = EventKind(22);
     pub const RESERVE_CROSSING: EventKind = EventKind(23);
     pub const FORGET: EventKind = EventKind(24);
+    pub const TALK: EventKind = EventKind(25);
 
     /// Whether this is a house event (ADR-0024, addendum of 2026-11-02).
     pub fn is_house(&self) -> bool {
@@ -120,6 +124,7 @@ impl EventPayload {
                 | EventPayload::StandUp { .. }
                 | EventPayload::ReserveCrossing { .. }
                 | EventPayload::Forget { .. }
+                | EventPayload::Talk { .. }
         )
     }
 }
@@ -146,7 +151,8 @@ impl Payload for EventPayload {
             | EventPayload::Bedtime { .. }
             | EventPayload::StandUp { .. }
             | EventPayload::ReserveCrossing { .. }
-            | EventPayload::Forget { .. } => EventClass::GENERAL,
+            | EventPayload::Forget { .. }
+            | EventPayload::Talk { .. } => EventClass::GENERAL,
             EventPayload::Death { .. } => EventClass::DEATH,
             EventPayload::Birth { .. } => EventClass::BIRTH,
             EventPayload::Emigration { .. } => EventClass::EMIGRATION,
@@ -178,6 +184,7 @@ impl Payload for EventPayload {
             | EventPayload::StandUp { sim }
             | EventPayload::ReserveCrossing { sim, .. }
             | EventPayload::Forget { sim } => EventSubject::sim(sim.get()),
+            EventPayload::Talk { a, .. } => EventSubject::sim(a.get()),
             EventPayload::Separation { partnership } => {
                 EventSubject::partnership(partnership.get())
             }
@@ -211,6 +218,7 @@ impl Payload for EventPayload {
             EventPayload::StandUp { .. } => EventPayload::STAND_UP,
             EventPayload::ReserveCrossing { .. } => EventPayload::RESERVE_CROSSING,
             EventPayload::Forget { .. } => EventPayload::FORGET,
+            EventPayload::Talk { .. } => EventPayload::TALK,
         }
     }
 }

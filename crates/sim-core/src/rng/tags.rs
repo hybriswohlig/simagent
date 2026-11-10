@@ -162,6 +162,10 @@ pub const PAIRING_ACCEPT: PurposeTag = PurposeTag::from_pinned_list(33);
 /// detail: 0. The seed of its lot: the pool's for a pool person, the world's otherwise.
 pub const PAIRING_TASTE: PurposeTag = PurposeTag::from_pinned_list(34);
 
+/// The interest of a person in a topic of a talk, `uniform_below(1001)` (ADR-0030 section 3).
+/// subject: the person's lineage key; occasion: the topic number; detail: 0. The world seed.
+pub const TALK_INTEREST: PurposeTag = PurposeTag::from_pinned_list(35);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -198,6 +202,7 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (CHOICE_MOOD, "CHOICE_MOOD"),
     (PAIRING_ACCEPT, "PAIRING_ACCEPT"),
     (PAIRING_TASTE, "PAIRING_TASTE"),
+    (TALK_INTEREST, "TALK_INTEREST"),
 ];
 
 /// Values of deleted tags; they are never used again.

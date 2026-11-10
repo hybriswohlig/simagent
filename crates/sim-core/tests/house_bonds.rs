@@ -43,7 +43,8 @@ fn t(secs: i64) -> SimTime {
 }
 
 /// Test data: accident `accident` per year, a pregnancy of `months`, and the social data
-/// after `change` when one is given.
+/// after `change` when one is given. The topics name no furniture, so no talk is planned.
+/// Talks have their own tests in `house_talk.rs`.
 fn data_with(accident: f64, months: f64, social: Option<&dyn Fn(&mut Value)>) -> Data {
     let (mut calibration, genome_map) = common::death_files(accident, None, json!([]));
     let mut demography = common::demography();
@@ -54,7 +55,7 @@ fn data_with(accident: f64, months: f64, social: Option<&dyn Fn(&mut Value)>) ->
         .expect("checked")
         .with_houses(common::repository_houses());
     match social {
-        Some(change) => data.with_social(common::repository_social_with(change)),
+        Some(change) => data.with_social(common::repository_social_without_talks(change)),
         None => data,
     }
 }
@@ -828,12 +829,12 @@ fn version_bytes(bytes: &[u8]) -> (usize, usize) {
     let core_at = bytes.len() - rest.len();
     let (core, rest) = postcard::take_from_bytes::<u32>(rest).expect("core");
     assert_eq!(core, CORE_VERSION);
-    assert_eq!(bytes[core_at], 0x41);
+    assert_eq!(bytes[core_at], 0x42);
     let (_, rest) = postcard::take_from_bytes::<u64>(rest).expect("hash");
     let proj_at = bytes.len() - rest.len();
     let (projection, _) = postcard::take_from_bytes::<u32>(rest).expect("projection");
     assert_eq!(projection, PROJECTION_VERSION);
-    assert_eq!(bytes[proj_at], 0x15);
+    assert_eq!(bytes[proj_at], 0x16);
     (core_at, proj_at)
 }
 
@@ -871,8 +872,8 @@ fn second_birth_at() -> i64 {
 #[test]
 fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
     assert_eq!(FORMAT_VERSION, 2);
-    assert_eq!(CORE_VERSION, 65);
-    assert_eq!(PROJECTION_VERSION, 21);
+    assert_eq!(CORE_VERSION, 66);
+    assert_eq!(PROJECTION_VERSION, 22);
     let second = second_birth_at();
     let (mut run, _) = couple(quiet(), 7);
     let at = second + 3 * DAY.as_secs() + 5;

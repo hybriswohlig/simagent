@@ -3,6 +3,7 @@
 //! `HouseMove` in the domain state; after each handler and input `settle` turns those of
 //! households in houses into their entries, so the rules of phase 1 stay as they were.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use super::{DomainState, Slot, whole_years};
@@ -119,6 +120,8 @@ pub(crate) fn apply_move_in(
     let moved = MovedIn {
         house,
         morning: false,
+        since: ctx.now(),
+        last_talk: BTreeMap::new(),
     };
     domain.house.households.insert(household, moved);
     // A morning beyond the end of time never comes.
@@ -249,6 +252,10 @@ pub(super) fn start_day(
         },
         collapsed: false,
         reserve: super::reserve::begun(domain, data, houses, (sim, now)),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     domain.house.sims.insert(sim, person);
     plan_crossings(domain, data, sim, entry, ctx);
@@ -337,8 +344,15 @@ fn cancel(
     let slots: Vec<(SimId, Slot)> = (domain.pending.range((sim, first)..=(sim, last)))
         .map(|(slot, _)| *slot)
         .collect();
-    for slot in slots {
-        if let Some(handle) = domain.pending.remove(&slot) {
+    for (who, slot) in slots {
+        let partner = match slot {
+            Slot::Talk(other) => Some(other),
+            _ => None,
+        };
+        if let Some(handle) = domain.pending.remove(&(who, slot)) {
+            if let Some(other) = partner {
+                domain.pending.remove(&(other, Slot::Talk(who)));
+            }
             ctx.cancel(handle);
         }
     }
@@ -364,6 +378,7 @@ fn forget(
     let now = ctx.now();
     super::memory::leave(domain, data, sim, now);
     super::bond::leave(domain, data, sim, now);
+    super::talk::drop_last_talk(domain, sim);
     person.and_then(|person| Some((person.action?, person.needs.map(|need| need.value_at(now)))))
 }
 

@@ -106,9 +106,109 @@ fn has_bond(domain: &DomainState, owner: SimId, other: SimId) -> bool {
         .is_some_and(|list| list.iter().any(|bond| bond.other == other))
 }
 
+/// Whether the missing bond of `holder` to `other` would be refused (ADR-0030 section 2).
+/// The list is full and every bond in it is protected, so none can be dropped. An existing
+/// bond, no social data, a shorter list, or a list that can drop an unprotected bond is not
+/// a refusal. Nothing is written.
+pub(super) fn formation_refused(
+    domain: &mut DomainState,
+    data: &Data,
+    holder: SimId,
+    other: SimId,
+) -> bool {
+    let Some(social) = data.social() else {
+        return false;
+    };
+    if has_bond(domain, holder, other) {
+        return false;
+    }
+    let list_len = (domain.house.social.bonds.get(&holder))
+        .map(|list| list.len())
+        .unwrap_or(0);
+    let cap = usize::from(social.limits.bonds);
+    list_len >= cap && protected(domain, data, holder).len() == list_len
+}
+
+/// What forming one bond wrote.
+pub(super) enum Formed {
+    /// `core:bond_formed`, and `core:bond_dropped` when one fell out. `last` is the later
+    /// entry; `entries` is how many named the holder.
+    Wrote { last: EventId, entries: u16 },
+    /// The list was full and every bond in it is protected.
+    Refused,
+}
+
+/// Forms the missing bond of `holder` to `other`. `None` without social data, or when the
+/// bond already exists. `cause` is what `core:bond_formed` names; a bond that fell out
+/// follows as `core:bond_dropped` caused by that entry. An empty list is not stored.
+pub(super) fn form_one(
+    domain: &mut DomainState,
+    data: &Data,
+    holder: SimId,
+    other: SimId,
+    cause: Cause,
+    ctx: &mut SimCtx<'_, '_>,
+) -> Option<Formed> {
+    let social = data.social()?;
+    if has_bond(domain, holder, other) {
+        return None;
+    }
+    let now = ctx.now();
+    let cap = usize::from(social.limits.bonds);
+    let familiarity_fade = social.bonds.familiarity_fade;
+    let grudge_fade = social.bonds.grudge_fade;
+    let starts = social.bonds.start.clone();
+    let role = role_of(domain, data, holder, other);
+    let new = Bond {
+        other,
+        values: bond::values_for(&starts, role),
+        since: now,
+    };
+    let kept = protected(domain, data, holder);
+    let outcome = {
+        let list = domain.house.social.bonds.entry(holder).or_default();
+        bond::insert(
+            list,
+            new,
+            now,
+            familiarity_fade,
+            grudge_fade,
+            cap,
+            |other| kept.contains(&other),
+        )
+    };
+    if (domain.house.social.bonds.get(&holder)).is_some_and(Vec::is_empty) {
+        domain.house.social.bonds.remove(&holder);
+    }
+    match outcome {
+        Formation::Refused => Some(Formed::Refused),
+        Formation::Formed { dropped } => {
+            let wrote = ctx.emit(
+                LogPayload::BondFormed {
+                    other,
+                    values: new.values,
+                },
+                alloc::vec![Subject::Sim(holder)],
+                Causes::new(cause),
+            );
+            let (last, entries) = match dropped {
+                Some(other) => {
+                    let dropped_id = ctx.emit(
+                        LogPayload::BondDropped { other },
+                        alloc::vec![Subject::Sim(holder)],
+                        Causes::new(Cause::Event(wrote)),
+                    );
+                    (dropped_id, 2)
+                }
+                None => (wrote, 1),
+            };
+            Some(Formed::Wrote { last, entries })
+        }
+    }
+}
+
 /// Forms each missing bond of `pairs`, in the order given. `cause` is the entry
-/// `core:bond_formed` names; a bond that fell out follows as `core:bond_dropped` caused by
-/// that entry. An empty list is not stored. Without social data, nothing is formed.
+/// `core:bond_formed` names. Without social data, nothing is formed.
 fn form_pairs(
     domain: &mut DomainState,
     data: &Data,
@@ -116,58 +216,8 @@ fn form_pairs(
     cause: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    let Some(social) = data.social() else {
-        return;
-    };
-    let now = ctx.now();
-    let cap = usize::from(social.limits.bonds);
-    let familiarity_fade = social.bonds.familiarity_fade;
-    let grudge_fade = social.bonds.grudge_fade;
-    let starts = social.bonds.start.clone();
     for (holder, other) in pairs {
-        if has_bond(domain, holder, other) {
-            continue;
-        }
-        let role = role_of(domain, data, holder, other);
-        let new = Bond {
-            other,
-            values: bond::values_for(&starts, role),
-            since: now,
-        };
-        let kept = protected(domain, data, holder);
-        let outcome = {
-            let list = domain.house.social.bonds.entry(holder).or_default();
-            bond::insert(
-                list,
-                new,
-                now,
-                familiarity_fade,
-                grudge_fade,
-                cap,
-                |other| kept.contains(&other),
-            )
-        };
-        if (domain.house.social.bonds.get(&holder)).is_some_and(Vec::is_empty) {
-            domain.house.social.bonds.remove(&holder);
-        }
-        let Formation::Formed { dropped } = outcome else {
-            continue;
-        };
-        let wrote = ctx.emit(
-            LogPayload::BondFormed {
-                other,
-                values: new.values,
-            },
-            alloc::vec![Subject::Sim(holder)],
-            Causes::new(Cause::Event(cause)),
-        );
-        if let Some(other) = dropped {
-            ctx.emit(
-                LogPayload::BondDropped { other },
-                alloc::vec![Subject::Sim(holder)],
-                Causes::new(Cause::Event(wrote)),
-            );
-        }
+        let _ = form_one(domain, data, holder, other, Cause::Event(cause), ctx);
     }
 }
 
@@ -291,4 +341,219 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
                     && bond.since.as_secs() <= clock + 1
             })
     })
+}
+
+/// A holder, the bonds on that list, and one housemate the list does not name.
+#[cfg(test)]
+pub(super) struct Listed {
+    pub domain: DomainState,
+    pub data: Data,
+    pub holder: SimId,
+    /// A housemate with no bond from the holder, and not kin (φ = 0).
+    pub newcomer: SimId,
+}
+
+/// `bonds` housemate bonds, every one protected, plus `newcomer`. `drop_last` moves the
+/// last bonded person into another household, so that bond is neither a housemate nor kin
+/// and the list can drop it (ADR-0030 section 2). Housemates are cheaper to build than kin
+/// of φ = 1/8: a shared household, and founders with no parents so φ is 0.
+#[cfg(test)]
+pub(super) fn listed(bonds: u64, drop_last: bool) -> Listed {
+    use alloc::collections::BTreeMap;
+    use alloc::vec::Vec;
+
+    use super::Sim;
+    use crate::data_id::DataId;
+    use crate::genome::{Genome, Sex};
+    use crate::house::state::MovedIn;
+    use crate::ids::HouseholdId;
+    use crate::lineage::LineageKey;
+    use crate::social::bond::Bond;
+    use crate::social::data::SocialData;
+    use crate::time::{SimTime, YEAR};
+
+    fn sid(n: u64) -> SimId {
+        SimId::try_from(n).expect("valid")
+    }
+
+    fn hid(n: u64) -> HouseholdId {
+        HouseholdId::try_from(n).expect("valid")
+    }
+
+    let home = hid(1);
+    let away = hid(2);
+    let holder = sid(1);
+    let newcomer = sid(bonds + 2);
+    let mut domain = DomainState::new();
+
+    let add = |domain: &mut DomainState, id: SimId, household: HouseholdId| {
+        let sex = Sex::Female;
+        let lineage_key = LineageKey::founder(&DataId::new("test:talk").expect("tag"), id.get());
+        domain.keys.insert(lineage_key, id);
+        domain.sims.insert(
+            id,
+            Sim {
+                born: SimTime::from_secs(-30 * YEAR.as_secs()),
+                lineage_key,
+                sex,
+                genome: Genome::reference(sex),
+                afflictions: Vec::new(),
+                conceptions: 0,
+                births: 0,
+                partnerships: 0,
+                household,
+                moved_out: false,
+                carer: None,
+                parents: None,
+                social_parents: Vec::new(),
+                pool: None,
+            },
+        );
+    };
+
+    add(&mut domain, holder, home);
+    let mut list = Vec::new();
+    for n in 2..=bonds + 1 {
+        let id = sid(n);
+        let household = if drop_last && n == bonds + 1 {
+            away
+        } else {
+            home
+        };
+        add(&mut domain, id, household);
+        list.push(Bond {
+            other: id,
+            values: [0; 6],
+            since: SimTime::from_secs(0),
+        });
+    }
+    if !list.is_empty() {
+        domain.house.social.bonds.insert(holder, list);
+    }
+    add(&mut domain, newcomer, home);
+
+    let moved = MovedIn {
+        house: DataId::new("test:talk").expect("tag"),
+        morning: true,
+        since: SimTime::from_secs(0),
+        last_talk: BTreeMap::new(),
+    };
+    domain.house.households.insert(home, moved.clone());
+    if drop_last {
+        domain.house.households.insert(away, moved);
+    }
+
+    let raw: SocialData = serde_json::from_str(include_str!("../../../../data/social/social.json"))
+        .expect("social json");
+    let data = crate::data::testing::data().with_social(raw.checked().expect("social checks"));
+    Listed {
+        domain,
+        data,
+        holder,
+        newcomer,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::market;
+    use super::{formation_refused, has_bond, listed};
+
+    /// The cap in ADR-0030 section 2, and in `data/social/social.json`.
+    const BONDS: u64 = 32;
+
+    fn cap(case: &super::Listed) -> u64 {
+        u64::from(case.data.social().expect("social").limits.bonds)
+    }
+
+    /// Thirty-two bonds, each a housemate, and no bond to a new housemate who is not kin.
+    /// The missing bond is refused. Her own list is empty, so that direction is not.
+    #[test]
+    fn a_full_list_of_protected_bonds_refuses_a_new_housemate() {
+        let mut case = listed(BONDS, false);
+        assert_eq!(cap(&case), BONDS);
+        let home = case.domain.sims[&case.holder].household;
+        let bonded: alloc::vec::Vec<_> = case.domain.house.social.bonds[&case.holder]
+            .iter()
+            .map(|bond| bond.other)
+            .collect();
+        assert_eq!(u64::try_from(bonded.len()).expect("fits"), BONDS);
+        assert!(
+            bonded
+                .iter()
+                .all(|other| case.domain.sims[other].household == home)
+        );
+        let (holder, newcomer) = (case.holder, case.newcomer);
+        assert!(!has_bond(&case.domain, holder, newcomer));
+        assert_eq!(
+            case.domain.sims[&newcomer].household,
+            case.domain.sims[&holder].household
+        );
+        assert!(!market::kin_from_eighths(
+            &mut case.domain,
+            &case.data,
+            holder,
+            newcomer,
+            1
+        ));
+        assert!(formation_refused(
+            &mut case.domain,
+            &case.data,
+            holder,
+            newcomer
+        ));
+        assert!(!formation_refused(
+            &mut case.domain,
+            &case.data,
+            newcomer,
+            holder
+        ));
+    }
+
+    /// One of the thirty-two is neither a housemate nor kin, so the list can drop it.
+    #[test]
+    fn a_full_list_with_one_unprotected_bond_does_not_refuse() {
+        let mut case = listed(BONDS, true);
+        assert_eq!(cap(&case), BONDS);
+        let (holder, newcomer) = (case.holder, case.newcomer);
+        let last = case.domain.house.social.bonds[&holder]
+            .last()
+            .expect("a bond")
+            .other;
+        assert_ne!(
+            case.domain.sims[&last].household,
+            case.domain.sims[&holder].household
+        );
+        assert!(!market::kin_from_eighths(
+            &mut case.domain,
+            &case.data,
+            holder,
+            last,
+            1
+        ));
+        assert!(!formation_refused(
+            &mut case.domain,
+            &case.data,
+            holder,
+            newcomer
+        ));
+    }
+
+    /// Thirty-one bonds are under the cap, protected or not.
+    #[test]
+    fn a_list_shorter_than_the_cap_does_not_refuse() {
+        let mut case = listed(BONDS - 1, false);
+        assert_eq!(cap(&case), BONDS);
+        let (holder, newcomer) = (case.holder, case.newcomer);
+        assert_eq!(
+            case.domain.house.social.bonds[&holder].len(),
+            usize::try_from(BONDS - 1).expect("fits")
+        );
+        assert!(!formation_refused(
+            &mut case.domain,
+            &case.data,
+            holder,
+            newcomer
+        ));
+    }
 }

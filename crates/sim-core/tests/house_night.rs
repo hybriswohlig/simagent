@@ -402,6 +402,10 @@ fn the_last_night_of_time_lasts_to_its_end() {
         },
         collapsed: false,
         reserve: Reserve::full(1000, t(end - H)),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let sleep = OfferDef {
         rates: Default::default(),
@@ -435,6 +439,10 @@ fn a_sleep_ends_with_its_night() {
         decisions: Decisions { day: 1, count: 0 },
         collapsed: false,
         reserve: Reserve::full(1000, t(at)),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let sleep = OfferDef {
         rates: Default::default(),

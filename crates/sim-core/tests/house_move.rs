@@ -177,7 +177,9 @@ fn move_in_starts_at_the_next_morning() {
         in_house,
         MovedIn {
             house: flat,
-            morning: false
+            morning: false,
+            since: sim_core::time::SimTime::from_secs(late),
+            last_talk: std::collections::BTreeMap::new(),
         }
     );
     run.advance(late + SIX);
@@ -299,6 +301,10 @@ fn the_first_morning_gives_the_needs() {
         },
         collapsed: false,
         reserve: Reserve::full(1000, at),
+
+        talk_day: 0,
+        talks: 0,
+        entries: 0,
     };
     let house = run.world.state().house();
     assert!(house.households[&home].morning);
