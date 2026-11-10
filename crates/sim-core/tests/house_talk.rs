@@ -7,12 +7,15 @@
 mod common;
 
 use common::day::{self, MORNING, Run};
+use sim_core::canonical::PROJECTION_VERSION;
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::input::{Command, Input, MoveIn, MoveOut};
 use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::social::bond::GRUDGE;
 use sim_core::social::data::TALK;
 use sim_core::time::{SimTime, YEAR};
+use sim_core::version::CORE_VERSION;
+use sim_core::world::{EventPayload, FORMAT_VERSION, LoadError, World, YearOut};
 
 /// Inside one room (ADR-0025). Both people are put back in the hall, where every object is.
 const WITHIN_ROOM: i64 = 5;
@@ -356,4 +359,187 @@ fn standing_up_before_the_talk_cancels_it() {
             .last_talk
             .is_empty()
     );
+}
+
+fn encode<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    postcard::to_allocvec(value).expect("bytes")
+}
+
+/// Replaces the one occurrence of `from` with `to`. Both encodings have the same width.
+fn spliced(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    assert_eq!(from.len(), to.len(), "the forgery keeps the width");
+    let hits = bytes
+        .windows(from.len())
+        .filter(|window| *window == from)
+        .count();
+    assert_eq!(hits, 1, "one occurrence");
+    let at = bytes
+        .windows(from.len())
+        .position(|window| window == from)
+        .expect("found");
+    let mut forged = bytes.to_vec();
+    forged[at..at + to.len()].copy_from_slice(to);
+    forged
+}
+
+/// A same-width second after `since`: the largest time whose postcard width matches it.
+fn later_same_width(since: i64) -> i64 {
+    let width = encode(&t(since)).len();
+    let max_zig = (1u128 << (7 * width)) - 1;
+    let later = i64::try_from(max_zig / 2).expect("fits");
+    assert!(later > since);
+    assert_eq!(encode(&t(later)).len(), width);
+    later
+}
+
+/// The core and projection version bytes. A postcard varint below 128 is the number.
+fn version_at(bytes: &[u8]) -> (usize, usize) {
+    let rest = bytes.strip_prefix(b"SIMAGENT").expect("magic");
+    let (format, rest) = postcard::take_from_bytes::<u32>(rest).expect("format");
+    assert_eq!(format, FORMAT_VERSION);
+    assert_eq!(
+        FORMAT_VERSION, 2,
+        "the talk state is fields the format already holds"
+    );
+    let core_at = bytes.len() - rest.len();
+    let (core, rest) = postcard::take_from_bytes::<u32>(rest).expect("core");
+    assert_eq!(core, CORE_VERSION);
+    const {
+        assert!(CORE_VERSION < 128, "the version byte is the number");
+    }
+    assert_eq!(
+        bytes[core_at],
+        u8::try_from(CORE_VERSION).expect("one byte")
+    );
+    let (_, rest) = postcard::take_from_bytes::<u64>(rest).expect("hash");
+    let proj_at = bytes.len() - rest.len();
+    let (projection, _) = postcard::take_from_bytes::<u32>(rest).expect("projection");
+    assert_eq!(projection, PROJECTION_VERSION);
+    const {
+        assert!(PROJECTION_VERSION < 128, "the version byte is the number");
+    }
+    assert_eq!(
+        bytes[proj_at],
+        u8::try_from(PROJECTION_VERSION).expect("one byte")
+    );
+    (core_at, proj_at)
+}
+
+/// A save between two talks loads and runs on to the same log. The loader refuses day
+/// counters over their caps (the cap itself is a reachable state), a last-talk pair out of
+/// order, after the clock or of someone outside the household, a Talk whose smaller id is
+/// not first, and a Talk of someone who is not there. A save of core 65 or projection 21
+/// is refused. The format stays 2.
+#[test]
+fn a_save_between_two_talks_loads_and_an_old_one_does_not() {
+    let data = data(7_200, 2);
+    let (mut run, home) = couple(7_200);
+    let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
+    let first = arrival + TALK_DELAY;
+    run.advance(first);
+    let between = first + 1;
+    let second = first + PAIR_GAP;
+    run.advance(between);
+    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(second)));
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    let person = run.world.state().house().sims[&sim(1)].clone();
+    let moved = run.world.state().house().households[&home].clone();
+    let (mut loaded, hashes) = World::load(&bytes, data.clone()).expect("loaded");
+    assert_eq!(hashes, run.out.year_hashes);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+    assert_eq!(loaded.talk_at(sim(1), sim(2)), Some(t(second)));
+    let mut out = YearOut::default();
+    loaded.advance_until(&mut out, t(second), &mut |_| false);
+    run.advance(second);
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+    let tail: Vec<&LogEntry> = run
+        .log
+        .iter()
+        .filter(|entry| entry.t > t(between))
+        .collect();
+    assert_eq!(
+        serde_json::to_string(&loaded.take_log()).expect("json"),
+        serde_json::to_string(&tail).expect("json")
+    );
+
+    let load = |bytes: &[u8]| World::load(bytes, data.clone()).err();
+    let limits = data.social().expect("social").limits.clone();
+    assert_eq!(person.talks, 1);
+    assert!(person.entries < limits.entries_per_day);
+
+    let mut over_talks = person.clone();
+    over_talks.talks = limits.talks_per_day + 1;
+    assert_eq!(
+        load(&spliced(&bytes, &encode(&person), &encode(&over_talks))),
+        Some(LoadError::Inconsistent)
+    );
+    let mut at_talks = person.clone();
+    at_talks.talks = limits.talks_per_day;
+    assert!(load(&spliced(&bytes, &encode(&person), &encode(&at_talks))).is_none());
+
+    let mut over_entries = person.clone();
+    over_entries.entries = limits.entries_per_day + 1;
+    assert_eq!(
+        load(&spliced(&bytes, &encode(&person), &encode(&over_entries))),
+        Some(LoadError::Inconsistent)
+    );
+    let mut at_entries = person.clone();
+    at_entries.entries = limits.entries_per_day;
+    assert!(load(&spliced(&bytes, &encode(&person), &encode(&at_entries))).is_none());
+
+    let when = moved.last_talk[&(sim(1), sim(2))];
+    let mut reversed = moved.clone();
+    reversed.last_talk.clear();
+    reversed.last_talk.insert((sim(2), sim(1)), when);
+    assert_eq!(
+        load(&spliced(&bytes, &encode(&moved), &encode(&reversed))),
+        Some(LoadError::Inconsistent)
+    );
+    let mut late = moved.clone();
+    late.last_talk
+        .insert((sim(1), sim(2)), t(later_same_width(when.as_secs())));
+    assert_eq!(
+        load(&spliced(&bytes, &encode(&moved), &encode(&late))),
+        Some(LoadError::Inconsistent)
+    );
+    let mut outsider = moved.clone();
+    outsider.last_talk.clear();
+    outsider.last_talk.insert((sim(1), sim(50)), when);
+    assert_eq!(
+        load(&spliced(&bytes, &encode(&moved), &encode(&outsider))),
+        Some(LoadError::Inconsistent)
+    );
+
+    let spoken = EventPayload::Talk {
+        a: sim(1),
+        b: sim(2),
+    };
+    let swapped = EventPayload::Talk {
+        a: sim(2),
+        b: sim(1),
+    };
+    assert_eq!(
+        load(&spliced(&bytes, &encode(&spoken), &encode(&swapped))),
+        Some(LoadError::Inconsistent)
+    );
+    let absent = EventPayload::Talk {
+        a: sim(1),
+        b: sim(3),
+    };
+    assert_eq!(
+        load(&spliced(&bytes, &encode(&spoken), &encode(&absent))),
+        Some(LoadError::Inconsistent)
+    );
+
+    let (core_at, proj_at) = version_at(&bytes);
+    let mut old_core = bytes.clone();
+    old_core[core_at] = 0x41;
+    assert_eq!(load(&old_core), Some(LoadError::ForeignCoreVersion));
+    let mut old_projection = bytes.clone();
+    old_projection[proj_at] = 0x15;
+    assert_eq!(
+        load(&old_projection),
+        Some(LoadError::ForeignProjectionVersion)
+    );
+    assert!(load(&bytes).is_none());
 }

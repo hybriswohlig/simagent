@@ -803,6 +803,8 @@ fn a_run_without_move_in_does_not_change() {
         social.world.canonical_bytes()
     );
     assert_eq!(plain.world.state_hash(), social.world.state_hash());
+    // Projection 22 keeps these six empty maps: the talk counters and last-talk seconds live
+    // in the person and the household, and an open Talk lives in the queue.
     assert!(
         social
             .world

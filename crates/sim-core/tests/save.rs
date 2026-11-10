@@ -700,6 +700,9 @@ struct File {
     house_social: Vec<(u64, ())>,
     /// The bonds (ADR-0030 section 5, projection 21): nobody has one here, so that map is
     /// empty and its elements never written.
+    /// The talk (ADR-0030 section 5, projection 22) adds no map: the day counters and the
+    /// last-talk seconds are fields of the person and the household above, and an open Talk
+    /// is a queue event.
     house_bonds: Vec<(u64, ())>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.

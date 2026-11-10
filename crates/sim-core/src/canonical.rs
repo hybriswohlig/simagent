@@ -25,7 +25,7 @@ pub struct YearHash {
 }
 
 /// Rises with every change of the projection (ADR-0003 5.2).
-pub const PROJECTION_VERSION: u32 = 21;
+pub const PROJECTION_VERSION: u32 = 22;
 
 /// A pending event as the projection sees it (ADR-0002): phase, class, subject and kind
 /// follow from the payload; the companion data is left out.
@@ -59,8 +59,9 @@ pub(crate) struct LoadedState {
     pub(crate) archive: BTreeMap<SimId, ArchivedSim>,
     pub(crate) pool_used: Vec<u32>,
     /// `house_households`, `house_sims`, `house_waits`, `house_holds` (ADR-0024, addendum of
-    /// 2026-11-02), then the memories and the bonds (ADR-0030 section 5, projection 21): a
-    /// struct encodes as its fields in order.
+    /// 2026-11-02), then the memories and the bonds (ADR-0030 section 5). Projection 22 adds
+    /// no map: the talk counters and the last-talk seconds are fields of the person and the
+    /// household, and an open Talk is a queue event. A struct encodes as its fields in order.
     pub(crate) house: HouseState,
 }
 

@@ -115,8 +115,9 @@ pub struct Decisions {
 }
 
 /// The house part of the domain state, each map in the projection after `pool_used`, then the
-/// social part (ADR-0030 section 5, projection 21): in a run without `MoveIn` it is two more
-/// empty maps, the memories and the bonds.
+/// social part (ADR-0030 section 5, projection 22): in a run without `MoveIn` it is six zero
+/// lengths. The talk's day counters and last-talk seconds live in `InHouse` and `MovedIn`,
+/// and an open Talk lives in the queue, so that run gains no further byte there.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HouseState {
     pub households: BTreeMap<HouseholdId, MovedIn>,

@@ -1551,10 +1551,11 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
     assert_eq!(watching(0, weak), Ok(()));
 }
 
-/// The projection of the house part (ADR-0030 section 5, projection 21): its four maps as before,
-/// then the memories and the bonds, so a run without a move-in has six zero lengths; the bytes
-/// below are by hand from postcard's rules (varints, zigzag for the signed values, the array of
-/// two others as two options, no length in front).
+/// The projection of the house part (ADR-0030 section 5, projection 22): its four maps as before,
+/// then the memories and the bonds, so a run without a move-in has six zero lengths. The talk
+/// adds no map; its counters and last-talk seconds are fields of a person and a household, and
+/// an open Talk is a queue event. The bytes below are by hand from postcard's rules (varints,
+/// zigzag for the signed values, the array of two others as two options, no length in front).
 #[test]
 fn the_house_part_ends_with_the_memories() {
     use sim_core::social::memory::Memory;

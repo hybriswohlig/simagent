@@ -1022,7 +1022,9 @@ mod tests {
     /// birth (0), no partnership (0), household 1, not moved out (0), no parents (0), no
     /// social parents (0) and not from the pool (0). The used households of the pool (none,
     /// 0) follow the archive, then the empty house: six zero bytes, the four maps and the
-    /// memories and the bonds (projection 21, `EMPTY_HOUSE` in tools/world_reference.py).
+    /// memories and the bonds (projection 22, `EMPTY_HOUSE` in tools/world_reference.py).
+    /// The talk adds none of these: its counters and last-talk seconds live in the person
+    /// and the household, and an open Talk lives in the queue.
     #[test]
     fn the_archive_is_part_of_the_projection() {
         let mut world = World::new(testing::data());
