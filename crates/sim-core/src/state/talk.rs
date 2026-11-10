@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::action::person_mut;
-use super::bond::{Formed, form_one};
+use super::bond::{Formed, form_one, formation_refused};
 use super::memory::{WroteMemory, others, plan_forget, remember};
 use super::{DomainState, Slot, whole_years};
 use crate::canonical::LoadedState;
@@ -98,8 +98,9 @@ fn counts(domain: &DomainState, sim: SimId, day: i64) -> (u16, u16) {
 }
 
 /// Whether the pair may talk at `planned`. Missing household, or two households, is no.
+/// A missing bond that cannot be formed is no as well.
 fn may(
-    domain: &DomainState,
+    domain: &mut DomainState,
     data: &Data,
     a: SimId,
     b: SimId,
@@ -112,24 +113,33 @@ fn may(
     let Some(social) = data.social() else {
         return false;
     };
-    let Some(home) = same_home(domain, a, b) else {
+    let allowed = {
+        let Some(home) = same_home(domain, a, b) else {
+            return false;
+        };
+        let moved = &domain.house.households[&home];
+        let day = house_day(planned, moved.since);
+        let (talks_a, entries_a) = counts(domain, a, day);
+        let (talks_b, entries_b) = counts(domain, b, day);
+        let facts = TalkFacts {
+            open_talk: domain.pending.contains_key(&(a, Slot::Talk(b))),
+            last_talk: moved.last_talk.get(&(a, b)).copied(),
+            talks_a,
+            talks_b,
+            entries_a,
+            entries_b,
+            age_a: years(domain, a, planned),
+            age_b: years(domain, b, planned),
+        };
+        talk_conditions(&social.limits, planned, &facts, check_open)
+    };
+    if !allowed {
         return false;
-    };
-    let moved = &domain.house.households[&home];
-    let day = house_day(planned, moved.since);
-    let (talks_a, entries_a) = counts(domain, a, day);
-    let (talks_b, entries_b) = counts(domain, b, day);
-    let facts = TalkFacts {
-        open_talk: domain.pending.contains_key(&(a, Slot::Talk(b))),
-        last_talk: moved.last_talk.get(&(a, b)).copied(),
-        talks_a,
-        talks_b,
-        entries_a,
-        entries_b,
-        age_a: years(domain, a, planned),
-        age_b: years(domain, b, planned),
-    };
-    talk_conditions(&social.limits, planned, &facts, check_open)
+    }
+    // Reading (ADR-0030 section 2 and section 3, decided 2026-11-10): a missing bond
+    // that a full list of protected bonds cannot take is a legal refusal. The talk is
+    // not planned and not run, and it writes nothing.
+    !formation_refused(domain, data, a, b) && !formation_refused(domain, data, b, a)
 }
 
 fn clear(domain: &mut DomainState, a: SimId, b: SimId) {
@@ -431,14 +441,15 @@ fn formed_edge(
     other: SimId,
     cause: &mut Cause,
     ctx: &mut SimCtx<'_, '_>,
-) -> u16 {
+) -> Option<u16> {
     match form_one(domain, data, holder, other, cause.clone(), ctx) {
         Some(Formed::Wrote { last, entries }) => {
             *cause = Cause::Event(last);
-            entries
+            Some(entries)
         }
-        Some(Formed::Refused) => panic!("invariant talk.bond"),
-        None => 0,
+        // The same refusal `may` already applies. `form_one` wrote nothing.
+        Some(Formed::Refused) => None,
+        None => Some(0),
     }
 }
 
@@ -491,9 +502,18 @@ fn run(
     let now = ctx.now();
     let since = domain.house.households[&home].since;
     let day = house_day(now, since);
+    // Both directions before either write, the same refusal `may` applies: one side
+    // that cannot take the bond must not leave a bond on the other.
+    if formation_refused(domain, data, a, b) || formation_refused(domain, data, b, a) {
+        return;
+    }
     let mut cause = ctx.trigger();
-    let mut entries_a = formed_edge(domain, data, a, b, &mut cause, ctx);
-    let mut entries_b = formed_edge(domain, data, b, a, &mut cause, ctx);
+    let Some(mut entries_a) = formed_edge(domain, data, a, b, &mut cause, ctx) else {
+        return;
+    };
+    let Some(mut entries_b) = formed_edge(domain, data, b, a, &mut cause, ctx) else {
+        return;
+    };
     let fade = (social.bonds.familiarity_fade, social.bonds.grudge_fade);
     let seed = (domain.world_seed).unwrap_or_else(|| panic!("invariant seeds.before_start"));
     let interest_a = interests(WorldSeed::new(seed), domain.key_of(a));

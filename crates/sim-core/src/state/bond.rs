@@ -106,6 +106,29 @@ fn has_bond(domain: &DomainState, owner: SimId, other: SimId) -> bool {
         .is_some_and(|list| list.iter().any(|bond| bond.other == other))
 }
 
+/// Whether the missing bond of `holder` to `other` would be refused (ADR-0030 section 2).
+/// The list is full and every bond in it is protected, so none can be dropped. An existing
+/// bond, no social data, a shorter list, or a list that can drop an unprotected bond is not
+/// a refusal. Nothing is written.
+pub(super) fn formation_refused(
+    domain: &mut DomainState,
+    data: &Data,
+    holder: SimId,
+    other: SimId,
+) -> bool {
+    let Some(social) = data.social() else {
+        return false;
+    };
+    if has_bond(domain, holder, other) {
+        return false;
+    }
+    let list_len = (domain.house.social.bonds.get(&holder))
+        .map(|list| list.len())
+        .unwrap_or(0);
+    let cap = usize::from(social.limits.bonds);
+    list_len >= cap && protected(domain, data, holder).len() == list_len
+}
+
 /// What forming one bond wrote.
 pub(super) enum Formed {
     /// `core:bond_formed`, and `core:bond_dropped` when one fell out. `last` is the later
