@@ -83,7 +83,7 @@ The page fits each proxy with its `.mhclo` bindings. Textures use alpha test.
 | Asset | Path in the zip | Use |
 |---|---|---|
 | Low-poly eyes | `eyes/low-poly/low-poly.mhclo`, `low-poly.obj` | Both eyeballs. Vertices match the HM08 eye helpers. |
-| Brown eye texture | `eyes/materials/brown_eye.png`, `brown.mhmat` | Sclera and pupil, plus the iris fibre luminance. The page tints that neutral fibre field with the contract iris colour. The brown pigment in the texture is not multiplied in, so a blue iris stays blue. |
+| Brown eye texture | `eyes/materials/brown_eye.png`, `brown.mhmat` | Iris fibre luminance and the pupil position. The page tints that neutral field with the contract iris colour. The sclera is drawn off-white, darker toward the corners. The grey field outside the sclera disc is replaced with the contract skin colour, because that field was showing as a grey socket. |
 | eyebrow001 | `eyebrows/eyebrow001/` | Brow cards. Tinted with the hair colour. Opacity follows `eyebrow_density`. |
 | eyelashes01 | `eyelashes/eyelashes01/` | Lash cards on the same eye helpers. |
 | short04 | `hair/short04/` | Short male cut. `balding_stage` opens the crown and the temples. |

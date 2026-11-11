@@ -566,7 +566,13 @@ const EYE_FRAG = `
     irisCol = mix(irisCol, irisCol * vec3(0.30, 0.26, 0.24), smoothstep(0.72, 1.0, radial));
     irisCol = mix(irisCol, vec3(0.015, 0.012, 0.010), smoothstep(0.040, 0.022, d));
     float iris = smoothstep(0.116, 0.098, d);
-    diffuseColor.rgb = mix(sampledDiffuseColor.rgb, irisCol, iris);
+    // The texture around the iris is a grey field, and that field is what shows
+    // in the socket. The sclera is the disc; anything past it is lid skin.
+    float inDisc = smoothstep(0.205, 0.175, d);
+    float corner = smoothstep(0.145, 0.198, d);
+    vec3 scleraCol = mix(vec3(0.96, 0.93, 0.88), vec3(0.62, 0.55, 0.50), corner);
+    vec3 eyeCol = mix(scleraCol, irisCol, iris);
+    diffuseColor.rgb = mix(uSkin, eyeCol, inDisc);
     diffuseColor.a = 1.0;
     vec2 pupil = dL < dR ? pupilL : pupilR;
     catchLight = smoothstep(0.013, 0.002, length(vMapUv - (pupil + vec2(-0.012, 0.015))));
@@ -600,19 +606,22 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
   );
 }
 
-function eyeMaterial(style, texture, irisHex) {
-  const material = litMaterial(style, 0.38);
+function eyeMaterial(style, texture, irisHex, skinHex) {
+  const material = litMaterial(style, 0.42);
   material.map = texture;
   material.color.setHex(0xffffff);
   material.side = THREE.FrontSide;
-  const uniforms = { uIris: { value: new THREE.Color(irisHex) } };
+  const uniforms = {
+    uIris: { value: new THREE.Color(irisHex) },
+    uSkin: { value: new THREE.Color(skinHex) },
+  };
   bindShader(
     material,
     `eye-${style}`,
     uniforms,
     "",
     "",
-    "uniform vec3 uIris;",
+    "uniform vec3 uIris;\nuniform vec3 uSkin;",
     EYE_FRAG,
   );
   const compile = material.onBeforeCompile;
@@ -768,7 +777,7 @@ function hairChoice(body) {
   return "hair_long";
 }
 
-function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, style, marks) {
+function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, style, marks) {
   const pack = state.pack.proxies;
   const hairName = hairChoice(body);
   const density = clamp(body.hair_density, 0, 1);
@@ -792,10 +801,10 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, style, marks)
   }
   // The cornea sits behind the lid surface. Face is +Z. Enough to meet the
   // opening, not enough to leave the sphere in front of the lids.
-  addFitted(mesh, head, pack.eyes, humanPos, eyeMaterial(style, pack.eyes.texture, irisHex), 1, 0.0075);
+  addFitted(mesh, head, pack.eyes, humanPos, eyeMaterial(style, pack.eyes.texture, irisHex, skinHex), 1, 0.0075);
   addFitted(
     mesh, head, pack.lashes, humanPos,
-    strandMaterial(style, pack.lashes.texture, hexOf(mixLinear(linearOf(hairHex), [0, 0, 0], 0.72)), 0.12, 0, marks.crown, -6),
+    strandMaterial(style, pack.lashes.texture, hexOf(mixLinear(linearOf(hairHex), [0, 0, 0], 0.62)), 0.32, 0, marks.crown, -6),
     4,
     0.0035,
   );
@@ -1147,7 +1156,7 @@ function buildPerson(template, member, x) {
   }
   const body = { ...member.body, sex: member.sex };
   const humanPos = humanPositions(weights);
-  const groom = addGrooming(mesh, head, humanPos, body, hair, iris, state.style, marks);
+  const groom = addGrooming(mesh, head, humanPos, body, hair, iris, skin, state.style, marks);
   const beardTris = buildBeard(mesh, head, cloud, body, hair, state.style, marks);
   scene.add(wrapper);
   wrapper.updateWorldMatrix(true, true);
