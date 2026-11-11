@@ -143,6 +143,9 @@ impl World {
     ) -> AdvanceOutcome {
         let outcome = self.sched.advance_until(&mut self.state, out, limit, stop);
         self.state.trace.absorb(core::mem::take(&mut out.trace));
+        // The house day advances at every 06:00 the clock reaches or jumps past.
+        let now = self.sched.closed_through();
+        state::belief::prune_windows(&mut self.state.domain, &self.state.data, now);
         outcome
     }
 
@@ -328,6 +331,8 @@ impl WorldState {
             }
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);
+        // A `MoveIn` in this second counts its house day from `since`, which is `now`.
+        state::belief::prune_windows(&mut self.domain, &self.data, ctx.now());
     }
 
     /// The house part of the state (ADR-0024 section 7).
@@ -549,6 +554,7 @@ impl Handler<EventPayload, PlanRef> for WorldState {
             }
         }
         state::house::settle(&mut self.domain, &self.data, &mut ctx);
+        state::belief::prune_windows(&mut self.domain, &self.data, ctx.now());
     }
 
     fn on_observer(

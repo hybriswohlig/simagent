@@ -15,6 +15,7 @@ use crate::social::belief::{
     Basis, Belief, BeliefInsertion, Statement, StatementKey, Taken, find, hear, insert, see,
 };
 use crate::social::data::SocialData;
+use crate::social::talk::house_day;
 use crate::time::SimTime;
 use crate::world::SimCtx;
 
@@ -266,6 +267,49 @@ pub(super) fn record_deed(
     }
 }
 
+/// Drops deeds outside the house day of `now` for every owner who lives in a moved-in
+/// household. Nothing is written (ADR-0031 section 1: a deed has no entry). `dropped_day`
+/// stays as it is: only the cap closes a day that is still inside the window.
+///
+/// The house day advances at every 06:00. `HouseMorning` is scheduled once (ADR-0024), a
+/// later morning may have no event, and the clock may jump past it, so this runs whenever
+/// the clock closes a second and whenever an input or a domain event has settled.
+///
+/// READING: ADR-0031 section 1 freezes deeds on moving out and is silent on the next
+/// move-in. While the household is outside there is no current house day, so the list
+/// stays. On the next move-in it is judged against the house day counted from the new
+/// `since`, the same moment memories resume. Days are not renumbered.
+pub(crate) fn prune_windows(domain: &mut DomainState, data: &Data, now: SimTime) {
+    if domain.house.social.deeds.is_empty() {
+        return;
+    }
+    let Some(social) = data.social() else {
+        return;
+    };
+    let window = social.limits.deed_window_days;
+    let owners: Vec<SimId> = domain.house.social.deeds.keys().copied().collect();
+    for owner in owners {
+        let Some(person) = domain.sims.get(&owner) else {
+            continue;
+        };
+        let Some(since) = (domain.house.households.get(&person.household)).map(|moved| moved.since)
+        else {
+            continue;
+        };
+        let today = house_day(now, since);
+        let empty = {
+            let Some(deeds) = domain.house.social.deeds.get_mut(&owner) else {
+                continue;
+            };
+            deeds.prune_calendar(today, window);
+            deeds.items.is_empty() && deeds.dropped_day.is_none()
+        };
+        if empty {
+            domain.house.social.deeds.remove(&owner);
+        }
+    }
+}
+
 /// A person leaves a moved-in household (ADR-0031 section 1). One who lives on keeps every
 /// belief and every deed, unchanged. One who has already left the world does not get them
 /// back: death archives before the house forgets.
@@ -299,13 +343,10 @@ pub(super) fn left_world(domain: &mut DomainState, sim: SimId) {
 /// empty, sorted by key without a repeat, at most `limits.beliefs` long. Certainty is at most
 /// 1000. `widerlegt` is only 0 or 1000. `secret` is only a `VaterVon` whose holder is the
 /// child's mother. A deed list is not empty, at most `limits.deeds` long, in creation order
-/// (the days do not go backwards), and each day is one the core writes.
-///
-/// READING: the ADR also says no deed day lies outside the window. The core drops such a day
-/// only when the next deed is recorded, a move-out freezes the list, and a later `MoveIn`
-/// counts house days from a new `since`. A reachable list can hold an older day, or a day
-/// after the household's current today. Those are not refused. A negative day is never
-/// written, and is refused. A remaining deed is not from before `dropped_day`.
+/// (the days do not go backwards). Each day is at least 0 and not before `dropped_day`.
+/// While the owner lives in a moved-in household, no day lies outside that household's
+/// window (ADR-0031 section 7). A list frozen outside a house is not judged against a
+/// window: there is no current house day until the next move-in.
 pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
     let beliefs = &loaded.house.social.beliefs;
     let deeds = &loaded.house.social.deeds;
@@ -357,8 +398,16 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
             && list.windows(2).all(|pair| pair[0].key() < pair[1].key())
             && list.iter().all(fits)
     });
+    let window = i64::from(social.limits.deed_window_days);
     let deeds_ok = deeds.iter().all(|(&owner, record)| {
         let kept = |day: i64| record.dropped_day.is_none_or(|dropped| day >= dropped);
+        let in_window = |day: i64| match loaded_house_day(loaded, owner) {
+            None => true,
+            Some(today) => {
+                let start = today - (window - 1);
+                day >= start && day <= today
+            }
+        };
         of_age(owner)
             && !(record.items.is_empty() && record.dropped_day.is_none())
             && record.items.len() <= deed_cap
@@ -372,9 +421,22 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
                     && known(deed.other)
                     && deed.day >= 0
                     && kept(deed.day)
+                    && in_window(deed.day)
             })
     });
     beliefs_ok && deeds_ok
+}
+
+/// The house day a loaded deed list is judged against, when its owner lives in a moved-in
+/// household. `None` while that list is frozen outside a house.
+///
+/// A `MoveIn` acts on the open second, so `since` can be one second after the clock. The
+/// window is that stay's house day. A save still closed on the previous second keeps the
+/// old day: the open second would already be the next morning.
+fn loaded_house_day(loaded: &LoadedState, owner: SimId) -> Option<i64> {
+    let person = loaded.sims.get(&owner)?;
+    let since = loaded.house.households.get(&person.household)?.since;
+    Some(house_day(loaded.closed_through.max(since), since))
 }
 
 /// The mother of `child`, living or archived.
