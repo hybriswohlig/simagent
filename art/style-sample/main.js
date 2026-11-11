@@ -691,7 +691,7 @@ const STRAND_FRAG = `
   float inMass = step(-0.004, below) * (1.0 - smoothstep(uCap - 0.01, uCap, below));
   float hole = (1.0 - smoothstep(0.2, 0.45, hairA)) * fillMid * inMass * step(0.5, vKeep);
   if (uFill > 0.5 && hole > 0.4) {
-    diffuseColor.rgb = uHair * 0.95;
+    diffuseColor.rgb = uHair * uFillLift;
     diffuseColor.a = 1.0;
   } else if (uSoft > 0.5) {
     float w = clamp(fwidth(cover), 0.02, 0.08);
@@ -738,6 +738,43 @@ const EYE_FRAG = `
   #endif
 `;
 
+const fillLifts = new Map();
+
+function srgbByteToLinear(byte) {
+  const value = byte / 255;
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+// Same lift the strand shader uses: texture shade over 0.16, clamped.
+// The part has no opaque texel, so it takes the mean of this texture.
+function hairFillLift(texture) {
+  const image = texture && texture.image;
+  if (!image || !image.width) return 0.55;
+  if (fillLifts.has(image)) return fillLifts.get(image);
+  const canvas = document.createElement("canvas");
+  const width = 64;
+  const height = 64;
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(image, 0, 0, width, height);
+  const data = context.getImageData(0, 0, width, height).data;
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) continue;
+    const shade = 0.299 * srgbByteToLinear(data[i])
+      + 0.587 * srgbByteToLinear(data[i + 1])
+      + 0.114 * srgbByteToLinear(data[i + 2]);
+    sum += shade;
+    count += 1;
+  }
+  const mean = count ? sum / count : 0.16;
+  const lift = Math.min(1.45, Math.max(0.35, mean / 0.16));
+  fillLifts.set(image, lift);
+  return lift;
+}
+
 function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset, fillPart, softEdge, cap, clip) {
   const material = litMaterial(style, style === "A" ? 0.84 : 0.62);
   material.map = texture;
@@ -757,6 +794,7 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
     uSoft: { value: softEdge ? 1 : 0 },
     uCap: { value: cap == null ? 0 : cap },
     uClip: { value: clip ? 1 : 0 },
+    uFillLift: { value: hairFillLift(texture) },
   };
   const kind = `${fillPart ? "part" : "cut"}-${softEdge ? "soft" : "hard"}`;
   return bindShader(
@@ -765,7 +803,7 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
     uniforms,
     "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;",
     HAIR_VERTEX,
-    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform vec3 uCrown;",
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uFillLift;\nuniform vec3 uCrown;",
     STRAND_FRAG,
   );
 }
