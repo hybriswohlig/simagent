@@ -78,6 +78,7 @@ function Town({
   fork,
   settings,
   others,
+  cheat,
 }: {
   run: string;
   closed: number;
@@ -85,6 +86,7 @@ function Town({
   fork: ForkInfo | undefined;
   settings: readonly RunSetting[];
   others: readonly string[];
+  cheat: boolean;
 }) {
   const [clock, setClock] = useState<Clock>(() => standing(closed, date));
   const [chosen, setChosen] = useState<Step>("days28");
@@ -353,6 +355,7 @@ function Town({
         retry={() => setRetries((n) => n + 1)}
         names={names}
         empty={TEXT.chronicle_empty}
+        cheat={cheat}
       />
       <CurvesView run={run} at={String(listedAt)} hunger={hunger} />
       <ForkForm
@@ -402,7 +405,7 @@ function PinnedFamily({ run, pedigree }: { run: string; pedigree: Pedigree | nul
 }
 
 /** A run's page: its clock and its living, from where the run list says it stands. */
-export function RunPage({ run }: { run: string }) {
+export function RunPage({ run, cheat }: { run: string; cheat: boolean }) {
   const runs = useRuns(run);
   // A run page that cannot be shown still leads back to the list.
   const back = (text: string) => (
@@ -435,6 +438,7 @@ export function RunPage({ run }: { run: string }) {
       fork={entry.manifest.fork}
       settings={entry.settings ?? []}
       others={others}
+      cheat={cheat}
     />
   );
 }
