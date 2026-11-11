@@ -663,7 +663,7 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, style, marks)
     const threshold = THREE.MathUtils.lerp(0.9, 0.2, density);
     addFitted(
       mesh, head, pack[hairName], humanPos,
-      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1, hairName === "hair_child"),
+      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1),
       2,
     );
   }
@@ -762,11 +762,7 @@ function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
   // band between those two. A lip-relative band kept landing on the neck.
   const mustacheHi = noseDy - 0.003;
   const mustacheLo = noseDy - 0.012;
-  const chinHi = noseDy - 0.066;
-  const chinLo = noseDy - 0.082;
-  const jawHalf = THREE.MathUtils.lerp(0.016, 0.046, coverage);
-  const cheekOut = 0.036 + 0.032 * coverage;
-  const mustacheHalf = 0.008 + 0.02 * coverage;
+  const mustacheHalf = 0.008 + 0.022 * coverage;
   const index = mesh.geometry.index;
   const positions = [];
   const meshSpace = [];
@@ -816,13 +812,9 @@ function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
     const maxDy = Math.max(...dys);
     const dy = my - maxY;
     const ax = Math.abs(mx);
-    if (dy < noseDy - 0.09 || dy > noseDy) continue;
-    if (dy < noseDy - 0.02 && dy > noseDy - 0.06 && ax < 0.05) continue;
-    const onChin = maxDy <= chinHi && minDy >= chinLo && mz > chinZ - 0.015 && mz < noseZ - 0.025;
-    const jaw = onChin && ax <= jawHalf;
-    const cheek = coverage > 0.55 && onChin && ax >= 0.022 && ax <= cheekOut;
-    const mustache = minDy >= mustacheLo && maxDy <= mustacheHi && ax <= mustacheHalf && mz > noseZ - 0.02;
-    if (!jaw && !cheek && !mustache) continue;
+    // Chin-relative shells kept falling on the mouth or the neck. The stable
+    // layer is the strip under the nose. It does not cross the lip.
+    if (!(minDy >= mustacheLo && maxDy <= mustacheHi && ax <= mustacheHalf && mz > noseZ - 0.02)) continue;
     const ia = corner(a);
     const ib = corner(b);
     const ic = corner(c);
@@ -867,40 +859,51 @@ function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
   return faces.length / 3;
 }
 
-function aimChild(bone, child, direction) {
-  bone.updateWorldMatrix(true, false);
-  child.updateWorldMatrix(true, false);
+// Rest pose (body.glb): upper-arm local +Y is the bone, local +Z is world
+// forward. The elbow is a +X bend of the forearm, so the hand sits forward.
+// setFromUnitVectors rolls that bend behind the body. A local-Z turn swings
+// the arm in the coronal plane and leaves the palm facing inward.
+function hangArms(root) {
   const origin = new THREE.Vector3();
   const tip = new THREE.Vector3();
-  bone.getWorldPosition(origin);
-  child.getWorldPosition(tip);
-  const current = tip.sub(origin);
-  if (current.lengthSq() < 1e-8) return;
-  current.normalize();
-  const delta = new THREE.Quaternion().setFromUnitVectors(current, direction.clone().normalize());
-  const parentQ = new THREE.Quaternion();
-  bone.parent.getWorldQuaternion(parentQ);
-  const worldQ = new THREE.Quaternion();
-  bone.getWorldQuaternion(worldQ);
-  worldQ.premultiply(delta);
-  bone.quaternion.copy(parentQ.invert()).multiply(worldQ);
-  bone.updateWorldMatrix(true, true);
-}
-
-function hangArms(root) {
+  const target = new THREE.Vector3();
+  const pose = {};
+  root.updateWorldMatrix(true, true);
   for (const side of ["l", "r"]) {
     const sign = side === "l" ? 1 : -1;
-    const clavicle = findBone(root, `clavicle_${side}`);
     const upper = findBone(root, `upperarm_${side}`);
     const lower = findBone(root, `lowerarm_${side}`);
     const hand = findBone(root, `hand_${side}`);
-    if (!clavicle || !upper || !lower || !hand) continue;
-    // Face is +Z (toward the camera) and character-left is +X. The forearm's
-    // small +Z is the elbow bend; a large one swings the hands onto the belly.
-    aimChild(clavicle, upper, new THREE.Vector3(sign, -0.25, 0));
-    aimChild(upper, lower, new THREE.Vector3(sign * 0.12, -1, 0.06));
-    aimChild(lower, hand, new THREE.Vector3(sign * 0.15, -0.96, 0.16));
+    if (!upper || !lower || !hand) continue;
+    upper.getWorldPosition(origin);
+    lower.getWorldPosition(tip);
+    tip.sub(origin);
+    tip.z = 0;
+    if (tip.lengthSq() < 1e-8) continue;
+    tip.normalize();
+    // A few degrees out from the thigh so the arm clears the hip.
+    target.set(sign * 0.12, -1, 0).normalize();
+    const angle = Math.atan2(
+      tip.x * target.y - tip.y * target.x,
+      tip.x * target.x + tip.y * target.y,
+    );
+    upper.rotateZ(angle);
+    lower.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.22);
+    upper.updateWorldMatrix(true, true);
+    const dir = (bone, child) => {
+      bone.getWorldPosition(origin);
+      child.getWorldPosition(tip);
+      tip.sub(origin).normalize();
+      return [tip.x, tip.y, tip.z].map((value) => Math.round(value * 100) / 100);
+    };
+    const palm = new THREE.Vector3(0, 0, 1).applyQuaternion(hand.getWorldQuaternion(new THREE.Quaternion()));
+    pose[side] = {
+      upper: dir(upper, lower),
+      forearm: dir(lower, hand),
+      palm: [palm.x, palm.y, palm.z].map((value) => Math.round(value * 100) / 100),
+    };
   }
+  root.userData.arms = pose;
 }
 
 function neutralBody(eumelanin, pheomelanin) {
@@ -1048,7 +1051,7 @@ function buildPerson(template, member, x) {
   return {
     wrapper, mesh, head, outline, spines, rest, scale, tag, marks,
     anchor: new THREE.Vector3(), member, shaped, skin, hair, iris,
-    hairName: groom.hairName, beardTris,
+    hairName: groom.hairName, beardTris, arms: root.userData.arms,
   };
 }
 
@@ -1086,7 +1089,6 @@ function weightRow(person) {
     balding_stage: person.member.body.balding_stage,
     beard_density: person.member.body.beard_density,
     beard_coverage: person.member.body.beard_coverage,
-    jaw: person.marks.jaw,
   };
 }
 
