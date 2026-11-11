@@ -611,7 +611,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseAnswer",
-            doc: "`GET /api/runs/{run}/house/{household}`, version 9: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler; the departure that ends an action, the object a person waits for and the offers taken for a command since version 8, ADR-0021, addendum of 2026-11-05 on the house page; each person's reserve at hunger 0 since version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0).",
+            doc: "`GET /api/runs/{run}/house/{household}`, version 10: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler; the departure that ends an action, the object a person waits for and the offers taken for a command since version 8, ADR-0021, addendum of 2026-11-05 on the house page; each person's reserve at hunger 0 since version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0; the bonds, the strongest memories and the beliefs since version 10, ADR-0030 and ADR-0031).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.house"])),
                 field("version", Integer),
@@ -672,7 +672,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HousePerson",
-            doc: "A person with needs: where it is, what it does, the object whose waiting list it stands on, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5), and its reserve at hunger 0.",
+            doc: "A person with needs: where it is, what it does, the object whose waiting list it stands on, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5), its reserve at hunger 0, its bonds, its five strongest memories and its beliefs (ADR-0030, ADR-0031).",
             fields: vec![
                 field("sim", Integer),
                 field("place", Ref("HousePlace")),
@@ -684,6 +684,9 @@ pub fn descriptor() -> Vec<Named> {
                 field("smells", Bool),
                 field("commands", list(Ref("HouseOffer"))),
                 field("reserve", Ref("HouseReserve")),
+                field("bonds", list(Ref("HouseBond"))),
+                field("memories", list(Ref("HouseMemory"))),
+                field("beliefs", list(Ref("HouseBelief"))),
             ],
         },
         Named {
@@ -723,10 +726,13 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseChild",
-            doc: "A child under 6, without needs: where the clock puts it (ADR-0024 section 4).",
+            doc: "A child under 6, without needs: where the clock puts it (ADR-0024 section 4), and its bonds. It has no memories and no beliefs, so those two lists stay empty.",
             fields: vec![
                 field("sim", Integer),
                 field("place", Ref("HouseChildPlace")),
+                field("bonds", list(Ref("HouseBond"))),
+                field("memories", list(Kind::Map)),
+                field("beliefs", list(Kind::Map)),
             ],
         },
         Named {
@@ -771,7 +777,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}` (version 9): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05); for the person's latest choice its reserve at the clock (version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 10): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05); for the person's latest choice its reserve at the clock (version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0); the company of each sociable piece of furniture and, for an avoided person, the belief that last lowered the trust (version 10, ADR-0030 section 4, ADR-0031 section 5).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -791,6 +797,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("offers", list(Ref("WhyOffer"))),
                 field("now", nullable(Ref("WhyNow"))),
                 field("reserve", nullable(Ref("HouseReserve"))),
+                field("company", list(Ref("WhyCompany"))),
             ],
         },
         Named {
@@ -865,6 +872,71 @@ pub fn descriptor() -> Vec<Named> {
                 field("held", Bool),
                 field("outside", Bool),
                 field("bed_for", nullable(Kind::Literal(&["couples", "children"]))),
+            ],
+        },
+        Named {
+            name: "HouseBond",
+            doc: "One bond of a person to another at the clock: the other person and the six values settled then (affection, trust, respect, attraction, familiarity, grudge). Familiarity and grudge have faded since the last change (ADR-0030 section 2).",
+            fields: vec![
+                field("other", Integer),
+                field("affection", Integer),
+                field("trust", Integer),
+                field("respect", Integer),
+                field("attraction", Integer),
+                field("familiarity", Integer),
+                field("grudge", Integer),
+            ],
+        },
+        Named {
+            name: "HouseMemory",
+            doc: "One of the five strongest memories at the clock: the number of its kind, the persons it is with, the second it is about, and its strength then (ADR-0030 section 1).",
+            fields: vec![
+                field("kind", Integer),
+                field("with", list(Integer)),
+                field("at", Ref("DatedSecond")),
+                field("strength", Integer),
+            ],
+        },
+        Named {
+            name: "HouseBelief",
+            doc: "A belief held at the clock. The statement is the log's shape, a deed or, once paternity exists, a father. Certainty does not fade. Source and origin are 0 when the belief has none. Basis is the word the log uses. The card does not carry whether the statement is true (ADR-0031 sections 1 and 8).",
+            fields: vec![
+                field("statement", Kind::Map),
+                field("certainty", Integer),
+                field("since", Ref("DatedSecond")),
+                field("source", Integer),
+                field("origin", Integer),
+                field("basis", Text),
+                field("secret", Bool),
+            ],
+        },
+        Named {
+            name: "WhyCompany",
+            doc: "One sociable piece of furniture a choice weighed (ADR-0030 section 4, ADR-0031 section 5). The liked person is 0 when there is none, and then affection, familiarity and company are 0. The avoided person is 0 when there is none, and then trust and avoid are 0.",
+            fields: vec![
+                field("object", Integer),
+                field("liked", Integer),
+                field("affection", Integer),
+                field("familiarity", Integer),
+                field("company", Integer),
+                field("avoided", Integer),
+                field("trust", Integer),
+                field("avoid", Integer),
+                field("belief", Ref("WhyAvoid")),
+            ],
+        },
+        Named {
+            name: "WhyAvoid",
+            doc: "The belief that last lowered trust toward an avoided person: the latest such second, then the smaller statement key (ADR-0031 section 5). When none did, `found` is false and the other fields are empty, with `truth` `none`. Otherwise `truth` is `true`, `false` or `unknown` at the clock. A father statement is judged the same way, so the line works once paternity exists.",
+            fields: vec![
+                field("found", Bool),
+                field("statement", Kind::Map),
+                field("certainty", Integer),
+                field("basis", Text),
+                field("source", Integer),
+                field("origin", Integer),
+                field("secret", Bool),
+                field("truth", Text),
             ],
         },
         Named {

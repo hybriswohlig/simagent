@@ -2,6 +2,7 @@ import { objectName, objectWaitedFor, placedOfferWords, whereObject } from "./co
 import { dateText } from "./dates.js";
 import type { CalendarDate, EventItem, HouseLayout, HousePerson, HouseReserve } from "./generated/export.js";
 import { timeOfDay, wholeMinutes } from "./render/plan.js";
+import { daySocial, type DayView } from "./social.js";
 import { CODES, FINISHED_WORDS, KIND_WORDS, ROOM_WORDS, TEXT, WEEKDAYS } from "./text.js";
 
 const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
@@ -48,8 +49,13 @@ function ended(layout: HouseLayout, object: number, offer: number, reason: unkno
 /** The line of a house entry of a person's day, or null for one the day leaves out (an
  * arrival): what it chose or was told, what ended, where it idles or what it waits for, a need
  * critical or empty, the day's duty, a collapse and an accident, the reserve at half and at 0;
- * the object told apart from others of its kind, all from the entry and the layout. */
-export function dayLine(layout: HouseLayout, item: EventItem): DayLine | null {
+ * the object told apart from others of its kind, all from the entry and the layout. A talk, a
+ * telling, a refutation, a belief, a memory and a bond are `daySocial`, about `view`'s person. */
+export function dayLine(layout: HouseLayout, item: EventItem, view?: DayView): DayLine | null {
+  const social = daySocial(item, view);
+  if (social !== null) {
+    return social;
+  }
   const [code, body] = Object.entries(item.entry.payload)[0] ?? ["", {}];
   const fields = body as { [key: string]: unknown };
   const number = (key: string) => (typeof fields[key] === "number" ? (fields[key] as number) : 0);

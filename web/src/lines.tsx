@@ -2,16 +2,29 @@ import { segments, template } from "./chronicle.js";
 import { dateText } from "./dates.js";
 import type { EventItem } from "./generated/export.js";
 import { format } from "./router.js";
+import { socialChronicle } from "./social.js";
 import { TEXT } from "./text.js";
 
 /** A line of the chronicle: its date and the template of its code with the persons it is
- * about, each a link to their page. */
-function ChronicleLine({ run, item, names }: { run: string; item: EventItem; names: ReadonlyMap<number, string> }) {
+ * about, each a link to their page. A telling or a refutation uses its own sentence, and a lie
+ * states the false claim only in the developer view (ADR-0031 section 8, C24). */
+function ChronicleLine({
+  run,
+  item,
+  names,
+  cheat,
+}: {
+  run: string;
+  item: EventItem;
+  names: ReadonlyMap<number, string>;
+  cheat: boolean;
+}) {
   const sims = item.entry.subjects.map((subject) => subject.sim);
+  const parts = socialChronicle(item, cheat) ?? segments(template(item), sims, ` ${TEXT.and} `, ", ");
   return (
     <li>
       {`${dateText(item.date)}: `}
-      {segments(template(item), sims, ` ${TEXT.and} `, ", ").map((segment, i) =>
+      {parts.map((segment, i) =>
         typeof segment === "number" ? (
           <a key={i} href={format({ page: "person", run, sim: String(segment) })}>
             {names.get(segment) ?? `${TEXT.person} ${segment}`}
@@ -37,6 +50,7 @@ export function Chronicle({
   retry,
   names,
   empty,
+  cheat = false,
 }: {
   run: string;
   items: readonly EventItem[];
@@ -44,6 +58,7 @@ export function Chronicle({
   retry: () => void;
   names: ReadonlyMap<number, string>;
   empty?: string;
+  cheat?: boolean;
 }) {
   return (
     <>
@@ -59,7 +74,7 @@ export function Chronicle({
       {items.length === 0 && failed === null && empty !== undefined ? <p>{empty}</p> : null}
       <ol style={SCROLLED} tabIndex={0} aria-label={TEXT.chronicle}>
         {items.map((item) => (
-          <ChronicleLine key={item.entry.id} run={run} item={item} names={names} />
+          <ChronicleLine key={item.entry.id} run={run} item={item} names={names} cheat={cheat} />
         ))}
       </ol>
     </>

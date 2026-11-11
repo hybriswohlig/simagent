@@ -10,6 +10,7 @@ pub mod lock;
 pub mod names;
 pub mod repro;
 pub mod session;
+pub mod social_view;
 pub mod view;
 
 use std::ffi::OsString;
@@ -374,7 +375,9 @@ fn reserve_json(person: &sim_core::house::state::InHouse, at: SimTime) -> serde_
 /// object whose waiting list it stands on; and each offer a command may name says whether its
 /// object has no free place for the person, as the core's check of a command finds it (version
 /// 8, ADR-0021, addendum of 2026-11-05 on the house page). Each person's reserve at hunger 0 with
-/// its band (version 9, `reserve_json`, ADR-0026, addendum of 2026-11-06 on hunger at 0). `None`
+/// its band (version 9, `reserve_json`, ADR-0026, addendum of 2026-11-06 on hunger at 0). Each
+/// person, and each child, carries the bonds settled at the clock, the five strongest memories
+/// and every belief (version 10, ADR-0030 sections 1 and 2, ADR-0031 section 8). `None`
 /// for a household without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::day::{YoungPlace, departure, night, work_draw, young_place};
@@ -528,6 +531,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
         let weights: Vec<u16> = (comfort.iter().zip(needs))
             .map(|(comfort, value)| comfort.saturating_sub(value))
             .collect();
+        let (bonds, memories, beliefs) = social_view::snapshot(state, sim, at);
         persons.push(serde_json::json!({
             "sim": sim.get(),
             "place": place,
@@ -540,6 +544,9 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             "smells": needs[3] <= EMERGENCY,
             "commands": commands,
             "reserve": reserve_json(person, at),
+            "bonds": bonds,
+            "memories": memories,
+            "beliefs": beliefs,
         }));
     }
     // The members without needs (ADR-0024 sections 2 and 4): none before the first morning;
@@ -555,11 +562,20 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
     };
     let children: Vec<serde_json::Value> = (state.members(household))
         .filter(|sim| moved.morning && !state.house().sims.contains_key(sim))
-        .map(|sim| serde_json::json!({"sim": sim.get(), "place": place}))
+        .map(|sim| {
+            let (bonds, memories, beliefs) = social_view::snapshot(state, sim, at);
+            serde_json::json!({
+                "sim": sim.get(),
+                "place": place,
+                "bonds": bonds,
+                "memories": memories,
+                "beliefs": beliefs,
+            })
+        })
         .collect();
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 9,
+        "version": 10,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,
@@ -652,7 +668,9 @@ fn places_taken(
 /// choice in the log, `latest`, its reserve at the clock as the house answer gives it (version 9,
 /// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `bonus(object)` is that
 /// furniture's company minus its avoid, from the choice's `core:company` entry, outside the mood;
-/// 0 where that entry has no row for it (ADR-0030 section 4). `None` for any other entry.
+/// 0 where that entry has no row for it (ADR-0030 section 4). `company` names those rows and the
+/// bond and belief lines the avoid step is read from (version 10, ADR-0031 section 5). `None`
+/// for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
@@ -660,6 +678,7 @@ pub fn why_answer(
     latest: bool,
     ended: Option<Ended<'_>>,
     bonus: impl Fn(u16) -> i64,
+    company: social_view::CompanyAt<'_>,
 ) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::choice::ENOUGH;
     use sim_core::house::day::{departure, next_night, night, work_draw};
@@ -845,9 +864,10 @@ pub fn why_answer(
         Some(until) => Some(short_values(world, (house, houses), &fill, until)?),
         None => None,
     };
+    let company = social_view::company_rows(world, *sim, entry.t, company)?;
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 9,
+        "version": 10,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
@@ -864,6 +884,7 @@ pub fn why_answer(
         "offers": offers,
         "now": now,
         "reserve": reserve,
+        "company": company,
     })))
 }
 
@@ -1560,7 +1581,7 @@ pub fn kin_answer(
 }
 
 /// A second with its date, as the server's answers carry dates.
-fn dated(t: SimTime) -> serde_json::Value {
+pub(crate) fn dated(t: SimTime) -> serde_json::Value {
     serde_json::json!({"t": t.as_secs(), "date": view::date(t)})
 }
 

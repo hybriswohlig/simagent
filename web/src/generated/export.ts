@@ -423,7 +423,7 @@ export type HousesEntry = {
   readonly morning: boolean;
 };
 
-/** `GET /api/runs/{run}/house/{household}`, version 9: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler; the departure that ends an action, the object a person waits for and the offers taken for a command since version 8, ADR-0021, addendum of 2026-11-05 on the house page; each person's reserve at hunger 0 since version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0). */
+/** `GET /api/runs/{run}/house/{household}`, version 10: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler; the departure that ends an action, the object a person waits for and the offers taken for a command since version 8, ADR-0021, addendum of 2026-11-05 on the house page; each person's reserve at hunger 0 since version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0; the bonds, the strongest memories and the beliefs since version 10, ADR-0030 and ADR-0031). */
 export type HouseAnswer = {
   readonly format: "simagent.view.house";
   readonly version: number;
@@ -474,7 +474,7 @@ export type LayoutObject = {
   readonly offers: string[];
 };
 
-/** A person with needs: where it is, what it does, the object whose waiting list it stands on, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5), and its reserve at hunger 0. */
+/** A person with needs: where it is, what it does, the object whose waiting list it stands on, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5), its reserve at hunger 0, its bonds, its five strongest memories and its beliefs (ADR-0030, ADR-0031). */
 export type HousePerson = {
   readonly sim: number;
   readonly place: HousePlace;
@@ -486,6 +486,9 @@ export type HousePerson = {
   readonly smells: boolean;
   readonly commands: HouseOffer[];
   readonly reserve: HouseReserve;
+  readonly bonds: HouseBond[];
+  readonly memories: HouseMemory[];
+  readonly beliefs: HouseBelief[];
 };
 
 /** A person's reserve at hunger 0 at the clock (ADR-0026, addendum of 2026-11-06 on hunger at 0): its value and capacity, and its band by its code: while hunger is at 0 and does not rise `draws` above half, `weak` at half or below, `wasted` at 0; otherwise `none`. A code, not a list of words: a town's week never starves, so its coverage would show no word but `none`. */
@@ -515,10 +518,13 @@ export type HouseAway = {
   readonly until: DatedSecond;
 };
 
-/** A child under 6, without needs: where the clock puts it (ADR-0024 section 4). */
+/** A child under 6, without needs: where the clock puts it (ADR-0024 section 4), and its bonds. It has no memories and no beliefs, so those two lists stay empty. */
 export type HouseChild = {
   readonly sim: number;
   readonly place: HouseChildPlace;
+  readonly bonds: HouseBond[];
+  readonly memories: { readonly [key: string]: unknown }[];
+  readonly beliefs: { readonly [key: string]: unknown }[];
 };
 
 /** In the house's day room, or asleep in its night room; or at the kindergarten. */
@@ -553,7 +559,7 @@ export type HouseAction = {
   readonly departs: boolean;
 };
 
-/** `GET /api/runs/{run}/why/{entry}` (version 9): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05); for the person's latest choice its reserve at the clock (version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0). */
+/** `GET /api/runs/{run}/why/{entry}` (version 10): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05); for the person's latest choice its reserve at the clock (version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0); the company of each sociable piece of furniture and, for an avoided person, the belief that last lowered the trust (version 10, ADR-0030 section 4, ADR-0031 section 5). */
 export type WhyAnswer = {
   readonly format: "simagent.view.why";
   readonly version: number;
@@ -573,6 +579,7 @@ export type WhyAnswer = {
   readonly offers: WhyOffer[];
   readonly now: WhyNow | null;
   readonly reserve: HouseReserve | null;
+  readonly company: WhyCompany[];
 };
 
 /** A time-filler, taken when nothing brought enough and nothing was to wait for (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler): its walk in seconds, its end (from the log, or while it runs at its object the planned one; none on its way) and why it ends there, by its code (`departure`, `bedtime`, `time` for its length or the longest a time-filler lasts, `choice` for the next choice worth it; none for an end of another reason), and if it ended at the next choice as planned the needs that choice raised, by their codes, or if that choice waited for a taken object those the offer it waited for raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page); its mood and the other time-fillers free then with theirs, the highest first (the addendum of 2026-11-05 on the time-filler's length). */
@@ -636,6 +643,61 @@ export type WhyOffer = {
   readonly held: boolean;
   readonly outside: boolean;
   readonly bed_for: "couples" | "children" | null;
+};
+
+/** One bond of a person to another at the clock: the other person and the six values settled then (affection, trust, respect, attraction, familiarity, grudge). Familiarity and grudge have faded since the last change (ADR-0030 section 2). */
+export type HouseBond = {
+  readonly other: number;
+  readonly affection: number;
+  readonly trust: number;
+  readonly respect: number;
+  readonly attraction: number;
+  readonly familiarity: number;
+  readonly grudge: number;
+};
+
+/** One of the five strongest memories at the clock: the number of its kind, the persons it is with, the second it is about, and its strength then (ADR-0030 section 1). */
+export type HouseMemory = {
+  readonly kind: number;
+  readonly with: number[];
+  readonly at: DatedSecond;
+  readonly strength: number;
+};
+
+/** A belief held at the clock. The statement is the log's shape, a deed or, once paternity exists, a father. Certainty does not fade. Source and origin are 0 when the belief has none. Basis is the word the log uses. The card does not carry whether the statement is true (ADR-0031 sections 1 and 8). */
+export type HouseBelief = {
+  readonly statement: { readonly [key: string]: unknown };
+  readonly certainty: number;
+  readonly since: DatedSecond;
+  readonly source: number;
+  readonly origin: number;
+  readonly basis: string;
+  readonly secret: boolean;
+};
+
+/** One sociable piece of furniture a choice weighed (ADR-0030 section 4, ADR-0031 section 5). The liked person is 0 when there is none, and then affection, familiarity and company are 0. The avoided person is 0 when there is none, and then trust and avoid are 0. */
+export type WhyCompany = {
+  readonly object: number;
+  readonly liked: number;
+  readonly affection: number;
+  readonly familiarity: number;
+  readonly company: number;
+  readonly avoided: number;
+  readonly trust: number;
+  readonly avoid: number;
+  readonly belief: WhyAvoid;
+};
+
+/** The belief that last lowered trust toward an avoided person: the latest such second, then the smaller statement key (ADR-0031 section 5). When none did, `found` is false and the other fields are empty, with `truth` `none`. Otherwise `truth` is `true`, `false` or `unknown` at the clock. A father statement is judged the same way, so the line works once paternity exists. */
+export type WhyAvoid = {
+  readonly found: boolean;
+  readonly statement: { readonly [key: string]: unknown };
+  readonly certainty: number;
+  readonly basis: string;
+  readonly source: number;
+  readonly origin: number;
+  readonly secret: boolean;
+  readonly truth: string;
 };
 
 /** `GET /api/runs/{run}/world`: where the switch of the hereditary diseases stands, the years whose nutrition index is below 1, and the switch a fork from year i + 1 keeps at index i. */

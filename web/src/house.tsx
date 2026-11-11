@@ -5,7 +5,7 @@ import { answered, pause, play, playText, press, refused, standing, tick, type C
 import { commandChoices, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
 import { dayGroups, dayLine, doing, reserveWord, type DayLine } from "./day.js";
-import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseChild, HouseLayout, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
+import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseBelief, HouseBond, HouseChild, HouseLayout, HouseMemory, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName, surnames } from "./names.js";
 import { usePedigree } from "./person.js";
@@ -17,10 +17,11 @@ import { failureCode, inputFailureText, refusalText } from "./refusals.js";
 import { labels, plan, spots, timeOfDay } from "./render/plan.js";
 import { format } from "./router.js";
 import { readable } from "./contract.js";
+import { beliefSentence, bondValues, companyWords, memorySentence, named } from "./social.js";
 import { KIND_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 import { weightWords, whyText } from "./why.js";
 
-const HOUSE = { format: "simagent.view.house", version: 9 } as const;
+const HOUSE = { format: "simagent.view.house", version: 10 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -32,7 +33,7 @@ const DAY_PAGES = 10;
 const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 9 } as const;
+const WHY = { format: "simagent.view.why", version: 10 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
@@ -92,7 +93,7 @@ function youngLine(layout: HouseLayout, child: HouseChild): string {
  * (ADR-0026 section 6 and its addenda of 2026-11-04, `whyText`); for an idle choice that is
  * still the person's state also the comparison at the clock, asked again with each house answer
  * (`house`, after a step or a command). */
-function Why({ run, house, entry }: { run: string; house: HouseAnswer; entry: number }) {
+function Why({ run, house, entry, names }: { run: string; house: HouseAnswer; entry: number; names: ReadonlyMap<number, string> }) {
   const [why, setWhy] = useState<WhyAnswer | null | "failed">(null);
   const ask = () => {
     getJson(`/api/runs/${run}/why/${entry}`, WHY)
@@ -116,9 +117,11 @@ function Why({ run, house, entry }: { run: string; house: HouseAnswer; entry: nu
     return <span>{TEXT.failed_network}</span>;
   }
   const { told, now } = whyText(why, house.layout);
+  const social = companyWords(why.company, house.layout, named(names));
   return (
     <div style={{ marginLeft: "1em", color: "#444" }}>
       {told}
+      {social === "" ? null : ` ${social}`}
       {now === null ? null : (
         <>
           <br />
@@ -132,7 +135,19 @@ function Why({ run, house, entry }: { run: string; house: HouseAnswer; entry: nu
 /** A person's house entries of the last 24 hours up to the second after the clock, in which an
  * input given at the clock acts (ADR-0004 section 4), from the run's log, by day, each choice
  * with its "Warum?"; read again with each house answer, so a command shows at once. */
-function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number }) {
+function Day({
+  run,
+  house,
+  sim,
+  names,
+  cheat,
+}: {
+  run: string;
+  house: HouseAnswer;
+  sim: number;
+  names: ReadonlyMap<number, string>;
+  cheat: boolean;
+}) {
   const [items, setItems] = useState<readonly EventItem[] | "failed">([]);
   const from = house.at.t - DAY_SECONDS;
   const to = house.at.t + 1;
@@ -164,8 +179,9 @@ function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number
   if (items === "failed") {
     return <p>{TEXT.failed_network}</p>;
   }
+  const view = { sim, name: named(names), cheat };
   const lines = items
-    .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item) }))
+    .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item, view) }))
     .filter((pair): pair is { item: EventItem; date: EventItem["date"]; line: DayLine } => pair.line !== null);
   if (lines.length === 0) {
     return null;
@@ -182,7 +198,7 @@ function Day({ run, house, sim }: { run: string; house: HouseAnswer; sim: number
             {group.items.map(({ item, line }) => (
               <li key={item.entry.id}>
                 {timeOfDay(item.date.second_of_day)} {line.text}{" "}
-                {line.choice && <Why run={run} house={house} entry={item.entry.id} />}
+                {line.choice && <Why run={run} house={house} entry={item.entry.id} names={names} />}
               </li>
             ))}
           </ol>
@@ -359,7 +375,8 @@ function Command({
 }
 
 /** A resident's portrait, name and line; for a person with needs its five needs as bars, its
- * day and, at home, a command; for a child under 6 (`person` null) nothing more. */
+ * bonds, memories and beliefs, its day and, at home, a command; for a child under 6 (`person`
+ * null) where it is, and its bonds. */
 function Resident({
   run,
   house,
@@ -369,6 +386,11 @@ function Resident({
   pedigree,
   people,
   given,
+  names,
+  cheat,
+  bonds,
+  memories,
+  beliefs,
 }: {
   run: string;
   house: HouseAnswer;
@@ -378,6 +400,11 @@ function Resident({
   pedigree: Pedigree;
   people: PeopleAnswer | null;
   given: () => void;
+  names: ReadonlyMap<number, string>;
+  cheat: boolean;
+  bonds: readonly HouseBond[];
+  memories: readonly HouseMemory[];
+  beliefs: readonly HouseBelief[];
 }) {
   const known = pedigree.persons.find((p) => p.sim === sim);
   const name = known === undefined ? String(sim) : fullName(known);
@@ -403,12 +430,73 @@ function Resident({
         {person !== null && (
           <>
             <Needs person={person} name={known?.first_name ?? name} comfort={house.comfort} />
-            <Day run={run} house={house} sim={sim} />
+            <Social run={run} names={names} bonds={bonds} memories={memories} beliefs={beliefs} />
+            <Day run={run} house={house} sim={sim} names={names} cheat={cheat} />
             {commandable(person) && <Command run={run} layout={house.layout} person={person} name={name} given={given} />}
           </>
         )}
+        {person === null && <Social run={run} names={names} bonds={bonds} memories={memories} beliefs={beliefs} />}
       </div>
     </li>
+  );
+}
+
+/** The social part of a person card (ADR-0030 section 2, ADR-0031 section 8): one row per other
+ * person with the six values, the strongest memories, and each belief. The numbers and the
+ * basis word are the server's. The card does not say whether a belief is true. */
+function Social({
+  run,
+  names,
+  bonds,
+  memories,
+  beliefs,
+}: {
+  run: string;
+  names: ReadonlyMap<number, string>;
+  bonds: readonly HouseBond[];
+  memories: readonly HouseMemory[];
+  beliefs: readonly HouseBelief[];
+}) {
+  if (bonds.length === 0 && memories.length === 0 && beliefs.length === 0) {
+    return null;
+  }
+  const name = named(names);
+  return (
+    <div>
+      {bonds.length === 0 ? null : (
+        <>
+          <p style={{ margin: "0.4em 0 0" }}>{TEXT.social_relations}</p>
+          <dl style={{ margin: 0 }}>
+            {bonds.map((bond) => (
+              <div key={bond.other} style={{ display: "flex", gap: "0.5em" }}>
+                <dt>
+                  <a href={format({ page: "person", run, sim: String(bond.other) })}>{name(bond.other)}</a>
+                  {": "}
+                </dt>
+                <dd style={{ margin: 0 }}>{bondValues(bond)}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
+      {memories.length === 0 ? null : (
+        <>
+          <p style={{ margin: "0.4em 0 0" }}>{TEXT.social_memories}</p>
+          <ul style={{ margin: 0, paddingLeft: "1.2em" }}>
+            {memories.map((memory) => (
+              <li key={`${memory.kind}-${memory.at.t}-${memory.with.join("-")}`}>{memorySentence(memory, name)}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {beliefs.length === 0 ? null : (
+        <ul style={{ margin: "0.4em 0 0", paddingLeft: "1.2em" }}>
+          {beliefs.map((belief, index) => (
+            <li key={`${belief.since.t}-${index}`}>{beliefSentence(belief, name)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -467,7 +555,7 @@ function Needs({ person, name, comfort }: { person: HousePerson; name: string; c
  * members: its plan with the people where they are, the clock in steps of minutes and hours,
  * each person with what it does and its needs, each child under 6 with where it is; before the
  * first morning the members moving in. */
-export function HousePage({ run, household }: { run: string; household: string }) {
+export function HousePage({ run, household, cheat }: { run: string; household: string; cheat: boolean }) {
   const [at, setAt] = useState(0);
   const loaded = useHouse(run, household, String(at));
   const pedigree = usePedigree(run, String(at));
@@ -622,6 +710,11 @@ export function HousePage({ run, household }: { run: string; household: string }
                 pedigree={persons}
                 people={looks}
                 given={reload}
+                names={names}
+                cheat={cheat}
+                bonds={person.bonds}
+                memories={person.memories}
+                beliefs={person.beliefs}
               />
             ))}
             {house.children.map((child) => (
@@ -635,6 +728,11 @@ export function HousePage({ run, household }: { run: string; household: string }
                 pedigree={persons}
                 people={looks}
                 given={reload}
+                names={names}
+                cheat={cheat}
+                bonds={child.bonds}
+                memories={[]}
+                beliefs={[]}
               />
             ))}
           </ul>

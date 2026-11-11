@@ -20,6 +20,11 @@ export const FOLLOWED: ReadonlySet<string> = new Set([
   "core:disease_onset",
   "core:shock_triggered",
   "core:time_together",
+  // The story of a talk (ADR-0031 section 8): what was told, and a refutation. A lie is the
+  // same `core:told` entry; the developer view names it, the player view does not state the
+  // false claim. Bond changes stay off this list, or a week of talks would crowd the births out.
+  "core:told",
+  "core:refuted",
 ]);
 
 /** The most lines the chronicle keeps; older ones go. */

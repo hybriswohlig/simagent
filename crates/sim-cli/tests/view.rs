@@ -3165,7 +3165,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(9), &dated(at))
+            (&json!("simagent.view.house"), &json!(10), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"], &answer["comfort"]),
@@ -3222,12 +3222,12 @@ fn a_house_over_http() {
              "action": {"object": 5, "offer": 0, "slot": 0, "until": null, "filler": false,
                         "departs": false},
              "waits": null, "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
             {"sim": 2, "place": walking(3, MORNING + 3),
              "action": {"object": 6, "offer": 0, "slot": 0, "until": null, "filler": false,
                         "departs": false},
              "waits": null, "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day(&[5]), "reserve": full_reserve(2)},
+             "collapsed": false, "smells": false, "commands": by_day(&[5]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
         ])
     );
     step("minutes10", MORNING + 600);
@@ -3236,12 +3236,12 @@ fn a_house_over_http() {
         json!([
             {"sim": 1, "place": {"room": 3}, "action": null, "waits": 6,
              "needs": [584, 894, 986, 695, 790], "weights": [116, 106, 0, 205, 210],
-             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
             {"sim": 2, "place": {"room": 3},
              "action": {"object": 6, "offer": 0, "slot": 0, "until": dated(MORNING + 903),
                         "filler": false, "departs": false},
              "waits": null, "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
-             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(2)},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
         ])
     );
     step("hour", MORNING + 4_200);
@@ -3284,7 +3284,7 @@ fn young_children_in_the_house() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["version"], &answer["at"], &answer["house"]),
-            (&json!(9), &dated(at), &json!("core:flat"))
+            (&json!(10), &dated(at), &json!("core:flat"))
         );
         answer
     };
@@ -3304,29 +3304,41 @@ fn young_children_in_the_house() {
         (&before["morning"], &before["persons"], &before["children"]),
         (&json!(false), &json!([]), &json!([]))
     );
-    let at_home = |asleep: bool| json!([{"sim": 3, "place": {"room": KIDS, "asleep": asleep}}]);
+    // Housemate bonds, familiarity faded by 5 a day from 200 since the move-in at 86 399.
+    let child = |place: Value, familiarity: i64| {
+        json!([{
+            "sim": 3,
+            "place": place,
+            "bonds": [
+                {"other": 1, "affection": 400, "trust": 450, "respect": 400, "attraction": 0, "familiarity": familiarity, "grudge": 0},
+                {"other": 2, "affection": 400, "trust": 450, "respect": 400, "attraction": 0, "familiarity": familiarity, "grudge": 0}
+            ],
+            "memories": [],
+            "beliefs": []
+        }])
+    };
+    let at_home = |asleep: bool, familiarity: i64| {
+        child(json!({"room": KIDS, "asleep": asleep}), familiarity)
+    };
     step("morning", MORNING);
     let at_six = house(MORNING);
     let persons: Vec<&Value> = (at_six["persons"].as_array().expect("persons").iter())
         .map(|person| &person["sim"])
         .collect();
     assert_eq!(persons, [1, 2]);
-    assert_eq!(at_six["children"], at_home(true));
+    assert_eq!(at_six["children"], at_home(true, 199));
     hours(MORNING, 3);
     let kita = json!({"away": {"place": "kita", "until": dated(DAY + 54_000)}});
-    assert_eq!(
-        house(DAY + 32_400)["children"],
-        json!([{"sim": 3, "place": kita}])
-    );
+    assert_eq!(house(DAY + 32_400)["children"], child(kita, 199));
     hours(DAY + 32_400, 7);
-    assert_eq!(house(DAY + 57_600)["children"], at_home(false));
+    assert_eq!(house(DAY + 57_600)["children"], at_home(false, 197));
     hours(DAY + 57_600, 4);
-    assert_eq!(house(DAY + 72_000)["children"], at_home(true));
+    assert_eq!(house(DAY + 72_000)["children"], at_home(true, 196));
     for day in 2..=5 {
         step("morning", day * DAY + 21_600);
     }
     hours(5 * DAY + 21_600, 3);
-    assert_eq!(house(5 * DAY + 32_400)["children"], at_home(false));
+    assert_eq!(house(5 * DAY + 32_400)["children"], at_home(false, 179));
 }
 
 /// "Warum?" over HTTP (ADR-0021, addendum of 2026-11-03; ADR-0026 section 6, version 2 of its
@@ -3430,7 +3442,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 9,
+                "version": 10,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -3448,6 +3460,8 @@ fn why_over_http() {
                 "now": null,
                 // Still the person's latest choice at the clock: its reserve then (version 9).
                 "reserve": full_reserve(sim),
+                // The first morning's toilet and shower weigh no company (version 10).
+                "company": [],
             }),
             "{sim}"
         );
@@ -3532,7 +3546,7 @@ fn a_command_over_http() {
                           "departs": false},
                "waits": null, "needs": [600, 900, 500, 700, 800],
                "weights": [100, 100, 200, 200, 200],
-               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)})
+               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []})
     );
     let minutes = r#"{"step":"minutes10"}"#;
     assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
@@ -3587,7 +3601,7 @@ fn a_command_over_http() {
                           "departs": false},
                "waits": null, "needs": [584, 894, 480, 1000, 790],
                "weights": [116, 106, 220, 0, 210],
-               "collapsed": false, "smells": false, "commands": by_day(&[]), "reserve": full_reserve(2)})
+               "collapsed": false, "smells": false, "commands": by_day(&[]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []})
     );
 }
 
@@ -3660,7 +3674,7 @@ fn the_house_answer_after_a_command() {
                           "departs": false},
                "waits": null, "needs": [598, 899, 826, 700, 799],
                "weights": [102, 101, 0, 200, 201],
-               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1)})
+               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []})
     );
 }
 
@@ -3669,6 +3683,15 @@ fn the_house_answer_after_a_command() {
 /// repository's data with its house data changed by `change` (needs, day): the world and the
 /// household.
 fn couple_in_the_flat(
+    change: impl FnOnce(&mut Value, &mut Value),
+) -> (sim_core::world::World, u64) {
+    founded_couple(7, "test:house", change)
+}
+
+/// As `couple_in_the_flat`, with the world's seed and the founder tag chosen by the caller.
+fn founded_couple(
+    world_seed: u64,
+    founder_tag: &str,
     change: impl FnOnce(&mut Value, &mut Value),
 ) -> (sim_core::world::World, u64) {
     use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
@@ -3706,8 +3729,8 @@ fn couple_in_the_flat(
     };
     let mut world = World::new(data);
     let start = Start {
-        world_seed: 7,
-        founder_tag: sim_core::data_id::DataId::new("test:house").expect("valid"),
+        world_seed,
+        founder_tag: sim_core::data_id::DataId::new(founder_tag).expect("valid"),
         world_params: sim_core::params::WorldParams {
             hereditary_diseases: false,
             nutrition: Vec::new(),
@@ -3756,7 +3779,7 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
         let answer = sim_cli::house_answer(world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(9));
+        assert_eq!(answer["version"], json!(10));
         (answer["persons"].as_array().expect("persons").iter())
             .map(|person| person[name].clone())
             .collect()
@@ -3815,7 +3838,7 @@ fn the_offers_a_command_may_name_follow_the_night() {
         let answer = sim_cli::house_answer(&world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(9));
+        assert_eq!(answer["version"], json!(10));
         let persons = answer["persons"].as_array().expect("persons");
         assert_eq!(persons.len(), 2);
         for person in persons {
@@ -3919,7 +3942,7 @@ fn the_house_answer_ends_an_action_at_the_departure() {
     let answer = sim_cli::house_answer(&world, household)
         .expect("answers")
         .expect("a house");
-    assert_eq!(answer["version"], json!(9));
+    assert_eq!(answer["version"], json!(10));
     let action = &answer["persons"][0]["action"];
     assert_eq!(
         (
@@ -3981,10 +4004,18 @@ fn why_names_what_is_urgent() {
         },
         ..hers
     };
-    let why = sim_cli::why_answer(&world, &entry, 7, false, None, |_| 0)
-        .expect("answers")
-        .expect("a choice");
-    assert_eq!(why["version"], json!(9));
+    let why = sim_cli::why_answer(
+        &world,
+        &entry,
+        7,
+        false,
+        None,
+        |_| 0,
+        sim_cli::social_view::CompanyAt::NONE,
+    )
+    .expect("answers")
+    .expect("a choice");
+    assert_eq!(why["version"], json!(10));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -4066,9 +4097,17 @@ fn why_names_the_departure_of_a_commanded_offer_it_closes() {
         })
         .expect("her commanded walk");
     assert_eq!(commanded.t, SimTime::from_secs(depart - 1_200));
-    let why = sim_cli::why_answer(&world, commanded, 9, false, None, |_| 0)
-        .expect("answers")
-        .expect("a choice");
+    let why = sim_cli::why_answer(
+        &world,
+        commanded,
+        9,
+        false,
+        None,
+        |_| 0,
+        sim_cli::social_view::CompanyAt::NONE,
+    )
+    .expect("answers")
+    .expect("a choice");
     assert_eq!(why["commanded"], json!(true));
     assert_eq!(
         why["chosen"],
@@ -4169,10 +4208,18 @@ fn why_names_what_a_time_filler_ends_for_when_a_wait_follows() {
             ended: &ended,
             next: Some(&next),
         };
-        let why = sim_cli::why_answer(&world, &filler, 9, false, Some(end), |_| 0)
-            .expect("answers")
-            .expect("a choice");
-        assert_eq!(why["version"], json!(9));
+        let why = sim_cli::why_answer(
+            &world,
+            &filler,
+            9,
+            false,
+            Some(end),
+            |_| 0,
+            sim_cli::social_view::CompanyAt::NONE,
+        )
+        .expect("answers")
+        .expect("a choice");
+        assert_eq!(why["version"], json!(10));
         let told = &why["filler"];
         assert_eq!(
             (&told["until"], &told["ends"], &told["then"]),
@@ -4275,9 +4322,17 @@ fn why_compares_an_idle_person_at_the_clock() {
         "too_short": null}});
     let asked: sim_core::log::LogEntry = serde_json::from_value(asked).expect("an entry");
     let world = sim_cli::load_world(&run).expect("the world");
-    let same = sim_cli::why_answer(&world, &asked, 0, false, None, |_| 0)
-        .expect("answers")
-        .expect("a choice");
+    let same = sim_cli::why_answer(
+        &world,
+        &asked,
+        0,
+        false,
+        None,
+        |_| 0,
+        sim_cli::social_view::CompanyAt::NONE,
+    )
+    .expect("answers")
+    .expect("a choice");
     let open = |answer: &Value| -> Vec<Value> {
         (answer["offers"].as_array().expect("offers").iter())
             .filter(|offer| offer["closed"] == false)
@@ -4359,5 +4414,377 @@ fn houses_over_http() {
     assert_eq!(
         houses(),
         json!([{"household": home, "house": "core:flat", "morning": true}])
+    );
+}
+
+/// Company on "Warum?" (ADR-0030 section 4, ADR-0031 section 5). The couple's world supplies
+/// the fade and the truth. The history is written by hand: an earlier trust drop loses to the
+/// later second, and at that second `VaterVon` beats `Tat` by the smaller key. A bond change
+/// caused by something other than `core:believed` still settles the values. A doer who was
+/// never in the world is unknown; a moved-in doer with no deed is false; a founder has no father.
+#[test]
+fn company_names_the_belief_that_last_lowered_trust() {
+    use sim_core::log::{Company, LogEntry, LogPayload, Subject};
+    use sim_core::world::YearOut;
+    let (mut world, _) = couple_in_the_flat(|_, _| {});
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
+    let hers = (world.take_log().into_iter())
+        .find(|entry| {
+            entry.subjects
+                == [Subject::Sim(
+                    sim_core::ids::SimId::try_from(1).expect("valid"),
+                )]
+                && matches!(entry.payload, LogPayload::ActionStarted { .. })
+        })
+        .expect("her first choice");
+    assert_eq!(hers.t, SimTime::from_secs(MORNING));
+    let history: Vec<LogEntry> = serde_json::from_str(
+        r#"[
+            {"id":4,"t":50000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:believed":{"statement":{"tat":{"doer":2,"kind":0,"other":1,"day":0}},
+             "certainty":800,"basis":"gesehen","source":null,"origin":null,"replaced":false}}},
+            {"id":5,"t":50000,"subjects":[{"sim":1}],"causes":[{"event":4}],
+             "payload":{"core:bond_changed":{"other":3,"before":[400,450,400,0,200,0],"after":[400,370,400,0,200,0]}}},
+            {"id":6,"t":86399,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:bond_formed":{"other":2,"values":[700,700,500,500,600,0]}}},
+            {"id":7,"t":86399,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:bond_formed":{"other":3,"values":[400,450,400,0,200,0]}}},
+            {"id":13,"t":86399,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:bond_formed":{"other":4,"values":[400,450,400,0,200,0]}}},
+            {"id":8,"t":90000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:believed":{"statement":{"vater_von":{"child":1,"man":9}},
+             "certainty":900,"basis":"gehört","source":2,"origin":2,"replaced":false}}},
+            {"id":9,"t":90000,"subjects":[{"sim":1}],"causes":[{"event":8}],
+             "payload":{"core:bond_changed":{"other":3,"before":[400,450,400,0,200,0],"after":[400,370,400,0,200,0]}}},
+            {"id":10,"t":90000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:believed":{"statement":{"tat":{"doer":2,"kind":0,"other":3,"day":0}},
+             "certainty":700,"basis":"gesehen","source":null,"origin":null,"replaced":false}}},
+            {"id":11,"t":90000,"subjects":[{"sim":1}],"causes":[{"event":10}],
+             "payload":{"core:bond_changed":{"other":3,"before":[400,370,400,0,200,0],"after":[400,350,400,0,200,0]}}},
+            {"id":16,"t":90000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:believed":{"statement":{"tat":{"doer":3,"kind":1,"other":2,"day":0}},
+             "certainty":500,"basis":"geschlossen","source":null,"origin":null,"replaced":false}}},
+            {"id":17,"t":90000,"subjects":[{"sim":1}],"causes":[{"event":16}],
+             "payload":{"core:bond_changed":{"other":4,"before":[400,450,400,0,200,0],"after":[400,430,400,0,200,0]}}},
+            {"id":18,"t":100000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:believed":{"statement":{"tat":{"doer":2,"kind":0,"other":1,"day":0}},
+             "certainty":600,"basis":"gesehen","source":null,"origin":null,"replaced":false}}},
+            {"id":19,"t":100000,"subjects":[{"sim":1}],"causes":[{"event":18}],
+             "payload":{"core:bond_changed":{"other":6,"before":[400,450,400,0,200,0],"after":[400,320,400,0,200,0]}}},
+            {"id":14,"t":100000,"subjects":[{"sim":1}],"causes":[{"event":12}],
+             "payload":{"core:bond_changed":{"other":3,"before":[400,350,400,0,200,0],"after":[400,300,400,0,200,0]}}},
+            {"id":15,"t":100000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:bond_changed":{"other":2,"before":[700,700,500,500,600,0],"after":[700,700,500,500,640,0]}}}
+        ]"#,
+    )
+    .expect("the history");
+    let sim = |id: u64| sim_core::ids::SimId::try_from(id).expect("a sim");
+    let rows = [
+        Company {
+            object: 0,
+            liked: Some(sim(2)),
+            company: 8_000,
+            avoided: Some(sim(3)),
+            avoid: 8_000,
+        },
+        Company {
+            object: 1,
+            liked: None,
+            company: 0,
+            avoided: Some(sim(6)),
+            avoid: 1_000,
+        },
+        Company {
+            object: 2,
+            liked: None,
+            company: 0,
+            avoided: Some(sim(4)),
+            avoid: 1_000,
+        },
+        Company {
+            object: 4,
+            liked: Some(sim(2)),
+            company: 100,
+            avoided: None,
+            avoid: 0,
+        },
+    ];
+    let answer = sim_cli::why_answer(
+        &world,
+        &hers,
+        0,
+        false,
+        None,
+        |_| 0,
+        sim_cli::social_view::CompanyAt {
+            rows: &rows,
+            history: &history,
+        },
+    )
+    .expect("answers")
+    .expect("a choice");
+    let none = json!({
+        "found": false, "statement": {}, "certainty": 0, "basis": "",
+        "source": 0, "origin": 0, "secret": false, "truth": "none"
+    });
+    assert_eq!(
+        answer["company"],
+        json!([
+            {"object": 0, "liked": 2, "affection": 700, "familiarity": 640, "company": 8000,
+             "avoided": 3, "trust": 300, "avoid": 8000,
+             "belief": {"found": true, "statement": {"vater_von": {"child": 1, "man": 9}},
+                        "certainty": 900, "basis": "gehört", "source": 2, "origin": 2,
+                        "secret": false, "truth": "false"}},
+            {"object": 1, "liked": 0, "affection": 0, "familiarity": 0, "company": 0,
+             "avoided": 6, "trust": 320, "avoid": 1000,
+             "belief": {"found": true, "statement": {"tat": {"doer": 2, "kind": 0, "other": 1, "day": 0}},
+                        "certainty": 600, "basis": "gesehen", "source": 0, "origin": 0,
+                        "secret": false, "truth": "false"}},
+            {"object": 2, "liked": 0, "affection": 0, "familiarity": 0, "company": 0,
+             "avoided": 4, "trust": 430, "avoid": 1000,
+             "belief": {"found": true, "statement": {"tat": {"doer": 3, "kind": 1, "other": 2, "day": 0}},
+                        "certainty": 500, "basis": "geschlossen", "source": 0, "origin": 0,
+                        "secret": false, "truth": "unknown"}},
+            {"object": 4, "liked": 2, "affection": 700, "familiarity": 640, "company": 100,
+             "avoided": 0, "trust": 0, "avoid": 0, "belief": none}
+        ])
+    );
+}
+
+/// A talk while both eat is a memory on the house answer (ADR-0030 section 1). Both are sent
+/// to the table at 6:00. The strength is the kind's 600 faded by 60 a day from the memory's
+/// second. The topic is a draw, so the bond values are not asserted.
+#[test]
+fn a_talk_is_a_memory_on_the_house_answer() {
+    use sim_core::input::{Command as Order, Input};
+    use sim_core::world::YearOut;
+    let (mut world, household) = couple_in_the_flat(|_, _| {});
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
+    world.take_log();
+    let order = |sim: u64| Order {
+        sim: sim_core::ids::SimId::try_from(sim).expect("a sim"),
+        object: 0,
+        offer: 0,
+    };
+    world.submit(Input::Command(order(1))).expect("she eats");
+    world.submit(Input::Command(order(2))).expect("he eats");
+    world.advance_until(&mut out, SimTime::from_secs(MORNING + 2_000), &mut |_| {
+        false
+    });
+    let log = world.take_log();
+    let answer = sim_cli::house_answer(&world, household)
+        .expect("answers")
+        .expect("a house");
+    let memories = answer["persons"][0]["memories"]
+        .as_array()
+        .expect("memories");
+    let talk = memories.iter().find(|memory| memory["kind"] == 0);
+    let Some(talk) = talk else {
+        let codes: Vec<String> = log
+            .iter()
+            .filter_map(|entry| {
+                let value = serde_json::to_value(&entry.payload).ok()?;
+                value.as_object()?.keys().next().cloned()
+            })
+            .collect();
+        panic!("no talk memory: {codes:?}");
+    };
+    assert_eq!(talk["with"], json!([2]));
+    let at = talk["at"]["t"].as_i64().expect("the second");
+    let elapsed = (MORNING + 2_000 - at).max(0);
+    let strength = (600 - 60 * elapsed / DAY).max(0);
+    assert_eq!(talk["strength"], json!(strength));
+}
+
+/// Six teases leave six talk memories, one seen belief, and a deed "Warum?" can call true.
+///
+/// The founders of seed `0x5EED` and tag `test:social` tease every time they sit down
+/// (interests pinned in `interest_pins_of_the_social_founders_choose_the_reference_topics`):
+/// sim 1 teases sim 2. Both are sent to the table sixteen times. The first walk is the
+/// hall to the kitchen, 4 s, and each later walk is 5 s inside the kitchen. Eating lasts
+/// 1 200 s. A talk is planned 600 s after the later arrival when 3 600 s have passed since
+/// the previous one, so the talks fall at 108 605, 112 220, 115 835, 119 450, 123 065 and
+/// 126 680. A command at a meal's last second acts before that end and keeps them seated
+/// for the talk, which is 600 s earlier. Awake need rates are 0, so no need goes critical.
+/// Hunger stays above 0, so the reserve does not drain and no walk doubles. Full-time work
+/// starts at 12:30, after the sixth talk, and the wake 45 minutes before that start is
+/// after it too, so they do not leave. The talks do not recall, so each memory stays at
+/// 600 and loses 60 a
+/// day from its own second.
+///
+/// The page keeps five (`social_view::memories_json`): strength descending, then the key
+/// `(at, kind, with)` ascending, so an equal strength would show the older `at` first.
+/// ADR-0030 section 1 displaces and keeps the other way: the weaker falls, then the older
+/// `at`, then the smaller key, so a newer `at` stays. Plan section 2 says only "die
+/// stärksten Erinnerungen" and does not name the page's tie. These six strengths differ
+/// (600, 598, 595, 593, 590, and 588 for the oldest), so the tie does not choose. The
+/// oldest is the one left out. The sort is left as the page has it.
+///
+/// The belief is the first tease, seen by both, and later teases of the same deed do not
+/// move `since`. Truth is read at the clock, which this answer leaves on the sixth talk,
+/// still house day 1, inside the 30-day window.
+#[test]
+fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
+    use sim_core::input::{Command as Order, Input};
+    use sim_core::log::{Company, LogEntry, LogPayload, Subject};
+    use sim_core::world::YearOut;
+    let (mut world, household) = founded_couple(0x5EED, "test:social", |needs, day| {
+        for need in ["hunger", "energy", "bladder", "hygiene", "fun"] {
+            needs["awake"][need] = json!([0, 0, 0, 0]);
+        }
+        day["work"]["full_time"]["depart"] = json!(45_000);
+    });
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
+    let sim = |id: u64| sim_core::ids::SimId::try_from(id).expect("a sim");
+    let hers = (world.take_log().into_iter())
+        .find(|entry| {
+            entry.t == SimTime::from_secs(MORNING)
+                && entry.subjects == [Subject::Sim(sim(1))]
+                && matches!(entry.payload, LogPayload::ActionStarted { .. })
+        })
+        .expect("her choice at 6:00");
+    // Sixteen seatings. Each command acts in the second after the clock, on the meal's
+    // last second after the first, before that meal ends.
+    let acts = [
+        108_001, 109_205, 110_410, 111_615, 112_820, 114_025, 115_230, 116_435, 117_640, 118_845,
+        120_050, 121_255, 122_460, 123_665, 124_870, 126_075,
+    ];
+    let order = |id: u64| Order {
+        sim: sim(id),
+        object: 0,
+        offer: 0,
+    };
+    for act in acts {
+        let stop = act - 1;
+        if world.closed_through().as_secs() < stop {
+            world.advance_until(&mut out, SimTime::from_secs(stop), &mut |_| false);
+        }
+        world
+            .submit(Input::Command(order(1)))
+            .unwrap_or_else(|err| panic!("she eats at {act}: {err:?}"));
+        world
+            .submit(Input::Command(order(2)))
+            .unwrap_or_else(|err| panic!("he eats at {act}: {err:?}"));
+    }
+    let sixth = 126_680;
+    world.advance_until(&mut out, SimTime::from_secs(sixth), &mut |_| false);
+    assert_eq!(world.closed_through().as_secs(), sixth);
+    let log = world.take_log();
+    let talks: Vec<(i64, u8, u64)> = log
+        .iter()
+        .filter_map(|entry| match &entry.payload {
+            LogPayload::Talked {
+                other,
+                object,
+                topic,
+                actor,
+            } => {
+                assert_eq!(*object, 0, "the table");
+                assert_eq!(other.get(), 2, "the pair is ordered");
+                Some((
+                    entry.t.as_secs(),
+                    *topic,
+                    actor.map(sim_core::ids::SimId::get).unwrap_or(0),
+                ))
+            }
+            _ => None,
+        })
+        .collect();
+    // Necken is topic 2. Sim 1 teases. A different topic fails here, before the memories.
+    assert_eq!(
+        talks,
+        vec![
+            (108_605, 2, 1),
+            (112_220, 2, 1),
+            (115_835, 2, 1),
+            (119_450, 2, 1),
+            (123_065, 2, 1),
+            (126_680, 2, 1),
+        ]
+    );
+    let answer = sim_cli::house_answer(&world, household)
+        .expect("answers")
+        .expect("a house");
+    assert_eq!(answer["version"], json!(10));
+    let persons = answer["persons"].as_array().expect("persons");
+    let person = |id: u64| {
+        persons
+            .iter()
+            .find(|person| person["sim"] == json!(id))
+            .unwrap_or_else(|| panic!("sim {id}"))
+    };
+    // 600 − 60 · (126 680 − at) / 86 400, the division truncating toward 0.
+    let memory = |with: u64, at: i64, strength: u16| json!({"kind": 0, "with": [with], "at": dated(at), "strength": strength});
+    let five = |with: u64| {
+        json!([
+            memory(with, 126_680, 600),
+            memory(with, 123_065, 598),
+            memory(with, 119_450, 595),
+            memory(with, 115_835, 593),
+            memory(with, 112_220, 590),
+        ])
+    };
+    assert_eq!(person(1)["memories"], five(2));
+    assert_eq!(person(2)["memories"], five(1));
+    let belief = json!({
+        "statement": {"tat": {"doer": 1, "kind": 0, "other": 2, "day": 1}},
+        "certainty": 1000,
+        "since": dated(108_605),
+        "source": 0,
+        "origin": 0,
+        "basis": "gesehen",
+        "secret": false,
+    });
+    assert_eq!(person(1)["beliefs"], json!([belief.clone()]));
+    assert_eq!(person(2)["beliefs"], json!([belief]));
+    // The hand history, not the live log. The drop is at the choice, so nothing fades,
+    // and trust is the line's 320. The live belief of the same statement is not a secret.
+    // The deed was done on house day 1 and the clock is still that day, so truth is true.
+    let history: Vec<LogEntry> = serde_json::from_str(
+        r#"[
+            {"id":4,"t":108000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:believed":{"statement":{"tat":{"doer":1,"kind":0,"other":2,"day":1}},
+             "certainty":1000,"basis":"gesehen","source":null,"origin":null,"replaced":false}}},
+            {"id":5,"t":108000,"subjects":[{"sim":1}],"causes":[{"event":4}],
+             "payload":{"core:bond_changed":{"other":2,"before":[700,400,500,500,600,0],"after":[700,320,500,500,600,0]}}}
+        ]"#,
+    )
+    .expect("the history");
+    let rows = [Company {
+        object: 0,
+        liked: None,
+        company: 0,
+        avoided: Some(sim(2)),
+        avoid: 8_000,
+    }];
+    let why = sim_cli::why_answer(
+        &world,
+        &hers,
+        0,
+        false,
+        None,
+        |_| 0,
+        sim_cli::social_view::CompanyAt {
+            rows: &rows,
+            history: &history,
+        },
+    )
+    .expect("answers")
+    .expect("a choice");
+    assert_eq!(
+        why["company"],
+        json!([{
+            "object": 0, "liked": 0, "affection": 0, "familiarity": 0, "company": 0,
+            "avoided": 2, "trust": 320, "avoid": 8000,
+            "belief": {
+                "found": true,
+                "statement": {"tat": {"doer": 1, "kind": 0, "other": 2, "day": 1}},
+                "certainty": 1000, "basis": "gesehen", "source": 0, "origin": 0,
+                "secret": false, "truth": "true"
+            }
+        }])
     );
 }
