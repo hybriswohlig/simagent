@@ -68,7 +68,45 @@ const key = new THREE.DirectionalLight(0xfff6ee, Math.PI * 0.38);
 key.position.set(-2.4, 5.2, 4.6);
 const fill = new THREE.DirectionalLight(0xf6efe6, Math.PI * 0.12);
 fill.position.set(4.2, 2.2, 3);
-scene.add(hemi, key, fill);
+const rim = new THREE.DirectionalLight(0xffd8c2, Math.PI * 0.16);
+rim.position.set(0.6, 3.4, -4.4);
+scene.add(hemi, key, fill, rim);
+const keyDirView = new THREE.Vector3();
+
+function applyStyleLights(style) {
+  const lit = style !== "C";
+  hemi.visible = lit;
+  key.visible = lit;
+  fill.visible = lit;
+  rim.visible = style === "A";
+  if (style === "A") {
+    hemi.color.setHex(0xffe4cc);
+    hemi.groundColor.setHex(0xc9d0dc);
+    hemi.intensity = Math.PI * 0.32;
+    key.color.setHex(0xffc9a0);
+    key.intensity = Math.PI * 0.48;
+    key.position.set(-2.2, 4.6, 4.0);
+    fill.color.setHex(0xb7c7dc);
+    fill.intensity = Math.PI * 0.22;
+    fill.position.set(4.6, 1.8, 2.4);
+    rim.color.setHex(0xffd0b0);
+    rim.intensity = Math.PI * 0.16;
+    return;
+  }
+  hemi.color.setHex(0xfffaf6);
+  hemi.groundColor.setHex(0xe6ddd2);
+  hemi.intensity = Math.PI * 0.42;
+  key.color.setHex(0xfff6ee);
+  key.intensity = Math.PI * 0.38;
+  key.position.set(-2.4, 5.2, 4.6);
+  fill.color.setHex(0xf6efe6);
+  fill.intensity = Math.PI * 0.12;
+  fill.position.set(4.2, 2.2, 3);
+}
+
+function updateKeyDir() {
+  keyDirView.copy(key.position).normalize().transformDirection(camera.matrixWorldInverse);
+}
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(80, 80),
   new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 1, metalness: 0 }),
@@ -202,12 +240,19 @@ function morphWeights(body, sex, emphasise) {
   weights.breast_max = sex === "male" ? 0 : cup * 0.34 + Math.max(0, breast - 0.5) * 1.32;
   weights.face_age_decr = clamp((body.body_form_age - body.face_form_age) / 20, 0, 1);
   weights.face_age_incr = clamp((body.face_form_age - body.body_form_age) / 45, 0, 1);
-  const feature = emphasise ? 1.2 : 1;
   for (let axis = 1; axis <= 12; axis += 1) {
     const key = `face_axis_${String(axis).padStart(2, "0")}`;
-    weights[key] = quarter(body[key]) * feature;
+    weights[key] = quarter(body[key]);
   }
-  if (emphasise) weights.head_size *= 1.08;
+  // Style A draws the same genes a little softer. These are constant offsets,
+  // not a scale of the z-score: a gene of 0 stays a gene of 0 in the contract.
+  // Eye weight 1 is about +17% radius, so 0.58 is about +10%.
+  if (emphasise) {
+    weights.face_axis_04 -= 0.12;
+    weights.face_axis_06 -= 0.1;
+    weights.face_axis_07 += 0.16;
+    weights.face_axis_09 += 0.58;
+  }
   return { weights, share, slices: { child, young, old } };
 }
 
@@ -406,7 +451,7 @@ function surfaceMaterial(hex, style, roughness) {
   let material;
   if (style === "C") material = new THREE.MeshBasicMaterial({ toneMapped: false });
   else if (style === "B") material = new THREE.MeshToonMaterial({ gradientMap: toonGradient });
-  else material = new THREE.MeshStandardMaterial({ roughness: Math.max(roughness, 0.72), metalness: 0 });
+  else material = new THREE.MeshStandardMaterial({ roughness: style === "A" ? 0.92 : Math.max(roughness, 0.72), metalness: 0 });
   material.color.setStyle(hex);
   return material;
 }
@@ -452,9 +497,35 @@ const CLOTH_BAND = `
   // neckline stays a straight cut across the collarbone.
   float arm = smoothstep(0.26, 0.34, ax);
   diffuseColor.rgb = mix(diffuseColor.rgb, uCloth, vertical * (1.0 - arm));
+  skinMask = 1.0 - vertical * (1.0 - arm);
 `;
 
-function paintCloth(material, floor, span, cutY, skinHex, beard) {
+// Cheeks sit beside the nose, between nose and mouth. Lips sit just above the chin.
+const BLUSH = `
+  float cheekBand = smoothstep(uNose.y - 0.04, uNose.y - 0.018, vBind.y)
+    * (1.0 - smoothstep(uNose.y - 0.006, uNose.y + 0.012, vBind.y));
+  float cheekSide = smoothstep(0.022, 0.04, abs(vBind.x)) * (1.0 - smoothstep(0.055, 0.078, abs(vBind.x)));
+  float cheekFwd = smoothstep(uNose.z - 0.035, uNose.z - 0.008, vBind.z);
+  float cheek = cheekBand * cheekSide * cheekFwd;
+  float lipBand = smoothstep(uChin.y + 0.004, uChin.y + 0.014, vBind.y)
+    * (1.0 - smoothstep(uChin.y + 0.02, uChin.y + 0.032, vBind.y));
+  float lipSide = 1.0 - smoothstep(0.012, 0.032, abs(vBind.x));
+  float lipFwd = smoothstep(uChin.z + 0.004, uChin.z + 0.018, vBind.z);
+  float lip = lipBand * lipSide * lipFwd;
+  diffuseColor.rgb += uSkin * vec3(0.42, 0.1, 0.06) * cheek * 0.28;
+  diffuseColor.rgb += uSkin * vec3(0.34, 0.08, 0.06) * lip * 0.4;
+`;
+
+const SKIN_WRAP = `
+  vec3 keyDir = normalize(uKeyDir);
+  float ndl = dot(normal, keyDir);
+  float wrap = clamp((ndl + 0.55) / 1.55, 0.0, 1.0);
+  float direct = clamp(ndl, 0.0, 1.0);
+  totalDiffuse += uSkin * vec3(0.62, 0.24, 0.12) * (wrap - direct) * skinMask * 0.7;
+`;
+
+function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
+  const warm = style === "A";
   const uniforms = {
     uCloth: { value: new THREE.Color(CLOTH) },
     uSkin: { value: new THREE.Color(skinHex) },
@@ -466,8 +537,11 @@ function paintCloth(material, floor, span, cutY, skinHex, beard) {
     uFloor: { value: floor },
     uSpan: { value: Math.max(span, 0.2) },
     uCut: { value: cutY },
+    uNose: { value: new THREE.Vector3(0, marks.maxY + marks.jaw.noseDy, marks.jaw.noseZ) },
+    uChin: { value: new THREE.Vector3(marks.chin[0], marks.chin[1], marks.chin[2]) },
+    uKeyDir: { value: keyDirView },
   };
-  material.customProgramCacheKey = () => "bodysuit-skin-beard";
+  material.customProgramCacheKey = () => (warm ? "bodysuit-skin-beard-a" : "bodysuit-skin-beard");
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uCloth = uniforms.uCloth;
     shader.uniforms.uSkin = uniforms.uSkin;
@@ -479,15 +553,28 @@ function paintCloth(material, floor, span, cutY, skinHex, beard) {
     shader.uniforms.uSpan = uniforms.uSpan;
     shader.uniforms.uFloor = uniforms.uFloor;
     shader.uniforms.uCut = uniforms.uCut;
+    shader.uniforms.uNose = uniforms.uNose;
+    shader.uniforms.uChin = uniforms.uChin;
+    shader.uniforms.uKeyDir = uniforms.uKeyDir;
     material.userData.shader = shader;
     shader.vertexShader = `varying vec3 vBind;\n${shader.vertexShader.replace(
       "#include <morphtarget_vertex>",
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
-    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${shader.fragmentShader.replace(
+    const decl = warm
+      ? "varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nuniform vec3 uNose;\nuniform vec3 uChin;\nuniform vec3 uKeyDir;\nfloat skinMask;\n"
+      : "varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nfloat skinMask;\n";
+    const color = warm ? `${SKIN_DETAIL}\n${BLUSH}\n${CLOTH_BAND}` : `${SKIN_DETAIL}\n${CLOTH_BAND}`;
+    shader.fragmentShader = `${decl}${shader.fragmentShader.replace(
       "#include <color_fragment>",
-      `#include <color_fragment>\n${SKIN_DETAIL}\n${CLOTH_BAND}`,
+      `#include <color_fragment>\n${color}`,
     )}`;
+    if (warm) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "vec3 totalDiffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;",
+        `vec3 totalDiffuse = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;\n${SKIN_WRAP}`,
+      );
+    }
   };
   material.onBeforeRender = () => {
     const shader = material.userData.shader;
@@ -499,10 +586,10 @@ function paintCloth(material, floor, span, cutY, skinHex, beard) {
   return material;
 }
 
-function bodyMaterial(skinHex, style, floor, span, cutY, beard) {
+function bodyMaterial(skinHex, style, floor, span, cutY, beard, marks) {
   const material = surfaceMaterial("#ffffff", style, 0.8);
   material.map = state.skin;
-  return paintCloth(material, floor, span, cutY, skinHex, beard);
+  return paintCloth(material, floor, span, cutY, skinHex, beard, style, marks);
 }
 
 function litMaterial(style, roughness) {
@@ -600,7 +687,7 @@ const STRAND_FRAG = `
   float inMass = step(-0.004, below) * (1.0 - smoothstep(uCap - 0.01, uCap, below));
   float hole = (1.0 - smoothstep(0.2, 0.45, hairA)) * fillMid * inMass * step(0.5, vKeep);
   if (uFill > 0.5 && hole > 0.4) {
-    diffuseColor.rgb = uHair * 0.62;
+    diffuseColor.rgb = uHair * 0.95;
     diffuseColor.a = 1.0;
   } else if (uSoft > 0.5) {
     float w = clamp(fwidth(cover), 0.02, 0.08);
@@ -648,7 +735,7 @@ const EYE_FRAG = `
 `;
 
 function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset, fillPart, softEdge, cap, clip) {
-  const material = litMaterial(style, 0.62);
+  const material = litMaterial(style, style === "A" ? 0.84 : 0.62);
   material.map = texture;
   material.color.setHex(0xffffff);
   material.side = THREE.DoubleSide;
@@ -680,7 +767,7 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
 }
 
 function eyeMaterial(style, texture, irisHex, skinHex) {
-  const material = litMaterial(style, 0.42);
+  const material = litMaterial(style, style === "A" ? 0.72 : 0.42);
   material.map = texture;
   material.color.setHex(0xffffff);
   material.side = THREE.FrontSide;
@@ -797,8 +884,8 @@ function toHeadLocal(positions, matrix) {
   return out;
 }
 
-function addFitted(mesh, head, proxy, humanPos, material, order, nudgeZ) {
-  const fitted = fitProxy(proxy, humanPos);
+function addFitted(mesh, head, proxy, humanPos, material, order, nudgeZ, reshape) {
+  const fitted = reshape ? reshape(fitProxy(proxy, humanPos)) : fitProxy(proxy, humanPos);
   const placed = nudgeZ ? new Float32Array(fitted) : fitted;
   if (nudgeZ) {
     for (let i = 2; i < placed.length; i += 3) placed[i] += nudgeZ;
@@ -831,6 +918,30 @@ function browFaces(proxy, humanPos) {
     kept.push(a, b, c);
   }
   return kept;
+}
+
+function thickenBrows(fitted) {
+  let leftY = 0;
+  let leftN = 0;
+  let rightY = 0;
+  let rightN = 0;
+  for (let i = 0; i < fitted.length; i += 3) {
+    if (fitted[i] < 0) {
+      leftY += fitted[i + 1];
+      leftN += 1;
+    } else {
+      rightY += fitted[i + 1];
+      rightN += 1;
+    }
+  }
+  if (leftN) leftY /= leftN;
+  if (rightN) rightY /= rightN;
+  const out = new Float32Array(fitted);
+  for (let i = 0; i < out.length; i += 3) {
+    const mid = out[i] < 0 ? leftY : rightY;
+    out[i + 1] = mid + (out[i + 1] - mid) * 1.12;
+  }
+  return out;
 }
 
 function hairChoice(body) {
@@ -868,13 +979,15 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, styl
   }
   const brows = clamp(body.eyebrow_density, 0, 1);
   if (brows > 0.02) {
+    const browCut = style === "A" ? THREE.MathUtils.lerp(0.38, 0.15, brows) : THREE.MathUtils.lerp(0.45, 0.18, brows);
     addFitted(
       mesh, head, { ...pack.brows, faces: browFaces(pack.brows, humanPos) }, humanPos,
       // The card's empty area is not true zero: alpha 1–30 is compression fringe.
       // A threshold near 0.02 turns that fringe into a dark grid on the nose.
-      strandMaterial(style, pack.brows.texture, hairHex, THREE.MathUtils.lerp(0.45, 0.18, brows), 0, marks.crown, -8),
+      strandMaterial(style, pack.brows.texture, hairHex, browCut, 0, marks.crown, -8),
       3,
       0.003,
+      style === "A" ? thickenBrows : null,
     );
   }
   // The cornea sits behind the lid surface. Face is +Z. Enough to meet the
@@ -1117,7 +1230,7 @@ function buildPerson(template, member, x) {
     color: hair,
     density: bearded ? clamp(member.body.beard_density, 0, 1) : 0,
     coverage: bearded ? clamp(member.body.beard_coverage, 0, 1) : 0,
-  });
+  }, marks);
   mesh.frustumCulled = false;
   let outline = null;
   if (state.style === "B") {
@@ -1209,10 +1322,7 @@ function restyle() {
     ? new THREE.MeshBasicMaterial({ color: 0xc9c3b8, toneMapped: false })
     : new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 1, metalness: 0, side: THREE.FrontSide });
   ground.material = floor;
-  const lit = state.style !== "C";
-  hemi.visible = lit;
-  key.visible = lit;
-  fill.visible = lit;
+  applyStyleLights(state.style);
   publishReport();
   updateFaceButtons();
 }
@@ -1341,6 +1451,7 @@ function animate() {
     person.tag.style.left = `${x}px`;
     person.tag.style.top = `${y}px`;
   }
+  updateKeyDir();
   renderer.render(scene, camera);
   if (!state.ready) {
     state.ready = true;

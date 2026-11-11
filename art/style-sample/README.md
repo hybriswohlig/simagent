@@ -37,8 +37,12 @@ minimum, middle and maximum.
 
 ## Looks
 
-A is stylised-realistic: standard material, light kept under the albedo,
-face axes a little stronger. B is toon shading with a dark rim. C is flat
+A is stylised-realistic: real proportions, simplified skin, and a fixed
+draw layer on top of the genes. Eyes are a little larger, brows a little
+fuller, and the jaw and cheeks a little softer. Those offsets are constant,
+so a gene of zero is still zero. The light is a warm key, a cool fill and a
+soft rim. Skin gets a warm wrap in the shadows, a little blush on the cheeks
+and lips, and low specular. B is toon shading with a dark rim. C is flat
 unlit colour. Skin uses the CC0 young-caucasian-female diffuse, divided by
 its average and multiplied by the contract skin colour. The darkest painted
 eyes and brows in that texture are lifted. Hair and iris colours are the contract
