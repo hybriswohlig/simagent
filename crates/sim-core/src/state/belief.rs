@@ -1,7 +1,8 @@
 //! Beliefs and own deeds in the house state (ADR-0031 sections 1 to 3 and 7). A person of
 //! `min_age` or older in a moved-in household gains them. Moving out freezes both lists.
-//! Death and emigration drop them. Certainty does not fade, so a freeze does not rewrite
-//! `since`. The pure rules are `social::belief`.
+//! Death and emigration drop them. A deed outside the window stays until a handler that
+//! records a deed, or a move-in, cuts the list. The clock does not. Certainty does not fade,
+//! so a freeze does not rewrite `since`. The pure rules are `social::belief`.
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -236,8 +237,10 @@ pub(super) fn store_heard(
     }
 }
 
-/// Appends an own deed of today, after dropping days outside the calendar window. The cap
-/// may still close a day inside that window (`dropped_day`). An empty list is not stored.
+/// Appends an own deed of today. Days outside the calendar window fall here, because this
+/// handler already touches the list (ADR-0031 section 1, addendum 2026-11-11). The clock
+/// does not cut them. The cap may still close a day inside that window (`dropped_day`).
+/// An empty list is not stored. The cut writes nothing.
 pub(super) fn record_deed(
     domain: &mut DomainState,
     data: &Data,
@@ -267,45 +270,32 @@ pub(super) fn record_deed(
     }
 }
 
-/// Drops deeds outside the house day of `now` for every owner who lives in a moved-in
-/// household. Nothing is written (ADR-0031 section 1: a deed has no entry). `dropped_day`
-/// stays as it is: only the cap closes a day that is still inside the window.
-///
-/// The house day advances at every 06:00. `HouseMorning` is scheduled once (ADR-0024), a
-/// later morning may have no event, and the clock may jump past it, so this runs whenever
-/// the clock closes a second and whenever an input or a domain event has settled.
-///
-/// READING: ADR-0031 section 1 freezes deeds on moving out and is silent on the next
-/// move-in. While the household is outside there is no current house day, so the list
-/// stays. On the next move-in it is judged against the house day counted from the new
-/// `since`, the same moment memories resume. Days are not renumbered.
-pub(crate) fn prune_windows(domain: &mut DomainState, data: &Data, now: SimTime) {
-    if domain.house.social.deeds.is_empty() {
-        return;
-    }
+/// Cuts deeds the new house day leaves outside the window (ADR-0031 section 1, addendum
+/// 2026-11-11). A move-in touches the lists: each member's frozen deeds are judged against
+/// the house day counted from the new `since`, which is `now`, so that day is 0. No entry.
+/// Days are not renumbered. While the household is outside there is no house day, and the
+/// clock never cuts the list. `dropped_day` stays: only the cap closes a day inside the window.
+pub(super) fn judge_move_in(
+    domain: &mut DomainState,
+    data: &Data,
+    members: &[SimId],
+    now: SimTime,
+) {
     let Some(social) = data.social() else {
         return;
     };
     let window = social.limits.deed_window_days;
-    let owners: Vec<SimId> = domain.house.social.deeds.keys().copied().collect();
-    for owner in owners {
-        let Some(person) = domain.sims.get(&owner) else {
-            continue;
-        };
-        let Some(since) = (domain.house.households.get(&person.household)).map(|moved| moved.since)
-        else {
-            continue;
-        };
-        let today = house_day(now, since);
+    let today = house_day(now, now);
+    for &sim in members {
         let empty = {
-            let Some(deeds) = domain.house.social.deeds.get_mut(&owner) else {
+            let Some(deeds) = domain.house.social.deeds.get_mut(&sim) else {
                 continue;
             };
             deeds.prune_calendar(today, window);
             deeds.items.is_empty() && deeds.dropped_day.is_none()
         };
         if empty {
-            domain.house.social.deeds.remove(&owner);
+            domain.house.social.deeds.remove(&sim);
         }
     }
 }
@@ -344,9 +334,10 @@ pub(super) fn left_world(domain: &mut DomainState, sim: SimId) {
 /// 1000. `widerlegt` is only 0 or 1000. `secret` is only a `VaterVon` whose holder is the
 /// child's mother. A deed list is not empty, at most `limits.deeds` long, in creation order
 /// (the days do not go backwards). Each day is at least 0 and not before `dropped_day`.
-/// While the owner lives in a moved-in household, no day lies outside that household's
-/// window (ADR-0031 section 7). A list frozen outside a house is not judged against a
-/// window: there is no current house day until the next move-in.
+/// While the owner lives in a moved-in household, no day is after that household's house
+/// day (ADR-0031 section 7, addendum 2026-11-11). An older day is allowed and inert. A list
+/// frozen outside a house is not judged against a house day: there is none until the next
+/// move-in.
 pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
     let beliefs = &loaded.house.social.beliefs;
     let deeds = &loaded.house.social.deeds;
@@ -398,15 +389,11 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
             && list.windows(2).all(|pair| pair[0].key() < pair[1].key())
             && list.iter().all(fits)
     });
-    let window = i64::from(social.limits.deed_window_days);
     let deeds_ok = deeds.iter().all(|(&owner, record)| {
         let kept = |day: i64| record.dropped_day.is_none_or(|dropped| day >= dropped);
-        let in_window = |day: i64| match loaded_house_day(loaded, owner) {
+        let not_after_today = |day: i64| match loaded_house_day(loaded, owner) {
             None => true,
-            Some(today) => {
-                let start = today - (window - 1);
-                day >= start && day <= today
-            }
+            Some(today) => day <= today,
         };
         of_age(owner)
             && !(record.items.is_empty() && record.dropped_day.is_none())
@@ -421,7 +408,7 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
                     && known(deed.other)
                     && deed.day >= 0
                     && kept(deed.day)
-                    && in_window(deed.day)
+                    && not_after_today(deed.day)
             })
     });
     beliefs_ok && deeds_ok

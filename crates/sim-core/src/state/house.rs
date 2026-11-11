@@ -137,6 +137,7 @@ pub(crate) fn apply_move_in(
         super::bond::resume(domain, sim, ctx.now());
     }
     super::bond::on_move_in(domain, data, &members, entry, ctx);
+    super::belief::judge_move_in(domain, data, &members, ctx.now());
 }
 
 /// Pure check of `MoveOut`.

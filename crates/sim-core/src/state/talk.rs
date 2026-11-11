@@ -22,7 +22,7 @@ use crate::log::{Cause, Causes, LogPayload, Subject};
 use crate::rng::WorldSeed;
 use crate::social::belief::{
     Belief, Statement, choose_speaker, gossip_material, has_lie_reason, heard_bond_steps,
-    said_belief,
+    live_material, said_belief,
 };
 use crate::social::bond::TRUST;
 use crate::social::data::TALK;
@@ -528,6 +528,8 @@ pub(crate) fn run(
     let interest_b = interests(WorldSeed::new(seed), domain.key_of(b));
     let shared = shared_memory(domain, a, b, now);
     // Steps 0 and 2 do not change beliefs, so the material is the same before the topic.
+    // A Tat outside the house-day window is inert, so it is not material (ADR-0031 section 1,
+    // addendum 2026-11-11). The cap's closed day shortens that window.
     let seated = at_furniture(domain, home, object);
     let held_a = (domain.house.social.beliefs.get(&a))
         .cloned()
@@ -535,8 +537,21 @@ pub(crate) fn run(
     let held_b = (domain.house.social.beliefs.get(&b))
         .cloned()
         .unwrap_or_default();
-    let material_a = gossip_material(a, &held_a, b, &held_b, &seated);
-    let material_b = gossip_material(b, &held_b, a, &held_a, &seated);
+    let window = social.limits.deed_window_days;
+    let dropped =
+        |doer: SimId| (domain.house.social.deeds.get(&doer)).and_then(|deeds| deeds.dropped_day);
+    let material_a = live_material(
+        &gossip_material(a, &held_a, b, &held_b, &seated),
+        day,
+        window,
+        dropped,
+    );
+    let material_b = live_material(
+        &gossip_material(b, &held_b, a, &held_a, &seated),
+        day,
+        window,
+        dropped,
+    );
     // `has_lie_reason` stays false until the lie slice (ADR-0031 section 4).
     let reason_a = has_lie_reason(a, b).then_some(a);
     let reason_b = has_lie_reason(b, a).then_some(b);

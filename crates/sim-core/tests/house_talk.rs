@@ -15,7 +15,9 @@ use sim_core::lineage::LineageKey;
 use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::mortality::accident_age;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
-use sim_core::social::belief::{Basis, Belief, LAESTERT, NECKT, Statement};
+use sim_core::social::belief::{
+    Basis, Belief, DeedAnswer, LAESTERT, NECKT, Statement, gossip_material, live_material,
+};
 use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::TALK;
 use sim_core::social::talk::house_day;
@@ -1022,7 +1024,7 @@ fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
         &pair,
         &[one.clone(), encode(&unknown)].concat(),
     );
-    // House day 1: day 2 is after today, so it lies outside the window (ADR-0031 section 7).
+    // House day 1: day 2 is after today, so the save is refused (ADR-0031 section 7).
     let mut future = deeds.items[1];
     future.day = 2;
     refuse(&data, &bytes, &pair, &[one, encode(&future)].concat());
@@ -1170,13 +1172,14 @@ fn morning_of(since: SimTime, day: i64) -> i64 {
 
 /// One tease, then at most one talk a day, so the cap of 64 never closes a day. Every offer
 /// lasts twelve hours and nobody leaves for work, so those thirty house days stay inside the
-/// decision budget. The deed of that tease is still in the list on the morning 29 house days
-/// later and gone on the morning 30 house days later. That morning writes no talk.
-/// `dropped_day` stays empty: only the cap closes a day inside the window. A save from the
-/// morning that still holds the deed, with that day rewritten to the day before the window,
-/// is refused.
+/// decision budget. On the morning 29 house days later the deed is still known. On the morning
+/// 30 house days later it is still stored and inert: not known, and not material for gossip
+/// (ADR-0031 section 1, addendum 2026-11-11). That morning writes no talk. `dropped_day` stays
+/// empty. Sitting down again records the next deed, and that record cuts the old day, still
+/// without closing one. A save from the earlier morning, with that day rewritten to an older
+/// one, loads. A day after that house day is refused.
 #[test]
-fn a_deed_falls_out_on_the_morning_thirty_house_days_later() {
+fn a_deed_stays_inert_after_thirty_house_days_and_is_cut_on_the_next_record() {
     let social = common::repository_social_with(|file| {
         file["limits"]["talks_per_day"] = serde_json::json!(1);
     });
@@ -1214,13 +1217,25 @@ fn a_deed_falls_out_on_the_morning_thirty_house_days_later() {
         house_day(t(run.world.closed_through().as_secs()), since),
         deed_day + 29
     );
+    let window = built.social().expect("social").limits.deed_window_days;
+    assert_eq!(window, 30, "ADR-0031 section 1");
+    let inside = deed_day + 29;
     let record = run.world.state().house().social.deeds[&sim(owner)].clone();
     assert_eq!(record.dropped_day, None, "the cap has not closed a day");
-    assert!(record.items.iter().any(|deed| deed.day == deed_day));
+    let old = *record
+        .items
+        .iter()
+        .find(|deed| deed.day == deed_day)
+        .expect("the deed");
+    assert_eq!(
+        record.knows(old.kind, old.other, deed_day, inside, window),
+        DeedAnswer::Done,
+        "the day and the 29 before it are still known"
+    );
     let bytes = run.world.save(&run.out.year_hashes).expect("saved");
     // A single deed is a few bytes and occurs more than once. The owner's list does not.
-    let mut forged = record.clone();
-    let item = forged
+    let mut older = record.clone();
+    let item = older
         .items
         .iter_mut()
         .find(|deed| deed.day == deed_day)
@@ -1228,9 +1243,22 @@ fn a_deed_falls_out_on_the_morning_thirty_house_days_later() {
     item.day = deed_day - 1;
     assert!(item.day >= 0);
     let owned = [encode(&sim(owner)), encode(&record)].concat();
-    let outside = [encode(&sim(owner)), encode(&forged)].concat();
-    assert_eq!(owned.len(), outside.len());
-    refuse(&built, &bytes, &owned, &outside);
+    let aged = [encode(&sim(owner)), encode(&older)].concat();
+    assert_eq!(owned.len(), aged.len());
+    let (loaded, _) =
+        World::load(&spliced(&bytes, &owned, &aged), built.clone()).expect("an older day loads");
+    assert!(
+        loaded.state().house().social.deeds[&sim(owner)]
+            .items
+            .iter()
+            .any(|deed| deed.day == deed_day - 1)
+    );
+    let mut ahead = record.clone();
+    let last = ahead.items.last_mut().expect("a deed");
+    last.day = inside + 1;
+    let future = [encode(&sim(owner)), encode(&ahead)].concat();
+    assert_eq!(owned.len(), future.len());
+    refuse(&built, &bytes, &owned, &future);
 
     run.advance(fall - 1);
     assert!(
@@ -1240,16 +1268,65 @@ fn a_deed_falls_out_on_the_morning_thirty_house_days_later() {
     let talks = talked(&run).len();
     run.advance(fall);
     assert_eq!(talked(&run).len(), talks, "the morning writes no talk");
+    let today = deed_day + 30;
+    assert_eq!(house_day(t(fall), since), today);
+    assert!(
+        holds_day(&run, owner, deed_day),
+        "thirty house days later it is still stored"
+    );
+    let inert = run.world.state().house().social.deeds[&sim(owner)].clone();
+    assert_eq!(inert.dropped_day, None);
+    assert_eq!(
+        inert.knows(old.kind, old.other, deed_day, today, window),
+        DeedAnswer::Unknown,
+        "outside the window it is not known"
+    );
+    let statement = Statement::Tat {
+        doer: sim(owner),
+        kind: old.kind,
+        other: old.other,
+        day: deed_day,
+    };
+    let held = &run.world.state().house().social.beliefs[&old.other];
+    let raw = gossip_material(old.other, held, sim(9), &[], &[]);
+    assert!(
+        raw.iter().any(|belief| belief.statement == statement),
+        "the seen deed would be material for someone else"
+    );
+    let live = live_material(&raw, today, window, |_| inert.dropped_day);
+    assert!(
+        live.iter().all(|belief| belief.statement != statement),
+        "outside the window it is not material"
+    );
+
+    // The same seat as the first Necken. Founders 0 and 1 still take topic 2: the talk memory
+    // has faded, so Erinnern is closed, and the interest sums are unchanged.
+    let again = arrive(&mut run, fall, &[(1, DINING), (2, DINING)]);
+    let spoken_at = again + TALK_DELAY;
+    assert_eq!(house_day(t(spoken_at), since), today);
+    assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(spoken_at)));
+    run.advance(spoken_at);
+    let spoken = talked(&run);
+    assert!(spoken.len() > talks, "they talk again");
+    assert_eq!(
+        spoken.last().expect("the talk").payload,
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 2,
+            actor: Some(sim(owner)),
+        }
+    );
     assert!(
         !holds_day(&run, owner, deed_day),
-        "thirty house days later it is gone"
+        "the next recorded deed cuts it"
     );
-    let left = run.world.state().house().social.deeds.get(&sim(owner));
-    assert_eq!(left.and_then(|deeds| deeds.dropped_day), None);
-    if let Some(deeds) = left {
-        let start = deed_day + 1;
-        assert!(deeds.items.iter().all(|deed| deed.day >= start));
-    }
+    assert!(holds_day(&run, owner, today), "the new deed is today's");
+    let left = &run.world.state().house().social.deeds[&sim(owner)];
+    assert_eq!(
+        left.dropped_day, None,
+        "the calendar cut does not close a day"
+    );
 }
 
 /// READING: ADR-0031 section 1 freezes deeds on moving out and is silent on the next move-in.

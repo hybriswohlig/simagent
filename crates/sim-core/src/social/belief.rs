@@ -1,10 +1,11 @@
 //! Beliefs and the deeds that are their truth (ADR-0031 sections 1 to 3). A person holds at
 //! most `limits.beliefs` beliefs, sorted by the statement key, and at most `limits.deeds` of
-//! their own deeds of the last `limits.deed_window_days` house days, in the order they came
-//! about. Certainty does not fade. This module is the pure part: heard certainty, confirmation,
-//! a seen deed replacing a heard one, eviction, the bond steps of a heard deed, gossip material
-//! and who speaks. The state side (`state::belief`) writes the lists and the log. A lie
-//! (`TALK_LIE`, section 4) and a refutation (section 5) are later slices.
+//! their own deeds, in the order they came about. A deed outside the last
+//! `limits.deed_window_days` house days is inert: not known and not material. Certainty does
+//! not fade. This module is the pure part: heard certainty, confirmation, a seen deed replacing
+//! a heard one, eviction, the bond steps of a heard deed, gossip material and who speaks. The
+//! state side (`state::belief`) writes the lists and the log. A lie (`TALK_LIE`, section 4) and
+//! a refutation (section 5) are later slices.
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -384,14 +385,11 @@ impl Deeds {
 
     /// The first house day the list can still judge.
     pub fn window_start(&self, today: i64, window_days: u16) -> i64 {
-        let mut start = today - (i64::from(window_days) - 1);
-        if let Some(dropped) = self.dropped_day {
-            start = start.max(dropped + 1);
-        }
-        start
+        window_open(today, window_days, self.dropped_day)
     }
 
-    /// Whether this deed was done on `day`, as of `today`.
+    /// Whether this deed was done on `day`, as of `today`. A stored deed outside the window
+    /// is unknown: the list may still hold it, and it does not count.
     pub fn knows(
         &self,
         kind: u16,
@@ -400,7 +398,7 @@ impl Deeds {
         today: i64,
         window_days: u16,
     ) -> DeedAnswer {
-        if day > today || day < self.window_start(today, window_days) {
+        if !day_in_window(day, today, window_days, self.dropped_day) {
             return DeedAnswer::Unknown;
         }
         let done = self
@@ -413,6 +411,21 @@ impl Deeds {
             DeedAnswer::NotDone
         }
     }
+}
+
+/// The first house day still inside the window. `dropped_day` shortens it: that day and every
+/// earlier one are closed (ADR-0031 section 1).
+fn window_open(today: i64, window_days: u16, dropped_day: Option<i64>) -> i64 {
+    let mut start = today - (i64::from(window_days) - 1);
+    if let Some(dropped) = dropped_day {
+        start = start.max(dropped + 1);
+    }
+    start
+}
+
+/// Whether `day` is inside the window as of `today`. Outside, the deed is inert.
+pub fn day_in_window(day: i64, today: i64, window_days: u16, dropped_day: Option<i64>) -> bool {
+    day >= window_open(today, window_days, dropped_day) && day <= today
 }
 
 /// The giver's material for the hearer (ADR-0031 section 3): a `Tat` about a third party who
@@ -448,6 +461,27 @@ pub fn gossip_material(
     }
     out.sort_by_key(Belief::key);
     out
+}
+
+/// Material that is still inside the house-day window (ADR-0031 section 1, addendum
+/// 2026-11-11). A `Tat` outside it is inert, so it is not material. `dropped_of` is that
+/// doer's `dropped_day`; the cap shortens the window the same way as [`Deeds::knows`].
+pub fn live_material(
+    material: &[Belief],
+    today: i64,
+    window_days: u16,
+    dropped_of: impl Fn(SimId) -> Option<i64>,
+) -> Vec<Belief> {
+    material
+        .iter()
+        .copied()
+        .filter(|belief| match belief.statement {
+            Statement::Tat { doer, day, .. } => {
+                day_in_window(day, today, window_days, dropped_of(doer))
+            }
+            Statement::VaterVon { .. } => false,
+        })
+        .collect()
 }
 
 /// Whether `speaker` has a reason to lie to `hearer` (ADR-0031 section 4).
@@ -1005,6 +1039,7 @@ mod tests {
         assert_eq!(deeds.knows(LAESTERT, id(9), 3, 10, 30), DeedAnswer::NotDone);
         assert_eq!(deeds.knows(NECKT, id(9), 3, 32, 30), DeedAnswer::Done);
         assert_eq!(deeds.knows(NECKT, id(9), 3, 33, 30), DeedAnswer::Unknown);
+        assert_eq!(deeds.items.len(), 1, "outside the window it is stored");
         assert_eq!(deeds.knows(NECKT, id(9), 11, 10, 30), DeedAnswer::Unknown);
         let mut deeds = Deeds::default();
         for i in 0..65 {
@@ -1023,7 +1058,14 @@ mod tests {
     fn gossip_material_speaker_and_the_said_statement_match_the_reference() {
         let kx = tat(30, NECKT, 1, 2);
         let giver = [heard(kx, 733, 5, 7, 7)];
-        assert_eq!(gossip_material(id(1), &giver, id(2), &[], &[]).len(), 1);
+        let raw = gossip_material(id(1), &giver, id(2), &[], &[]);
+        assert_eq!(raw.len(), 1);
+        // Day 2 is inside on house day 31 (the day and the 29 before) and inert on day 32.
+        assert_eq!(live_material(&raw, 31, 30, |_| None).len(), 1);
+        assert!(live_material(&raw, 32, 30, |_| None).is_empty());
+        // The cap closes day 2, so the window opens at 3.
+        assert!(live_material(&raw, 10, 30, |_| Some(2)).is_empty());
+        assert_eq!(live_material(&raw, 10, 30, |_| Some(1)).len(), 1);
         assert!(gossip_material(id(1), &giver, id(2), &[], &[id(30)]).is_empty());
         assert!(gossip_material(id(1), &giver, id(30), &[], &[]).is_empty());
         assert!(gossip_material(id(30), &giver, id(2), &[], &[]).is_empty());
