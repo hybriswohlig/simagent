@@ -293,7 +293,7 @@ function landmarks(cloud) {
     maxY,
     crown,
     chin: [0, chinY, jaw.chinZ],
-    neck: [0, chinY - 0.006, Math.min(jaw.chinZ, 0.05)],
+    neck: [0, chinY - 0.012, Math.min(jaw.chinZ, 0.05)],
     jaw,
   };
 }
@@ -317,32 +317,39 @@ function surfaceMaterial(hex, style, roughness) {
   return material;
 }
 
-// Post-morph, pre-skin band. The neckline is one height on the morphed torso,
-// so breast and age morphs cannot wave it. Arm X is still the A-pose, so
-// dropping the arms does not paint them.
+// Post-morph, pre-skin band. ny is 0 at the lowest vertex and 1 at the crown.
+// The cut is the base of the neck, above the chest, down to mid-thigh.
+// Arm X is still the A-pose, outside the ribcage, so the hanging arm stays bare.
 const CLOTH_BAND = `
-  float ny = vBind.y / uSpan;
+  if (uCut > 0.0 && vBind.y < uCut) discard;
+  float ny = (vBind.y - uFloor) / uSpan;
   float ax = abs(vBind.x);
-  float vertical = smoothstep(0.304, 0.307, ny) * (1.0 - smoothstep(0.748, 0.751, ny));
-  float arm = smoothstep(0.18, 0.205, ax) * smoothstep(0.52, 0.55, ny);
+  float vertical = smoothstep(0.328, 0.336, ny) * (1.0 - smoothstep(0.812, 0.822, ny));
+  // Past the shoulder joint (x ≈ 0.17). The A-pose arm is farther out, so the
+  // neckline stays a straight cut across the collarbone.
+  float arm = smoothstep(0.26, 0.34, ax);
   diffuseColor.rgb = mix(diffuseColor.rgb, uCloth, vertical * (1.0 - arm));
 `;
 
-function paintCloth(material, span) {
+function paintCloth(material, floor, span, cutY) {
   const uniforms = {
     uCloth: { value: new THREE.Color(CLOTH) },
+    uFloor: { value: floor },
     uSpan: { value: Math.max(span, 0.2) },
+    uCut: { value: cutY },
   };
   material.customProgramCacheKey = () => "bodysuit-basis";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uCloth = uniforms.uCloth;
     shader.uniforms.uSpan = uniforms.uSpan;
+    shader.uniforms.uFloor = uniforms.uFloor;
+    shader.uniforms.uCut = uniforms.uCut;
     material.userData.shader = shader;
     shader.vertexShader = `varying vec3 vBind;\n${shader.vertexShader.replace(
       "#include <morphtarget_vertex>",
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
-    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform float uSpan;\n${shader.fragmentShader.replace(
+    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${shader.fragmentShader.replace(
       "#include <color_fragment>",
       `#include <color_fragment>\n${CLOTH_BAND}`,
     )}`;
@@ -350,13 +357,15 @@ function paintCloth(material, span) {
   material.onBeforeRender = () => {
     const shader = material.userData.shader;
     if (!shader || !shader.uniforms.uSpan) return;
+    shader.uniforms.uFloor.value = uniforms.uFloor.value;
     shader.uniforms.uSpan.value = uniforms.uSpan.value;
+    shader.uniforms.uCut.value = uniforms.uCut.value;
   };
   return material;
 }
 
-function bodyMaterial(skinHex, style, span) {
-  return paintCloth(surfaceMaterial(skinHex, style, 0.58), span);
+function bodyMaterial(skinHex, style, floor, span, cutY) {
+  return paintCloth(surfaceMaterial(skinHex, style, 0.58), floor, span, cutY);
 }
 
 function litMaterial(style, roughness) {
@@ -429,21 +438,30 @@ const STRAND_FRAG = `
     diffuseColor.rgb = uHair * lift;
     diffuseColor.a = 1.0;
   #endif
-  if (cover < uThresh) discard;
+  if (cover < uThresh) {
+    // The child cut's center part samples the transparent margin and shows the scalp as a jagged line.
+    if (uFill > 0.5 && abs(vMesh.x) < 0.006 && vMesh.y > uCrown.y - 0.055) {
+      diffuseColor.rgb = uHair * 0.82;
+      diffuseColor.a = 1.0;
+    } else {
+      discard;
+    }
+  }
 `;
 
 const EYE_FRAG = `
   #ifdef USE_MAP
-    float blueDisc = sampledDiffuseColor.b - max(sampledDiffuseColor.r, sampledDiffuseColor.g);
-    if (blueDisc > 0.015 && sampledDiffuseColor.b > 0.28) {
-      sampledDiffuseColor.rgb = vec3(0.83, 0.81, 0.78);
-    }
-    if (vMapUv.x > 0.62 && vMapUv.y < 0.42) {
-      sampledDiffuseColor.rgb = vec3(0.83, 0.81, 0.78);
-    }
     float luma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
     float hi = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b));
     float lo = min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
+    // Only the bright registration disc. A wider sclera rewrite erased the iris.
+    float blueDisc = sampledDiffuseColor.b - max(sampledDiffuseColor.r, sampledDiffuseColor.g);
+    if (luma > 0.55 && blueDisc > 0.03) {
+      sampledDiffuseColor.rgb = vec3(0.90, 0.87, 0.82);
+      luma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+      hi = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b));
+      lo = min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
+    }
     float iris = smoothstep(0.06, 0.16, hi - lo) * smoothstep(0.04, 0.12, luma) * (1.0 - smoothstep(0.42, 0.62, luma));
     vec3 tinted = uIris * clamp(luma / 0.22, 0.35, 1.65);
     diffuseColor.rgb = mix(sampledDiffuseColor.rgb, tinted, iris);
@@ -451,7 +469,7 @@ const EYE_FRAG = `
   #endif
 `;
 
-function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset) {
+function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset, fillPart) {
   const material = litMaterial(style, 0.62);
   material.map = texture;
   material.color.setHex(0xffffff);
@@ -464,14 +482,15 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset)
     uThresh: { value: threshold },
     uBald: { value: bald },
     uCrown: { value: new THREE.Vector3(crown[0], crown[1], crown[2]) },
+    uFill: { value: fillPart ? 1 : 0 },
   };
   return bindShader(
     material,
-    `strand-${style}`,
+    fillPart ? `strand-${style}-part` : `strand-${style}`,
     uniforms,
     "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;",
     HAIR_VERTEX,
-    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;",
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform vec3 uCrown;",
     STRAND_FRAG,
   );
 }
@@ -512,22 +531,30 @@ function beardMaterial(style, hairHex, density) {
     "vMesh = aMesh;",
     "varying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uDensity;",
     `
-      vec2 cell = floor(vMesh.xy * 80.0);
+      vec2 cell = floor(vMesh.xy * 240.0);
       float fiber = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
-      if (uDensity < 0.82 && fiber > uDensity) discard;
+      if (uDensity < 0.9 && fiber > uDensity) discard;
       diffuseColor.rgb = uHair * mix(0.72, 1.05, fiber);
       diffuseColor.a = 1.0;
     `,
   );
 }
 
-function outlineMaterial() {
+function outlineMaterial(cutY) {
   const material = new THREE.MeshBasicMaterial({ color: 0x1a1612, side: THREE.BackSide, toneMapped: false });
   material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace(
+    shader.uniforms.uCut = { value: cutY };
+    shader.vertexShader = `varying vec3 vBind;\n${shader.vertexShader.replace(
+      "#include <morphtarget_vertex>",
+      "#include <morphtarget_vertex>\n\tvBind = transformed;",
+    ).replace(
       "#include <project_vertex>",
       "transformed += normalize(objectNormal) * 0.03;\n#include <project_vertex>",
-    );
+    )}`;
+    shader.fragmentShader = `varying vec3 vBind;\nuniform float uCut;\n${shader.fragmentShader.replace(
+      "#include <color_fragment>",
+      "if (uCut > 0.0 && vBind.y < uCut) discard;\n#include <color_fragment>",
+    )}`;
   };
   return material;
 }
@@ -636,7 +663,7 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, style, marks)
     const threshold = THREE.MathUtils.lerp(0.9, 0.2, density);
     addFitted(
       mesh, head, pack[hairName], humanPos,
-      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1),
+      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1, hairName === "hair_child"),
       2,
     );
   }
@@ -729,18 +756,17 @@ function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
   if (density <= 0.04) return 0;
   const coverage = clamp(body.beard_coverage, 0, 1);
   const { xyz, maxY } = cloud;
-  const { lipLo, noseDy, noseZ, chinDy, chinZ } = marks.jaw;
-  // The nose tip is the reliable anchor. The jaw sits a few centimetres
-  // below it; measuring down from the lip jump landed on the neck.
-  const jawTop = noseDy - 0.036;
-  const jawBot = noseDy - 0.058;
-  const jawHalf = THREE.MathUtils.lerp(0.018, 0.052, coverage);
-  const cheekOut = 0.04 + 0.04 * coverage;
-  const mustacheHalf = 0.008 + 0.028 * coverage;
-  const lipBot = lipLo - 0.008;
-  const lipTop = Math.min(lipLo + 0.05, noseDy - 0.016);
-  const mustacheLo = noseDy - 0.008;
-  const mustacheHi = noseDy - 0.002;
+  const { noseDy, noseZ, chinZ } = marks.jaw;
+  // The nose tip is the only stable landmark. The mouth sits about 4–6 cm
+  // below it and the neck about 10 cm below it, so the chin is the short
+  // band between those two. A lip-relative band kept landing on the neck.
+  const mustacheHi = noseDy - 0.003;
+  const mustacheLo = noseDy - 0.012;
+  const chinHi = noseDy - 0.066;
+  const chinLo = noseDy - 0.082;
+  const jawHalf = THREE.MathUtils.lerp(0.016, 0.046, coverage);
+  const cheekOut = 0.036 + 0.032 * coverage;
+  const mustacheHalf = 0.008 + 0.02 * coverage;
   const index = mesh.geometry.index;
   const positions = [];
   const meshSpace = [];
@@ -790,10 +816,11 @@ function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
     const maxDy = Math.max(...dys);
     const dy = my - maxY;
     const ax = Math.abs(mx);
-    if (dy < jawBot - 0.006 || dy > noseDy) continue;
-    if (dy > noseDy - 0.034 && dy < noseDy - 0.014 && ax < 0.042) continue;
-    const jaw = dy >= jawBot && dy <= jawTop && ax <= jawHalf && mz > chinZ - 0.02;
-    const cheek = coverage > 0.55 && ax >= 0.04 && ax <= cheekOut && dy >= jawBot && dy <= jawTop && mz > chinZ - 0.01;
+    if (dy < noseDy - 0.09 || dy > noseDy) continue;
+    if (dy < noseDy - 0.02 && dy > noseDy - 0.06 && ax < 0.05) continue;
+    const onChin = maxDy <= chinHi && minDy >= chinLo && mz > chinZ - 0.015 && mz < noseZ - 0.025;
+    const jaw = onChin && ax <= jawHalf;
+    const cheek = coverage > 0.55 && onChin && ax >= 0.022 && ax <= cheekOut;
     const mustache = minDy >= mustacheLo && maxDy <= mustacheHi && ax <= mustacheHalf && mz > noseZ - 0.02;
     if (!jaw && !cheek && !mustache) continue;
     const ia = corner(a);
@@ -820,9 +847,9 @@ function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
     nx = flip * nx / length;
     ny = flip * ny / length;
     nz = flip * nz / length;
-    shell[i] = positions[i] + nx * 0.0015;
-    shell[i + 1] = positions[i + 1] + ny * 0.0015;
-    shell[i + 2] = positions[i + 2] + nz * 0.0015;
+    shell[i] = positions[i] + nx * 0.0022;
+    shell[i + 1] = positions[i + 1] + ny * 0.0022;
+    shell[i + 2] = positions[i + 2] + nz * 0.0022;
     normals[i] = nx;
     normals[i + 1] = ny;
     normals[i + 2] = nz;
@@ -946,7 +973,7 @@ function roster() {
 }
 
 function layoutX(members) {
-  const gap = state.close ? 0.24 : 0.78;
+  const gap = state.close ? 0.175 : 0.78;
   const breakGap = state.close ? 0.28 : 1.15;
   let cursor = 0;
   const xs = members.map((member, index) => {
@@ -986,12 +1013,13 @@ function buildPerson(template, member, x) {
   const skin = gridColor(SKIN, member.body.skin_eumelanin, member.body.skin_pheomelanin);
   const hair = hairColor(member.body);
   const iris = rampColor(IRIS, member.body.iris_melanin);
-  const clothSpan = morphedYSpan(mesh, weights).span;
-  mesh.material = bodyMaterial(skin, state.style, clothSpan);
+  const cloth = morphedYSpan(mesh, weights);
+  const cutY = state.close ? marks.maxY + marks.jaw.noseDy - 0.098 : -1;
+  mesh.material = bodyMaterial(skin, state.style, cloth.minY, cloth.span, cutY);
   mesh.frustumCulled = false;
   let outline = null;
   if (state.style === "B") {
-    outline = new THREE.SkinnedMesh(mesh.geometry, outlineMaterial());
+    outline = new THREE.SkinnedMesh(mesh.geometry, outlineMaterial(cutY));
     outline.bind(mesh.skeleton, mesh.bindMatrix);
     outline.morphTargetInfluences = mesh.morphTargetInfluences;
     outline.morphTargetDictionary = mesh.morphTargetDictionary;
@@ -1127,17 +1155,17 @@ function frame() {
       const neck = landmarkWorld(person, person.marks.neck);
       minY = Math.min(minY, neck.y);
       maxY = Math.max(maxY, crown.y);
-      minX = Math.min(minX, crown.x - 0.07);
-      maxX = Math.max(maxX, crown.x + 0.07);
+      minX = Math.min(minX, crown.x - 0.085);
+      maxX = Math.max(maxX, crown.x + 0.085);
       sumZ += crown.z;
     }
-    const top = maxY + 0.006;
-    const bot = minY - 0.012;
+    const top = maxY + 0.008;
+    const bot = minY - 0.02;
     const midY = (top + bot) / 2;
     const midX = (minX + maxX) / 2;
     const targetH = Math.max(top - bot, 0.2);
     const width = Math.max(maxX - minX, 0.2);
-    const distH = (targetH / 0.92) / (2 * Math.tan(v / 2));
+    const distH = (targetH / 0.98) / (2 * Math.tan(v / 2));
     const distW = width / (2 * Math.tan(h / 2));
     const distance = Math.max(distH, distW);
     const faceZ = sumZ / people.length;
