@@ -18,6 +18,7 @@ use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::belief::{Basis, Belief, LAESTERT, NECKT, Statement};
 use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::TALK;
+use sim_core::social::talk::house_day;
 use sim_core::time::{SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{EventPayload, FORMAT_VERSION, LoadError, World, YearOut};
@@ -45,6 +46,7 @@ fn data(meal: u32, people: u8) -> sim_core::data::Data {
         60,
         include_str!("../../../data/house/day.json"),
         1e-9,
+        60,
     )
 }
 
@@ -57,6 +59,7 @@ fn scene(
     fridge_secs: u32,
     day: &str,
     accident_male: f64,
+    dwell: u32,
 ) -> sim_core::data::Data {
     let kinds = format!(
         r#"[
@@ -65,11 +68,11 @@ fn scene(
       {{"id": "core:fridge", "slots": 4, "offers": [
         {{"id": "snack", "rates": {{"hunger": 1}}, "seconds": {fridge_secs}, "min_age": 0, "max_age": 130}}]}},
       {{"id": "core:toilet", "slots": 4, "offers": [
-        {{"id": "use", "rates": {{"bladder": 1}}, "seconds": 60, "min_age": 0, "max_age": 130}}]}},
+        {{"id": "use", "rates": {{"bladder": 1}}, "seconds": {dwell}, "min_age": 0, "max_age": 130}}]}},
       {{"id": "core:shower", "slots": 4, "offers": [
-        {{"id": "shower", "rates": {{"hygiene": 1}}, "seconds": 60, "min_age": 0, "max_age": 130}}]}},
+        {{"id": "shower", "rates": {{"hygiene": 1}}, "seconds": {dwell}, "min_age": 0, "max_age": 130}}]}},
       {{"id": "core:sofa", "slots": 1, "offers": [
-        {{"id": "sit", "rates": {{"fun": 1}}, "seconds": 60, "min_age": 0, "max_age": 130}}]}},
+        {{"id": "sit", "rates": {{"fun": 1}}, "seconds": {dwell}, "min_age": 0, "max_age": 130}}]}},
       {{"id": "core:bed", "slots": {people}, "offers": [
         {{"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}}]}}
     ]"#
@@ -149,7 +152,7 @@ fn without_departure(meal: u32) -> sim_core::data::Data {
             "\"from_age\": 7,\n    \"until_age\": 8,",
         );
     assert_ne!(day, repository, "the ages in the day file still bind");
-    scene(meal, 3, 3, meal, &day, 1e-9)
+    scene(meal, 3, 3, meal, &day, 1e-9, 60)
 }
 
 /// Commands `seats` at 06:00:01, after the morning's own walks have begun, and runs to the
@@ -571,6 +574,7 @@ fn a_death_in_the_same_second_comes_after_the_talk() {
             60,
             include_str!("../../../data/house/day.json"),
             rate,
+            60,
         ),
         0x5EED,
         "test:social",
@@ -1012,7 +1016,16 @@ fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
     );
     let mut unknown = deeds.items[1];
     unknown.other = sim(50);
-    refuse(&data, &bytes, &pair, &[one, encode(&unknown)].concat());
+    refuse(
+        &data,
+        &bytes,
+        &pair,
+        &[one.clone(), encode(&unknown)].concat(),
+    );
+    // House day 1: day 2 is after today, so it lies outside the window (ADR-0031 section 7).
+    let mut future = deeds.items[1];
+    future.day = 2;
+    refuse(&data, &bytes, &pair, &[one, encode(&future)].concat());
 
     let owned = [encode(&sim(1)), encode(&beliefs)].concat();
     let mut sure = beliefs.clone();
@@ -1141,4 +1154,125 @@ fn a_child_under_six_holds_no_belief_and_two_beliefs_stay_sorted() {
     forged_deeds.insert(sim(3), own);
     assert_eq!(encode(&deeds).len(), encode(&forged_deeds).len());
     refuse(&young, &bytes, &encode(&deeds), &encode(&forged_deeds));
+}
+
+/// Whether `owner` still lists a deed of house day `day`.
+fn holds_day(run: &Run, owner: u64, day: i64) -> bool {
+    (run.world.state().house().social.deeds.get(&sim(owner)))
+        .is_some_and(|deeds| deeds.items.iter().any(|deed| deed.day == day))
+}
+
+/// The 06:00 at which the house day counted from `since` becomes `day`.
+fn morning_of(since: SimTime, day: i64) -> i64 {
+    let base = (since.as_secs() - 6 * 3600).div_euclid(86_400);
+    21_600 + (day + base) * 86_400
+}
+
+/// One tease, then at most one talk a day, so the cap of 64 never closes a day. Every offer
+/// lasts twelve hours and nobody leaves for work, so those thirty house days stay inside the
+/// decision budget. The deed of that tease is still in the list on the morning 29 house days
+/// later and gone on the morning 30 house days later. That morning writes no talk.
+/// `dropped_day` stays empty: only the cap closes a day inside the window. A save from the
+/// morning that still holds the deed, with that day rewritten to the day before the window,
+/// is refused.
+#[test]
+fn a_deed_falls_out_on_the_morning_thirty_house_days_later() {
+    let social = common::repository_social_with(|file| {
+        file["limits"]["talks_per_day"] = serde_json::json!(1);
+    });
+    let repository = include_str!("../../../data/house/day.json");
+    let day = repository.replace(
+        "\"from_age\": 18,\n    \"until_age\": 67,",
+        "\"from_age\": 66,\n    \"until_age\": 67,",
+    );
+    assert_ne!(day, repository, "the ages in the day file still bind");
+    let built = scene(43_200, 2, 2, 43_200, &day, 1e-9, 43_200).with_social(social);
+    let born = [-30 * year(), -32 * year()];
+    let (mut run, home) = day::Run::family(built.clone(), 0x5EED, "test:social", &born, 0);
+    let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
+    let first = arrival + TALK_DELAY;
+    run.advance(first);
+    let since = run.world.state().house().households[&home].since;
+    let deed_day = house_day(t(first), since);
+    assert_eq!(deed_day, 1);
+    let owner = [1_u64, 2]
+        .into_iter()
+        .find(|id| holds_day(&run, *id, deed_day))
+        .expect("the teaser");
+    let keep = morning_of(since, deed_day + 29);
+    let fall = morning_of(since, deed_day + 30);
+    assert_eq!(house_day(t(keep), since), deed_day + 29);
+    assert_eq!(house_day(t(fall), since), deed_day + 30);
+    assert_eq!(house_day(t(keep - 1), since), deed_day + 28);
+
+    run.advance(keep);
+    assert!(
+        holds_day(&run, owner, deed_day),
+        "still inside on the earlier morning"
+    );
+    assert_eq!(
+        house_day(t(run.world.closed_through().as_secs()), since),
+        deed_day + 29
+    );
+    let record = run.world.state().house().social.deeds[&sim(owner)].clone();
+    assert_eq!(record.dropped_day, None, "the cap has not closed a day");
+    assert!(record.items.iter().any(|deed| deed.day == deed_day));
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    // A single deed is a few bytes and occurs more than once. The owner's list does not.
+    let mut forged = record.clone();
+    let item = forged
+        .items
+        .iter_mut()
+        .find(|deed| deed.day == deed_day)
+        .expect("the deed");
+    item.day = deed_day - 1;
+    assert!(item.day >= 0);
+    let owned = [encode(&sim(owner)), encode(&record)].concat();
+    let outside = [encode(&sim(owner)), encode(&forged)].concat();
+    assert_eq!(owned.len(), outside.len());
+    refuse(&built, &bytes, &owned, &outside);
+
+    run.advance(fall - 1);
+    assert!(
+        holds_day(&run, owner, deed_day),
+        "the day before the morning still holds it"
+    );
+    let talks = talked(&run).len();
+    run.advance(fall);
+    assert_eq!(talked(&run).len(), talks, "the morning writes no talk");
+    assert!(
+        !holds_day(&run, owner, deed_day),
+        "thirty house days later it is gone"
+    );
+    let left = run.world.state().house().social.deeds.get(&sim(owner));
+    assert_eq!(left.and_then(|deeds| deeds.dropped_day), None);
+    if let Some(deeds) = left {
+        let start = deed_day + 1;
+        assert!(deeds.items.iter().all(|deed| deed.day >= start));
+    }
+}
+
+/// READING: ADR-0031 section 1 freezes deeds on moving out and is silent on the next move-in.
+/// Memories resume when the person enters a moved-in household again. A frozen deed is judged
+/// the same way, against the house day counted from the new `since`. Day 1 is after that
+/// today of 0, so it drops, with no entry. It is still there while the household is outside.
+#[test]
+fn moving_in_again_judges_a_frozen_deed_against_the_new_house_day() {
+    let (mut run, home) = couple(7_200);
+    let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
+    let first = arrival + TALK_DELAY;
+    run.advance(first);
+    let since = run.world.state().house().households[&home].since;
+    assert_eq!(house_day(t(first), since), 1);
+    assert!(holds_day(&run, 1, 1));
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    run.advance(first + 86_400);
+    assert!(
+        holds_day(&run, 1, 1),
+        "frozen while the household is outside"
+    );
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    let again = run.world.state().house().households[&home].since;
+    assert_eq!(house_day(again, again), 0);
+    assert!(!holds_day(&run, 1, 1), "day 1 is after the new house day");
 }
