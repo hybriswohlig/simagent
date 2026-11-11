@@ -568,21 +568,45 @@ const HAIR_VERTEX = `
 
 const STRAND_FRAG = `
   float cover = vKeep;
+  float hairA = 1.0;
   #ifdef USE_MAP
-    cover *= sampledDiffuseColor.a;
+    hairA = sampledDiffuseColor.a;
+    // Four texels. This only feathers the cut. It does not decide the part fill.
+    float softA = hairA;
+    if (uSoft > 0.5) {
+      vec2 texel = vec2(0.002);
+      softA += texture(map, vMapUv + vec2(texel.x, 0.0)).a;
+      softA += texture(map, vMapUv - vec2(texel.x, 0.0)).a;
+      softA += texture(map, vMapUv + vec2(0.0, texel.y)).a;
+      softA += texture(map, vMapUv - vec2(0.0, texel.y)).a;
+      softA *= 0.2;
+    }
+    cover *= softA;
     float shade = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
     float lift = clamp(shade / 0.16, 0.35, 1.45);
     diffuseColor.rgb = uHair * lift;
     diffuseColor.a = 1.0;
   #endif
   if (!gl_FrontFacing) diffuseColor.rgb *= 0.62;
-  // Vertices sit on the centre line, but the texture opens onto the scalp there.
-  // Paint with the dark body of the hair. A lighter mix (the old 0.78) reads as a stripe.
-  float part = (1.0 - smoothstep(0.0, 0.02, abs(vMesh.x)))
-    * smoothstep(uCrown.y - 0.11, uCrown.y - 0.012, vMesh.y);
-  if (uFill > 0.5 && part > 0.15 && vKeep > 0.55) {
-    diffuseColor.rgb = mix(diffuseColor.rgb, uHair * 0.36, smoothstep(0.15, 0.7, part));
+  float below = uCrown.y - vMesh.y;
+  float forward = vMesh.z - uCrown.z;
+  float fillMid = 1.0 - smoothstep(0.003, 0.01, abs(vMesh.x));
+  // Only the narrow tuft past the bangs. A wider cut opens a notch in the fringe.
+  float clipMid = 1.0 - smoothstep(0.002, 0.007, abs(vMesh.x));
+  float tuft = clipMid * step(0.08, below) * step(0.085, forward);
+  if (uClip > 0.5 && tuft > 0.5) discard;
+  // uCap is metres below the hair crown. Opaque hair still flanks the midline
+  // here. Lower than the cap, a fill becomes a bar on the forehead.
+  float inMass = step(-0.004, below) * (1.0 - smoothstep(uCap - 0.01, uCap, below));
+  float hole = (1.0 - smoothstep(0.2, 0.45, hairA)) * fillMid * inMass * step(0.5, vKeep);
+  if (uFill > 0.5 && hole > 0.4) {
+    diffuseColor.rgb = uHair * 0.62;
     diffuseColor.a = 1.0;
+  } else if (uSoft > 0.5) {
+    float w = clamp(fwidth(cover), 0.02, 0.08);
+    float alpha = smoothstep(uThresh - w, uThresh + w, cover);
+    if (alpha < 0.02) discard;
+    diffuseColor.a = alpha;
   } else if (cover < uThresh) {
     discard;
   }
@@ -623,7 +647,7 @@ const EYE_FRAG = `
   #endif
 `;
 
-function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset, fillPart) {
+function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset, fillPart, softEdge, cap, clip) {
   const material = litMaterial(style, 0.62);
   material.map = texture;
   material.color.setHex(0xffffff);
@@ -631,20 +655,26 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
   material.polygonOffset = true;
   material.polygonOffsetFactor = offset;
   material.polygonOffsetUnits = offset;
+  // Soft coverage rounds the alpha-test stair. Lashes and brows stay a hard cut.
+  if (softEdge) material.alphaToCoverage = true;
   const uniforms = {
     uHair: { value: new THREE.Color(hairHex) },
     uThresh: { value: threshold },
     uBald: { value: bald },
     uCrown: { value: new THREE.Vector3(crown[0], crown[1], crown[2]) },
     uFill: { value: fillPart ? 1 : 0 },
+    uSoft: { value: softEdge ? 1 : 0 },
+    uCap: { value: cap == null ? 0 : cap },
+    uClip: { value: clip ? 1 : 0 },
   };
+  const kind = `${fillPart ? "part" : "cut"}-${softEdge ? "soft" : "hard"}`;
   return bindShader(
     material,
-    fillPart ? `strand-${style}-part` : `strand-${style}`,
+    `strand-${style}-${kind}`,
     uniforms,
     "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;",
     HAIR_VERTEX,
-    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform vec3 uCrown;",
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform vec3 uCrown;",
     STRAND_FRAG,
   );
 }
@@ -809,6 +839,17 @@ function hairChoice(body) {
   return "hair_long";
 }
 
+// Top of the fitted hair. The scalp crown sits under it, and a cap measured
+// from the scalp paints the part down onto the forehead.
+function hairCrown(proxy, humanPos) {
+  const fitted = fitProxy(proxy, humanPos);
+  let best = 0;
+  for (let i = 0; i < fitted.length; i += 3) {
+    if (fitted[i + 1] > fitted[best + 1]) best = i;
+  }
+  return [fitted[best], fitted[best + 1], fitted[best + 2]];
+}
+
 function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, style, marks) {
   const pack = state.pack.proxies;
   const hairName = hairChoice(body);
@@ -816,9 +857,12 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, styl
   if (density > 0.02) {
     const bald = hairName === "hair_short" ? clamp(body.balding_stage, 0, 7) / 7 : 0;
     const threshold = THREE.MathUtils.lerp(0.9, 0.2, density);
+    // Caps are the last midline height with opaque hair on both sides.
+    const cap = hairName === "hair_child" ? 0.06 : hairName === "hair_short" ? 0.042 : 0.05;
+    const crown = hairCrown(pack[hairName], humanPos);
     addFitted(
       mesh, head, pack[hairName], humanPos,
-      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1, true),
+      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, crown, -1, true, true, cap, hairName === "hair_child"),
       2,
     );
   }
