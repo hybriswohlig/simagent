@@ -30,13 +30,19 @@ expects them on its own origin under `/cache/`, so use `serve.py` to look
 at the row.
 
 `?style=A`, `?style=B` or `?style=C` selects a look. `?close=1` starts in
-the face framing. The buttons do the same thing.
+the face framing, five faces at a time. `?page=2` turns the page. The
+buttons do the same thing. Three extra figures labelled "palette check"
+stand past the family and are not part of it. They use the contract melanin
+minimum, middle and maximum.
 
 ## Looks
 
-A is stylised-realistic: standard material, soft light, face axes a little
-stronger. B is toon shading with a dark rim. C is flat unlit colour.
-Hair is a cap whose crown shrinks with the balding stage and whose strength
-follows hair density. Beards are a tint on men. There is no hair dye.
-Grey is a mix toward neutral grey. Height is a uniform scale of the root
-bone after the age, fat and muscle morphs.
+A is stylised-realistic: standard material, light kept under the albedo,
+face axes a little stronger. B is toon shading with a dark rim. C is flat
+unlit colour. Skin, hair and iris colours are the contract
+`melanin_to_srgb` tables, interpolated in linear light and stored on the
+material as sRGB. A shader band colours the torso and hips so the body is
+not nude. Hair is a larger cap whose crown shrinks with the balding stage.
+Beards are a darker, flatter mix of skin and hair colour on men. There is no hair
+dye. Grey is a mix toward neutral grey. Height is a uniform scale of the
+root bone after the age, fat and muscle morphs.

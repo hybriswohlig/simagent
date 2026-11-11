@@ -44,8 +44,11 @@ const state = {
   style: ["A", "B", "C"].includes(params.get("style")) ? params.get("style") : "A",
   close: params.get("close") === "1",
   people: [],
+  facePage: Math.max(0, (Number(params.get("page")) || 1) - 1),
   clock: 0,
 };
+const FACE_COUNT = 5;
+const CLOTH = "#314a6e";
 
 const canvas = document.querySelector("#stage");
 const labels = document.querySelector("#labels");
@@ -55,19 +58,19 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
-renderer.setClearColor(0xe6e1d8, 1);
+renderer.setClearColor(0xe7e2da, 1);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 80);
-const hemi = new THREE.HemisphereLight(0xfff6ec, 0x9aa3ae, 0.9);
-const key = new THREE.DirectionalLight(0xfff8f0, 0.85);
-key.position.set(-4.5, 7.5, 5);
-const fill = new THREE.DirectionalLight(0xd7e4ff, 0.55);
-fill.position.set(5, 2.5, 3);
+const camera = new THREE.PerspectiveCamera(26, 1, 0.05, 80);
+const hemi = new THREE.HemisphereLight(0xfffaf6, 0xe6ddd2, Math.PI * 0.42);
+const key = new THREE.DirectionalLight(0xfff6ee, Math.PI * 0.38);
+key.position.set(-2.4, 5.2, 4.6);
+const fill = new THREE.DirectionalLight(0xf6efe6, Math.PI * 0.12);
+fill.position.set(4.2, 2.2, 3);
 scene.add(hemi, key, fill);
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(80, 80),
-  new THREE.MeshStandardMaterial({ color: 0xd4cec3, roughness: 1, metalness: 0 }),
+  new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 1, metalness: 0 }),
 );
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.002;
@@ -139,13 +142,19 @@ function ageSlices(age) {
   return [0, 0, 1];
 }
 
-function morphWeights(body, emphasise) {
-  const age = body.body_form_age;
-  const [child, young, old] = ageSlices(age);
-  const androgen = body.androgenic_development;
-  const estrogen = body.estrogenic_development;
+function branchShares(body) {
+  const androgen = clamp(body.androgenic_development, 0, 1);
+  const estrogen = clamp(body.estrogenic_development, 0, 1);
   const male = 0.5 + 0.5 * androgen - 0.5 * estrogen;
   const female = 0.5 - 0.5 * androgen + 0.5 * estrogen;
+  return { androgen, estrogen, male, female, gender: male };
+}
+
+function morphWeights(body, sex, emphasise) {
+  const age = body.body_form_age;
+  const [child, young, old] = ageSlices(age);
+  const share = branchShares(body);
+  const { male, female, estrogen } = share;
   const weights = {};
   const slices = [child, young, old];
   ["child", "young", "old"].forEach((name, index) => {
@@ -159,13 +168,13 @@ function morphWeights(body, emphasise) {
   const fatNeg = Math.max(-fu, 0) * (1 - Math.abs(mu));
   const musPos = Math.max(mu, 0) * (1 - Math.abs(fu));
   const musNeg = Math.max(-mu, 0) * (1 - Math.abs(fu));
-  for (const sex of ["male", "female"]) {
-    const youngWeight = weights[`age_${sex}_young`];
-    weights[`age_${sex}_young`] = youngWeight * keep;
-    weights[`fat_${sex}_max`] = youngWeight * fatPos;
-    weights[`fat_${sex}_min`] = youngWeight * fatNeg;
-    weights[`muscle_${sex}_max`] = youngWeight * musPos;
-    weights[`muscle_${sex}_min`] = youngWeight * musNeg;
+  for (const branch of ["male", "female"]) {
+    const youngWeight = weights[`age_${branch}_young`];
+    weights[`age_${branch}_young`] = youngWeight * keep;
+    weights[`fat_${branch}_max`] = youngWeight * fatPos;
+    weights[`fat_${branch}_min`] = youngWeight * fatNeg;
+    weights[`muscle_${branch}_max`] = youngWeight * musPos;
+    weights[`muscle_${branch}_min`] = youngWeight * musNeg;
   }
   const quarter = (value) => value / 4;
   weights.leg_upper = quarter(body.leg_ratio_z);
@@ -176,8 +185,13 @@ function morphWeights(body, emphasise) {
   weights.pelvis_width = quarter(body.hip_width_z);
   weights.fat_central = Math.max(body.fat_distribution_z, 0) / 4;
   weights.fat_peripheral = Math.max(-body.fat_distribution_z, 0) / 4;
-  weights.breast_max = estrogen * Math.max(0, (body.breast_development - 0.5) * 2);
-  weights.breast_min = estrogen * Math.max(0, (0.5 - body.breast_development) * 2);
+  const breast = clamp(body.breast_development, 0, 1);
+  weights.breast_max = estrogen * Math.max(0, (breast - 0.5) * 2);
+  weights.breast_min = estrogen * Math.max(0, (0.5 - breast) * 2);
+  if (sex === "male") {
+    weights.breast_max = 0;
+    weights.breast_min = Math.max(weights.breast_min, Math.max(0, share.androgen - share.estrogen));
+  }
   weights.face_age_decr = clamp((body.body_form_age - body.face_form_age) / 20, 0, 1);
   weights.face_age_incr = clamp((body.face_form_age - body.body_form_age) / 45, 0, 1);
   const feature = emphasise ? 1.2 : 1;
@@ -186,7 +200,7 @@ function morphWeights(body, emphasise) {
     weights[key] = quarter(body[key]) * feature;
   }
   if (emphasise) weights.head_size *= 1.08;
-  return weights;
+  return { weights, share, slices: { child, young, old } };
 }
 
 function applyWeights(mesh, weights) {
@@ -252,7 +266,7 @@ function landmarks(mesh, weights) {
       if (x < -0.015) left.push([x, y, z]);
       if (x > 0.015) right.push([x, y, z]);
     }
-    if (Math.abs(x) < 0.03 && y < maxY - 0.16 && y > maxY - 0.28 && (!chin || z > chin[2])) {
+    if (Math.abs(x) < 0.045 && y < maxY - 0.18 && y > maxY - 0.26 && (!chin || z > chin[2])) {
       chin = [x, y, z];
     }
   }
@@ -286,14 +300,43 @@ function makeGradient() {
   return texture;
 }
 
-function bodyMaterial(color, style) {
-  if (style === "C") {
-    return new THREE.MeshBasicMaterial({ color, toneMapped: false });
-  }
-  if (style === "B") {
-    return new THREE.MeshToonMaterial({ color, gradientMap: toonGradient });
-  }
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.62, metalness: 0 });
+function surfaceMaterial(hex, style, roughness) {
+  let material;
+  if (style === "C") material = new THREE.MeshBasicMaterial({ toneMapped: false });
+  else if (style === "B") material = new THREE.MeshToonMaterial({ gradientMap: toonGradient });
+  else material = new THREE.MeshStandardMaterial({ roughness: Math.max(roughness, 0.72), metalness: 0 });
+  material.color.setStyle(hex);
+  return material;
+}
+
+// Bind-space band: feet at y=0, crown at 1.666 m. Hips stay wide. Above the
+// waist the limit stops at the torso so the A-pose arms stay skin.
+const CLOTH_BAND = `
+  float ny = vBind.y / 1.666;
+  float ax = abs(vBind.x);
+  float vertical = smoothstep(0.30, 0.325, ny) * (1.0 - smoothstep(0.74, 0.76, ny));
+  float arm = smoothstep(0.18, 0.21, ax) * smoothstep(0.53, 0.56, ny);
+  diffuseColor.rgb = mix(diffuseColor.rgb, uCloth, vertical * (1.0 - arm));
+`;
+
+function paintCloth(material) {
+  material.customProgramCacheKey = () => "bodysuit-basis";
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uCloth = { value: new THREE.Color(CLOTH) };
+    shader.vertexShader = `varying vec3 vBind;\n${shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\n\tvBind = position;",
+    )}`;
+    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\n${shader.fragmentShader.replace(
+      "#include <color_fragment>",
+      `#include <color_fragment>\n${CLOTH_BAND}`,
+    )}`;
+  };
+  return material;
+}
+
+function bodyMaterial(skinHex, style) {
+  return paintCloth(surfaceMaterial(skinHex, style, 0.58));
 }
 
 function hairMaterial(color, opacity, style) {
@@ -354,53 +397,58 @@ function mountOnHead(mesh, head, object, x, y, z) {
   head.add(object);
 }
 
+function beardTint(skinHex, hairHex, density) {
+  const mixed = mixLinear(linearOf(skinHex), linearOf(hairHex), 0.5 + 0.45 * density);
+  return hexOf(mixed.map((channel) => channel * (0.62 - 0.34 * density)));
+}
+
 function addCap(mesh, head, color, body, style, marks) {
   const density = clamp(body.hair_density, 0, 1);
   if (density <= 0.02 || !marks || !head) return;
   const stage = clamp(body.balding_stage, 0, 7);
   const cover = 1 - stage / 7;
   const fit = headFit(marks);
-  const opacity = 0.4 + 0.6 * density;
-  const material = hairMaterial(color, opacity, style);
+  const material = hairMaterial(color, 1, style);
   if (cover > 0.04) {
+    const radius = (0.068 + 0.03 * cover) * fit;
     const crown = new THREE.Mesh(
-      new THREE.SphereGeometry(0.11, style === "C" ? 10 : 20, style === "C" ? 8 : 14),
+      new THREE.SphereGeometry(
+        radius,
+        style === "C" ? 14 : 24,
+        style === "C" ? 12 : 18,
+        0,
+        Math.PI * 2,
+        0,
+        Math.PI * 0.58,
+      ),
       material,
     );
     crown.name = "hair";
-    const lift = (1 - cover) * 0.028;
-    crown.scale.set((0.62 + 0.18 * cover) * fit, (0.5 + 0.16 * cover) * fit, (0.7 + 0.18 * cover) * fit);
-    mountOnHead(mesh, head, crown, 0, marks.maxY - 0.022 - lift, 0.012);
+    crown.scale.set(1.12, 0.82 + 0.2 * cover, 1.05);
+    mountOnHead(mesh, head, crown, 0, marks.maxY - radius * 0.62, 0.035 - 0.02 * (1 - cover));
   }
-  const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(0.09 * fit, (style === "C" ? 0.012 : 0.015) * fit, 8, style === "C" ? 12 : 22),
-    material,
-  );
-  rim.name = "hair-rim";
-  rim.rotation.x = Math.PI / 2.15;
-  mountOnHead(mesh, head, rim, 0, marks.maxY - 0.105, 0.02);
 }
 
 function addBeard(mesh, head, color, body, style, marks) {
-  if (body.sex !== "male" || !head) return;
+  if (body.sex !== "male" || !head || !marks.chin) return;
   const density = clamp(body.beard_density, 0, 1);
-  if (density <= 0.04 || !marks.chin) return;
+  if (density <= 0.04) return;
   const coverage = clamp(body.beard_coverage, 0, 1);
   const fit = headFit(marks);
-  const material = hairMaterial(color, 0.45 + 0.5 * density, style);
+  const material = hairMaterial(color, 0.72 + 0.28 * density, style);
   const beard = new THREE.Mesh(
-    new THREE.SphereGeometry(0.032, style === "C" ? 8 : 14, style === "C" ? 8 : 12),
+    new THREE.SphereGeometry(0.032, style === "C" ? 10 : 16, style === "C" ? 8 : 12),
     material,
   );
   beard.name = "beard";
-  beard.scale.set((0.85 + 0.7 * coverage) * fit, (0.5 + 0.85 * coverage) * fit, (0.35 + 0.3 * coverage) * fit);
+  beard.scale.set((1.5 + 1.3 * coverage) * fit, (0.7 + 0.8 * coverage) * fit, 0.45 * fit);
   mountOnHead(
     mesh,
     head,
     beard,
     0,
-    marks.chin[1] - 0.01 - 0.012 * coverage,
-    marks.chin[2] + 0.008,
+    marks.chin[1] - 0.012,
+    marks.chin[2] + 0.002,
   );
 }
 
@@ -408,29 +456,110 @@ function addEye(mesh, head, point, color, style, fit) {
   if (!point || !head) return;
   const size = fit || 1;
   const sclera = new THREE.Mesh(
-    new THREE.SphereGeometry(0.009 * size, 12, 10),
+    new THREE.SphereGeometry(0.016 * size, 12, 10),
     new THREE.MeshBasicMaterial({ color: 0xf7f4ef, toneMapped: false }),
   );
-  mountOnHead(mesh, head, sclera, point[0], point[1], point[2] + 0.002);
+  mountOnHead(mesh, head, sclera, point[0], point[1], point[2] + 0.012);
   const iris = new THREE.Mesh(
-    new THREE.SphereGeometry(0.0052 * size, 12, 10),
+    new THREE.SphereGeometry(0.011 * size, 12, 10),
     style === "A"
       ? new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0 })
       : new THREE.MeshBasicMaterial({ color, toneMapped: false }),
   );
-  mountOnHead(mesh, head, iris, point[0], point[1], point[2] + 0.006);
+  mountOnHead(mesh, head, iris, point[0], point[1], point[2] + 0.018);
   const pupil = new THREE.Mesh(
-    new THREE.SphereGeometry(0.0022 * size, 8, 8),
+    new THREE.SphereGeometry(0.0032 * size, 8, 8),
     new THREE.MeshBasicMaterial({ color: 0x14110e, toneMapped: false }),
   );
-  mountOnHead(mesh, head, pupil, point[0], point[1], point[2] + 0.008);
+  mountOnHead(mesh, head, pupil, point[0], point[1], point[2] + 0.022);
 }
 
-function buildPerson(template, member, index, count) {
+function neutralBody(eumelanin, pheomelanin) {
+  const body = {
+    body_form_age: 30,
+    face_form_age: 30,
+    height_cm: 170,
+    leg_ratio_z: 0,
+    head_size_z: 0,
+    body_fat_z: 0,
+    fat_distribution_z: 0,
+    muscle_z: 0,
+    shoulder_width_z: 0,
+    chest_depth_z: 0,
+    hip_width_z: 0,
+    skin_eumelanin: eumelanin,
+    skin_pheomelanin: pheomelanin,
+    hair_eumelanin: eumelanin,
+    hair_pheomelanin: pheomelanin,
+    iris_melanin: eumelanin,
+    hair_curl: 0,
+    hair_density: 1,
+    balding_stage: 0,
+    hair_grey_fraction: 0,
+    eyebrow_density: 0.4,
+    beard_density: 0,
+    beard_coverage: 0,
+    body_hair: 0,
+    androgenic_development: 0.5,
+    estrogenic_development: 0.5,
+    breast_development: 0.5,
+  };
+  for (let axis = 1; axis <= 12; axis += 1) {
+    body[`face_axis_${String(axis).padStart(2, "0")}`] = 0;
+  }
+  return body;
+}
+
+function paletteMembers() {
+  return [
+    ["min", 0, 0],
+    ["mid", 0.5, 0.5],
+    ["max", 1, 1],
+  ].map(([label, eumelanin, pheomelanin]) => ({
+    role: "palette",
+    palette: true,
+    sex: "female",
+    first_name: "palette check",
+    surname: "",
+    age_years: label,
+    body: neutralBody(eumelanin, pheomelanin),
+  }));
+}
+
+function fullRoster() {
+  return state.family.members.concat(paletteMembers());
+}
+
+function roster() {
+  const all = fullRoster();
+  if (!state.close) return all;
+  const pages = Math.max(1, Math.ceil(all.length / FACE_COUNT));
+  state.facePage = clamp(state.facePage, 0, pages - 1);
+  const start = state.facePage * FACE_COUNT;
+  return all.slice(start, start + FACE_COUNT);
+}
+
+function layoutX(members) {
+  const gap = state.close ? 0.5 : 0.8;
+  const breakGap = state.close ? 0.28 : 1.15;
+  let cursor = 0;
+  const xs = members.map((member, index) => {
+    if (index > 0) {
+      const split = member.palette && !members[index - 1].palette;
+      cursor += split ? gap + breakGap : gap;
+    }
+    return cursor;
+  });
+  const mid = xs.length ? (xs[0] + xs[xs.length - 1]) / 2 : 0;
+  return xs.map((x) => x - mid);
+}
+
+function buildPerson(template, member, x) {
   const root = cloneSkeleton(template);
   const mesh = findMesh(root);
-  const emphasise = state.style === "A";
-  const weights = morphWeights(member.body, emphasise);
+  const emphasise = state.style === "A" && !member.palette;
+  const shaped = morphWeights(member.body, member.sex, emphasise);
+  const weights = shaped.weights;
   applyWeights(mesh, weights);
   const measured = morphedYSpan(mesh, Object.fromEntries(
     Object.entries(weights).filter(([name]) => MEASURE_KEYS.has(name)),
@@ -445,8 +574,7 @@ function buildPerson(template, member, index, count) {
   wrapper.add(root);
   // Root scale lifts the feet by pivot * (scale - 1). Drop the wrapper so they stay on Y=0.
   wrapper.position.y = -pivot * (1 - scale);
-  const gap = 1.15;
-  wrapper.position.x = (index - (count - 1) / 2) * gap;
+  wrapper.position.x = x;
   const marks = landmarks(mesh, weights);
   const skin = gridColor(SKIN, member.body.skin_eumelanin, member.body.skin_pheomelanin);
   const hair = hairColor(member.body);
@@ -464,7 +592,7 @@ function buildPerson(template, member, index, count) {
   }
   const body = { ...member.body, sex: member.sex };
   addCap(mesh, head, hair, body, state.style, marks);
-  addBeard(mesh, head, hair, body, state.style, marks);
+  addBeard(mesh, head, beardTint(skin, hair, clamp(body.beard_density, 0, 1)), body, state.style, marks);
   const fit = headFit(marks);
   addEye(mesh, head, marks.leftEye, iris, state.style, fit);
   addEye(mesh, head, marks.rightEye, iris, state.style, fit);
@@ -474,12 +602,53 @@ function buildPerson(template, member, index, count) {
   const tag = document.createElement("div");
   tag.className = "tag";
   const name = document.createElement("b");
-  name.textContent = `${member.first_name || ""} ${member.surname || ""}`.trim();
+  name.textContent = member.palette
+    ? "palette check"
+    : `${member.first_name || ""} ${member.surname || ""}`.trim();
   const line = document.createElement("span");
-  line.textContent = `${member.age_years} · ${member.sex}`;
+  line.textContent = member.palette ? String(member.age_years) : `${member.age_years} · ${member.sex}`;
   tag.append(name, line);
   labels.append(tag);
-  return { wrapper, mesh, outline, spines, rest, scale, tag, anchor: new THREE.Vector3(), member };
+  return {
+    wrapper, mesh, outline, spines, rest, scale, tag,
+    anchor: new THREE.Vector3(), member, shaped, skin, hair, iris,
+  };
+}
+
+function weightRow(person) {
+  const { weights, share, slices } = person.shaped;
+  const sum = (prefix) => ["male", "female"].reduce((total, branch) => (
+    total + (weights[`${prefix}_${branch}_max`] || 0) + (weights[`${prefix}_${branch}_min`] || 0)
+  ), 0);
+  return {
+    name: person.member.palette ? `palette ${person.member.age_years}` : `${person.member.first_name} ${person.member.age_years}`,
+    sex: person.member.sex,
+    age: person.member.body.body_form_age,
+    gender: share.gender,
+    male: share.male,
+    female: share.female,
+    child: slices.child,
+    young: slices.young,
+    old: slices.old,
+    breast: person.member.body.breast_development,
+    breast_max: weights.breast_max,
+    breast_min: weights.breast_min,
+    fat: sum("fat"),
+    muscle: sum("muscle"),
+    skin: person.skin,
+    hair: person.hair,
+    iris: person.iris,
+    skin_eumelanin: person.member.body.skin_eumelanin,
+    skin_pheomelanin: person.member.body.skin_pheomelanin,
+    hair_eumelanin: person.member.body.hair_eumelanin,
+    hair_pheomelanin: person.member.body.hair_pheomelanin,
+    hair_grey_fraction: person.member.body.hair_grey_fraction,
+    iris_melanin: person.member.body.iris_melanin,
+  };
+}
+
+function publishReport() {
+  window.__styleReport = state.people.map(weightRow);
 }
 
 function restyle() {
@@ -488,35 +657,53 @@ function restyle() {
     person.tag.remove();
   }
   state.people = [];
-  const count = state.family.members.length;
-  state.family.members.forEach((member, index) => {
-    state.people.push(buildPerson(state.template, member, index, count));
+  const members = roster();
+  const xs = layoutX(members);
+  members.forEach((member, index) => {
+    state.people.push(buildPerson(state.template, member, xs[index]));
   });
-  ground.material = state.style === "C"
-    ? new THREE.MeshBasicMaterial({ color: 0xd4cec3, toneMapped: false })
-    : new THREE.MeshStandardMaterial({ color: 0xd4cec3, roughness: 1, metalness: 0, side: THREE.FrontSide });
+  const floor = state.style === "C"
+    ? new THREE.MeshBasicMaterial({ color: 0xc9c3b8, toneMapped: false })
+    : new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 1, metalness: 0, side: THREE.FrontSide });
+  ground.material = floor;
   const lit = state.style !== "C";
   hemi.visible = lit;
   key.visible = lit;
   fill.visible = lit;
+  publishReport();
+  updateFaceButtons();
 }
 
 function frame() {
-  const count = state.family.members.length;
-  const half = ((count - 1) / 2) * 1.15;
-  // The body faces +Z. The camera sits on +X/+Z, above the row, so the view is
-  // three-quarter and slightly down, the way a life sim frames a lot.
-  if (state.close) {
-    camera.fov = 16;
-    const distance = Math.max(12.4, half * 1.85);
-    camera.position.set(distance * 0.14, 1.5, distance);
-    camera.lookAt(0, 1.42, 0);
-  } else {
-    camera.fov = 26;
-    const distance = Math.max(17.6, half * 2.55);
-    camera.position.set(distance * 0.2, 1.85, distance);
-    camera.lookAt(0, 0.95, 0);
-  }
+  const people = state.people;
+  if (!people.length) return;
+  const xs = people.map((person) => person.wrapper.position.x);
+  const heights = people.map((person) => person.member.body.height_cm / 100);
+  const maxH = Math.max(...heights);
+  const reach = state.close ? 0.22 : 1.05;
+  const minX = Math.min(...xs) - reach;
+  const maxX = Math.max(...xs) + reach;
+  const midX = (minX + maxX) / 2;
+  const width = Math.max(maxX - minX, 0.9);
+  const headLine = heights.map((height) => height * 0.88);
+  const lookY = state.close
+    ? (Math.max(...headLine) + Math.min(...headLine)) / 2
+    : maxH * 0.5;
+  const target = state.close
+    ? Math.max(0.46, Math.max(...headLine) - Math.min(...headLine) + 0.36)
+    : maxH;
+  const fill = state.close ? 0.82 : 0.9;
+  camera.fov = 20;
+  camera.updateProjectionMatrix();
+  const v = THREE.MathUtils.degToRad(camera.fov);
+  const aspect = camera.aspect || 1.8;
+  const distH = (target / fill) / (2 * Math.tan(v / 2));
+  const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
+  const distW = width / (2 * Math.tan(h / 2));
+  const distance = Math.max(distH, distW);
+  const lift = state.close ? target * 0.08 : target * 0.14;
+  camera.position.set(midX + distance * 0.1, lookY + lift, distance);
+  camera.lookAt(midX, lookY, 0);
   camera.updateProjectionMatrix();
 }
 
@@ -565,32 +752,73 @@ function setStyle(style) {
   for (const id of ["a", "b", "c"]) {
     document.querySelector(`#style-${id}`).setAttribute("aria-pressed", style === id.toUpperCase() ? "true" : "false");
   }
-  const url = new URL(location.href);
-  url.searchParams.set("style", style);
-  history.replaceState(null, "", url);
+  syncUrl();
   if (state.template) restyle();
+}
+
+function syncUrl() {
+  const url = new URL(location.href);
+  url.searchParams.set("style", state.style);
+  if (state.close) url.searchParams.set("close", "1");
+  else url.searchParams.delete("close");
+  if (state.close && state.facePage > 0) url.searchParams.set("page", String(state.facePage + 1));
+  else url.searchParams.delete("page");
+  history.replaceState(null, "", url);
+}
+
+function updateFaceButtons() {
+  const prev = document.querySelector("#faces-prev");
+  const next = document.querySelector("#faces-next");
+  const label = document.querySelector("#faces-page");
+  const total = state.family ? fullRoster().length : 0;
+  const pages = Math.max(1, Math.ceil(total / FACE_COUNT));
+  const on = state.close;
+  prev.hidden = !on;
+  next.hidden = !on;
+  label.hidden = !on;
+  if (!on || !total) return;
+  state.facePage = clamp(state.facePage, 0, pages - 1);
+  const start = state.facePage * FACE_COUNT + 1;
+  const end = Math.min(total, start + FACE_COUNT - 1);
+  label.textContent = `${start}–${end} of ${total}`;
+  prev.disabled = state.facePage <= 0;
+  next.disabled = state.facePage >= pages - 1;
 }
 
 function setClose(close) {
   state.close = close;
   document.querySelector("#close").setAttribute("aria-pressed", close ? "true" : "false");
-  const url = new URL(location.href);
-  if (close) url.searchParams.set("close", "1");
-  else url.searchParams.delete("close");
-  history.replaceState(null, "", url);
-  if (state.family) frame();
+  syncUrl();
+  if (state.template) {
+    restyle();
+    frame();
+  }
+}
+
+function setFacePage(page) {
+  state.facePage = page;
+  syncUrl();
+  if (state.template && state.close) {
+    restyle();
+    frame();
+  }
 }
 
 document.querySelector("#style-a").addEventListener("click", () => setStyle("A"));
 document.querySelector("#style-b").addEventListener("click", () => setStyle("B"));
 document.querySelector("#style-c").addEventListener("click", () => setStyle("C"));
 document.querySelector("#close").addEventListener("click", () => setClose(!state.close));
+document.querySelector("#faces-prev").addEventListener("click", () => setFacePage(state.facePage - 1));
+document.querySelector("#faces-next").addEventListener("click", () => setFacePage(state.facePage + 1));
 document.querySelector("#close").setAttribute("aria-pressed", state.close ? "true" : "false");
 for (const id of ["a", "b", "c"]) {
   const style = id.toUpperCase();
   document.querySelector(`#style-${id}`).setAttribute("aria-pressed", state.style === style ? "true" : "false");
 }
-addEventListener("resize", resize);
+addEventListener("resize", () => {
+  resize();
+  frame();
+});
 
 async function boot() {
   status.textContent = "Loading the body…";
@@ -608,8 +836,8 @@ async function boot() {
   const line = family.line || {};
   caption.textContent = `Seed ${family.seed}. Sims ${line.grandfather}, ${line.grandmother}, ${line.father}, ${line.mother}, girl ${line.girl_17}, boy ${line.boy_13}.`;
   resize();
-  frame();
   restyle();
+  frame();
   animate();
 }
 

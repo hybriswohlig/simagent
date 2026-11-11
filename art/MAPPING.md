@@ -112,17 +112,39 @@ approximation.
 `hip-scale-horiz-incr` is pelvis width only. It is not reused for fat
 distribution. `torso/measure-hips-circ-incr` is unused.
 
+## Gender axis
+
+MakeHuman `macrodetails/Gender` is 0 for female and 1 for male. There is
+no separate gender target file. The axis is the male share below, which is
+also the weight on the male age key. The recorded sex has to agree with
+that share: a male's share stays above 0.5 once androgenic development
+passes estrogenic development, and the reverse for a female. While both
+developments are near 0, both sexes sit on 0.5. Children of 8 are that
+case, so their shapes barely differ.
+
+```
+gender = male share = 0.5 + 0.5 * A - 0.5 * E
+```
+
 ## Breast
 
 `breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness`
-and the matching `mincup` file. The female young race blend already
-contains MakeHuman's average cup, so `breast_development` 0.5 adds no
-extra key. The contract default is 0.25, which applies half of the min-cup
+and the matching `mincup` file. The female age targets already contain
+MakeHuman's average cup, so `breast_development` 0.5 adds no extra key on
+a female. The contract default is 0.25, which applies half of the min-cup
 target on a fully estrogenic shape.
 
+Breasts are driven only through the female branch. On a male,
+`breast_max` stays 0. `breast_min` is at least `max(0, A - E)`, which is
+0 before puberty and rises with the male share, so the average cup baked
+into the female age target does not stay on a man. A male
+`breast_development` should be about 0. The sample reports the number
+when a man is above 0.
+
 ```
-weight(breast_max) = E * max(0, (breast_development - 0.5) * 2)
+weight(breast_max) = E * max(0, (breast_development - 0.5) * 2)   # 0 on a male
 weight(breast_min) = E * max(0, (0.5 - breast_development) * 2)
+on a male: breast_min = max(breast_min, max(0, A - E))
 ```
 
 ## Face maturity

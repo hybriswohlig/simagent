@@ -52,6 +52,8 @@
       color: var(--panel);
       border-color: var(--ink);
     }
+    button:disabled { opacity: 0.35; cursor: default; }
+    #faces-page { align-self: center; font-size: 0.85rem; color: #5c564c; }
     #view { position: relative; height: calc(100% - 4.4rem); }
     canvas { display: block; width: 100%; height: 100%; }
     #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -92,7 +94,10 @@
       <button type="button" id="style-a" aria-pressed="true">A Realistic</button>
       <button type="button" id="style-b" aria-pressed="false">B Toon</button>
       <button type="button" id="style-c" aria-pressed="false">C Flat</button>
+      <button type="button" id="faces-prev" hidden>Previous</button>
       <button type="button" id="close" aria-pressed="false">Faces</button>
+      <button type="button" id="faces-next" hidden>Next</button>
+      <span id="faces-page" hidden></span>
     </div>
   </header>
   <div id="view">

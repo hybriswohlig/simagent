@@ -57,6 +57,18 @@ The body contract has no origin field. The three races are weighted equally (1/3
 | `rigs/standard/weights.game_engine.json` | Skin weights, CC0, version 110. |
 | `mesh_metadata/hm08_config.json` | `groups_by_range.body` = `[0, 13379]`. |
 
+## Clothes
+
+This run does not download the community system-assets pack. That zip is about 267 MB
+(https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip,
+CC0). A fitted proxy would need an `.mhclo` and a second mesh.
+
+The sample instead paints a sleeveless body suit on the CC0 body. A shader band
+on the skin material colours the torso and hips `#314a6e` (from mid-thigh to the
+top of the chest, stopping before the arms). Head, arms, hands and lower legs
+stay skin. Breast shape is still the mesh under that colour. No new asset file
+is added.
+
 ## Not used
 
 - `rigs/standard/rig.mixamo.json` and `weights.mixamo.json` are in the same directory. This sample does not use Mixamo, and it does not use assets from any game.
