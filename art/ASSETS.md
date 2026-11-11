@@ -43,6 +43,16 @@ Paths are relative to `src/mpfb/data/` in the clone.
 |---|---|
 | `3dobjs/base.obj` | HM08 base mesh, 19158 vertices. Body vertices are 0..13379. Helpers are removed after shape keys and weights are assigned. |
 | `targets/**/*.target.gz` | Morph targets listed in `MAPPING.md`. Text or gzip, `vertex_index dx dy dz`, OBJ space (Y up, decimeters). |
+
+The eight files `macrodetails/universal-{male,female}-{baby,child,young,old}-averagemuscle-averageweight.target.gz` are empty gzip archives (about 76 bytes). They are the neutral corner of the muscle/weight grid and match the base mesh. The build does not load them. Confirmed on this commit and on the raw file at tag `v2.0.18`.
+
+Each `age_*` shape key is the mean of three targets in the same directory, all CC0 in this repository:
+
+- `macrodetails/african-{male,female}-{child,young,old}.target.gz`
+- `macrodetails/asian-{male,female}-{child,young,old}.target.gz`
+- `macrodetails/caucasian-{male,female}-{child,young,old}.target.gz`
+
+The body contract has no origin field. The three races are weighted equally (1/3 each). MPFB's own default is 0.33, 0.33, 0.33, which sums to 0.99.
 | `rigs/standard/rig.game_engine.json` | Skeleton. Rest pose is `default_position` in meters, Z up, before the feet-on-ground shift. |
 | `rigs/standard/weights.game_engine.json` | Skin weights, CC0, version 110. |
 | `mesh_metadata/hm08_config.json` | `groups_by_range.body` = `[0, 13379]`. |

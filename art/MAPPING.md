@@ -1,0 +1,188 @@
+# Render mapping (proposal)
+
+Contract `contracts/body.json` 0.1.1 has 44 parameters. This file is the only place
+the face axes get a meaning, and the only place a contract value becomes a
+shape-key weight. The glb stores every key at 0. `build_body.py` writes it to
+the cache, not the repository.
+
+38 shape keys. The skeleton is the MakeHuman game-engine rig (53 bones).
+`height_cm` is not a shape key.
+
+## What was measured
+
+Blender 5.2.1, assets at commit `6ff1eb358f6c1959ced77e79e6dd2406d9a71f49`.
+Standing height is the Z span of that shape key after the basis feet sit on
+Z = 0. The age keys themselves sit a few millimetres below that ground,
+because the shift used the basis.
+
+| Shape key at weight 1 | Standing height (cm) |
+|---|---|
+| Basis, no morph | 166.59 |
+| `age_male_child` | 135.74 |
+| `age_male_young` | 173.04 |
+| `age_male_old` | 170.00 |
+| `age_female_child` | 126.13 |
+| `age_female_young` | 158.98 |
+| `age_female_old` | 157.65 |
+
+Mesh after helper deletion: 13380 vertices, 13378 polygons. `ball_l` rest
+head is about 8 mm above the ground. The glTF exporter keeps the four
+strongest joint influences per vertex and normalizes them.
+
+## Age, sex, and the two puberty branches
+
+The files `universal-{male,female}-{child,young,old}-averagemuscle-averageweight`
+are empty. They are the neutral corner of the muscle/weight grid and match
+the base mesh. Each `age_*` key is the mean of the three race targets
+`macrodetails/{african,asian,caucasian}-{sex}-{age}`. The contract has no
+origin field, so the three weights are 1/3. MPFB's default is 0.33 each,
+which sums to 0.99. Baby is omitted. The sample starts at 8.
+
+These six keys are the androgenic and estrogenic branches. There is no
+seventh sex morph. The current core writes the same number into
+`body_form_age` and `face_form_age`: biological age, capped at 130
+(`crates/sim-core/src/body_contract/mapping.rs`).
+
+Age tent, in years. `child + young + old = 1`.
+
+| `body_form_age` | child | young | old |
+|---|---|---|---|
+| ≤ 12 | 1 | 0 | 0 |
+| 12 to 25 | (25 − age) / 13 | (age − 12) / 13 | 0 |
+| 25 to 70 | 0 | (70 − age) / 45 | (age − 25) / 45 |
+| > 70 | 0 | 0 | 1 |
+
+Let `A` be `androgenic_development` and `E` be `estrogenic_development`.
+For each age slice `s`:
+
+```
+weight(age_male_*)   = s * (0.5 + 0.5 * A - 0.5 * E)
+weight(age_female_*) = s * (0.5 - 0.5 * A + 0.5 * E)
+```
+
+The two weights sum to `s`. Checks: `(A, E) = (1, 0)` is the male key,
+`(0, 1)` is the female key, and `(0, 0)`, `(0.5, 0.5)`, and `(1, 1)` are
+the average of the two. That is the additive blend in ADR-0005: a neutral
+stem plus `A` times the androgenic delta plus `E` times the estrogenic
+delta, not a pair of weights forced to sum to 1 beyond that identity.
+Before puberty both weights are near 0, so the shape is the stem (the
+average of the male and female keys at that age).
+
+## Fat and muscle
+
+The max and min files are full-body sculpts from the base mesh, young only.
+They replace part of the young age key. They are not added on top of it.
+Child and old stay at average fat and average muscle. The four diagonal
+corners (max fat with max muscle, and the other three) are not in the glb.
+When both axes leave 0, the leftover weight stays on the young age key.
+
+Let `w` be the young sex weight from the formula above (one sex at a time).
+`fu = clamp(body_fat_z / 4, -1, 1)`, `mu = clamp(muscle_z / 4, -1, 1)`.
+
+```
+keep     = (1 - |fu|) * (1 - |mu|) + |fu| * |mu|
+fat_pos  = max(fu, 0) * (1 - |mu|)
+fat_neg  = max(-fu, 0) * (1 - |mu|)
+mus_pos  = max(mu, 0) * (1 - |fu|)
+mus_neg  = max(-mu, 0) * (1 - |fu|)
+```
+
+Those five coefficients sum to 1. Multiply by `w`, leave `w * keep` on
+`age_*_young`, and put the rest on `fat_*_max`, `fat_*_min`, `muscle_*_max`,
+`muscle_*_min` for that sex.
+
+## Direct shape keys
+
+`z / 4` is the weight, and a negative weight is allowed. One standard
+deviation is a quarter of the sculpted target. That scale is a proposal.
+The incr targets are one-sided sculpts, so the negative side is an
+approximation.
+
+| Key | Contract | Targets, under `targets/` | Weight |
+|---|---|---|---|
+| `leg_upper` | `leg_ratio_z` | `legs/measure-upperleg-height-incr` | `z / 4`. Positive is longer. |
+| `leg_lower` | `leg_ratio_z` | `legs/measure-lowerleg-height-incr` | Same weight as `leg_upper`. |
+| `head_size` | `head_size_z` | `head/head-scale-horiz-incr` + `head-scale-vert-incr` + `head-scale-depth-incr` | `z / 4` |
+| `shoulder_width` | `shoulder_width_z` | `torso/measure-shoulder-dist-incr` | `z / 4`. `torso-vshape-incr` is not used. |
+| `chest_depth` | `chest_depth_z` | `torso/torso-scale-depth-incr` | `z / 4` |
+| `pelvis_width` | `hip_width_z` | `hip/hip-scale-horiz-incr` | `z / 4` |
+| `fat_central` | `fat_distribution_z` > 0 | `torso/measure-waist-circ-incr` | `max(z, 0) / 4` |
+| `fat_peripheral` | `fat_distribution_z` < 0 | `legs/l-upperleg-fat-incr` + `r-upperleg-fat-incr` | `max(-z, 0) / 4` |
+
+`hip-scale-horiz-incr` is pelvis width only. It is not reused for fat
+distribution. `torso/measure-hips-circ-incr` is unused.
+
+## Breast
+
+`breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness`
+and the matching `mincup` file. The female young race blend already
+contains MakeHuman's average cup, so `breast_development` 0.5 adds no
+extra key. The contract default is 0.25, which applies half of the min-cup
+target on a fully estrogenic shape.
+
+```
+weight(breast_max) = E * max(0, (breast_development - 0.5) * 2)
+weight(breast_min) = E * max(0, (0.5 - breast_development) * 2)
+```
+
+## Face maturity
+
+The age keys already include the head. `head/head-age-decr` and
+`head/head-age-incr` are only for the case where the two form ages differ.
+While `face_form_age == body_form_age`, both weights stay 0. That is every
+person the current core emits.
+
+```
+face_age_decr = clamp((body_form_age - face_form_age) / 20, 0, 1)
+face_age_incr = clamp((face_form_age - body_form_age) / 45, 0, 1)
+```
+
+## Face axes
+
+Proposal for this sample. Positive weight is `z / 4`. Bilateral files are
+one key.
+
+| Axis | Proposal | Targets, under `targets/` |
+|---|---|---|
+| `face_axis_01` | Nose width | `nose/nose-scale-horiz-incr` |
+| `face_axis_02` | Nose projection | `nose/nose-scale-depth-incr` |
+| `face_axis_03` | Nose length | `nose/nose-scale-vert-incr` |
+| `face_axis_04` | Jaw width | `chin/chin-width-incr` |
+| `face_axis_05` | Chin height | `chin/chin-height-incr` |
+| `face_axis_06` | Jaw prominence | `chin/chin-prognathism-incr` |
+| `face_axis_07` | Cheek fullness | `cheek/l-cheek-volume-incr` + `r-cheek-volume-incr` |
+| `face_axis_08` | Cheekbones | `cheek/l-cheek-bones-incr` + `r-cheek-bones-incr` |
+| `face_axis_09` | Eye size | `eyes/l-eye-scale-incr` + `r-eye-scale-incr` |
+| `face_axis_10` | Eye spacing | `eyes/l-eye-trans-out` + `r-eye-trans-out` |
+| `face_axis_11` | Lip fullness | `mouth/mouth-upperlip-volume-incr` + `mouth-lowerlip-volume-incr` |
+| `face_axis_12` | Mouth width | `mouth/mouth-scale-horiz-incr` |
+
+This is not the unofficial list in ADR-0005 (width, lower face, jaw angle,
+chin, cheekbones, eye spacing, eye size, brow, nose length, nose width,
+mouth, ears). `forehead/forehead-scale-vert-incr` exists and is unused.
+Ears are not one of the twelve.
+
+## Height
+
+`height_cm` scales the skeleton uniformly after the shape keys:
+
+```
+scale = height_cm / standing height of the blended mesh
+```
+
+The standing height is the Z span of the mesh with the age, fat, and muscle
+keys applied, before that scale. The six numbers in the table are the
+reference heights of the pure keys. A blend is not the unmorphed 166.59 cm,
+and it is not a linear mix of those spans. Leg length and head size stay
+morphs on top of the scale. Bones do not follow the morphs. The rig was
+fitted to the base mesh.
+
+## Not shape keys
+
+Pigment (`skin_eumelanin`, `skin_pheomelanin`, `hair_eumelanin`,
+`hair_pheomelanin`, `iris_melanin`), hair (`hair_curl`, `hair_density`,
+`balding_stage`, `hair_grey_fraction`, `eyebrow_density`), beard
+(`beard_density`, `beard_coverage`, `body_hair`), `freckle_density`,
+`face_wrinkles`, `skin_laxity`, `age_spots`, `posture_stoop`. Wrinkles,
+laxity, spots, and stoop are ageing fractions, not the age morphs.
+`macrodetails/height/*` (144 targets) is unused.
