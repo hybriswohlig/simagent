@@ -829,7 +829,7 @@ fn version_bytes(bytes: &[u8]) -> (usize, usize) {
     let core_at = bytes.len() - rest.len();
     let (core, rest) = postcard::take_from_bytes::<u32>(rest).expect("core");
     assert_eq!(core, CORE_VERSION);
-    assert_eq!(bytes[core_at], 0x43);
+    assert_eq!(bytes[core_at], 0x44);
     let (_, rest) = postcard::take_from_bytes::<u64>(rest).expect("hash");
     let proj_at = bytes.len() - rest.len();
     let (projection, _) = postcard::take_from_bytes::<u32>(rest).expect("projection");
