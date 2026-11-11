@@ -872,7 +872,7 @@ fn second_birth_at() -> i64 {
 #[test]
 fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
     assert_eq!(FORMAT_VERSION, 2);
-    assert_eq!(CORE_VERSION, 67);
+    assert_eq!(CORE_VERSION, 68);
     assert_eq!(PROJECTION_VERSION, 23);
     let second = second_birth_at();
     let (mut run, _) = couple(quiet(), 7);
