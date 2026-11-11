@@ -128,24 +128,32 @@ gender = male share = 0.5 + 0.5 * A - 0.5 * E
 
 ## Breast
 
-`breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness`
-and the matching `mincup` file. The female age targets already contain
-MakeHuman's average cup, so `breast_development` 0.5 adds no extra key on
-a female. The contract default is 0.25, which applies half of the min-cup
-target on a fully estrogenic shape.
+The child female corner is flat-chested. The young and old female corners,
+including their fat and muscle keys, carry MakeHuman's average cup.
+`breast/female-young-...-mincup` is the delta that removes that one cup.
+`breast/female-young-...-maxcup` adds the max cup on top of the average.
+Copying a male age delta onto breast vertices tears the torso, because
+those vertices also move with the whole sex difference. The cup is
+cancelled with the mincup key instead.
 
-Breasts are driven only through the female branch. On a male,
-`breast_max` stays 0. `breast_min` is at least `max(0, A - E)`, which is
-0 before puberty and rises with the male share, so the average cup baked
-into the female age target does not stay on a man. A male
-`breast_development` should be about 0. The sample reports the number
-when a man is above 0.
+The bust is not a function of sex or of `estrogenic_development`. Sex
+only picks the body corner. `breast_min` removes the baked average cup.
+`breast_max` is the only bust shape: a localized forward delta. `0` leaves
+the flat base, about `0.17` is a bud, `0.5` is one average cup (0.34 of
+the max-cup target), and `1` is the full max-cup target. A male keeps
+both weights at 0.
+
+`youngFemale` is `age_female_young` plus the four female fat and muscle
+keys. `oldFemale` is `age_female_old`. The child key is not in that sum,
+because that corner is already flat.
 
 ```
-weight(breast_max) = E * max(0, (breast_development - 0.5) * 2)   # 0 on a male
-weight(breast_min) = E * max(0, (0.5 - breast_development) * 2)
-on a male: breast_min = max(breast_min, max(0, A - E))
+cup = clamp(breast_development / 0.5, 0, 1)
+weight(breast_min) = youngFemale + oldFemale          # 0 on a male
+weight(breast_max) = cup * 0.34 + max(0, breast_development - 0.5) * 1.32
 ```
+
+`breast_max` is 0.34 at cup 1, and 1 at `breast_development` 1.
 
 ## Face maturity
 

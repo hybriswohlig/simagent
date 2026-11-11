@@ -43,6 +43,7 @@ const params = new URLSearchParams(location.search);
 const state = {
   style: ["A", "B", "C"].includes(params.get("style")) ? params.get("style") : "A",
   close: params.get("close") === "1",
+  focus: params.get("focus") || "",
   people: [],
   facePage: Math.max(0, (Number(params.get("page")) || 1) - 1),
   clock: 0,
@@ -154,7 +155,7 @@ function morphWeights(body, sex, emphasise) {
   const age = body.body_form_age;
   const [child, young, old] = ageSlices(age);
   const share = branchShares(body);
-  const { male, female, estrogen } = share;
+  const { male, female } = share;
   const weights = {};
   const slices = [child, young, old];
   ["child", "young", "old"].forEach((name, index) => {
@@ -185,13 +186,20 @@ function morphWeights(body, sex, emphasise) {
   weights.pelvis_width = quarter(body.hip_width_z);
   weights.fat_central = Math.max(body.fat_distribution_z, 0) / 4;
   weights.fat_peripheral = Math.max(-body.fat_distribution_z, 0) / 4;
+  // Young and old female corners include MakeHuman's average cup. breast_min
+  // cancels that cup, so the chest under it is flat. The bust is then only
+  // breast_max, the localized max-cup delta: nothing at 0, a bud by about
+  // 0.17, one average cup at 0.5, and the full max cup at 1. Sex does not
+  // scale it. A male keeps both weights at 0.
   const breast = clamp(body.breast_development, 0, 1);
-  weights.breast_max = estrogen * Math.max(0, (breast - 0.5) * 2);
-  weights.breast_min = estrogen * Math.max(0, (0.5 - breast) * 2);
-  if (sex === "male") {
-    weights.breast_max = 0;
-    weights.breast_min = Math.max(weights.breast_min, Math.max(0, share.androgen - share.estrogen));
-  }
+  const youngFemale =
+    (weights.age_female_young || 0) +
+    (weights.fat_female_max || 0) + (weights.fat_female_min || 0) +
+    (weights.muscle_female_max || 0) + (weights.muscle_female_min || 0);
+  const oldFemale = weights.age_female_old || 0;
+  const cup = clamp(breast / 0.5, 0, 1);
+  weights.breast_min = sex === "male" ? 0 : youngFemale + oldFemale;
+  weights.breast_max = sex === "male" ? 0 : cup * 0.34 + Math.max(0, breast - 0.5) * 1.32;
   weights.face_age_decr = clamp((body.body_form_age - body.face_form_age) / 20, 0, 1);
   weights.face_age_incr = clamp((body.face_form_age - body.body_form_age) / 45, 0, 1);
   const feature = emphasise ? 1.2 : 1;
@@ -229,7 +237,7 @@ function morphedYSpan(mesh, weights) {
   return { minY, maxY, span: maxY - minY };
 }
 
-function landmarks(mesh, weights) {
+function morphedCloud(mesh, weights) {
   const position = mesh.geometry.attributes.position;
   const morphs = mesh.geometry.morphAttributes.position || [];
   const dict = mesh.morphTargetDictionary || {};
@@ -238,21 +246,10 @@ function landmarks(mesh, weights) {
     const weight = weights[name] || 0;
     if (weight !== 0 && morphs[index]) active.push([weight, morphs[index]]);
   }
-  let maxY = -Infinity;
   const count = position.count;
-  const step = 8;
-  const rough = [];
-  for (let vertex = 0; vertex < count; vertex += step) {
-    let y = position.getY(vertex);
-    for (const [weight, morph] of active) y += weight * morph.getY(vertex);
-    if (y > maxY) maxY = y;
-    rough.push(vertex);
-  }
-  const bandLow = maxY - 0.28;
-  let left = [];
-  let right = [];
-  let chin = null;
-  for (const vertex of rough) {
+  const xyz = new Float32Array(count * 3);
+  let maxY = -Infinity;
+  for (let vertex = 0; vertex < count; vertex += 1) {
     let x = position.getX(vertex);
     let y = position.getY(vertex);
     let z = position.getZ(vertex);
@@ -261,32 +258,43 @@ function landmarks(mesh, weights) {
       y += weight * morph.getY(vertex);
       z += weight * morph.getZ(vertex);
     }
-    if (y < bandLow) continue;
-    if (y > maxY - 0.16 && y < maxY - 0.05 && z > 0.02) {
-      if (x < -0.015) left.push([x, y, z]);
-      if (x > 0.015) right.push([x, y, z]);
-    }
-    if (Math.abs(x) < 0.045 && y < maxY - 0.18 && y > maxY - 0.26 && (!chin || z > chin[2])) {
-      chin = [x, y, z];
+    xyz[vertex * 3] = x;
+    xyz[vertex * 3 + 1] = y;
+    xyz[vertex * 3 + 2] = z;
+    if (y > maxY) maxY = y;
+  }
+  return { xyz, count, maxY };
+}
+
+function landmarks(cloud) {
+  const { xyz, count, maxY } = cloud;
+  const crown = [0, 0, 0];
+  let crownN = 0;
+  for (let vertex = 0; vertex < count; vertex += 1) {
+    const x = xyz[vertex * 3];
+    const y = xyz[vertex * 3 + 1];
+    const z = xyz[vertex * 3 + 2];
+    if (y > maxY - 0.008 && Math.abs(x) < 0.04) {
+      crown[0] += x;
+      crown[1] += y;
+      crown[2] += z;
+      crownN += 1;
     }
   }
-  const frontCluster = (rows) => {
-    if (!rows.length) return null;
-    rows.sort((a, b) => b[2] - a[2]);
-    const take = rows.slice(0, Math.max(4, Math.floor(rows.length * 0.25)));
-    const mean = [0, 0, 0];
-    for (const row of take) {
-      mean[0] += row[0];
-      mean[1] += row[1];
-      mean[2] += row[2];
-    }
-    return mean.map((value) => value / take.length);
-  };
+  if (!crownN) crown.splice(0, 3, 0, maxY, 0);
+  else {
+    crown[0] /= crownN;
+    crown[1] /= crownN;
+    crown[2] /= crownN;
+  }
+  const jaw = jawProfile(cloud);
+  const chinY = maxY + jaw.chinDy;
   return {
     maxY,
-    leftEye: frontCluster(left),
-    rightEye: frontCluster(right),
-    chin,
+    crown,
+    chin: [0, chinY, jaw.chinZ],
+    neck: [0, chinY - 0.006, Math.min(jaw.chinZ, 0.05)],
+    jaw,
   };
 }
 
@@ -309,53 +317,208 @@ function surfaceMaterial(hex, style, roughness) {
   return material;
 }
 
-// Bind-space band: feet at y=0, crown at 1.666 m. Hips stay wide. Above the
-// waist the limit stops at the torso so the A-pose arms stay skin.
+// Post-morph, pre-skin band. The neckline is one height on the morphed torso,
+// so breast and age morphs cannot wave it. Arm X is still the A-pose, so
+// dropping the arms does not paint them.
 const CLOTH_BAND = `
-  float ny = vBind.y / 1.666;
+  float ny = vBind.y / uSpan;
   float ax = abs(vBind.x);
-  float vertical = smoothstep(0.30, 0.325, ny) * (1.0 - smoothstep(0.74, 0.76, ny));
-  float arm = smoothstep(0.18, 0.21, ax) * smoothstep(0.53, 0.56, ny);
+  float vertical = smoothstep(0.304, 0.307, ny) * (1.0 - smoothstep(0.748, 0.751, ny));
+  float arm = smoothstep(0.18, 0.205, ax) * smoothstep(0.52, 0.55, ny);
   diffuseColor.rgb = mix(diffuseColor.rgb, uCloth, vertical * (1.0 - arm));
 `;
 
-function paintCloth(material) {
+function paintCloth(material, span) {
+  const uniforms = {
+    uCloth: { value: new THREE.Color(CLOTH) },
+    uSpan: { value: Math.max(span, 0.2) },
+  };
   material.customProgramCacheKey = () => "bodysuit-basis";
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uCloth = { value: new THREE.Color(CLOTH) };
+    shader.uniforms.uCloth = uniforms.uCloth;
+    shader.uniforms.uSpan = uniforms.uSpan;
+    material.userData.shader = shader;
     shader.vertexShader = `varying vec3 vBind;\n${shader.vertexShader.replace(
-      "#include <begin_vertex>",
-      "#include <begin_vertex>\n\tvBind = position;",
+      "#include <morphtarget_vertex>",
+      "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
-    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\n${shader.fragmentShader.replace(
+    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform float uSpan;\n${shader.fragmentShader.replace(
       "#include <color_fragment>",
       `#include <color_fragment>\n${CLOTH_BAND}`,
     )}`;
   };
+  material.onBeforeRender = () => {
+    const shader = material.userData.shader;
+    if (!shader || !shader.uniforms.uSpan) return;
+    shader.uniforms.uSpan.value = uniforms.uSpan.value;
+  };
   return material;
 }
 
-function bodyMaterial(skinHex, style) {
-  return paintCloth(surfaceMaterial(skinHex, style, 0.58));
+function bodyMaterial(skinHex, style, span) {
+  return paintCloth(surfaceMaterial(skinHex, style, 0.58), span);
 }
 
-function hairMaterial(color, opacity, style) {
-  const material = style === "C"
-    ? new THREE.MeshBasicMaterial({ color, toneMapped: false })
-    : style === "B"
-      ? new THREE.MeshToonMaterial({ color, gradientMap: toonGradient })
-      : new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0 });
-  if (opacity < 0.98) {
-    material.transparent = true;
-    material.opacity = opacity;
-    material.depthWrite = opacity > 0.35;
-  }
+function litMaterial(style, roughness) {
+  if (style === "C") return new THREE.MeshBasicMaterial({ toneMapped: false });
+  if (style === "B") return new THREE.MeshToonMaterial({ gradientMap: toonGradient });
+  return new THREE.MeshStandardMaterial({ roughness, metalness: 0 });
+}
+
+function copyUniform(target, source) {
+  if (target && target.isColor && source && source.isColor) target.copy(source);
+  else if (target && target.isVector3 && source && source.isVector3) target.copy(source);
+  else return source;
+  return target;
+}
+
+function bindShader(material, key, uniforms, vertexDecl, vertexBody, fragmentDecl, fragmentBody) {
+  material.customProgramCacheKey = () => key;
+  material.onBeforeCompile = (shader) => {
+    for (const [name, uniform] of Object.entries(uniforms)) shader.uniforms[name] = uniform;
+    material.userData.shader = shader;
+    if (vertexDecl) shader.vertexShader = `${vertexDecl}\n${shader.vertexShader}`;
+    if (vertexBody) {
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>\n${vertexBody}`,
+      );
+    }
+    if (fragmentDecl) shader.fragmentShader = `${fragmentDecl}\n${shader.fragmentShader}`;
+    if (fragmentBody) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>\n${fragmentBody}`,
+      );
+    }
+  };
+  material.onBeforeRender = () => {
+    const shader = material.userData.shader;
+    if (!shader) return;
+    for (const [name, uniform] of Object.entries(uniforms)) {
+      const slot = shader.uniforms[name];
+      if (!slot) continue;
+      slot.value = copyUniform(slot.value, uniform.value);
+    }
+  };
   return material;
 }
 
-function headFit(marks) {
-  const chinY = marks.chin ? marks.chin[1] : marks.maxY - 0.23;
-  return clamp((marks.maxY - chinY) / 0.24, 0.62, 1.15);
+const HAIR_VERTEX = `
+  vMesh = aMesh;
+  vec3 delta = aMesh - uCrown;
+  float radial = length(delta.xz);
+  float radius = mix(0.018, 0.072, uBald);
+  float crownHole = (1.0 - smoothstep(radius * 0.28, radius, radial))
+    * smoothstep(uCrown.y - 0.12, uCrown.y - 0.015, aMesh.y);
+  float temple = smoothstep(0.022, 0.055, abs(delta.x))
+    * smoothstep(uCrown.z - 0.015, uCrown.z + 0.045, aMesh.z)
+    * smoothstep(uCrown.y - 0.14, uCrown.y - 0.045, aMesh.y)
+    * (1.0 - smoothstep(uCrown.y - 0.02, uCrown.y + 0.01, aMesh.y));
+  float crownW = smoothstep(0.12, 0.55, uBald);
+  float templeW = smoothstep(0.18, 0.75, uBald);
+  vKeep = 1.0 - clamp(crownW * crownHole + templeW * temple, 0.0, 1.0);
+`;
+
+const STRAND_FRAG = `
+  float cover = vKeep;
+  #ifdef USE_MAP
+    cover *= sampledDiffuseColor.a;
+    float shade = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+    float lift = clamp(shade / 0.16, 0.35, 1.45);
+    diffuseColor.rgb = uHair * lift;
+    diffuseColor.a = 1.0;
+  #endif
+  if (cover < uThresh) discard;
+`;
+
+const EYE_FRAG = `
+  #ifdef USE_MAP
+    float blueDisc = sampledDiffuseColor.b - max(sampledDiffuseColor.r, sampledDiffuseColor.g);
+    if (blueDisc > 0.015 && sampledDiffuseColor.b > 0.28) {
+      sampledDiffuseColor.rgb = vec3(0.83, 0.81, 0.78);
+    }
+    if (vMapUv.x > 0.62 && vMapUv.y < 0.42) {
+      sampledDiffuseColor.rgb = vec3(0.83, 0.81, 0.78);
+    }
+    float luma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+    float hi = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b));
+    float lo = min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
+    float iris = smoothstep(0.06, 0.16, hi - lo) * smoothstep(0.04, 0.12, luma) * (1.0 - smoothstep(0.42, 0.62, luma));
+    vec3 tinted = uIris * clamp(luma / 0.22, 0.35, 1.65);
+    diffuseColor.rgb = mix(sampledDiffuseColor.rgb, tinted, iris);
+    diffuseColor.a = 1.0;
+  #endif
+`;
+
+function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset) {
+  const material = litMaterial(style, 0.62);
+  material.map = texture;
+  material.color.setHex(0xffffff);
+  material.side = THREE.DoubleSide;
+  material.polygonOffset = true;
+  material.polygonOffsetFactor = offset;
+  material.polygonOffsetUnits = offset;
+  const uniforms = {
+    uHair: { value: new THREE.Color(hairHex) },
+    uThresh: { value: threshold },
+    uBald: { value: bald },
+    uCrown: { value: new THREE.Vector3(crown[0], crown[1], crown[2]) },
+  };
+  return bindShader(
+    material,
+    `strand-${style}`,
+    uniforms,
+    "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;",
+    HAIR_VERTEX,
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;",
+    STRAND_FRAG,
+  );
+}
+
+function eyeMaterial(style, texture, irisHex) {
+  const material = litMaterial(style, 0.38);
+  material.map = texture;
+  material.color.setHex(0xffffff);
+  material.side = THREE.FrontSide;
+  const uniforms = { uIris: { value: new THREE.Color(irisHex) } };
+  return bindShader(
+    material,
+    `eye-${style}`,
+    uniforms,
+    "",
+    "",
+    "uniform vec3 uIris;",
+    EYE_FRAG,
+  );
+}
+
+function beardMaterial(style, hairHex, density) {
+  const material = litMaterial(style, 0.7);
+  material.color.setHex(0xffffff);
+  material.side = THREE.DoubleSide;
+  material.polygonOffset = true;
+  material.polygonOffsetFactor = -2;
+  material.polygonOffsetUnits = -2;
+  const uniforms = {
+    uHair: { value: new THREE.Color(hairHex) },
+    uDensity: { value: density },
+  };
+  return bindShader(
+    material,
+    `beard-${style}`,
+    uniforms,
+    "attribute vec3 aMesh;\nvarying vec3 vMesh;",
+    "vMesh = aMesh;",
+    "varying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uDensity;",
+    `
+      vec2 cell = floor(vMesh.xy * 80.0);
+      float fiber = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+      if (uDensity < 0.82 && fiber > uDensity) discard;
+      diffuseColor.rgb = uHair * mix(0.72, 1.05, fiber);
+      diffuseColor.a = 1.0;
+    `,
+  );
 }
 
 function outlineMaterial() {
@@ -385,93 +548,332 @@ function findBone(root, name) {
   return found;
 }
 
-// Landmarks are in mesh space (the face is +Z). inverseBindMatrices map that
-// space into the head bone, so a child of `head` follows the Root height scale
-// and the spine sway. The same Root scale then sizes the cap.
-function mountOnHead(mesh, head, object, x, y, z) {
+// Mesh space is Y up, face +Z. inverseBindMatrices map that into the head bone,
+// so a child of `head` follows the Root height scale and the spine sway.
+function headMatrix(mesh, head) {
   const index = mesh.skeleton.bones.indexOf(head);
-  const point = new THREE.Vector3(x, y, z).applyMatrix4(mesh.bindMatrix);
-  point.applyMatrix4(mesh.skeleton.boneInverses[index]);
-  object.position.copy(point);
-  object.frustumCulled = false;
-  head.add(object);
+  return new THREE.Matrix4().multiplyMatrices(mesh.skeleton.boneInverses[index], mesh.bindMatrix);
 }
 
-function beardTint(skinHex, hairHex, density) {
-  const mixed = mixLinear(linearOf(skinHex), linearOf(hairHex), 0.5 + 0.45 * density);
-  return hexOf(mixed.map((channel) => channel * (0.62 - 0.34 * density)));
-}
-
-function addCap(mesh, head, color, body, style, marks) {
-  const density = clamp(body.hair_density, 0, 1);
-  if (density <= 0.02 || !marks || !head) return;
-  const stage = clamp(body.balding_stage, 0, 7);
-  const cover = 1 - stage / 7;
-  const fit = headFit(marks);
-  const material = hairMaterial(color, 1, style);
-  if (cover > 0.04) {
-    const radius = (0.068 + 0.03 * cover) * fit;
-    const crown = new THREE.Mesh(
-      new THREE.SphereGeometry(
-        radius,
-        style === "C" ? 14 : 24,
-        style === "C" ? 12 : 18,
-        0,
-        Math.PI * 2,
-        0,
-        Math.PI * 0.58,
-      ),
-      material,
-    );
-    crown.name = "hair";
-    crown.scale.set(1.12, 0.82 + 0.2 * cover, 1.05);
-    mountOnHead(mesh, head, crown, 0, marks.maxY - radius * 0.62, 0.035 - 0.02 * (1 - cover));
+function humanPositions(weights) {
+  const human = state.pack.human;
+  const pos = new Float32Array(human.basis);
+  for (const morph of human.morphs) {
+    const weight = weights[morph.name] || 0;
+    if (weight === 0) continue;
+    const delta = morph.data;
+    for (let i = 0; i < delta.length; i += 1) pos[i] += weight * delta[i];
   }
+  return pos;
 }
 
-function addBeard(mesh, head, color, body, style, marks) {
-  if (body.sex !== "male" || !head || !marks.chin) return;
+function fitProxy(proxy, humanPos) {
+  const size = (axis, component) => {
+    const pair = proxy.scale[axis];
+    return Math.abs(humanPos[pair[0] * 3 + component] - humanPos[pair[1] * 3 + component]) / pair[2];
+  };
+  const sx = size("x", 0);
+  const sy = size("y", 1);
+  const sz = size("z", 2);
+  const bind = proxy.bind;
+  const out = new Float32Array(proxy.count * 3);
+  for (let i = 0; i < proxy.count; i += 1) {
+    const o = i * 9;
+    const i0 = bind[o] * 3;
+    const i1 = bind[o + 1] * 3;
+    const i2 = bind[o + 2] * 3;
+    const w0 = bind[o + 3];
+    const w1 = bind[o + 4];
+    const w2 = bind[o + 5];
+    out[i * 3] = w0 * humanPos[i0] + w1 * humanPos[i1] + w2 * humanPos[i2] + bind[o + 6] * sx;
+    out[i * 3 + 1] = w0 * humanPos[i0 + 1] + w1 * humanPos[i1 + 1] + w2 * humanPos[i2 + 1] + bind[o + 7] * sy;
+    out[i * 3 + 2] = w0 * humanPos[i0 + 2] + w1 * humanPos[i1 + 2] + w2 * humanPos[i2 + 2] + bind[o + 8] * sz;
+  }
+  return out;
+}
+
+function toHeadLocal(positions, matrix) {
+  const out = new Float32Array(positions.length);
+  const point = new THREE.Vector3();
+  for (let i = 0; i < positions.length; i += 3) {
+    point.fromArray(positions, i).applyMatrix4(matrix);
+    point.toArray(out, i);
+  }
+  return out;
+}
+
+function addFitted(mesh, head, proxy, humanPos, material, order, nudgeZ) {
+  const fitted = fitProxy(proxy, humanPos);
+  const placed = nudgeZ ? new Float32Array(fitted) : fitted;
+  if (nudgeZ) {
+    for (let i = 2; i < placed.length; i += 3) placed[i] += nudgeZ;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(toHeadLocal(placed, headMatrix(mesh, head)), 3));
+  geometry.setAttribute("aMesh", new THREE.BufferAttribute(fitted, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(proxy.uv), 2));
+  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(proxy.faces), 1));
+  geometry.computeVertexNormals();
+  const object = new THREE.Mesh(geometry, material);
+  object.frustumCulled = false;
+  object.renderOrder = order;
+  head.add(object);
+  return object;
+}
+
+function hairChoice(body) {
+  if (body.body_form_age < 16) return "hair_child";
+  if (body.sex === "male") return "hair_short";
+  return "hair_long";
+}
+
+function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, style, marks) {
+  const pack = state.pack.proxies;
+  const hairName = hairChoice(body);
+  const density = clamp(body.hair_density, 0, 1);
+  if (density > 0.02) {
+    const bald = hairName === "hair_short" ? clamp(body.balding_stage, 0, 7) / 7 : 0;
+    const threshold = THREE.MathUtils.lerp(0.9, 0.2, density);
+    addFitted(
+      mesh, head, pack[hairName], humanPos,
+      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1),
+      2,
+    );
+  }
+  const brows = clamp(body.eyebrow_density, 0, 1);
+  if (brows > 0.02) {
+    addFitted(
+      mesh, head, pack.brows, humanPos,
+      strandMaterial(style, pack.brows.texture, hairHex, THREE.MathUtils.lerp(0.22, 0.02, brows), 0, marks.crown, -8),
+      3,
+      0.003,
+    );
+  }
+  // The cornea sits behind the lid surface. Face is +Z. Enough to meet the
+  // opening, not enough to leave the sphere in front of the lids.
+  addFitted(mesh, head, pack.eyes, humanPos, eyeMaterial(style, pack.eyes.texture, irisHex), 1, 0.0075);
+  addFitted(
+    mesh, head, pack.lashes, humanPos,
+    strandMaterial(style, pack.lashes.texture, hexOf(mixLinear(linearOf(hairHex), [0, 0, 0], 0.72)), 0.12, 0, marks.crown, -6),
+    4,
+    0.0035,
+  );
+  return { hairName };
+}
+
+function centerRows(cloud) {
+  const { xyz, count, maxY } = cloud;
+  const bins = new Map();
+  for (let i = 0; i < count; i += 1) {
+    const x = xyz[i * 3];
+    const dy = xyz[i * 3 + 1] - maxY;
+    const z = xyz[i * 3 + 2];
+    if (Math.abs(x) > 0.012 || dy < -0.36 || dy > -0.08 || z < 0.02) continue;
+    const key = Math.round(dy * 200) / 200;
+    const row = bins.get(key);
+    if (row) row.push(z);
+    else bins.set(key, [z]);
+  }
+  return [...bins.entries()].sort((a, b) => a[0] - b[0]).map(([dy, zs]) => {
+    zs.sort((a, b) => a - b);
+    return { dy, p90: zs[Math.min(zs.length - 1, Math.floor(0.9 * (zs.length - 1)))] };
+  });
+}
+
+// Lower lip is the sharp forward step on the midline. The chin tip is the
+// most posterior point of that midline below the lip, before the neck swings
+// forward again. dy is metres below the crown.
+function jawProfile(cloud) {
+  const rows = centerRows(cloud);
+  let noseDy = -0.16;
+  let noseZ = 0.16;
+  let bestNose = -Infinity;
+  for (const row of rows) {
+    if (row.dy > -0.21 && row.dy < -0.11 && row.p90 > bestNose) {
+      bestNose = row.p90;
+      noseZ = row.p90;
+      noseDy = row.dy;
+    }
+  }
+  let lipLo = null;
+  for (let i = rows.length - 1; i >= 1; i -= 1) {
+    const row = rows[i];
+    if (row.dy > noseDy - 0.025) continue;
+    if (row.dy < noseDy - 0.1) break;
+    if (row.p90 - rows[i - 1].p90 > 0.03) {
+      lipLo = row.dy;
+      break;
+    }
+  }
+  if (lipLo === null) lipLo = noseDy - 0.06;
+  // The chin tip is only a few centimetres below the lower lip. Walking
+  // further down follows the neck, which swings forward and was painted as a bib.
+  let chinDy = lipLo - 0.035;
+  let chinZ = Infinity;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (row.dy > lipLo - 0.012) continue;
+    if (row.dy < lipLo - 0.042) break;
+    if (row.p90 < chinZ) {
+      chinZ = row.p90;
+      chinDy = row.dy;
+    }
+  }
+  if (chinZ === Infinity) chinZ = 0.07;
+  return { lipLo, noseDy, noseZ, chinDy, chinZ };
+}
+
+function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
+  if (body.sex !== "male") return 0;
   const density = clamp(body.beard_density, 0, 1);
-  if (density <= 0.04) return;
+  if (density <= 0.04) return 0;
   const coverage = clamp(body.beard_coverage, 0, 1);
-  const fit = headFit(marks);
-  const material = hairMaterial(color, 0.72 + 0.28 * density, style);
-  const beard = new THREE.Mesh(
-    new THREE.SphereGeometry(0.032, style === "C" ? 10 : 16, style === "C" ? 8 : 12),
-    material,
-  );
-  beard.name = "beard";
-  beard.scale.set((1.5 + 1.3 * coverage) * fit, (0.7 + 0.8 * coverage) * fit, 0.45 * fit);
-  mountOnHead(
-    mesh,
-    head,
-    beard,
-    0,
-    marks.chin[1] - 0.012,
-    marks.chin[2] + 0.002,
-  );
+  const { xyz, maxY } = cloud;
+  const { lipLo, noseDy, noseZ, chinDy, chinZ } = marks.jaw;
+  // The nose tip is the reliable anchor. The jaw sits a few centimetres
+  // below it; measuring down from the lip jump landed on the neck.
+  const jawTop = noseDy - 0.036;
+  const jawBot = noseDy - 0.058;
+  const jawHalf = THREE.MathUtils.lerp(0.018, 0.052, coverage);
+  const cheekOut = 0.04 + 0.04 * coverage;
+  const mustacheHalf = 0.008 + 0.028 * coverage;
+  const lipBot = lipLo - 0.008;
+  const lipTop = Math.min(lipLo + 0.05, noseDy - 0.016);
+  const mustacheLo = noseDy - 0.008;
+  const mustacheHi = noseDy - 0.002;
+  const index = mesh.geometry.index;
+  const positions = [];
+  const meshSpace = [];
+  const faces = [];
+  const map = new Map();
+  const corner = (vertex) => {
+    let slot = map.get(vertex);
+    if (slot !== undefined) return slot;
+    slot = positions.length / 3;
+    map.set(vertex, slot);
+    positions.push(xyz[vertex * 3], xyz[vertex * 3 + 1], xyz[vertex * 3 + 2]);
+    meshSpace.push(xyz[vertex * 3], xyz[vertex * 3 + 1], xyz[vertex * 3 + 2]);
+    return slot;
+  };
+  const normals = [];
+  const at = (vertex) => [xyz[vertex * 3], xyz[vertex * 3 + 1], xyz[vertex * 3 + 2]];
+  for (let t = 0; t < index.count; t += 3) {
+    const a = index.getX(t);
+    const b = index.getX(t + 1);
+    const c = index.getX(t + 2);
+    const pa = at(a);
+    const pb = at(b);
+    const pc = at(c);
+    const abx = pb[0] - pa[0];
+    const aby = pb[1] - pa[1];
+    const abz = pb[2] - pa[2];
+    const acx = pc[0] - pa[0];
+    const acy = pc[1] - pa[1];
+    const acz = pc[2] - pa[2];
+    const bcx = pc[0] - pb[0];
+    const bcy = pc[1] - pb[1];
+    const bcz = pc[2] - pb[2];
+    if (abx * abx + aby * aby + abz * abz > 0.00032) continue;
+    if (acx * acx + acy * acy + acz * acz > 0.00032) continue;
+    if (bcx * bcx + bcy * bcy + bcz * bcz > 0.00032) continue;
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+    const length = Math.hypot(nx, ny, nz) || 1;
+    if (nz / length < 0.4) continue;
+    if (ny / length < -0.45) continue;
+    const mx = (pa[0] + pb[0] + pc[0]) / 3;
+    const my = (pa[1] + pb[1] + pc[1]) / 3;
+    const mz = (pa[2] + pb[2] + pc[2]) / 3;
+    const dys = [pa[1] - maxY, pb[1] - maxY, pc[1] - maxY];
+    const minDy = Math.min(...dys);
+    const maxDy = Math.max(...dys);
+    const dy = my - maxY;
+    const ax = Math.abs(mx);
+    if (dy < jawBot - 0.006 || dy > noseDy) continue;
+    if (dy > noseDy - 0.034 && dy < noseDy - 0.014 && ax < 0.042) continue;
+    const jaw = dy >= jawBot && dy <= jawTop && ax <= jawHalf && mz > chinZ - 0.02;
+    const cheek = coverage > 0.55 && ax >= 0.04 && ax <= cheekOut && dy >= jawBot && dy <= jawTop && mz > chinZ - 0.01;
+    const mustache = minDy >= mustacheLo && maxDy <= mustacheHi && ax <= mustacheHalf && mz > noseZ - 0.02;
+    if (!jaw && !cheek && !mustache) continue;
+    const ia = corner(a);
+    const ib = corner(b);
+    const ic = corner(c);
+    faces.push(ia, ib, ic);
+    for (const slot of [ia, ib, ic]) {
+      normals[slot * 3] = (normals[slot * 3] || 0) + nx;
+      normals[slot * 3 + 1] = (normals[slot * 3 + 1] || 0) + ny;
+      normals[slot * 3 + 2] = (normals[slot * 3 + 2] || 0) + nz;
+    }
+  }
+  if (!faces.length) return 0;
+  let meanZ = 0;
+  for (let i = 2; i < normals.length; i += 3) meanZ += normals[i];
+  const flip = meanZ < 0 ? -1 : 1;
+  const shell = new Float32Array(positions.length);
+  const kept = new Float32Array(meshSpace);
+  for (let i = 0; i < positions.length; i += 3) {
+    let nx = normals[i] || 0;
+    let ny = normals[i + 1] || 0;
+    let nz = normals[i + 2] || 0;
+    const length = Math.hypot(nx, ny, nz) || 1;
+    nx = flip * nx / length;
+    ny = flip * ny / length;
+    nz = flip * nz / length;
+    shell[i] = positions[i] + nx * 0.0015;
+    shell[i + 1] = positions[i + 1] + ny * 0.0015;
+    shell[i + 2] = positions[i + 2] + nz * 0.0015;
+    normals[i] = nx;
+    normals[i + 1] = ny;
+    normals[i + 2] = nz;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(toHeadLocal(shell, headMatrix(mesh, head)), 3));
+  geometry.setAttribute("aMesh", new THREE.BufferAttribute(kept, 3));
+  geometry.setIndex(faces);
+  geometry.computeVertexNormals();
+  const object = new THREE.Mesh(geometry, beardMaterial(style, hairHex, density));
+  object.name = "beard";
+  object.frustumCulled = false;
+  object.renderOrder = 3;
+  head.add(object);
+  return faces.length / 3;
 }
 
-function addEye(mesh, head, point, color, style, fit) {
-  if (!point || !head) return;
-  const size = fit || 1;
-  const sclera = new THREE.Mesh(
-    new THREE.SphereGeometry(0.016 * size, 12, 10),
-    new THREE.MeshBasicMaterial({ color: 0xf7f4ef, toneMapped: false }),
-  );
-  mountOnHead(mesh, head, sclera, point[0], point[1], point[2] + 0.012);
-  const iris = new THREE.Mesh(
-    new THREE.SphereGeometry(0.011 * size, 12, 10),
-    style === "A"
-      ? new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0 })
-      : new THREE.MeshBasicMaterial({ color, toneMapped: false }),
-  );
-  mountOnHead(mesh, head, iris, point[0], point[1], point[2] + 0.018);
-  const pupil = new THREE.Mesh(
-    new THREE.SphereGeometry(0.0032 * size, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0x14110e, toneMapped: false }),
-  );
-  mountOnHead(mesh, head, pupil, point[0], point[1], point[2] + 0.022);
+function aimChild(bone, child, direction) {
+  bone.updateWorldMatrix(true, false);
+  child.updateWorldMatrix(true, false);
+  const origin = new THREE.Vector3();
+  const tip = new THREE.Vector3();
+  bone.getWorldPosition(origin);
+  child.getWorldPosition(tip);
+  const current = tip.sub(origin);
+  if (current.lengthSq() < 1e-8) return;
+  current.normalize();
+  const delta = new THREE.Quaternion().setFromUnitVectors(current, direction.clone().normalize());
+  const parentQ = new THREE.Quaternion();
+  bone.parent.getWorldQuaternion(parentQ);
+  const worldQ = new THREE.Quaternion();
+  bone.getWorldQuaternion(worldQ);
+  worldQ.premultiply(delta);
+  bone.quaternion.copy(parentQ.invert()).multiply(worldQ);
+  bone.updateWorldMatrix(true, true);
+}
+
+function hangArms(root) {
+  for (const side of ["l", "r"]) {
+    const sign = side === "l" ? 1 : -1;
+    const clavicle = findBone(root, `clavicle_${side}`);
+    const upper = findBone(root, `upperarm_${side}`);
+    const lower = findBone(root, `lowerarm_${side}`);
+    const hand = findBone(root, `hand_${side}`);
+    if (!clavicle || !upper || !lower || !hand) continue;
+    // Face is +Z (toward the camera) and character-left is +X. The forearm's
+    // small +Z is the elbow bend; a large one swings the hands onto the belly.
+    aimChild(clavicle, upper, new THREE.Vector3(sign, -0.25, 0));
+    aimChild(upper, lower, new THREE.Vector3(sign * 0.12, -1, 0.06));
+    aimChild(lower, hand, new THREE.Vector3(sign * 0.15, -0.96, 0.16));
+  }
 }
 
 function neutralBody(eumelanin, pheomelanin) {
@@ -531,7 +933,11 @@ function fullRoster() {
 }
 
 function roster() {
-  const all = fullRoster();
+  let all = fullRoster();
+  if (state.focus) {
+    const name = state.focus.toLowerCase();
+    all = all.filter((member) => (member.first_name || "").toLowerCase() === name);
+  }
   if (!state.close) return all;
   const pages = Math.max(1, Math.ceil(all.length / FACE_COUNT));
   state.facePage = clamp(state.facePage, 0, pages - 1);
@@ -540,7 +946,7 @@ function roster() {
 }
 
 function layoutX(members) {
-  const gap = state.close ? 0.5 : 0.8;
+  const gap = state.close ? 0.24 : 0.78;
   const breakGap = state.close ? 0.28 : 1.15;
   let cursor = 0;
   const xs = members.map((member, index) => {
@@ -575,11 +981,13 @@ function buildPerson(template, member, x) {
   // Root scale lifts the feet by pivot * (scale - 1). Drop the wrapper so they stay on Y=0.
   wrapper.position.y = -pivot * (1 - scale);
   wrapper.position.x = x;
-  const marks = landmarks(mesh, weights);
+  const cloud = morphedCloud(mesh, weights);
+  const marks = landmarks(cloud);
   const skin = gridColor(SKIN, member.body.skin_eumelanin, member.body.skin_pheomelanin);
   const hair = hairColor(member.body);
   const iris = rampColor(IRIS, member.body.iris_melanin);
-  mesh.material = bodyMaterial(skin, state.style);
+  const clothSpan = morphedYSpan(mesh, weights).span;
+  mesh.material = bodyMaterial(skin, state.style, clothSpan);
   mesh.frustumCulled = false;
   let outline = null;
   if (state.style === "B") {
@@ -591,14 +999,14 @@ function buildPerson(template, member, x) {
     mesh.parent.add(outline);
   }
   const body = { ...member.body, sex: member.sex };
-  addCap(mesh, head, hair, body, state.style, marks);
-  addBeard(mesh, head, beardTint(skin, hair, clamp(body.beard_density, 0, 1)), body, state.style, marks);
-  const fit = headFit(marks);
-  addEye(mesh, head, marks.leftEye, iris, state.style, fit);
-  addEye(mesh, head, marks.rightEye, iris, state.style, fit);
+  const humanPos = humanPositions(weights);
+  const groom = addGrooming(mesh, head, humanPos, body, hair, iris, state.style, marks);
+  const beardTris = buildBeard(mesh, head, cloud, body, hair, state.style, marks);
+  scene.add(wrapper);
+  wrapper.updateWorldMatrix(true, true);
+  hangArms(root);
   const spines = ["spine_01", "spine_02", "spine_03"].map((name) => findBone(root, name)).filter(Boolean);
   const rest = spines.map((spine) => spine.quaternion.clone());
-  scene.add(wrapper);
   const tag = document.createElement("div");
   tag.className = "tag";
   const name = document.createElement("b");
@@ -610,8 +1018,9 @@ function buildPerson(template, member, x) {
   tag.append(name, line);
   labels.append(tag);
   return {
-    wrapper, mesh, outline, spines, rest, scale, tag,
+    wrapper, mesh, head, outline, spines, rest, scale, tag, marks,
     anchor: new THREE.Vector3(), member, shaped, skin, hair, iris,
+    hairName: groom.hairName, beardTris,
   };
 }
 
@@ -644,6 +1053,12 @@ function weightRow(person) {
     hair_pheomelanin: person.member.body.hair_pheomelanin,
     hair_grey_fraction: person.member.body.hair_grey_fraction,
     iris_melanin: person.member.body.iris_melanin,
+    hair_proxy: person.hairName,
+    beard_tris: person.beardTris,
+    balding_stage: person.member.body.balding_stage,
+    beard_density: person.member.body.beard_density,
+    beard_coverage: person.member.body.beard_coverage,
+    jaw: person.marks.jaw,
   };
 }
 
@@ -674,36 +1089,92 @@ function restyle() {
   updateFaceButtons();
 }
 
+function landmarkWorld(person, point) {
+  const mesh = person.mesh;
+  const head = person.head;
+  const index = mesh.skeleton.bones.indexOf(head);
+  const placed = new THREE.Vector3(point[0], point[1], point[2]);
+  placed.applyMatrix4(mesh.bindMatrix);
+  placed.applyMatrix4(mesh.skeleton.boneInverses[index]);
+  placed.applyMatrix4(head.matrixWorld);
+  return placed;
+}
+
 function frame() {
   const people = state.people;
   if (!people.length) return;
-  const xs = people.map((person) => person.wrapper.position.x);
-  const heights = people.map((person) => person.member.body.height_cm / 100);
-  const maxH = Math.max(...heights);
-  const reach = state.close ? 0.22 : 1.05;
-  const minX = Math.min(...xs) - reach;
-  const maxX = Math.max(...xs) + reach;
-  const midX = (minX + maxX) / 2;
-  const width = Math.max(maxX - minX, 0.9);
-  const headLine = heights.map((height) => height * 0.88);
-  const lookY = state.close
-    ? (Math.max(...headLine) + Math.min(...headLine)) / 2
-    : maxH * 0.5;
-  const target = state.close
-    ? Math.max(0.46, Math.max(...headLine) - Math.min(...headLine) + 0.36)
-    : maxH;
-  const fill = state.close ? 0.82 : 0.9;
+  scene.updateMatrixWorld(true);
   camera.fov = 20;
   camera.updateProjectionMatrix();
   const v = THREE.MathUtils.degToRad(camera.fov);
   const aspect = camera.aspect || 1.8;
-  const distH = (target / fill) / (2 * Math.tan(v / 2));
   const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
-  const distW = width / (2 * Math.tan(h / 2));
-  const distance = Math.max(distH, distW);
-  const lift = state.close ? target * 0.08 : target * 0.14;
-  camera.position.set(midX + distance * 0.1, lookY + lift, distance);
-  camera.lookAt(midX, lookY, 0);
+  if (state.close) {
+    scene.updateMatrixWorld(true);
+    const crownY = people.map((person) => landmarkWorld(person, person.marks.crown).y);
+    const tallest = Math.max(...crownY);
+    people.forEach((person, index) => {
+      person.wrapper.position.y += tallest - crownY[index];
+    });
+    scene.updateMatrixWorld(true);
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let sumZ = 0;
+    for (const person of people) {
+      const crown = landmarkWorld(person, person.marks.crown);
+      const neck = landmarkWorld(person, person.marks.neck);
+      minY = Math.min(minY, neck.y);
+      maxY = Math.max(maxY, crown.y);
+      minX = Math.min(minX, crown.x - 0.07);
+      maxX = Math.max(maxX, crown.x + 0.07);
+      sumZ += crown.z;
+    }
+    const top = maxY + 0.006;
+    const bot = minY - 0.012;
+    const midY = (top + bot) / 2;
+    const midX = (minX + maxX) / 2;
+    const targetH = Math.max(top - bot, 0.2);
+    const width = Math.max(maxX - minX, 0.2);
+    const distH = (targetH / 0.92) / (2 * Math.tan(v / 2));
+    const distW = width / (2 * Math.tan(h / 2));
+    const distance = Math.max(distH, distW);
+    const faceZ = sumZ / people.length;
+    camera.position.set(midX, midY, faceZ + distance);
+    camera.lookAt(midX, midY, faceZ);
+  } else if (state.focus) {
+    const xs = people.map((person) => person.wrapper.position.x);
+    const heights = people.map((person) => person.member.body.height_cm / 100);
+    const maxH = Math.max(...heights);
+    const minX = Math.min(...xs) - 0.2;
+    const maxX = Math.max(...xs) + 0.2;
+    const midX = (minX + maxX) / 2;
+    const width = Math.max(maxX - minX, 0.5);
+    const top = maxH * 0.94;
+    const bot = maxH * 0.40;
+    const midY = (top + bot) / 2;
+    const distH = ((top - bot) / 0.88) / (2 * Math.tan(v / 2));
+    const distW = width / (2 * Math.tan(h / 2));
+    const distance = Math.max(distH, distW);
+    camera.position.set(midX, midY, distance);
+    camera.lookAt(midX, midY, 0);
+  } else {
+    const xs = people.map((person) => person.wrapper.position.x);
+    const heights = people.map((person) => person.member.body.height_cm / 100);
+    const maxH = Math.max(...heights);
+    const reach = 0.36;
+    const minX = Math.min(...xs) - reach;
+    const maxX = Math.max(...xs) + reach;
+    const midX = (minX + maxX) / 2;
+    const width = Math.max(maxX - minX, 0.9);
+    const lookY = maxH * 0.48;
+    const distH = (maxH / 0.9) / (2 * Math.tan(v / 2));
+    const distW = width / (2 * Math.tan(h / 2));
+    const distance = Math.max(distH, distW);
+    camera.position.set(midX + distance * 0.08, lookY + maxH * 0.08, distance);
+    camera.lookAt(midX, lookY, 0);
+  }
   camera.updateProjectionMatrix();
 }
 
@@ -730,7 +1201,12 @@ function animate() {
       ));
       spine.quaternion.copy(person.rest[index]).multiply(extra);
     });
-    person.anchor.set(person.wrapper.position.x, 0.02, 0);
+    if (state.close) {
+      const neck = landmarkWorld(person, person.marks.neck);
+      person.anchor.set(neck.x, neck.y, neck.z);
+    } else {
+      person.anchor.set(person.wrapper.position.x, 0.02, 0);
+    }
     person.anchor.project(camera);
     const x = (person.anchor.x * 0.5 + 0.5) * canvas.clientWidth;
     const y = (-person.anchor.y * 0.5 + 0.5) * canvas.clientHeight;
@@ -753,7 +1229,10 @@ function setStyle(style) {
     document.querySelector(`#style-${id}`).setAttribute("aria-pressed", style === id.toUpperCase() ? "true" : "false");
   }
   syncUrl();
-  if (state.template) restyle();
+  if (state.template) {
+    restyle();
+    frame();
+  }
 }
 
 function syncUrl() {
@@ -820,9 +1299,54 @@ addEventListener("resize", () => {
   frame();
 });
 
+function bufferView(buffer, ref, Typed) {
+  return new Typed(buffer, ref.offset, ref.count);
+}
+
+async function loadPack() {
+  const meta = await fetch("/cache/proxies/proxies.json").then((response) => {
+    if (!response.ok) throw new Error(`proxies.json HTTP ${response.status}`);
+    return response.json();
+  });
+  const buffer = await fetch("/cache/proxies/proxies.bin").then((response) => {
+    if (!response.ok) throw new Error(`proxies.bin HTTP ${response.status}`);
+    return response.arrayBuffer();
+  });
+  const human = {
+    count: meta.human.count,
+    basis: bufferView(buffer, meta.human.basis, Float32Array),
+    morphs: meta.human.morphs.map((morph) => ({
+      name: morph.name,
+      data: bufferView(buffer, morph, Float32Array),
+    })),
+  };
+  const loader = new THREE.TextureLoader();
+  const textures = {};
+  const proxies = {};
+  for (const [key, proxy] of Object.entries(meta.proxies)) {
+    if (!textures[proxy.texture]) {
+      const texture = await loader.loadAsync(`/cache/proxies/${proxy.texture}`);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.flipY = true;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      textures[proxy.texture] = texture;
+    }
+    proxies[key] = {
+      scale: proxy.scale,
+      count: proxy.count,
+      texture: textures[proxy.texture],
+      bind: bufferView(buffer, proxy.bind, Float32Array),
+      uv: bufferView(buffer, proxy.uv, Float32Array),
+      faces: bufferView(buffer, proxy.faces, Uint32Array),
+    };
+  }
+  return { human, proxies };
+}
+
 async function boot() {
   status.textContent = "Loading the body…";
-  const [family, gltf] = await Promise.all([
+  const [family, gltf, pack] = await Promise.all([
     fetch("/cache/family.json").then((response) => {
       if (!response.ok) throw new Error(`family.json HTTP ${response.status}`);
       return response.json();
@@ -830,8 +1354,10 @@ async function boot() {
     new Promise((resolve, reject) => {
       new GLTFLoader().load("/cache/body.glb", resolve, undefined, reject);
     }),
+    loadPack(),
   ]);
   state.family = family;
+  state.pack = pack;
   state.template = gltf.scene;
   const line = family.line || {};
   caption.textContent = `Seed ${family.seed}. Sims ${line.grandfather}, ${line.grandmother}, ${line.father}, ${line.mother}, girl ${line.girl_17}, boy ${line.boy_13}.`;
