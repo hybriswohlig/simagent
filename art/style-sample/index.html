@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Style sample</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c1915;
+      --paper: #e6e1d8;
+      --panel: #f4f0e8;
+      --line: #c9c1b4;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.7rem 1rem 0.55rem;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    p.note { margin: 0.15rem 0 0; font-size: 0.82rem; color: #5c564c; }
+    .controls { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    button {
+      font: inherit;
+      font-size: 0.92rem;
+      color: var(--ink);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.28rem 0.8rem;
+      cursor: pointer;
+    }
+    button[aria-pressed="true"] {
+      background: var(--ink);
+      color: var(--panel);
+      border-color: var(--ink);
+    }
+    #view { position: relative; height: calc(100% - 4.4rem); }
+    canvas { display: block; width: 100%; height: 100%; }
+    #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .tag {
+      position: absolute;
+      transform: translate(-50%, 0);
+      text-align: center;
+      font-size: 0.78rem;
+      line-height: 1.15;
+      color: var(--ink);
+      white-space: nowrap;
+    }
+    .tag b { display: block; font-weight: 600; }
+    #status {
+      position: absolute;
+      left: 1rem;
+      bottom: 0.8rem;
+      margin: 0;
+      font-size: 0.85rem;
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Style sample</h1>
+      <p class="note" id="caption">Loading the family.</p>
+    </div>
+    <div class="controls">
+      <button type="button" id="style-a" aria-pressed="true">A Realistic</button>
+      <button type="button" id="style-b" aria-pressed="false">B Toon</button>
+      <button type="button" id="style-c" aria-pressed="false">C Flat</button>
+      <button type="button" id="close" aria-pressed="false">Faces</button>
+    </div>
+  </header>
+  <div id="view">
+    <canvas id="stage"></canvas>
+    <div id="labels"></div>
+    <p id="status"></p>
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
