@@ -828,17 +828,19 @@ def lie_statement(w: int, hearer: int, today: int) -> Tuple[tuple, int]:
 def can_refute(
     refuter: int,
     refuter_beliefs: Dict[tuple, Belief],
-    refuter_deeds: Deeds,
+    doer_deeds: Deeds,
     belief: Belief,
     true_father: Callable[[int], Optional[int]],
     today: int,
 ) -> bool:
-    """Whether `refuter` can refute the hearer's belief (which must be false, with
-    certainty above 0, basis not `widerlegt` and not secret).
-    Tat(T, art, O, day): T himself if the day is in his window and he certainly did not do
-    it; and anyone who already holds the key with basis `widerlegt`. VaterVon(child): anyone
-    who holds the true man with 1000 and no secret on it. A true statement is never
-    refuted."""
+    """Whether `refuter` can refute the hearer's belief. Certainty above 0, basis not
+    `widerlegt`, not secret, and the statement known false now.
+    A Tat is known false only when the alleged doer's deeds say he did not do it (`knows`
+    is False). A day outside his window, or a day the cap closed, is unknown, so nobody
+    can refute it. Only then the doer himself, or anyone who already holds the key as
+    `widerlegt`. A VaterVon is known false when the named man is not the genealogical
+    father; then anyone who holds the true man at 1000 with no secret. A true statement
+    is never refuted. `doer_deeds` are the alleged doer's (empty for a VaterVon)."""
     if belief.certainty <= 0 or belief.basis == WIDERLEGT or belief.secret:
         return False
     key = belief.key
@@ -849,27 +851,51 @@ def can_refute(
         mine = refuter_beliefs.get(key)
         return mine is not None and mine.man == truth and mine.certainty == 1000 and not mine.secret
     _, doer, art, other, day = key
-    mine = refuter_beliefs.get(key)
-    if mine is not None and mine.basis == WIDERLEGT:
+    if doer_deeds.knows(art, other, day, today) is not False:
+        return False
+    if refuter == doer:
         return True
-    return refuter == doer and refuter_deeds.knows(art, other, day, today) is False
+    mine = refuter_beliefs.get(key)
+    return mine is not None and mine.basis == WIDERLEGT
 
 
 def pick_refutation(
     a: int, beliefs_a: Dict[tuple, Belief], deeds_a: Deeds,
     b: int, beliefs_b: Dict[tuple, Belief], deeds_b: Deeds,
     true_father: Callable[[int], Optional[int]], today: int,
+    deeds_of: Optional[Callable[[int], Deeds]] = None,
 ) -> Optional[Tuple[int, int, tuple]]:
     """ADR-0031 5: at most one refutation per Talk: first a as the refuter, then b, in each
-    case the smallest key; only this one roll. Returns (refuter, hearer, key) or None."""
-    for refuter, r_beliefs, r_deeds, hearer, h_beliefs in (
-        (a, beliefs_a, deeds_a, b, beliefs_b),
-        (b, beliefs_b, deeds_b, a, beliefs_a),
+    case the smallest key; only this one roll. A Tat is judged on the alleged doer's deeds:
+    a's, b's, or `deeds_of` for anyone else (missing is an empty list). Returns
+    (refuter, hearer, key) or None."""
+    for refuter, r_beliefs, r_deeds, hearer, h_beliefs, h_deeds in (
+        (a, beliefs_a, deeds_a, b, beliefs_b, deeds_b),
+        (b, beliefs_b, deeds_b, a, beliefs_a, deeds_a),
     ):
+        def deeds_for(
+            bel: Belief,
+            r_deeds: Deeds = r_deeds,
+            h_deeds: Deeds = h_deeds,
+            refuter: int = refuter,
+            hearer: int = hearer,
+        ) -> Deeds:
+            key = bel.key
+            if key[0] != 1:
+                return Deeds([])
+            doer = key[1]
+            if doer == refuter:
+                return r_deeds
+            if doer == hearer:
+                return h_deeds
+            if deeds_of is None:
+                return Deeds([])
+            return deeds_of(doer)
+
         keys = sorted(
             k
             for k, bel in h_beliefs.items()
-            if can_refute(refuter, r_beliefs, r_deeds, bel, true_father, today)
+            if can_refute(refuter, r_beliefs, deeds_for(bel), bel, true_father, today)
         )
         if keys:
             return refuter, hearer, keys[0]
@@ -1340,6 +1366,16 @@ def check_beliefs() -> None:
         can_refute(9, {kf: Belief(kf, None, 0, 1, 2, 2, WIDERLEGT)}, deeds_none, false_belief, truth, 6),
         True,
     )
+    expect(
+        "refute: a holder cannot refute a deed the doer did",
+        can_refute(9, {kf: Belief(kf, None, 0, 1, 2, 2, WIDERLEGT)}, deeds3, false_belief, truth, 6),
+        False,
+    )
+    expect(
+        "refute: a holder cannot refute a day outside the window",
+        can_refute(9, {kf: Belief(kf, None, 0, 1, 2, 2, WIDERLEGT)}, Deeds([]), false_belief, truth, 40),
+        False,
+    )
     expect("refute: not an already widerlegt belief", can_refute(3, {}, Deeds([]), replace(false_belief, basis=WIDERLEGT, certainty=0), truth, 6), False)
     expect("refute: not certainty 0", can_refute(3, {}, Deeds([]), replace(false_belief, certainty=0), truth, 6), False)
     expect("refute: not a secret", can_refute(3, {}, Deeds([]), replace(false_belief, secret=True), truth, 6), False)
@@ -1367,6 +1403,25 @@ def check_beliefs() -> None:
         "pick: b when only b can",
         pick_refutation(1, pa, Deeds([]), 2, {}, Deeds([]), truth, 5),
         (2, 1, tat_key(2, LAESTERT, 1, 1)),
+    )
+    held_off = {kf: Belief(kf, None, 0, 1, 2, 2, WIDERLEGT)}
+    expect(
+        "pick: a holder refutes a false deed in the window",
+        pick_refutation(9, held_off, Deeds([]), 1, {kf: false_belief}, Deeds([]), truth, 6),
+        (9, 1, kf),
+    )
+    expect(
+        "pick: a holder cannot refute a deed the doer did",
+        pick_refutation(
+            9, held_off, Deeds([]), 1, {kf: false_belief}, Deeds([]), truth, 6,
+            deeds_of=lambda sim: deeds3 if sim == 3 else Deeds([]),
+        ),
+        None,
+    )
+    expect(
+        "pick: a holder cannot refute a day outside the window",
+        pick_refutation(9, held_off, Deeds([]), 1, {kf: false_belief}, Deeds([]), truth, 40),
+        None,
     )
     # Effects: trust -120 in the source; grudge +150 if the source is the origin of the lie.
     lie_held = Belief(kf, None, 660, 10, 3, 3, GEHOERT)  # source 3 = origin 3, a liar's sentence
