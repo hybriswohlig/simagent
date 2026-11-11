@@ -21,7 +21,7 @@ use sim_core::social::belief::{
 };
 use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::{REFUTED, TALK};
-use sim_core::social::talk::{house_day, lie_draw_key, refute_draw_key};
+use sim_core::social::talk::{house_day, lie_draw_key, refute_draw_key, talk_ppm};
 use sim_core::time::{SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{EventPayload, FORMAT_VERSION, LoadError, World, YearOut};
@@ -1802,4 +1802,282 @@ fn a_missed_refutation_leaves_the_lie() {
     assert!(!refuted_memory(&run, 2, 3, at));
     assert!(!refuted_memory(&run, 3, 2, at));
     assert!(memory_about(&run, 2, 3, at));
+}
+
+/// Four people, and the dining table offers only Alltag and Klatsch. Necken, Lob and
+/// Entschuldigung would otherwise take the seat before a gossip.
+fn lie_data_four() -> sim_core::data::Data {
+    let repository = include_str!("../../../data/house/day.json");
+    let day = repository
+        .replace(
+            r#""school": {"from_age": 6, "until_age": 18"#,
+            r#""school": {"from_age": 6, "until_age": 7"#,
+        )
+        .replace(
+            "\"from_age\": 18,\n    \"until_age\": 67,",
+            "\"from_age\": 7,\n    \"until_age\": 8,",
+        );
+    assert_ne!(day, repository, "the ages in the day file still bind");
+    scene(20_000, 4, 3, 60, &day, 1e-9, 43_200).with_social(common::repository_social_with(
+        |social| {
+            social["bonds"]["start"]["partner"][1] = json!(600);
+            social["bonds"]["start"]["housemate"][1] = json!(600);
+            social["bonds"]["start"]["housemate"][5] = json!(800);
+            let topics = social["topics"].as_array_mut().expect("topics");
+            for (index, topic) in topics.iter_mut().enumerate() {
+                if index == 0 || index == 3 {
+                    continue;
+                }
+                let furniture = topic["furniture"].as_array_mut().expect("furniture");
+                furniture.retain(|kind| kind != "core:dining_table");
+            }
+        },
+    ))
+}
+
+/// Woman of 30, man of 60, girl of 10, and a taken-in girl of 12. He is 60 so Necken is
+/// closed. The girl of 12 is under 18, so she is taken into this household.
+fn lie_born_four() -> [i64; 4] {
+    [-30 * year(), -60 * year(), -10 * year(), -12 * year()]
+}
+
+/// Moved in at second 1000, before the morning of day 0, so a talk at 23 400 is house day 1.
+fn lie_early_four() -> (Run, HouseholdId) {
+    let mut run = day::Run::founded(lie_data_four(), 0x5EED, "test:social", &lie_born_four());
+    run.advance(999);
+    let home = run.together(4).expect("one household");
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    let since = run.world.state().house().households[&home].since;
+    assert_eq!(since, t(1_000));
+    (run, home)
+}
+
+fn talked_at(run: &Run, at: i64) -> LogPayload {
+    run.log
+        .iter()
+        .find(|entry| entry.t == t(at) && matches!(entry.payload, LogPayload::Talked { .. }))
+        .expect("the talk")
+        .payload
+        .clone()
+}
+
+/// A lie, then the refutation of the hearer's copy, then the same gossip really done later
+/// that house day. The statement is true. X still holds it as `widerlegt` and sits with Y,
+/// who still holds it. The refutation draw would hit. It writes nothing: no refutation, no
+/// draw, and the source bond does not move. A day outside the doer's window is the unit
+/// case in `the_lie_and_the_refutation_match_the_reference`.
+///
+/// Seconds are the reference's, seed `0x5EED`. 23 400 lies (founder 0 toward 1, u = 22 823).
+/// 27 000 passes it on (founder 1 toward 0 misses, u = 883 351). 27 800 refutes the hearer's
+/// copy (founder 2 toward 1 hits, u = 289 620). 28 600 tells the doer what was seen, and her
+/// refutation of the remaining copy misses (u = 664 049). 29 400 she tells it onward and the
+/// lie draw misses (u = 724 145), so the deed is recorded. 30 600 would refute (founder 1
+/// toward 0, u = 482 675) and the lie draw misses (u = 210 480).
+#[test]
+fn a_holder_cannot_refute_a_statement_that_is_true_now() {
+    let (mut run, home) = lie_early_four();
+    arrive(
+        &mut run,
+        6 * 3_600,
+        &[(1, TOILET), (2, TOILET), (3, TOILET), (4, TOILET)],
+    );
+    let since = run.world.state().house().households[&home].since;
+
+    let lie_at = 23_400;
+    stage(&mut run, lie_at, false);
+    let day = house_day(t(lie_at), since);
+    assert_eq!(day, 1);
+    let said = laestert(3, 2, day);
+    assert_eq!(belief(&run, 2, said).certainty, 660);
+    assert_eq!(belief(&run, 2, said).basis, Basis::Gehoert);
+    assert_eq!(belief(&run, 2, said).source, Some(sim(1)));
+    assert_eq!(
+        talked_at(&run, lie_at),
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+    to_toilet(&mut run, lie_at, &[1, 2]);
+
+    // The hearer passes the lie on. His own lie draw misses, so the woman holds it too,
+    // and both see him gossip about the girl.
+    let pass_at = 27_000;
+    stage(&mut run, pass_at, false);
+    let passed_lie = DrawRef::from(lie_draw_key(founder(1), t(pass_at), founder(0)));
+    assert!(
+        run.log
+            .iter()
+            .filter(|entry| entry.t == t(pass_at))
+            .all(|entry| !caused_by(entry, passed_lie))
+    );
+    assert!(told_lies(&run).iter().all(|entry| entry.t != t(pass_at)));
+    let heard = belief(&run, 1, said);
+    assert_eq!(heard.certainty, 484);
+    assert_eq!(heard.basis, Basis::Gehoert);
+    assert_eq!(heard.source, Some(sim(2)));
+    assert_eq!(heard.origin, Some(sim(1)));
+    assert_eq!(belief(&run, 2, said).basis, Basis::Gehoert);
+    let seen_man = laestert(2, 3, day);
+    assert_eq!(belief(&run, 1, seen_man).certainty, 1000);
+    assert_eq!(belief(&run, 1, seen_man).basis, Basis::Gesehen);
+    assert_eq!(
+        talked_at(&run, pass_at),
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+    to_toilet(&mut run, pass_at, &[1, 2]);
+
+    // The girl refutes the hearer's copy. The woman's copy stays.
+    let refute_at = 27_800;
+    let arrival = arrive(
+        &mut run,
+        refute_at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(2, DINING), (3, DINING)],
+    );
+    assert_eq!(arrival + TALK_DELAY, refute_at);
+    run.advance(refute_at);
+    assert_eq!(refutations(&run).len(), 1);
+    assert_eq!(refutations(&run)[0].t, t(refute_at));
+    let refuted = belief(&run, 2, said);
+    assert_eq!(refuted.certainty, 0);
+    assert_eq!(refuted.basis, Basis::Widerlegt);
+    assert_eq!(belief(&run, 1, said).certainty, 484);
+    assert_eq!(belief(&run, 1, said).basis, Basis::Gehoert);
+    assert_eq!(bond(&run, 2, 1)[TRUST], 480);
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 150);
+    assert_eq!(
+        talked_at(&run, refute_at),
+        LogPayload::Talked {
+            other: sim(3),
+            object: DINING,
+            topic: 0,
+            actor: None,
+        }
+    );
+    to_toilet(&mut run, refute_at, &[2, 3]);
+
+    // The woman tells the girl the seen deed. The fourth person sits in time to see the
+    // telling, so that deed is not material when the girl repeats it, and stands up before
+    // her own talks. The girl's refutation of the remaining copy misses.
+    let tell_at = 28_600;
+    let seated = arrive(
+        &mut run,
+        tell_at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(1, DINING), (3, DINING)],
+    );
+    assert_eq!(seated + TALK_DELAY, tell_at);
+    let joined = arrive(&mut run, seated, &[(4, DINING)]);
+    assert!(joined < tell_at, "she is seated before the telling");
+    run.advance(tell_at);
+    assert_eq!(talked(&run).len(), 4);
+    let girl_heard = belief(&run, 3, seen_man);
+    assert_eq!(girl_heard.certainty, 733);
+    assert_eq!(girl_heard.basis, Basis::Gehoert);
+    let seen_woman = laestert(1, 2, day);
+    assert_eq!(belief(&run, 4, seen_woman).certainty, 1000);
+    assert_eq!(belief(&run, 4, seen_woman).basis, Basis::Gesehen);
+    assert!(
+        run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .get(&sim(4))
+            .is_none_or(|list| list.iter().all(|held| held.statement != seen_man))
+    );
+    assert_eq!(belief(&run, 1, said).certainty, 484);
+    assert_eq!(belief(&run, 1, said).basis, Basis::Gehoert);
+    let missed = DrawRef::from(refute_draw_key(founder(2), t(tell_at), founder(0)));
+    assert!(run.log.iter().all(|entry| !caused_by(entry, missed)));
+    assert_eq!(
+        talked_at(&run, tell_at),
+        LogPayload::Talked {
+            other: sim(3),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+    to_toilet(&mut run, tell_at, &[1, 3, 4]);
+
+    // The girl tells the fourth person. Her lie draw misses, so she says what the man did,
+    // and that records her own gossip about him. The lie is now a true deed.
+    let deed_at = 29_400;
+    let arrival = arrive(
+        &mut run,
+        deed_at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(3, DINING), (4, DINING)],
+    );
+    assert_eq!(arrival + TALK_DELAY, deed_at);
+    run.advance(deed_at);
+    let deed_lie = DrawRef::from(lie_draw_key(founder(2), t(deed_at), founder(3)));
+    assert!(
+        run.log
+            .iter()
+            .filter(|entry| entry.t == t(deed_at))
+            .all(|entry| !caused_by(entry, deed_lie))
+    );
+    assert!(told_lies(&run).iter().all(|entry| entry.t != t(deed_at)));
+    let deeds = &run.world.state().house().social.deeds[&sim(3)];
+    assert_eq!(
+        deeds.knows(LAESTERT, sim(2), day, day, 30),
+        DeedAnswer::Done
+    );
+    assert_eq!(belief(&run, 2, said).basis, Basis::Widerlegt);
+    assert_eq!(belief(&run, 1, said).basis, Basis::Gehoert);
+    assert_eq!(
+        talked_at(&run, deed_at),
+        LogPayload::Talked {
+            other: sim(4),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+    to_toilet(&mut run, deed_at, &[3, 4]);
+
+    let man_to_woman = bond(&run, 2, 1);
+    let woman_to_man = bond(&run, 1, 2);
+    assert_eq!(man_to_woman[TRUST], 480);
+    assert_eq!(man_to_woman[GRUDGE], 150);
+    assert_eq!(woman_to_man[TRUST], 600);
+    assert_eq!(woman_to_man[GRUDGE], 0);
+
+    // X with Y. He holds the statement widerlegt and she still holds it, and it is true.
+    // The draw would hit. Nothing is refuted and neither bond moves.
+    let again = 30_600;
+    stage(&mut run, again, false);
+    let key = refute_draw_key(founder(1), t(again), founder(0));
+    let u = talk_ppm(WorldSeed::new(0x5EED), key);
+    assert!(u < 500_000, "the refutation draw would hit, u = {u}");
+    let draw = DrawRef::from(key);
+    assert!(run.log.iter().all(|entry| !caused_by(entry, draw)));
+    assert_eq!(refutations(&run).len(), 1);
+    assert!(refutations(&run).iter().all(|entry| entry.t != t(again)));
+    let still = belief(&run, 1, said);
+    assert_eq!(still.certainty, 484);
+    assert_eq!(still.basis, Basis::Gehoert);
+    assert_eq!(still.source, Some(sim(2)));
+    assert_eq!(still.origin, Some(sim(1)));
+    assert!(!still.secret);
+    assert_eq!(belief(&run, 2, said).certainty, 0);
+    assert_eq!(belief(&run, 2, said).basis, Basis::Widerlegt);
+    assert_eq!(bond(&run, 2, 1), man_to_woman);
+    assert_eq!(bond(&run, 1, 2), woman_to_man);
+    assert_eq!(
+        talked_at(&run, again),
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
 }

@@ -1462,15 +1462,18 @@ mod tests {
             since: t(1),
             ..false_belief
         };
-        assert!(can_refute(
-            id(9),
-            &[held_off],
-            &empty,
-            &false_belief,
-            truth,
-            40,
-            window
-        ));
+        assert!(
+            can_refute(id(9), &[held_off], &empty, &false_belief, truth, 6, window),
+            "a holder refutes a false deed inside the window"
+        );
+        assert!(
+            !can_refute(id(9), &[held_off], &done, &false_belief, truth, 6, window),
+            "a holder cannot refute a deed the doer did"
+        );
+        assert!(
+            !can_refute(id(9), &[held_off], &empty, &false_belief, truth, 40, window),
+            "a holder cannot refute a day outside the doer's window"
+        );
         let already = Belief {
             basis: Basis::Widerlegt,
             certainty: 0,
