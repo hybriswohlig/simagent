@@ -13,7 +13,7 @@ use crate::canonical::LoadedState;
 use crate::data::Data;
 use crate::ids::{EventId, SimId};
 use crate::log::{Cause, Causes, LogPayload, Subject};
-use crate::social::bond::{self, Bond, Formation, Role};
+use crate::social::bond::{self, Bond, Formation, Role, TRUST};
 use crate::time::SimTime;
 use crate::world::SimCtx;
 
@@ -301,6 +301,22 @@ pub(super) fn left_world(domain: &mut DomainState, sim: SimId) {
     domain.house.social.bonds.remove(&sim);
 }
 
+/// The trust a new bond of `holder` to `other` would start at (ADR-0031 section 2: the
+/// start value of the role when there is no edge). Hearing uses this only when the edge
+/// is missing. It does not form the bond.
+pub(super) fn start_trust(
+    domain: &mut DomainState,
+    data: &Data,
+    holder: SimId,
+    other: SimId,
+) -> u16 {
+    let social = data
+        .social()
+        .unwrap_or_else(|| panic!("invariant belief.social"));
+    let role = role_of(domain, data, holder, other);
+    bond::values_for(&social.bonds.start, role)[TRUST]
+}
+
 /// A person with bonds comes into a moved-in household (ADR-0030 section 2): what was settled
 /// on moving out did not fall while the person was outside, so the values stay and `since`
 /// is `now`. No entry.
@@ -345,7 +361,7 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
 
 /// A holder, the bonds on that list, and one housemate the list does not name.
 #[cfg(test)]
-pub(super) struct Listed {
+pub(crate) struct Listed {
     pub domain: DomainState,
     pub data: Data,
     pub holder: SimId,
@@ -357,8 +373,21 @@ pub(super) struct Listed {
 /// last bonded person into another household, so that bond is neither a housemate nor kin
 /// and the list can drop it (ADR-0030 section 2). Housemates are cheaper to build than kin
 /// of φ = 1/8: a shared household, and founders with no parents so φ is 0.
+/// The larger id holds `limits.bonds` protected housemate bonds. The smaller id has an
+/// empty list and no bond to the larger one, so a talk is refused on the larger side
+/// while the smaller side still has room (ADR-0030 section 2).
+#[cfg(test)]
+pub(crate) fn listed_larger_full() -> Listed {
+    listed_with(34, 1, 32, false)
+}
+
 #[cfg(test)]
 pub(super) fn listed(bonds: u64, drop_last: bool) -> Listed {
+    listed_with(1, bonds + 2, bonds, drop_last)
+}
+
+#[cfg(test)]
+fn listed_with(holder_n: u64, newcomer_n: u64, bonds: u64, drop_last: bool) -> Listed {
     use alloc::collections::BTreeMap;
     use alloc::vec::Vec;
 
@@ -382,8 +411,8 @@ pub(super) fn listed(bonds: u64, drop_last: bool) -> Listed {
 
     let home = hid(1);
     let away = hid(2);
-    let holder = sid(1);
-    let newcomer = sid(bonds + 2);
+    let holder = sid(holder_n);
+    let newcomer = sid(newcomer_n);
     let mut domain = DomainState::new();
 
     let add = |domain: &mut DomainState, id: SimId, household: HouseholdId| {

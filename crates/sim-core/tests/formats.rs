@@ -31,6 +31,7 @@ use sim_core::log::{
 };
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::presentation::kin::{Foster, KinWord};
+use sim_core::social::belief::{Basis, Statement};
 use sim_core::time::{MAX_ABS_SECS, SimDuration, SimTime};
 use sim_core::trace::{TraceEntry, TracePayload};
 use sim_core::world::{LoadError, SaveError};
@@ -1165,6 +1166,48 @@ fn all_payloads() -> Vec<LogPayload> {
                 avoid: 8000,
             }],
         },
+        LogPayload::Believed {
+            statement: Statement::Tat {
+                doer: sim(2),
+                kind: 0,
+                other: sim(4),
+                day: 1,
+            },
+            certainty: 1000,
+            basis: Basis::Gesehen,
+            source: None,
+            origin: None,
+            replaced: false,
+        },
+        LogPayload::Unbelieved {
+            statement: Statement::Tat {
+                doer: sim(2),
+                kind: 0,
+                other: sim(4),
+                day: 1,
+            },
+        },
+        LogPayload::Told {
+            to: sim(4),
+            statement: Statement::Tat {
+                doer: sim(2),
+                kind: 1,
+                other: sim(4),
+                day: 1,
+            },
+            certainty: 733,
+            lie: false,
+        },
+        LogPayload::Refuted {
+            by: sim(4),
+            statement: Statement::Tat {
+                doer: sim(2),
+                kind: 1,
+                other: sim(4),
+                day: 1,
+            },
+            source: Some(sim(9)),
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1209,7 +1252,11 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::BondChanged { .. }
             | LogPayload::BondDropped { .. }
             | LogPayload::Talked { .. }
-            | LogPayload::Company { .. } => {}
+            | LogPayload::Company { .. }
+            | LogPayload::Believed { .. }
+            | LogPayload::Unbelieved { .. }
+            | LogPayload::Told { .. }
+            | LogPayload::Refuted { .. } => {}
         }
     }
     payloads

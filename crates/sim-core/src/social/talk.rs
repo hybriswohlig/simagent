@@ -1,6 +1,6 @@
 //! The rules of a talk (ADR-0030 section 3): the house day, whether a pair may begin, which
 //! topic they take, who acts and which bond steps the outcome writes. Interests are one draw
-//! per topic. Klatsch is never allowed in this slice: it needs beliefs (ADR-0031).
+//! per topic. Klatsch is allowed when the pair's `gossip` flag is set (ADR-0031 section 3).
 
 use alloc::vec::Vec;
 
@@ -29,6 +29,9 @@ pub struct TalkPair<'a> {
     pub interest_b: &'a [u16],
     /// A common memory exists, so Erinnern may be allowed.
     pub common_memory: bool,
+    /// One of the two has gossip material, or a reason to lie (ADR-0031 section 3). The
+    /// reason stays false until the lie slice.
+    pub gossip: bool,
 }
 
 /// The counters a beginning reads. `planned` is the second being judged.
@@ -93,12 +96,6 @@ pub fn talk_conditions(
     true
 }
 
-/// Klatsch needs beliefs (ADR-0031, slice 6). Until those exist this stays false, so topic 3
-/// is never allowed and nothing here reads a gossip flag.
-pub fn gossip_allowed() -> bool {
-    false
-}
-
 /// The interests of one person, `uniform_below(1001)` of [`TALK_INTEREST`], subject the
 /// lineage key, occasion the topic number, detail 0 (ADR-0030 section 3).
 pub fn interests(seed: WorldSeed, lineage: LineageKey) -> [u16; TOPICS] {
@@ -120,6 +117,8 @@ pub fn interests(seed: WorldSeed, lineage: LineageKey) -> [u16; TOPICS] {
 pub const PRAISE: usize = 1;
 /// Necken.
 pub const TEASE: usize = 2;
+/// Klatsch.
+pub const GOSSIP: usize = 3;
 /// Entschuldigung.
 pub const APOLOGY: usize = 5;
 
@@ -178,8 +177,7 @@ pub fn topic_allowed(
         },
         Condition::GrudgeFrom(least) => pair.edge_ab[GRUDGE].max(pair.edge_ba[GRUDGE]) >= least,
         Condition::CommonMemory => pair.common_memory,
-        // Beliefs are a later slice. The condition is the function, not a stored flag.
-        Condition::Gossip => gossip_allowed(),
+        Condition::Gossip => pair.gossip,
     }
 }
 
@@ -334,6 +332,7 @@ mod tests {
             interest_a: ia,
             interest_b: ib,
             common_memory: memory,
+            gossip: false,
         }
     }
 
@@ -449,9 +448,10 @@ mod tests {
         let recall = topic_outcome(&social, 4, &p);
         assert_eq!(recall[0].steps, vec![(AFFECTION, 20)]);
         assert_eq!(recall[1].steps, vec![(AFFECTION, 20)]);
-        // The reference allows Klatsch once gossip is true. This slice does not: beliefs are later.
-        assert!(!gossip_allowed());
         assert!(!topic_allowed(&social, 3, &p, &dining));
+        let mut with_material = p;
+        with_material.gossip = true;
+        assert!(topic_allowed(&social, 3, &with_material, &dining));
         let grudge = |g: u16| [400, 450, 400, 0, 200, g];
         assert!(!topic_allowed(
             &social,
@@ -532,6 +532,7 @@ mod tests {
                 interest_a: ia,
                 interest_b: ib,
                 common_memory: memory,
+                gossip: false,
             };
             let topic = choose_topic(&social, &view, &dining);
             (topic, topic_actor(&social, topic, &view))
@@ -567,11 +568,15 @@ mod tests {
             chosen(&rows[2], &rows[3], grudging, house, false),
             (5, Some(sim(2)))
         );
-        assert!(!topic_allowed(
-            &social,
-            3,
-            &pair(partner, partner, &rows[0], &rows[1], 30, 32, true),
-            &dining
-        ));
+        let mut quiet = pair(partner, partner, &rows[0], &rows[1], 30, 32, true);
+        assert!(!topic_allowed(&social, 3, &quiet, &dining));
+        quiet.gossip = true;
+        assert!(topic_allowed(&social, 3, &quiet, &dining));
+        // Necken's sum is 1539 and Klatsch's is 1368, so Necken still wins at these ages.
+        assert_eq!(choose_topic(&social, &quiet, &dining), 2);
+        let mut older = pair(partner, partner, &rows[0], &rows[1], 60, 32, false);
+        older.gossip = true;
+        // Necken's max age is 59, so Klatsch wins once one of them is 60.
+        assert_eq!(choose_topic(&social, &older, &dining), 3);
     }
 }
