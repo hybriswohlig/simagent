@@ -218,6 +218,100 @@ function applyWeights(mesh, weights) {
   for (const [name, index] of Object.entries(dict)) influences[index] = weights[name] || 0;
 }
 
+// The glTF splits every corner, so the exported normals are face normals.
+// Group those corners by base position and average the morphed face normals.
+function buildNormalGroups(geometry) {
+  const pos = geometry.attributes.position.array;
+  const map = new Map();
+  const groupOf = new Int32Array(pos.length / 3);
+  let count = 0;
+  for (let i = 0; i < groupOf.length; i += 1) {
+    const o = i * 3;
+    const key = `${Math.round(pos[o] * 1e4)},${Math.round(pos[o + 1] * 1e4)},${Math.round(pos[o + 2] * 1e4)}`;
+    let id = map.get(key);
+    if (id === undefined) {
+      id = count;
+      count += 1;
+      map.set(key, id);
+    }
+    groupOf[i] = id;
+  }
+  return { groupOf, count };
+}
+
+function smoothSkinNormals(mesh) {
+  const source = mesh.geometry;
+  const geometry = new THREE.BufferGeometry();
+  for (const name of Object.keys(source.attributes)) {
+    geometry.setAttribute(name, source.attributes[name]);
+  }
+  geometry.setIndex(source.index);
+  geometry.morphAttributes.position = source.morphAttributes.position;
+  geometry.morphTargetsRelative = source.morphTargetsRelative;
+  geometry.setAttribute("normal", source.attributes.normal.clone());
+  mesh.geometry = geometry;
+
+  const { groupOf, count } = state.normalGroups;
+  const morphed = new Float32Array(geometry.attributes.position.array);
+  const influences = mesh.morphTargetInfluences;
+  const morphs = geometry.morphAttributes.position || [];
+  for (let i = 0; i < morphs.length; i += 1) {
+    const weight = influences[i];
+    if (!weight) continue;
+    const delta = morphs[i].array;
+    for (let k = 0; k < morphed.length; k += 1) morphed[k] += weight * delta[k];
+  }
+  const index = geometry.index.array;
+  const ax = new Float32Array(count);
+  const ay = new Float32Array(count);
+  const az = new Float32Array(count);
+  for (let t = 0; t < index.length; t += 3) {
+    const a = index[t];
+    const b = index[t + 1];
+    const c = index[t + 2];
+    const a3 = a * 3;
+    const b3 = b * 3;
+    const c3 = c * 3;
+    const x0 = morphed[a3];
+    const y0 = morphed[a3 + 1];
+    const z0 = morphed[a3 + 2];
+    const x1 = morphed[b3] - x0;
+    const y1 = morphed[b3 + 1] - y0;
+    const z1 = morphed[b3 + 2] - z0;
+    const x2 = morphed[c3] - x0;
+    const y2 = morphed[c3 + 1] - y0;
+    const z2 = morphed[c3 + 2] - z0;
+    const nx = y1 * z2 - z1 * y2;
+    const ny = z1 * x2 - x1 * z2;
+    const nz = x1 * y2 - y1 * x2;
+    const g0 = groupOf[a];
+    const g1 = groupOf[b];
+    const g2 = groupOf[c];
+    ax[g0] += nx;
+    ay[g0] += ny;
+    az[g0] += nz;
+    ax[g1] += nx;
+    ay[g1] += ny;
+    az[g1] += nz;
+    ax[g2] += nx;
+    ay[g2] += ny;
+    az[g2] += nz;
+  }
+  const normal = geometry.attributes.normal.array;
+  for (let i = 0; i < groupOf.length; i += 1) {
+    const g = groupOf[i];
+    const x = ax[g];
+    const y = ay[g];
+    const z = az[g];
+    const len = Math.hypot(x, y, z) || 1;
+    const o = i * 3;
+    normal[o] = x / len;
+    normal[o + 1] = y / len;
+    normal[o + 2] = z / len;
+  }
+  geometry.attributes.normal.needsUpdate = true;
+}
+
 function morphedYSpan(mesh, weights) {
   const position = mesh.geometry.attributes.position;
   const morphs = mesh.geometry.morphAttributes.position || [];
@@ -549,7 +643,7 @@ function outlineMaterial(cutY) {
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     ).replace(
       "#include <project_vertex>",
-      "transformed += normalize(objectNormal) * 0.03;\n#include <project_vertex>",
+      "transformed += normalize(objectNormal) * 0.006;\n#include <project_vertex>",
     )}`;
     shader.fragmentShader = `varying vec3 vBind;\nuniform float uCut;\n${shader.fragmentShader.replace(
       "#include <color_fragment>",
@@ -997,6 +1091,7 @@ function buildPerson(template, member, x) {
   const shaped = morphWeights(member.body, member.sex, emphasise);
   const weights = shaped.weights;
   applyWeights(mesh, weights);
+  smoothSkinNormals(mesh);
   const measured = morphedYSpan(mesh, Object.fromEntries(
     Object.entries(weights).filter(([name]) => MEASURE_KEYS.has(name)),
   ));
@@ -1389,6 +1484,7 @@ async function boot() {
   state.family = family;
   state.pack = pack;
   state.template = gltf.scene;
+  state.normalGroups = buildNormalGroups(findMesh(gltf.scene).geometry);
   const line = family.line || {};
   caption.textContent = `Seed ${family.seed}. Sims ${line.grandfather}, ${line.grandmother}, ${line.father}, ${line.mother}, girl ${line.girl_17}, boy ${line.boy_13}.`;
   resize();
