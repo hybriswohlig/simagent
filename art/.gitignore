@@ -1,0 +1,4 @@
+# Exports and Blender scratch stay in the cache directory.
+*.glb
+*.blend
+*.blend1
