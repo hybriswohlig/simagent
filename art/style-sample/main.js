@@ -548,27 +548,29 @@ const STRAND_FRAG = `
 const EYE_FRAG = `
   float catchLight = 0.0;
   #ifdef USE_MAP
+    // Pupil centres on brown_eye.png, measured in the mesh UV (v up).
+    vec2 pupilL = vec2(0.2939, 0.2897);
+    vec2 pupilR = vec2(0.7099, 0.7019);
+    float dL = length(vMapUv - pupilL);
+    float dR = length(vMapUv - pupilR);
+    float d = min(dL, dR);
+    // The packed iris is brown. Its colour must not be multiplied into the tint:
+    // brown times blue stays red. Keep only the fibre luminance.
     float luma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-    float hi = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b));
-    float lo = min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
-    // The texture's corner disc is a registration mark, not a highlight.
-    float blueDisc = sampledDiffuseColor.b - max(sampledDiffuseColor.r, sampledDiffuseColor.g);
-    if (luma > 0.45 && blueDisc > 0.08) {
-      sampledDiffuseColor.rgb = vec3(0.93, 0.91, 0.88);
-      luma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-      hi = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b));
-      lo = min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
-    }
-    float iris = smoothstep(0.05, 0.14, hi - lo) * smoothstep(0.05, 0.16, luma) * (1.0 - smoothstep(0.5, 0.72, luma));
-    // Contract iris colours run to near-black. Keep a readable brown and the texture's rings.
-    vec3 lifted = mix(uIris, vec3(0.58, 0.40, 0.26), 0.5);
-    vec3 tinted = lifted * clamp(luma / 0.32, 0.72, 1.35);
-    diffuseColor.rgb = mix(sampledDiffuseColor.rgb, tinted, iris * 0.8);
+    float fiber = clamp(luma / 0.14, 0.62, 1.15);
+    float radial = clamp(d / 0.108, 0.0, 1.0);
+    // Near-black contract browns still need a readable iris, same hue.
+    float irisLuma = dot(uIris, vec3(0.299, 0.587, 0.114));
+    vec3 tint = irisLuma < 0.07 ? uIris * (0.11 / max(irisLuma, 0.02)) : uIris;
+    vec3 irisCol = tint * mix(1.05, 0.55, radial) * fiber;
+    irisCol = mix(irisCol, irisCol * vec3(0.30, 0.26, 0.24), smoothstep(0.72, 1.0, radial));
+    irisCol = mix(irisCol, vec3(0.015, 0.012, 0.010), smoothstep(0.040, 0.022, d));
+    float iris = smoothstep(0.116, 0.098, d);
+    diffuseColor.rgb = mix(sampledDiffuseColor.rgb, irisCol, iris);
     diffuseColor.a = 1.0;
-    // Front of each eyeball, on the iris, slightly above the pupil.
-    catchLight = smoothstep(0.016, 0.004, length(vMapUv - vec2(0.300, 0.335)))
-      + smoothstep(0.016, 0.004, length(vMapUv - vec2(0.700, 0.735)));
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.98, 1.0), catchLight);
+    vec2 pupil = dL < dR ? pupilL : pupilR;
+    catchLight = smoothstep(0.013, 0.002, length(vMapUv - (pupil + vec2(-0.012, 0.015))));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.96, 0.97, 1.0), catchLight * iris);
   #endif
 `;
 
