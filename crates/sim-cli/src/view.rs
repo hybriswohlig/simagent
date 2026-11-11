@@ -1142,23 +1142,45 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
         ended,
         next: next.as_ref(),
     });
-    let rows = match &found.payload {
+    let (rows, history) = match &found.payload {
         LogPayload::Idle { .. } | LogPayload::ActionStarted { .. } => {
             let choice_at = end.saturating_sub(u64::try_from(line.len()).unwrap_or(0));
-            match company_before(&log, choice_at, &found) {
+            let rows = match company_before(&log, choice_at, &found) {
                 Ok(rows) => rows,
                 Err(()) => return Response::error(500, "events_invalid"),
-            }
+            };
+            // Bond lines can stand long before the choice. The company row itself stays in the
+            // short window above.
+            let history = if rows.is_empty() {
+                Vec::new()
+            } else {
+                match social_prefix(&log, end) {
+                    Ok(history) => history,
+                    Err(()) => return Response::error(500, "events_invalid"),
+                }
+            };
+            (rows, history)
         }
-        _ => Vec::new(),
+        _ => (Vec::new(), Vec::new()),
     };
     match world().and_then(|world| {
-        crate::why_answer(&world, &found, id, latest, ended, |object| {
-            (rows.iter())
-                .find(|row| row.object == object)
-                .map(|row| row.company - row.avoid)
-                .unwrap_or(0)
-        })
+        crate::why_answer(
+            &world,
+            &found,
+            id,
+            latest,
+            ended,
+            |object| {
+                (rows.iter())
+                    .find(|row| row.object == object)
+                    .map(|row| row.company - row.avoid)
+                    .unwrap_or(0)
+            },
+            crate::social_view::CompanyAt {
+                rows: &rows,
+                history: &history,
+            },
+        )
     }) {
         Ok(Some(answer)) => Response::new(200, JSON, format!("{answer}\n").into_bytes()),
         Ok(None) => no_choice(),
@@ -1294,6 +1316,33 @@ fn company_before(
         }
     }
     Ok(rows)
+}
+
+/// Bond and belief lines in the domain log at `path` from the start through byte `until`
+/// (the byte after the choice). `core:unbelieved` is not a belief. `Err` for a log it cannot
+/// read or a line it cannot parse.
+fn social_prefix(path: &Path, until: u64) -> Result<Vec<sim_core::log::LogEntry>, ()> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(drop)?;
+    let len = until.min(file.metadata().map_err(drop)?.len());
+    let mut buf = vec![0_u8; usize::try_from(len).map_err(drop)?];
+    if len > 0 {
+        file.read_exact(&mut buf).map_err(drop)?;
+    }
+    let text = std::str::from_utf8(&buf).map_err(drop)?;
+    let mut entries = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if !line.ends_with('\n') {
+            break;
+        }
+        let bond = line.contains("\"core:bond_");
+        let believed = line.contains("\"core:believed\"");
+        if !bond && !believed {
+            continue;
+        }
+        entries.push(serde_json::from_str(line).map_err(drop)?);
+    }
+    Ok(entries)
 }
 
 /// The line of the domain log at `path` with the entry `id` and the byte after it: only a

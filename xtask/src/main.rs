@@ -932,6 +932,111 @@ fn server_answers(
     }
     let compared = compared.ok_or("nobody in the town's houses stood idle within two days")?;
     let waiting = waiting.ok_or("nobody in the town's houses waited within two days")?;
+    // Social rows (version 10). Bonds are on every moved-in person from the first morning.
+    // A memory and a belief need a talk, so step mornings until one house shows each.
+    let social_from = morning.clone();
+    let homes = [household.clone(), schooled.clone(), young.clone()];
+    let (with_memory, with_belief) = {
+        fn seen(house: &serde_json::Value) -> (bool, bool) {
+            let mut memory = false;
+            let mut belief = false;
+            for person in house["persons"].as_array().into_iter().flatten() {
+                if person["memories"]
+                    .as_array()
+                    .is_some_and(|rows| !rows.is_empty())
+                {
+                    memory = true;
+                }
+                if person["beliefs"]
+                    .as_array()
+                    .is_some_and(|rows| !rows.is_empty())
+                {
+                    belief = true;
+                }
+            }
+            (memory, belief)
+        }
+        let mut with_memory = None;
+        let mut with_belief = None;
+        for home in &homes {
+            let house = get(port, &format!("/api/runs/town/house/{home}"))?;
+            let (memory, belief) = seen(&house);
+            if memory && with_memory.is_none() {
+                with_memory = Some(house.clone());
+            }
+            if belief && with_belief.is_none() {
+                with_belief = Some(house);
+            }
+        }
+        for _ in 0..21 {
+            if with_memory.is_some() && with_belief.is_some() {
+                break;
+            }
+            let step = Some(r#"{"step":"morning"}"#);
+            ask(port, "/api/runs/town/advance", step, 200)?;
+            for home in &homes {
+                let house = get(port, &format!("/api/runs/town/house/{home}"))?;
+                let (memory, belief) = seen(&house);
+                if memory && with_memory.is_none() {
+                    with_memory = Some(house.clone());
+                }
+                if belief && with_belief.is_none() {
+                    with_belief = Some(house);
+                }
+            }
+        }
+        (
+            with_memory.ok_or("no moved-in person remembered anything within 21 mornings")?,
+            with_belief.ok_or("no moved-in person held a belief within 21 mornings")?,
+        )
+    };
+    houses.push(with_memory);
+    houses.push(with_belief);
+    // A choice whose log holds `core:company` just before it. The page shows that row.
+    let mut after = String::new();
+    let mut waiting_for: Option<serde_json::Value> = None;
+    let mut company_why = None;
+    let mut pages = 0_u32;
+    while company_why.is_none() && pages < 200 {
+        pages += 1;
+        let page = get(
+            port,
+            &format!("/api/runs/town/events?from={social_from}{after}"),
+        )?;
+        let rows = page["events"].as_array().into_iter().flatten();
+        for row in rows {
+            let entry = &row["entry"];
+            let payload = &entry["payload"];
+            let subject = &entry["subjects"][0];
+            if payload.get("core:company").is_some() {
+                waiting_for = Some(subject.clone());
+                continue;
+            }
+            let choice =
+                payload.get("core:action_started").is_some() || payload.get("core:idle").is_some();
+            if !choice || waiting_for.as_ref() != Some(subject) {
+                continue;
+            }
+            let why = get(port, &format!("/api/runs/town/why/{}", entry["id"]))?;
+            if why["company"]
+                .as_array()
+                .is_some_and(|list| !list.is_empty())
+            {
+                company_why = Some(why);
+                break;
+            }
+            return Err(format!(
+                "a choice after core:company has an empty company list: {}",
+                entry["id"]
+            ));
+        }
+        match page["next"].as_u64() {
+            Some(next) if company_why.is_none() => after = format!("&after={next}"),
+            _ => break,
+        }
+    }
+    let company_why = company_why.ok_or("no choice in the town's houses weighed company")?;
+    answers.push(("WhyAnswer", company_why));
     houses.push(waiting);
     answers.push(("WhyAnswer", compared));
     answers.extend(houses.into_iter().map(|house| ("HouseAnswer", house)));

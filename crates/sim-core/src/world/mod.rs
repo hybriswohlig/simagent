@@ -430,6 +430,18 @@ impl WorldState {
         living.or_else(|| self.domain.archive.get(&id).map(|sim| sim.born))
     }
 
+    /// The biological father of a sim, living or archived. `None` for a founder, for a person
+    /// whose father was never a person of the town, and for an ID never handed out.
+    pub fn biological_father(&self, id: SimId) -> Option<SimId> {
+        let parents = self
+            .domain
+            .sims
+            .get(&id)
+            .and_then(|sim| sim.parents)
+            .or_else(|| self.domain.archive.get(&id).and_then(|sim| sim.parents));
+        parents.map(|parents| parents.father)
+    }
+
     /// Lineage key of a sim, living or archived (ADR-0001 section 4); `None` for an ID never
     /// handed out.
     pub fn lineage_key(&self, id: SimId) -> Option<crate::lineage::LineageKey> {
