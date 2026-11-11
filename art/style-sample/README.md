@@ -16,8 +16,8 @@ python3 art/style-sample/serve.py
 Open http://127.0.0.1:8766/
 
 `serve.py` serves this directory, and `/cache/` is
-`/Users/dariushk/.cache/simagent-art`. The page loads `/cache/body.glb` and
-`/cache/family.json`.
+`/Users/dariushk/.cache/simagent-art`. The page loads `/cache/body.glb`,
+`/cache/family.json`, and `/cache/proxies/`.
 
 The same files, without the page, from the cache directory:
 
@@ -41,8 +41,14 @@ A is stylised-realistic: standard material, light kept under the albedo,
 face axes a little stronger. B is toon shading with a dark rim. C is flat
 unlit colour. Skin, hair and iris colours are the contract
 `melanin_to_srgb` tables, interpolated in linear light and stored on the
-material as sRGB. A shader band colours the torso and hips so the body is
-not nude. Hair is a larger cap whose crown shrinks with the balding stage.
-Beards are a darker, flatter mix of skin and hair colour on men. There is no hair
-dye. Grey is a mix toward neutral grey. Height is a uniform scale of the
-root bone after the age, fat and muscle morphs.
+material as sRGB. A shader band colours the torso and hips navy, with a
+straight cut at the base of the neck. Eyes, brows, lashes and hair are
+MakeHuman proxies fitted to the morphed body (see `../ASSETS.md`). Hair
+uses a short male cut, a longer female cut, or a child cut under 16.
+`balding_stage` opens the crown and temples of the short cut. `hair_density`
+and `eyebrow_density` raise the alpha-test threshold. A beard is a thin
+shell under the nose, coloured from the hair, and it does not cover the
+mouth. The arms hang at the sides. In the face framing the body is cut
+below the neck. Grey is a mix toward neutral grey. Height
+is a uniform scale of the root bone after the age, fat and muscle morphs.
+The page also loads `/cache/proxies/proxies.json` and `proxies.bin`.

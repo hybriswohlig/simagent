@@ -92,8 +92,9 @@ The page fits each proxy with its `.mhclo` bindings. Textures use alpha test.
 
 Hair colour is the contract hair melanin mixed with `hair_grey_fraction`.
 `hair_density` lowers the alpha-test coverage. There is no beard proxy in
-this pack. The beard is a thin shell on the jaw, cheeks and upper lip, built
-from the body mesh, and it leaves the mouth and the lips bare.
+this pack. The beard is a thin shell under the nose, built from the body
+mesh and coloured from the hair. It does not cover the mouth. A chin sheet
+on this mesh could not be kept off the neck, so the jaw stays skin.
 
 ## Not used
 
