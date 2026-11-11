@@ -166,6 +166,16 @@ pub const PAIRING_TASTE: PurposeTag = PurposeTag::from_pinned_list(34);
 /// subject: the person's lineage key; occasion: the topic number; detail: 0. The world seed.
 pub const TALK_INTEREST: PurposeTag = PurposeTag::from_pinned_list(35);
 
+/// Whether a talk with a reason to lie becomes a lie, `uniform_below(1_000_000)` (ADR-0031
+/// section 4). subject: the speaker's lineage key; occasion: the second of the Talk; detail:
+/// the hearer's lineage key. The world seed.
+pub const TALK_LIE: PurposeTag = PurposeTag::from_pinned_list(36);
+
+/// Whether the one refutation of a talk lands, `uniform_below(1_000_000)` (ADR-0031 section 5).
+/// subject: the refuter's lineage key; occasion: the second of the Talk; detail: the hearer's
+/// lineage key. The world seed.
+pub const TALK_REFUTE: PurposeTag = PurposeTag::from_pinned_list(37);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -203,6 +213,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (PAIRING_ACCEPT, "PAIRING_ACCEPT"),
     (PAIRING_TASTE, "PAIRING_TASTE"),
     (TALK_INTEREST, "TALK_INTEREST"),
+    (TALK_LIE, "TALK_LIE"),
+    (TALK_REFUTE, "TALK_REFUTE"),
 ];
 
 /// Values of deleted tags; they are never used again.

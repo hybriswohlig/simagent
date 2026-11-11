@@ -5,7 +5,7 @@
 //! not fade. This module is the pure part: heard certainty, confirmation, a seen deed replacing
 //! a heard one, eviction, the bond steps of a heard deed, gossip material and who speaks. The
 //! state side (`state::belief`) writes the lists and the log. A lie (`TALK_LIE`, section 4) and
-//! a refutation (section 5) are later slices.
+//! a refutation (section 5) are decided here and written by the talk.
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -484,12 +484,205 @@ pub fn live_material(
         .collect()
 }
 
-/// Whether `speaker` has a reason to lie to `hearer` (ADR-0031 section 4).
+/// The W of a lie (ADR-0031 section 4): grudge from `from` on a household member who is not
+/// the hearer, the smallest [`SimId`] when several qualify.
 ///
-/// The lie slice owns the grudge and the `TALK_LIE` roll. Until then this is false, so Klatsch
-/// needs material and [`choose_speaker`] is not handed a lie.
-pub fn has_lie_reason(_speaker: SimId, _hearer: SimId) -> bool {
-    false
+/// READING: the ADR names “not the hearer”. The reference also skips the speaker. A grudge on
+/// oneself is not a household edge, so this skips both.
+pub fn lie_reason(
+    speaker: SimId,
+    hearer: SimId,
+    household: &[SimId],
+    grudge_of: impl Fn(SimId) -> u16,
+    from: u16,
+) -> Option<SimId> {
+    let mut members = household.to_vec();
+    members.sort_unstable();
+    members
+        .into_iter()
+        .find(|&w| w != speaker && w != hearer && grudge_of(w) >= from)
+}
+
+/// What a liar says: `Tat(W, lästert, hearer, today)` at `rules.lie_certainty` (900).
+pub fn lie_statement(w: SimId, hearer: SimId, today: i64, rules: &BeliefRules) -> (Statement, u16) {
+    (
+        Statement::Tat {
+            doer: w,
+            kind: LAESTERT,
+            other: hearer,
+            day: today,
+        },
+        rules.lie_certainty,
+    )
+}
+
+/// Whether `refuter` can refute `belief` (ADR-0031 section 5). Certainty above 0, not
+/// `widerlegt` and not secret, and the statement known false now. A `Tat` is known false
+/// only when `doer_deeds` say the alleged doer did not do it. A day outside his window, or
+/// a day the cap closed, is not known false, so nobody can refute it. Only then the doer
+/// himself, or anyone who already holds that key as `widerlegt`. A `VaterVon` is known
+/// false when the named man is not the genealogical father; then anyone who holds the true
+/// man at 1000 with no secret. A true statement is never refuted.
+///
+/// `doer_deeds` are the alleged doer's. A `VaterVon` does not read them.
+pub fn can_refute(
+    refuter: SimId,
+    refuter_beliefs: &[Belief],
+    doer_deeds: &Deeds,
+    belief: &Belief,
+    true_father: impl Fn(SimId) -> Option<SimId>,
+    today: i64,
+    window_days: u16,
+) -> bool {
+    if belief.certainty == 0 || belief.basis == Basis::Widerlegt || belief.secret {
+        return false;
+    }
+    match belief.statement {
+        Statement::VaterVon { child, man } => {
+            let Some(truth) = true_father(child) else {
+                return false;
+            };
+            if man == truth {
+                return false;
+            }
+            let Some(mine) = find(refuter_beliefs, belief.key()) else {
+                return false;
+            };
+            let Statement::VaterVon { man: held, .. } = mine.statement else {
+                return false;
+            };
+            held == truth && mine.certainty == 1000 && !mine.secret
+        }
+        Statement::Tat {
+            doer,
+            kind,
+            other,
+            day,
+        } => {
+            if doer_deeds.knows(kind, other, day, today, window_days) != DeedAnswer::NotDone {
+                return false;
+            }
+            refuter == doer
+                || find(refuter_beliefs, belief.key())
+                    .is_some_and(|mine| mine.basis == Basis::Widerlegt)
+        }
+    }
+}
+
+/// One refutation of a talk: who refutes, whose belief, and which key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RefutationPick {
+    pub refuter: SimId,
+    pub hearer: SimId,
+    pub key: StatementKey,
+}
+
+/// At most one refutation (ADR-0031 section 5): first `a` as the refuter, then `b`, and in
+/// each case the smallest key. A `Tat` is judged on the alleged doer's deeds from
+/// `deeds_of`. A missing person is an empty list: in the window that is "not done", and
+/// outside it nothing is known. The caller rolls `TALK_REFUTE` once for this pick.
+#[allow(clippy::too_many_arguments)]
+pub fn pick_refutation(
+    a: SimId,
+    beliefs_a: &[Belief],
+    b: SimId,
+    beliefs_b: &[Belief],
+    deeds_of: impl Fn(SimId) -> Deeds,
+    true_father: impl Fn(SimId) -> Option<SimId>,
+    today: i64,
+    window_days: u16,
+) -> Option<RefutationPick> {
+    let sides = [(a, beliefs_a, b, beliefs_b), (b, beliefs_b, a, beliefs_a)];
+    for (refuter, own, hearer, theirs) in sides {
+        let mut keys: Vec<StatementKey> = theirs
+            .iter()
+            .filter(|belief| {
+                let deeds = match belief.statement {
+                    Statement::Tat { doer, .. } => deeds_of(doer),
+                    Statement::VaterVon { .. } => Deeds::default(),
+                };
+                can_refute(
+                    refuter,
+                    own,
+                    &deeds,
+                    belief,
+                    &true_father,
+                    today,
+                    window_days,
+                )
+            })
+            .map(Belief::key)
+            .collect();
+        keys.sort_unstable();
+        if let Some(key) = keys.first().copied() {
+            return Some(RefutationPick {
+                refuter,
+                hearer,
+                key,
+            });
+        }
+    }
+    None
+}
+
+/// The hearer's belief after a refutation, and the steps on the edge to the old source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RefutationEffect {
+    pub belief: Belief,
+    /// The immediate source and the one bond step. None when the false belief had no source.
+    pub toward_source: Option<(SimId, Vec<(usize, i16)>)>,
+}
+
+/// The effects (ADR-0031 section 5). A false `Tat` becomes certainty 0 and `widerlegt`. A
+/// false `VaterVon` becomes the true man at 1000, `widerlegt`, not secret. `since` is now,
+/// and source and origin are the refuter. Trust in the old source is `refute_trust`; grudge
+/// `refute_grudge` as well when that source is the origin. No source, no step.
+///
+/// READING: the reference adds the grudge whenever `origin == source`, which on a `Tat` is
+/// the origin of a lie and on a directly heard sentence is the same person. A `VaterVon`
+/// with a source is not a lie; the reference body still adds the grudge if the two match.
+/// This follows that body. The checked `VaterVon` has no source.
+pub fn refute(
+    belief: Belief,
+    refuter: SimId,
+    true_man: Option<SimId>,
+    now: SimTime,
+    rules: &BeliefRules,
+) -> RefutationEffect {
+    let statement = match belief.statement {
+        Statement::VaterVon { child, .. } => Statement::VaterVon {
+            child,
+            man: true_man.unwrap_or_else(|| panic!("invariant belief.father")),
+        },
+        Statement::Tat { .. } => belief.statement,
+    };
+    let certainty = match belief.statement {
+        Statement::VaterVon { .. } => 1000,
+        Statement::Tat { .. } => 0,
+    };
+    let new = Belief {
+        statement,
+        certainty,
+        since: now,
+        source: Some(refuter),
+        origin: Some(refuter),
+        basis: Basis::Widerlegt,
+        secret: false,
+    };
+    let Some(source) = belief.source else {
+        return RefutationEffect {
+            belief: new,
+            toward_source: None,
+        };
+    };
+    let mut steps = vec![(TRUST, rules.refute_trust)];
+    if belief.origin == Some(source) {
+        steps.push((GRUDGE, rules.refute_grudge));
+    }
+    RefutationEffect {
+        belief: new,
+        toward_source: Some((source, steps)),
+    }
 }
 
 /// Who speaks (ADR-0031 section 3). Someone with material or a reason may. If both may, the
@@ -1164,6 +1357,262 @@ mod tests {
             choose_speaker(id(1), &[], Some(id(40)), id(2), &[m3], None),
             Some(id(2))
         );
-        assert!(!has_lie_reason(id(1), id(2)));
+    }
+
+    fn vater(child: u64, man: u64, certainty: u16, basis: Basis, secret: bool) -> Belief {
+        Belief {
+            statement: Statement::VaterVon {
+                child: id(child),
+                man: id(man),
+            },
+            certainty,
+            since: t(1),
+            source: None,
+            origin: None,
+            basis,
+            secret,
+        }
+    }
+
+    /// The reference's lie reason, the sentence at 900, who can refute, the pick and the effects.
+    #[test]
+    fn the_lie_and_the_refutation_match_the_reference() {
+        let rules = rules();
+        let window = social().limits.deed_window_days;
+        assert_eq!(window, 30);
+        let house = [id(1), id(2), id(3), id(4)];
+        fn grudge<'a>(table: &'a [(u64, u16)]) -> impl Fn(SimId) -> u16 + 'a {
+            move |w: SimId| {
+                table
+                    .iter()
+                    .find(|(id_, _)| id(*id_) == w)
+                    .map(|(_, value)| *value)
+                    .unwrap_or(0)
+            }
+        }
+        assert_eq!(
+            lie_reason(id(1), id(2), &house, grudge(&[(3, 700)]), 700),
+            Some(id(3))
+        );
+        assert_eq!(
+            lie_reason(id(1), id(2), &house, grudge(&[(3, 699)]), 700),
+            None
+        );
+        assert_eq!(
+            lie_reason(id(1), id(2), &house, grudge(&[(4, 900), (3, 700)]), 700),
+            Some(id(3))
+        );
+        assert_eq!(
+            lie_reason(id(1), id(2), &house, grudge(&[(2, 900)]), 700),
+            None
+        );
+        assert_eq!(
+            lie_reason(id(1), id(2), &house, grudge(&[(1, 900)]), 700),
+            None
+        );
+        let (said, certainty) = lie_statement(id(3), id(2), 6, &rules);
+        assert_eq!((said, certainty), (tat(3, LAESTERT, 2, 6), 900));
+
+        let truth = |child: SimId| (child == id(7)).then_some(id(20));
+        let false_belief = heard(tat(3, LAESTERT, 1, 4), 660, 10, 5, 3);
+        let empty = Deeds::default();
+        assert!(can_refute(
+            id(3),
+            &[],
+            &empty,
+            &false_belief,
+            truth,
+            6,
+            window
+        ));
+        assert!(!can_refute(
+            id(9),
+            &[],
+            &empty,
+            &false_belief,
+            truth,
+            6,
+            window
+        ));
+        let mut done = Deeds::default();
+        done.add(LAESTERT, id(1), 4, 64);
+        assert!(!can_refute(
+            id(3),
+            &[],
+            &done,
+            &false_belief,
+            truth,
+            6,
+            window
+        ));
+        assert!(!can_refute(
+            id(3),
+            &[],
+            &empty,
+            &false_belief,
+            truth,
+            40,
+            window
+        ));
+        let held_off = Belief {
+            certainty: 0,
+            basis: Basis::Widerlegt,
+            source: Some(id(2)),
+            origin: Some(id(2)),
+            since: t(1),
+            ..false_belief
+        };
+        assert!(
+            can_refute(id(9), &[held_off], &empty, &false_belief, truth, 6, window),
+            "a holder refutes a false deed inside the window"
+        );
+        assert!(
+            !can_refute(id(9), &[held_off], &done, &false_belief, truth, 6, window),
+            "a holder cannot refute a deed the doer did"
+        );
+        assert!(
+            !can_refute(id(9), &[held_off], &empty, &false_belief, truth, 40, window),
+            "a holder cannot refute a day outside the doer's window"
+        );
+        let already = Belief {
+            basis: Basis::Widerlegt,
+            certainty: 0,
+            ..false_belief
+        };
+        assert!(!can_refute(id(3), &[], &empty, &already, truth, 6, window));
+        let zero = Belief {
+            certainty: 0,
+            ..false_belief
+        };
+        assert!(!can_refute(id(3), &[], &empty, &zero, truth, 6, window));
+        let secret = Belief {
+            secret: true,
+            ..false_belief
+        };
+        assert!(!can_refute(id(3), &[], &empty, &secret, truth, 6, window));
+
+        let wrong = vater(7, 21, 900, Basis::Geschlossen, false);
+        let holds = vater(7, 20, 1000, Basis::Beteiligt, false);
+        assert!(can_refute(
+            id(40),
+            &[holds],
+            &empty,
+            &wrong,
+            truth,
+            6,
+            window
+        ));
+        let hidden = Belief {
+            secret: true,
+            ..holds
+        };
+        assert!(!can_refute(
+            id(40),
+            &[hidden],
+            &empty,
+            &wrong,
+            truth,
+            6,
+            window
+        ));
+        let short = Belief {
+            certainty: 900,
+            ..holds
+        };
+        assert!(!can_refute(
+            id(40),
+            &[short],
+            &empty,
+            &wrong,
+            truth,
+            6,
+            window
+        ));
+        let true_father = Belief {
+            statement: Statement::VaterVon {
+                child: id(7),
+                man: id(20),
+            },
+            ..wrong
+        };
+        assert!(!can_refute(
+            id(40),
+            &[holds],
+            &empty,
+            &true_father,
+            truth,
+            6,
+            window
+        ));
+
+        let ka1 = heard(tat(2, LAESTERT, 1, 1), 600, 1, 5, 2);
+        let ka2 = heard(tat(2, LAESTERT, 1, 2), 600, 1, 5, 2);
+        let deeds = |_: SimId| Deeds::default();
+        let none = pick_refutation(id(1), &[], id(2), &[], deeds, truth, 5, window);
+        assert_eq!(none, None);
+        let second = pick_refutation(id(1), &[ka2, ka1], id(2), &[], deeds, truth, 5, window);
+        assert_eq!(
+            second,
+            Some(RefutationPick {
+                refuter: id(2),
+                hearer: id(1),
+                key: ka1.key(),
+            })
+        );
+        let pa = heard(tat(2, LAESTERT, 1, 1), 600, 1, 5, 2);
+        let pb = heard(tat(1, NECKT, 2, 1), 600, 1, 5, 1);
+        let first = pick_refutation(id(1), &[pa], id(2), &[pb], deeds, truth, 5, window);
+        assert_eq!(
+            first,
+            Some(RefutationPick {
+                refuter: id(1),
+                hearer: id(2),
+                key: pb.key(),
+            })
+        );
+        let only_b = pick_refutation(id(1), &[pa], id(2), &[], deeds, truth, 5, window);
+        assert_eq!(
+            only_b,
+            Some(RefutationPick {
+                refuter: id(2),
+                hearer: id(1),
+                key: pa.key(),
+            })
+        );
+
+        let lie_held = heard(tat(3, LAESTERT, 1, 4), 660, 10, 3, 3);
+        let origin = refute(lie_held, id(9), None, t(77), &rules);
+        assert_eq!(origin.belief.certainty, 0);
+        assert_eq!(origin.belief.basis, Basis::Widerlegt);
+        assert_eq!(origin.belief.since, t(77));
+        assert_eq!(origin.belief.source, Some(id(9)));
+        assert_eq!(origin.belief.origin, Some(id(9)));
+        assert!(!origin.belief.secret);
+        assert_eq!(origin.belief.statement, lie_held.statement);
+        assert_eq!(
+            origin.toward_source,
+            Some((id(3), vec![(TRUST, -120), (GRUDGE, 150)]))
+        );
+        let passed = heard(tat(3, LAESTERT, 1, 4), 488, 10, 5, 3);
+        let second_hand = refute(passed, id(9), None, t(77), &rules);
+        assert_eq!(
+            second_hand.toward_source,
+            Some((id(5), vec![(TRUST, -120)]))
+        );
+        let cleared = refute(wrong, id(40), Some(id(20)), t(77), &rules);
+        assert_eq!(
+            cleared.belief.statement,
+            Statement::VaterVon {
+                child: id(7),
+                man: id(20),
+            }
+        );
+        assert_eq!(cleared.belief.certainty, 1000);
+        assert_eq!(cleared.belief.basis, Basis::Widerlegt);
+        assert!(!cleared.belief.secret);
+        assert_eq!(cleared.belief.since, t(77));
+        assert_eq!(cleared.belief.source, Some(id(40)));
+        assert_eq!(cleared.belief.origin, Some(id(40)));
+        assert_eq!(cleared.toward_source, None);
     }
 }

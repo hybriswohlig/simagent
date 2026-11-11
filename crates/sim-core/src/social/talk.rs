@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use crate::data_id::DataId;
 use crate::ids::SimId;
 use crate::lineage::LineageKey;
-use crate::rng::tags::TALK_INTEREST;
+use crate::rng::tags::{TALK_INTEREST, TALK_LIE, TALK_REFUTE};
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed};
 use crate::social::bond::{AFFECTION, ATTRACTION, FAMILIARITY, GRUDGE, RESPECT, TRUST};
 use crate::social::data::{BondValue, Condition, Limits, SocialData, Who};
@@ -29,8 +29,7 @@ pub struct TalkPair<'a> {
     pub interest_b: &'a [u16],
     /// A common memory exists, so Erinnern may be allowed.
     pub common_memory: bool,
-    /// One of the two has gossip material, or a reason to lie (ADR-0031 section 3). The
-    /// reason stays false until the lie slice.
+    /// One of the two has gossip material, or a reason to lie (ADR-0031 section 3).
     pub gossip: bool,
 }
 
@@ -110,6 +109,34 @@ pub fn interests(seed: WorldSeed, lineage: LineageKey) -> [u16; TOPICS] {
         let drawn = draws.uniform_below(key, 1001);
         u16::try_from(drawn).unwrap_or_else(|_| panic!("invariant talk.interest"))
     })
+}
+
+/// The lie draw (ADR-0031 section 4). Subject the speaker's lineage key, occasion the
+/// second of the Talk, detail the hearer's lineage key. The world seed.
+pub fn lie_draw_key(speaker: LineageKey, second: SimTime, hearer: LineageKey) -> DrawKey {
+    DrawKey {
+        tag: TALK_LIE,
+        subject: SubjectKey::from(speaker),
+        occasion: u64::try_from(second.as_secs()).unwrap_or_else(|_| panic!("invariant talk.lie")),
+        detail: hearer.get(),
+    }
+}
+
+/// The refutation draw (ADR-0031 section 5). Subject the refuter's lineage key, occasion
+/// the second, detail the hearer's lineage key. The world seed.
+pub fn refute_draw_key(refuter: LineageKey, second: SimTime, hearer: LineageKey) -> DrawKey {
+    DrawKey {
+        tag: TALK_REFUTE,
+        subject: SubjectKey::from(refuter),
+        occasion: u64::try_from(second.as_secs())
+            .unwrap_or_else(|_| panic!("invariant talk.refute")),
+        detail: hearer.get(),
+    }
+}
+
+/// `uniform_below(1_000_000)` of a lie or a refutation key.
+pub fn talk_ppm(seed: WorldSeed, key: DrawKey) -> u64 {
+    Draws::new(seed).uniform_below(key, 1_000_000)
 }
 
 /// The topic numbers with an actor (ADR-0030 section 3: 1 Lob, 2 Necken, 5 Entschuldigung). The
@@ -517,6 +544,40 @@ mod tests {
         assert_eq!(rows[1], [818, 320, 543, 436, 410, 736]);
         assert_eq!(rows[2], [44, 850, 922, 380, 111, 824]);
         assert_eq!(rows[3], [947, 239, 296, 644, 8, 434]);
+        // The reference table of TALK_LIE and TALK_REFUTE (tools/social_reference.py), seed
+        // 0x5EED, founders of test:social. A lie is u < 50_000. A refutation is u < 500_000.
+        let ppm = |speaker: usize, second: i64, hearer: usize, lie: bool| {
+            let key = if lie {
+                lie_draw_key(keys[speaker], at(second), keys[hearer])
+            } else {
+                refute_draw_key(keys[speaker], at(second), keys[hearer])
+            };
+            talk_ppm(seed, key)
+        };
+        let row = |second: i64, speaker: usize, hearer: usize, lie_u: u64, refute_u: u64| {
+            assert_eq!(ppm(speaker, second, hearer, true), lie_u);
+            assert_eq!(ppm(speaker, second, hearer, false), refute_u);
+        };
+        row(21_600, 0, 1, 242_294, 785_391);
+        row(21_600, 1, 0, 219_011, 252_573);
+        row(21_600, 2, 3, 617_183, 356_312);
+        row(21_600, 3, 2, 502_153, 839_005);
+        row(25_200, 0, 1, 875_054, 259_019);
+        row(25_200, 1, 0, 956_384, 999_349);
+        row(25_200, 2, 3, 831_587, 647_118);
+        row(25_200, 3, 2, 63_792, 745_268);
+        row(237_600, 0, 1, 925_772, 591_903);
+        row(237_600, 1, 0, 275_257, 577_142);
+        row(237_600, 2, 3, 114_266, 694_093);
+        row(237_600, 3, 2, 483_051, 816_114);
+        assert_eq!(ppm(0, 23_400, 1, true), 22_823);
+        assert!(ppm(0, 23_400, 1, true) < 50_000);
+        assert_eq!(ppm(0, 22_800, 1, true), 68_860);
+        assert_eq!(ppm(0, 114_000, 1, true), 38_119);
+        assert_eq!(ppm(0, 229_800, 1, true), 3_870);
+        assert_eq!(ppm(0, 324_000, 1, true), 15_212);
+        assert_eq!(ppm(2, 27_000, 1, false), 218_846);
+        assert_eq!(ppm(2, 30_600, 1, false), 533_784);
         let social = social();
         let dining = DataId::new("core:dining_table").expect("id");
         let house = [400, 450, 400, 0, 200, 0];
