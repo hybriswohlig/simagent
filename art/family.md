@@ -1,6 +1,6 @@
 # Family sample
 
-`art/family.json` is not in this commit. The 50-year run of `data/scenarios/stadt.json` has people at every requested age, and it has no grandparent line that holds all of them together.
+`art/family.json` is not in this commit. The file for this sample is `/Users/dariushk/.cache/simagent-art/family.json`. The 50-year run of `data/scenarios/stadt.json` has people at every requested age, and it has no grandparent line that holds all of them together.
 
 `simagent export` writes the pedigree only. Bodies are on `simagent view`: `GET /api/runs/{run}/people` for the living, and `GET /api/runs/{run}/persons/{sim}` for `at_ages`. Fixed preview ages are 2, 8, 12, 16, 25, 40 and 60. Ages 10, 13 and 17 have to be someone's current age. `art/family.py` reads that API and writes one JSON file with the seed, the scenario, the sim ids, the ages, and all 44 body values.
 
@@ -28,11 +28,11 @@ target/release/simagent view \
     /Users/dariushk/.cache/simagent-art/runs \
     --web /Users/dariushk/.cache/simagent-art/view-web \
     --port 8765
-python3 art/family.py --base http://127.0.0.1:8765 --run stadt \
-    --until 1572480000 --out art/family.json
+python3 art/family.py --base http://127.0.0.1:8765 --run stadt --drive \
+    --out /Users/dariushk/.cache/simagent-art/family.json
 ```
 
-The script keeps a family only when one living couple, both about 65, has a living child about 40, that child's living partner is also about 40, and their descendants include a living 10-year-old, a living 13-year-old of each sex, and a living 17-year-old of each sex. Ages 8 and 12 may be that person's current age or an `at_ages` entry on one of those children. The windows it tries, in order, are grandparents 62–70 with parents 36–45, then 58–75 with 32–50, then 55–80 with 30–55. On this run it exits 1.
+`--drive` is required. It keeps the closest line below and writes each child birthday by resuming `runs/stadt-ages` with `simagent run --resume --until`. Without `--drive` the script exits 1. The first search, which asked for every age alive at once, is the section under this.
 
 ## What this run contains
 
@@ -71,6 +71,17 @@ Of the 176 people aged 30–55, 89 have both a mother id and a father id in the 
 None of those 29 lines contains a living 10-year-old, a living boy of 13, a living girl of 13, a living boy of 17, and a living girl of 17. The two closest lines have three of those five:
 
 - Grandparents both 69, one child 47. Descendants include both sexes at 13 and a 17-year-old girl. Living ages in that line include 0, 2, 11, 13, 15, 17, 19, 23, 25 and the parents. There is no 10-year-old and no 17-year-old boy.
+
+That first line is the one this sample uses. The same two children are read again from `runs/stadt-ages`, one deterministic continuation stopped with `--until` on each birthday. Falk is not stopped at 17: that second is after the 50-year run.
+
+| Person | Sim | Snapshots (age at `--until`) |
+|---|---|---|
+| Ulrich Wolff, grandfather | 214 | 69 at 1572480000 |
+| Sonja Heinrich, grandmother | 215 | 69 at 1572480000 |
+| Hartmut Wolff, father | 328 | 47 at 1572480000 |
+| Regina Haupt, mother | 400 | 39 at 1572480000 |
+| Nelli Wolff | 602 | 8 at 1287014400, 10 at 1349913600, 12 at 1412812800, 13 at 1444262400, 17 at 1570060800 |
+| Falk Wolff | 646 | 8 at 1400716800, 10 at 1463616000, 12 at 1526515200, 13 at 1557964800 |
 - Grandparents 68 and 69, one child 44. Descendants include a 10-year-old and both sexes at 13. There is no 17-year-old.
 
 Five people are 17: two boys and three girls. Each boy sits in a line that does not also hold the other four slots. Ages 8 and 12 are present in the town (6 and 7 people) and were not the cause of the miss. The script asks for them only after the living slots match, from a current age or from `at_ages`.
