@@ -59,18 +59,48 @@ The body contract has no origin field. The three races are weighted equally (1/3
 
 ## Clothes
 
-This run does not download the community system-assets pack. That zip is about 267 MB
-(https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip,
-CC0). A fitted proxy would need an `.mhclo` and a second mesh.
+The sample paints a sleeveless body suit on the CC0 body. A shader band on the
+skin material colours the torso and hips `#314a6e`, from mid-thigh to a straight
+cut at the base of the neck. The cut is a constant height on the morphed mesh,
+so the neckline stays a clean edge. Head, arms, hands and lower legs stay skin.
+Breast shape is still the mesh under that colour. No clothes file is added.
 
-The sample instead paints a sleeveless body suit on the CC0 body. A shader band
-on the skin material colours the torso and hips `#314a6e` (from mid-thigh to the
-top of the chest, stopping before the arms). Head, arms, hands and lower legs
-stay skin. Breast shape is still the mesh under that colour. No new asset file
-is added.
+## Eyes, brows, lashes and hair
+
+These proxies come from the MakeHuman community system-assets pack. The zip is
+CC0, about 267 MB:
+
+https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip
+
+The page listing each asset as CC0 is
+https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html
+
+Local zip: `/Users/dariushk/.cache/simagent-art/makehuman_system_assets_cc0.zip`.
+`art/pack_proxies.py` reads the files below and writes
+`/Users/dariushk/.cache/simagent-art/proxies/proxies.json` and `proxies.bin`.
+The page fits each proxy with its `.mhclo` bindings. Textures use alpha test.
+
+| Asset | Path in the zip | Use |
+|---|---|---|
+| Low-poly eyes | `eyes/low-poly/low-poly.mhclo`, `low-poly.obj` | Both eyeballs. Vertices match the HM08 eye helpers. |
+| Brown eye texture | `eyes/materials/brown_eye.png`, `brown.mhmat` | Sclera, iris and pupil. The page tints the iris with the contract iris colour and leaves the sclera and pupil. |
+| eyebrow001 | `eyebrows/eyebrow001/` | Brow cards. Tinted with the hair colour. Opacity follows `eyebrow_density`. |
+| eyelashes01 | `eyelashes/eyelashes01/` | Lash cards on the same eye helpers. |
+| short04 | `hair/short04/` | Short male cut. `balding_stage` opens the crown and the temples. |
+| short02 | `hair/short02/` | Child cut, under 16. |
+| long01 | `hair/long01/` | Longer female cut. |
+
+Hair colour is the contract hair melanin mixed with `hair_grey_fraction`.
+`hair_density` lowers the alpha-test coverage. There is no beard proxy in
+this pack. The beard is a thin shell on the jaw, cheeks and upper lip, built
+from the body mesh, and it leaves the mouth and the lips bare.
 
 ## Not used
 
 - `rigs/standard/rig.mixamo.json` and `weights.mixamo.json` are in the same directory. This sample does not use Mixamo, and it does not use assets from any game.
-- The community system-assets pack is a different download and was not fetched. The pages are https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html and the zip is https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip (about 267 MB, CC0). That pack is proxies, eyes, teeth, clothes, skins, and hair. It does not contain this base mesh or these morph targets.
+- The system-assets zip also contains clothes, skins, teeth and other hair.
+  This sample uses only the eye, brow, lash and three hair proxies in the
+  table above. It does not use clothes or skin textures from that zip.
+- The zip does not contain this base mesh or these morph targets. Those stay
+  the MPFB2 files at the top of this note.
 - `macrodetails/height/*` (144 targets) and the breast/proportion grids are left unused. Height is a bone scale. See `MAPPING.md`.
