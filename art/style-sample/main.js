@@ -532,34 +532,43 @@ const STRAND_FRAG = `
     diffuseColor.rgb = uHair * lift;
     diffuseColor.a = 1.0;
   #endif
-  if (cover < uThresh) {
-    // The child cut's center part samples the transparent margin and shows the scalp as a jagged line.
-    if (uFill > 0.5 && abs(vMesh.x) < 0.006 && vMesh.y > uCrown.y - 0.055) {
-      diffuseColor.rgb = uHair * 0.82;
-      diffuseColor.a = 1.0;
-    } else {
-      discard;
-    }
+  if (!gl_FrontFacing) diffuseColor.rgb *= 0.62;
+  // Vertices sit on the centre line, but the texture opens onto the scalp there.
+  // Paint with the dark body of the hair. A lighter mix (the old 0.78) reads as a stripe.
+  float part = (1.0 - smoothstep(0.0, 0.02, abs(vMesh.x)))
+    * smoothstep(uCrown.y - 0.11, uCrown.y - 0.012, vMesh.y);
+  if (uFill > 0.5 && part > 0.15 && vKeep > 0.55) {
+    diffuseColor.rgb = mix(diffuseColor.rgb, uHair * 0.36, smoothstep(0.15, 0.7, part));
+    diffuseColor.a = 1.0;
+  } else if (cover < uThresh) {
+    discard;
   }
 `;
 
 const EYE_FRAG = `
+  float catchLight = 0.0;
   #ifdef USE_MAP
     float luma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
     float hi = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b));
     float lo = min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
-    // Only the bright registration disc. A wider sclera rewrite erased the iris.
+    // The texture's corner disc is a registration mark, not a highlight.
     float blueDisc = sampledDiffuseColor.b - max(sampledDiffuseColor.r, sampledDiffuseColor.g);
-    if (luma > 0.55 && blueDisc > 0.03) {
-      sampledDiffuseColor.rgb = vec3(0.90, 0.87, 0.82);
+    if (luma > 0.45 && blueDisc > 0.08) {
+      sampledDiffuseColor.rgb = vec3(0.93, 0.91, 0.88);
       luma = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
       hi = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b));
       lo = min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
     }
-    float iris = smoothstep(0.06, 0.16, hi - lo) * smoothstep(0.04, 0.12, luma) * (1.0 - smoothstep(0.42, 0.62, luma));
-    vec3 tinted = uIris * clamp(luma / 0.22, 0.35, 1.65);
-    diffuseColor.rgb = mix(sampledDiffuseColor.rgb, tinted, iris);
+    float iris = smoothstep(0.05, 0.14, hi - lo) * smoothstep(0.05, 0.16, luma) * (1.0 - smoothstep(0.5, 0.72, luma));
+    // Contract iris colours run to near-black. Keep a readable brown and the texture's rings.
+    vec3 lifted = mix(uIris, vec3(0.58, 0.40, 0.26), 0.5);
+    vec3 tinted = lifted * clamp(luma / 0.32, 0.72, 1.35);
+    diffuseColor.rgb = mix(sampledDiffuseColor.rgb, tinted, iris * 0.8);
     diffuseColor.a = 1.0;
+    // Front of each eyeball, on the iris, slightly above the pupil.
+    catchLight = smoothstep(0.016, 0.004, length(vMapUv - vec2(0.300, 0.335)))
+      + smoothstep(0.016, 0.004, length(vMapUv - vec2(0.700, 0.735)));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.98, 1.0), catchLight);
   #endif
 `;
 
@@ -595,7 +604,7 @@ function eyeMaterial(style, texture, irisHex) {
   material.color.setHex(0xffffff);
   material.side = THREE.FrontSide;
   const uniforms = { uIris: { value: new THREE.Color(irisHex) } };
-  return bindShader(
+  bindShader(
     material,
     `eye-${style}`,
     uniforms,
@@ -604,6 +613,15 @@ function eyeMaterial(style, texture, irisHex) {
     "uniform vec3 uIris;",
     EYE_FRAG,
   );
+  const compile = material.onBeforeCompile;
+  material.onBeforeCompile = (shader) => {
+    compile(shader);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <opaque_fragment>",
+      "#include <opaque_fragment>\n  gl_FragColor.rgb += vec3(0.95, 0.97, 1.0) * catchLight;",
+    );
+  };
+  return material;
 }
 
 function beardMaterial(style, hairHex, density) {
@@ -757,7 +775,7 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, style, marks)
     const threshold = THREE.MathUtils.lerp(0.9, 0.2, density);
     addFitted(
       mesh, head, pack[hairName], humanPos,
-      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1),
+      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, marks.crown, -1, true),
       2,
     );
   }
