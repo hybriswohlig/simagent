@@ -975,11 +975,12 @@ function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
 // forward. The elbow is a +X bend of the forearm, so the hand sits forward.
 // setFromUnitVectors rolls that bend behind the body. A local-Z turn swings
 // the arm in the coronal plane and leaves the palm facing inward.
-function hangArms(root) {
+function hangArms(root, child) {
   const origin = new THREE.Vector3();
   const tip = new THREE.Vector3();
   const target = new THREE.Vector3();
   const pose = {};
+  const out = 0.14 + 0.32 * Math.min(Math.max(child || 0, 0), 1);
   root.updateWorldMatrix(true, true);
   for (const side of ["l", "r"]) {
     const sign = side === "l" ? 1 : -1;
@@ -993,8 +994,8 @@ function hangArms(root) {
     tip.z = 0;
     if (tip.lengthSq() < 1e-8) continue;
     tip.normalize();
-    // A few degrees out from the thigh so the arm clears the hip.
-    target.set(sign * 0.12, -1, 0).normalize();
+    // Children are rounder than the skeleton, so the same hang sits inside the torso.
+    target.set(sign * out, -1, 0).normalize();
     const angle = Math.atan2(
       tip.x * target.y - tip.y * target.x,
       tip.x * target.x + tip.y * target.y,
@@ -1148,7 +1149,7 @@ function buildPerson(template, member, x) {
   const beardTris = buildBeard(mesh, head, cloud, body, hair, state.style, marks);
   scene.add(wrapper);
   wrapper.updateWorldMatrix(true, true);
-  hangArms(root);
+  hangArms(root, shaped.slices.child);
   const spines = ["spine_01", "spine_02", "spine_03"].map((name) => findBone(root, name)).filter(Boolean);
   const rest = spines.map((spine) => spine.quaternion.clone());
   const tag = document.createElement("div");
