@@ -31,7 +31,11 @@ at the row.
 
 `?style=A`, `?style=B` or `?style=C` selects a look. `?close=1` starts in
 the face framing, five faces at a time. `?page=2` turns the page. The
-buttons do the same thing. Three extra figures labelled "palette check"
+buttons do the same thing. `?edit=1` opens a preview of one person.
+Sliders set the main contract values and the figure updates through the
+same mapping. Breast development can move only on the female branch, and
+only after puberty. Reset restores that person. A panel lists the current
+contract. Nothing is written back. Three extra figures labelled "palette check"
 stand past the family and are not part of it. They use the contract melanin
 minimum, middle and maximum.
 

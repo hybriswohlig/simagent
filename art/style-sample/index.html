@@ -74,6 +74,94 @@
       margin: 0;
       font-size: 0.85rem;
     }
+    body.editing {
+      display: grid;
+      height: 100%;
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) 22rem;
+    }
+    body.editing header { grid-column: 1 / -1; }
+    body.editing #view { height: auto; min-height: 0; }
+    body.editing #close,
+    body.editing #faces-prev,
+    body.editing #faces-next,
+    body.editing #faces-page { display: none; }
+    #editor {
+      overflow: hidden;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      padding: 0.85rem 1rem 1rem;
+    }
+    body.editing #editor {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .editor-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+    }
+    .editor-person {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.92rem;
+    }
+    #editor select {
+      font: inherit;
+      font-size: 0.88rem;
+      color: var(--ink);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 0.4rem;
+      padding: 0.28rem 0.45rem;
+      max-width: 11rem;
+    }
+    .editor-note { margin: 0.45rem 0 0.2rem; font-size: 0.78rem; color: #5c564c; }
+    #edit-sliders { overflow: auto; min-height: 0; flex: 1; padding-right: 0.2rem; }
+    #edit-sliders h3 {
+      margin: 0.85rem 0 0.15rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #5c564c;
+    }
+    .slider {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
+      gap: 0.05rem 0.5rem;
+      margin: 0.42rem 0 0.05rem;
+      font-size: 0.82rem;
+    }
+    .slider input[type="range"] {
+      grid-column: 1 / -1;
+      width: 100%;
+      margin: 0.12rem 0 0;
+      accent-color: var(--ink);
+    }
+    .slider output { font-variant-numeric: tabular-nums; color: #5c564c; }
+    .slider.is-off { opacity: 0.4; }
+    .contract-wrap {
+      overflow: auto;
+      max-height: 38%;
+      margin-top: 0.6rem;
+      padding-top: 0.55rem;
+      border-top: 1px solid var(--line);
+    }
+    .contract-wrap h2 { margin: 0 0 0.35rem; font-size: 0.95rem; font-weight: 600; }
+    #edit-contract {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.1rem 0.7rem;
+      margin: 0;
+      font-size: 0.72rem;
+    }
+    #edit-contract dt { margin: 0; color: #5c564c; }
+    #edit-contract dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
   </style>
   <script type="importmap">
   {
@@ -105,6 +193,20 @@
     <div id="labels"></div>
     <p id="status"></p>
   </div>
+  <aside id="editor" hidden>
+    <div class="editor-bar">
+      <label class="editor-person">Person
+        <select id="edit-person"></select>
+      </label>
+      <button type="button" id="edit-reset">Reset</button>
+    </div>
+    <p class="editor-note">Preview only. Nothing is written back.</p>
+    <div id="edit-sliders"></div>
+    <div class="contract-wrap">
+      <h2>Contract</h2>
+      <dl id="edit-contract"></dl>
+    </div>
+  </aside>
   <script type="module" src="./main.js"></script>
 </body>
 </html>

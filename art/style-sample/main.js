@@ -44,6 +44,10 @@ const state = {
   style: ["A", "B", "C"].includes(params.get("style")) ? params.get("style") : "A",
   close: params.get("close") === "1",
   focus: params.get("focus") || "",
+  edit: params.get("edit") === "1",
+  editIndex: 0,
+  editBody: null,
+  editBase: null,
   people: [],
   facePage: Math.max(0, (Number(params.get("page")) || 1) - 1),
   clock: 0,
@@ -1169,6 +1173,10 @@ function fullRoster() {
 }
 
 function roster() {
+  if (state.edit && state.editBody) {
+    const member = state.family.members[state.editIndex];
+    return [{ ...member, body: state.editBody }];
+  }
   let all = fullRoster();
   if (state.focus) {
     const name = state.focus.toLowerCase();
@@ -1347,7 +1355,7 @@ function frame() {
   const v = THREE.MathUtils.degToRad(camera.fov);
   const aspect = camera.aspect || 1.8;
   const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
-  if (state.close) {
+  if (state.close && !state.edit) {
     scene.updateMatrixWorld(true);
     const crownY = people.map((person) => landmarkWorld(person, person.marks.crown).y);
     const tallest = Math.max(...crownY);
@@ -1477,6 +1485,8 @@ function setStyle(style) {
 function syncUrl() {
   const url = new URL(location.href);
   url.searchParams.set("style", state.style);
+  if (state.edit) url.searchParams.set("edit", "1");
+  else url.searchParams.delete("edit");
   if (state.close) url.searchParams.set("close", "1");
   else url.searchParams.delete("close");
   if (state.close && state.facePage > 0) url.searchParams.set("page", String(state.facePage + 1));
@@ -1490,7 +1500,7 @@ function updateFaceButtons() {
   const label = document.querySelector("#faces-page");
   const total = state.family ? fullRoster().length : 0;
   const pages = Math.max(1, Math.ceil(total / FACE_COUNT));
-  const on = state.close;
+  const on = state.close && !state.edit;
   prev.hidden = !on;
   next.hidden = !on;
   label.hidden = !on;
@@ -1610,6 +1620,243 @@ async function loadBeard() {
   return texture;
 }
 
+// Same order as BODY_KEYS in art/family.py. The editor lists every one.
+const BODY_KEYS = [
+  "body_form_age",
+  "face_form_age",
+  "height_cm",
+  "leg_ratio_z",
+  "head_size_z",
+  "body_fat_z",
+  "fat_distribution_z",
+  "muscle_z",
+  "shoulder_width_z",
+  "chest_depth_z",
+  "hip_width_z",
+  "face_axis_01",
+  "face_axis_02",
+  "face_axis_03",
+  "face_axis_04",
+  "face_axis_05",
+  "face_axis_06",
+  "face_axis_07",
+  "face_axis_08",
+  "face_axis_09",
+  "face_axis_10",
+  "face_axis_11",
+  "face_axis_12",
+  "skin_eumelanin",
+  "skin_pheomelanin",
+  "hair_eumelanin",
+  "hair_pheomelanin",
+  "iris_melanin",
+  "hair_curl",
+  "hair_density",
+  "balding_stage",
+  "hair_grey_fraction",
+  "eyebrow_density",
+  "beard_density",
+  "beard_coverage",
+  "body_hair",
+  "freckle_density",
+  "face_wrinkles",
+  "skin_laxity",
+  "age_spots",
+  "posture_stoop",
+  "androgenic_development",
+  "estrogenic_development",
+  "breast_development",
+];
+
+const FACE_AXIS_LABELS = [
+  "Nose width",
+  "Nose projection",
+  "Nose length",
+  "Jaw width",
+  "Chin height",
+  "Jaw prominence",
+  "Cheek fullness",
+  "Cheekbones",
+  "Eye size",
+  "Eye spacing",
+  "Lip fullness",
+  "Mouth width",
+];
+
+const EDIT_SLIDERS = [
+  { group: "Body", key: "height_cm", label: "Height", min: 90, max: 210, step: 1 },
+  { key: "body_form_age", label: "Body maturity", min: 1, max: 90, step: 1, age: true },
+  { key: "body_fat_z", label: "Fat mass", min: -4, max: 4, step: 0.05 },
+  { key: "fat_distribution_z", label: "Fat distribution", min: -4, max: 4, step: 0.05 },
+  { key: "muscle_z", label: "Muscle", min: -4, max: 4, step: 0.05 },
+  { key: "shoulder_width_z", label: "Shoulder width", min: -4, max: 4, step: 0.05 },
+  { key: "hip_width_z", label: "Pelvis width", min: -4, max: 4, step: 0.05 },
+  { key: "breast_development", label: "Breast development", min: 0, max: 1, step: 0.01, breast: true },
+  { key: "leg_ratio_z", label: "Leg length", min: -4, max: 4, step: 0.05 },
+  ...FACE_AXIS_LABELS.map((label, index) => ({
+    group: index === 0 ? "Face" : undefined,
+    key: `face_axis_${String(index + 1).padStart(2, "0")}`,
+    label,
+    min: -4,
+    max: 4,
+    step: 0.05,
+  })),
+  { group: "Colour", key: "skin_eumelanin", label: "Skin eumelanin", min: 0, max: 1, step: 0.01 },
+  { key: "skin_pheomelanin", label: "Skin pheomelanin", min: 0, max: 1, step: 0.01 },
+  { key: "hair_eumelanin", label: "Hair eumelanin", min: 0, max: 1, step: 0.01 },
+  { key: "hair_pheomelanin", label: "Hair pheomelanin", min: 0, max: 1, step: 0.01 },
+  { key: "iris_melanin", label: "Iris melanin", min: 0, max: 1, step: 0.01 },
+  { key: "balding_stage", label: "Balding stage", min: 0, max: 7, step: 0.1 },
+  { key: "beard_density", label: "Beard density", min: 0, max: 1, step: 0.01 },
+];
+
+let editDraw = null;
+
+function formatValue(value) {
+  if (!Number.isFinite(value)) return String(value);
+  const abs = Math.abs(value);
+  if (abs !== 0 && abs < 0.0001) return value.toExponential(2);
+  return String(Math.round(value * 10000) / 10000);
+}
+
+function breastSliderOn(body, sex) {
+  return sex === "female" && body.body_form_age > 12;
+}
+
+function writeContract() {
+  const list = document.querySelector("#edit-contract");
+  list.replaceChildren();
+  for (const key of BODY_KEYS) {
+    const term = document.createElement("dt");
+    term.textContent = key;
+    const value = document.createElement("dd");
+    value.textContent = formatValue(state.editBody[key]);
+    list.append(term, value);
+  }
+}
+
+function syncEditSliders() {
+  const sex = state.family.members[state.editIndex].sex;
+  for (const input of document.querySelectorAll("#edit-sliders input")) {
+    const key = input.dataset.key;
+    input.value = String(state.editBody[key]);
+    const out = input.parentElement.querySelector("output");
+    if (out) out.textContent = formatValue(state.editBody[key]);
+    if (key === "breast_development") {
+      const on = breastSliderOn(state.editBody, sex);
+      input.disabled = !on;
+      input.closest("label").classList.toggle("is-off", !on);
+    }
+  }
+}
+
+function drawEdit() {
+  if (editDraw !== null) return;
+  editDraw = requestAnimationFrame(() => {
+    editDraw = null;
+    if (!state.template) return;
+    restyle();
+    frame();
+  });
+}
+
+function buildEditSliders() {
+  const root = document.querySelector("#edit-sliders");
+  root.replaceChildren();
+  const sex = state.family.members[state.editIndex].sex;
+  let group = "";
+  for (const spec of EDIT_SLIDERS) {
+    if (spec.group && spec.group !== group) {
+      group = spec.group;
+      const heading = document.createElement("h3");
+      heading.textContent = group;
+      root.append(heading);
+    }
+    const label = document.createElement("label");
+    label.className = "slider";
+    const name = document.createElement("span");
+    name.textContent = spec.label;
+    const out = document.createElement("output");
+    out.textContent = formatValue(state.editBody[spec.key]);
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(spec.min);
+    input.max = String(spec.max);
+    input.step = String(spec.step);
+    input.dataset.key = spec.key;
+    input.value = String(state.editBody[spec.key]);
+    if (spec.breast) {
+      const on = breastSliderOn(state.editBody, sex);
+      input.disabled = !on;
+      input.title = "Female branch, after puberty";
+      if (!on) label.classList.add("is-off");
+    }
+    input.addEventListener("input", () => {
+      const value = Number(input.value);
+      state.editBody[spec.key] = value;
+      if (spec.age) state.editBody.face_form_age = value;
+      out.textContent = formatValue(value);
+      if (spec.age) {
+        const breast = root.querySelector('input[data-key="breast_development"]');
+        if (breast) {
+          const on = breastSliderOn(state.editBody, sex);
+          breast.disabled = !on;
+          breast.closest("label").classList.toggle("is-off", !on);
+        }
+      }
+      writeContract();
+      drawEdit();
+    });
+    label.append(name, out, input);
+    root.append(label);
+  }
+}
+
+function loadEditPerson(index) {
+  state.editIndex = index;
+  const member = state.family.members[index];
+  state.editBase = { ...member.body };
+  state.editBody = { ...member.body };
+  buildEditSliders();
+  writeContract();
+}
+
+function setupEditor() {
+  if (!state.edit) return;
+  document.body.classList.add("editing");
+  const aside = document.querySelector("#editor");
+  aside.hidden = false;
+  const select = document.querySelector("#edit-person");
+  state.family.members.forEach((member, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `${member.first_name} ${member.age_years}`;
+    select.append(option);
+  });
+  select.addEventListener("change", () => {
+    loadEditPerson(Number(select.value));
+    restyle();
+    frame();
+  });
+  document.querySelector("#edit-reset").addEventListener("click", () => {
+    state.editBody = { ...state.editBase };
+    syncEditSliders();
+    writeContract();
+    restyle();
+    frame();
+  });
+  let start = 0;
+  if (state.focus) {
+    const name = state.focus.toLowerCase();
+    const found = state.family.members.findIndex((member) => (
+      (member.first_name || "").toLowerCase() === name
+    ));
+    if (found >= 0) start = found;
+  }
+  select.value = String(start);
+  loadEditPerson(start);
+}
+
 async function boot() {
   status.textContent = "Loading the body…";
   const [family, gltf, pack, skin, beard] = await Promise.all([
@@ -1632,6 +1879,7 @@ async function boot() {
   state.normalGroups = buildNormalGroups(findMesh(gltf.scene).geometry);
   const line = family.line || {};
   caption.textContent = `Seed ${family.seed}. Sims ${line.grandfather}, ${line.grandmother}, ${line.father}, ${line.mother}, girl ${line.girl_17}, boy ${line.boy_13}.`;
+  setupEditor();
   resize();
   restyle();
   frame();
