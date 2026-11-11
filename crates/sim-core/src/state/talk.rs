@@ -937,19 +937,15 @@ fn refute_one(
     let beliefs_b = (domain.house.social.beliefs.get(&b))
         .cloned()
         .unwrap_or_default();
-    let deeds_a = (domain.house.social.deeds.get(&a))
-        .cloned()
-        .unwrap_or_default();
-    let deeds_b = (domain.house.social.deeds.get(&b))
-        .cloned()
-        .unwrap_or_default();
+    // The alleged doer is often neither participant. A missing list is empty: inside the
+    // window that person did not do it, and outside it the day is not known false.
+    let deeds = domain.house.social.deeds.clone();
     let Some(pick) = pick_refutation(
         a,
         &beliefs_a,
-        &deeds_a,
         b,
         &beliefs_b,
-        &deeds_b,
+        |sim| deeds.get(&sim).cloned().unwrap_or_default(),
         |child| true_father(domain, child),
         day,
         social.limits.deed_window_days,

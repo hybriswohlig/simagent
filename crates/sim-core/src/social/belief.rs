@@ -516,20 +516,19 @@ pub fn lie_statement(w: SimId, hearer: SimId, today: i64, rules: &BeliefRules) -
     )
 }
 
-/// Whether `refuter` can refute `belief` (ADR-0031 section 5). The belief is false, with
-/// certainty above 0, not `widerlegt` and not secret. A `Tat` can be refuted by its alleged
-/// doer when the day is inside the window and the deed was certainly not done, and by anyone
-/// who already holds that key as `widerlegt`. A `VaterVon` can be refuted by anyone who holds
-/// the true man at 1000 with no secret. A true statement is never refuted.
+/// Whether `refuter` can refute `belief` (ADR-0031 section 5). Certainty above 0, not
+/// `widerlegt` and not secret, and the statement known false now. A `Tat` is known false
+/// only when `doer_deeds` say the alleged doer did not do it. A day outside his window, or
+/// a day the cap closed, is not known false, so nobody can refute it. Only then the doer
+/// himself, or anyone who already holds that key as `widerlegt`. A `VaterVon` is known
+/// false when the named man is not the genealogical father; then anyone who holds the true
+/// man at 1000 with no secret. A true statement is never refuted.
 ///
-/// READING: a held `widerlegt` still refutes a day outside the window. The addendum makes an
-/// inert deed no new knowledge, so the doer cannot judge it (`knows` is not “not done”); it
-/// does not erase a refutation already held. The reference returns that holder before it asks
-/// the window.
+/// `doer_deeds` are the alleged doer's. A `VaterVon` does not read them.
 pub fn can_refute(
     refuter: SimId,
     refuter_beliefs: &[Belief],
-    refuter_deeds: &Deeds,
+    doer_deeds: &Deeds,
     belief: &Belief,
     true_father: impl Fn(SimId) -> Option<SimId>,
     today: i64,
@@ -560,13 +559,12 @@ pub fn can_refute(
             other,
             day,
         } => {
-            if find(refuter_beliefs, belief.key())
-                .is_some_and(|mine| mine.basis == Basis::Widerlegt)
-            {
-                return true;
+            if doer_deeds.knows(kind, other, day, today, window_days) != DeedAnswer::NotDone {
+                return false;
             }
             refuter == doer
-                && refuter_deeds.knows(kind, other, day, today, window_days) == DeedAnswer::NotDone
+                || find(refuter_beliefs, belief.key())
+                    .is_some_and(|mine| mine.basis == Basis::Widerlegt)
         }
     }
 }
@@ -580,31 +578,33 @@ pub struct RefutationPick {
 }
 
 /// At most one refutation (ADR-0031 section 5): first `a` as the refuter, then `b`, and in
-/// each case the smallest key. The caller rolls `TALK_REFUTE` once for this pick.
+/// each case the smallest key. A `Tat` is judged on the alleged doer's deeds from
+/// `deeds_of`. A missing person is an empty list: in the window that is "not done", and
+/// outside it nothing is known. The caller rolls `TALK_REFUTE` once for this pick.
 #[allow(clippy::too_many_arguments)]
 pub fn pick_refutation(
     a: SimId,
     beliefs_a: &[Belief],
-    deeds_a: &Deeds,
     b: SimId,
     beliefs_b: &[Belief],
-    deeds_b: &Deeds,
+    deeds_of: impl Fn(SimId) -> Deeds,
     true_father: impl Fn(SimId) -> Option<SimId>,
     today: i64,
     window_days: u16,
 ) -> Option<RefutationPick> {
-    let sides = [
-        (a, beliefs_a, deeds_a, b, beliefs_b),
-        (b, beliefs_b, deeds_b, a, beliefs_a),
-    ];
-    for (refuter, own, deeds, hearer, theirs) in sides {
+    let sides = [(a, beliefs_a, b, beliefs_b), (b, beliefs_b, a, beliefs_a)];
+    for (refuter, own, hearer, theirs) in sides {
         let mut keys: Vec<StatementKey> = theirs
             .iter()
             .filter(|belief| {
+                let deeds = match belief.statement {
+                    Statement::Tat { doer, .. } => deeds_of(doer),
+                    Statement::VaterVon { .. } => Deeds::default(),
+                };
                 can_refute(
                     refuter,
                     own,
-                    deeds,
+                    &deeds,
                     belief,
                     &true_father,
                     today,
@@ -1547,19 +1547,10 @@ mod tests {
 
         let ka1 = heard(tat(2, LAESTERT, 1, 1), 600, 1, 5, 2);
         let ka2 = heard(tat(2, LAESTERT, 1, 2), 600, 1, 5, 2);
-        let none = pick_refutation(id(1), &[], &empty, id(2), &[], &empty, truth, 5, window);
+        let deeds = |_: SimId| Deeds::default();
+        let none = pick_refutation(id(1), &[], id(2), &[], deeds, truth, 5, window);
         assert_eq!(none, None);
-        let second = pick_refutation(
-            id(1),
-            &[ka2, ka1],
-            &empty,
-            id(2),
-            &[],
-            &empty,
-            truth,
-            5,
-            window,
-        );
+        let second = pick_refutation(id(1), &[ka2, ka1], id(2), &[], deeds, truth, 5, window);
         assert_eq!(
             second,
             Some(RefutationPick {
@@ -1570,7 +1561,7 @@ mod tests {
         );
         let pa = heard(tat(2, LAESTERT, 1, 1), 600, 1, 5, 2);
         let pb = heard(tat(1, NECKT, 2, 1), 600, 1, 5, 1);
-        let first = pick_refutation(id(1), &[pa], &empty, id(2), &[pb], &empty, truth, 5, window);
+        let first = pick_refutation(id(1), &[pa], id(2), &[pb], deeds, truth, 5, window);
         assert_eq!(
             first,
             Some(RefutationPick {
@@ -1579,7 +1570,7 @@ mod tests {
                 key: pb.key(),
             })
         );
-        let only_b = pick_refutation(id(1), &[pa], &empty, id(2), &[], &empty, truth, 5, window);
+        let only_b = pick_refutation(id(1), &[pa], id(2), &[], deeds, truth, 5, window);
         assert_eq!(
             only_b,
             Some(RefutationPick {
