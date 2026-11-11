@@ -3685,6 +3685,15 @@ fn the_house_answer_after_a_command() {
 fn couple_in_the_flat(
     change: impl FnOnce(&mut Value, &mut Value),
 ) -> (sim_core::world::World, u64) {
+    founded_couple(7, "test:house", change)
+}
+
+/// As `couple_in_the_flat`, with the world's seed and the founder tag chosen by the caller.
+fn founded_couple(
+    world_seed: u64,
+    founder_tag: &str,
+    change: impl FnOnce(&mut Value, &mut Value),
+) -> (sim_core::world::World, u64) {
     use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
     use sim_core::log::LogPayload;
     use sim_core::world::{World, YearOut};
@@ -3720,8 +3729,8 @@ fn couple_in_the_flat(
     };
     let mut world = World::new(data);
     let start = Start {
-        world_seed: 7,
-        founder_tag: sim_core::data_id::DataId::new("test:house").expect("valid"),
+        world_seed,
+        founder_tag: sim_core::data_id::DataId::new(founder_tag).expect("valid"),
         world_params: sim_core::params::WorldParams {
             hereditary_diseases: false,
             nutrition: Vec::new(),
@@ -4587,4 +4596,195 @@ fn a_talk_is_a_memory_on_the_house_answer() {
     let elapsed = (MORNING + 2_000 - at).max(0);
     let strength = (600 - 60 * elapsed / DAY).max(0);
     assert_eq!(talk["strength"], json!(strength));
+}
+
+/// Six teases leave six talk memories, one seen belief, and a deed "Warum?" can call true.
+///
+/// The founders of seed `0x5EED` and tag `test:social` tease every time they sit down
+/// (interests pinned in `interest_pins_of_the_social_founders_choose_the_reference_topics`):
+/// sim 1 teases sim 2. Both are sent to the table sixteen times. The first walk is the
+/// hall to the kitchen, 4 s, and each later walk is 5 s inside the kitchen. Eating lasts
+/// 1 200 s. A talk is planned 600 s after the later arrival when 3 600 s have passed since
+/// the previous one, so the talks fall at 108 605, 112 220, 115 835, 119 450, 123 065 and
+/// 126 680. A command at a meal's last second acts before that end and keeps them seated
+/// for the talk, which is 600 s earlier. Awake need rates are 0, so no need goes critical.
+/// Hunger stays above 0, so the reserve does not drain and no walk doubles. Full-time work
+/// starts at 12:30, after the sixth talk, and the wake 45 minutes before that start is
+/// after it too, so they do not leave. The talks do not recall, so each memory stays at
+/// 600 and loses 60 a
+/// day from its own second.
+///
+/// The page keeps five (`social_view::memories_json`): strength descending, then the key
+/// `(at, kind, with)` ascending, so an equal strength would show the older `at` first.
+/// ADR-0030 section 1 displaces and keeps the other way: the weaker falls, then the older
+/// `at`, then the smaller key, so a newer `at` stays. Plan section 2 says only "die
+/// stärksten Erinnerungen" and does not name the page's tie. These six strengths differ
+/// (600, 598, 595, 593, 590, and 588 for the oldest), so the tie does not choose. The
+/// oldest is the one left out. The sort is left as the page has it.
+///
+/// The belief is the first tease, seen by both, and later teases of the same deed do not
+/// move `since`. Truth is read at the clock, which this answer leaves on the sixth talk,
+/// still house day 1, inside the 30-day window.
+#[test]
+fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
+    use sim_core::input::{Command as Order, Input};
+    use sim_core::log::{Company, LogEntry, LogPayload, Subject};
+    use sim_core::world::YearOut;
+    let (mut world, household) = founded_couple(0x5EED, "test:social", |needs, day| {
+        for need in ["hunger", "energy", "bladder", "hygiene", "fun"] {
+            needs["awake"][need] = json!([0, 0, 0, 0]);
+        }
+        day["work"]["full_time"]["depart"] = json!(45_000);
+    });
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
+    let sim = |id: u64| sim_core::ids::SimId::try_from(id).expect("a sim");
+    let hers = (world.take_log().into_iter())
+        .find(|entry| {
+            entry.t == SimTime::from_secs(MORNING)
+                && entry.subjects == [Subject::Sim(sim(1))]
+                && matches!(entry.payload, LogPayload::ActionStarted { .. })
+        })
+        .expect("her choice at 6:00");
+    // Sixteen seatings. Each command acts in the second after the clock, on the meal's
+    // last second after the first, before that meal ends.
+    let acts = [
+        108_001, 109_205, 110_410, 111_615, 112_820, 114_025, 115_230, 116_435, 117_640, 118_845,
+        120_050, 121_255, 122_460, 123_665, 124_870, 126_075,
+    ];
+    let order = |id: u64| Order {
+        sim: sim(id),
+        object: 0,
+        offer: 0,
+    };
+    for act in acts {
+        let stop = act - 1;
+        if world.closed_through().as_secs() < stop {
+            world.advance_until(&mut out, SimTime::from_secs(stop), &mut |_| false);
+        }
+        world
+            .submit(Input::Command(order(1)))
+            .unwrap_or_else(|err| panic!("she eats at {act}: {err:?}"));
+        world
+            .submit(Input::Command(order(2)))
+            .unwrap_or_else(|err| panic!("he eats at {act}: {err:?}"));
+    }
+    let sixth = 126_680;
+    world.advance_until(&mut out, SimTime::from_secs(sixth), &mut |_| false);
+    assert_eq!(world.closed_through().as_secs(), sixth);
+    let log = world.take_log();
+    let talks: Vec<(i64, u8, u64)> = log
+        .iter()
+        .filter_map(|entry| match &entry.payload {
+            LogPayload::Talked {
+                other,
+                object,
+                topic,
+                actor,
+            } => {
+                assert_eq!(*object, 0, "the table");
+                assert_eq!(other.get(), 2, "the pair is ordered");
+                Some((
+                    entry.t.as_secs(),
+                    *topic,
+                    actor.map(sim_core::ids::SimId::get).unwrap_or(0),
+                ))
+            }
+            _ => None,
+        })
+        .collect();
+    // Necken is topic 2. Sim 1 teases. A different topic fails here, before the memories.
+    assert_eq!(
+        talks,
+        vec![
+            (108_605, 2, 1),
+            (112_220, 2, 1),
+            (115_835, 2, 1),
+            (119_450, 2, 1),
+            (123_065, 2, 1),
+            (126_680, 2, 1),
+        ]
+    );
+    let answer = sim_cli::house_answer(&world, household)
+        .expect("answers")
+        .expect("a house");
+    assert_eq!(answer["version"], json!(10));
+    let persons = answer["persons"].as_array().expect("persons");
+    let person = |id: u64| {
+        persons
+            .iter()
+            .find(|person| person["sim"] == json!(id))
+            .unwrap_or_else(|| panic!("sim {id}"))
+    };
+    // 600 − 60 · (126 680 − at) / 86 400, the division truncating toward 0.
+    let memory = |with: u64, at: i64, strength: u16| json!({"kind": 0, "with": [with], "at": dated(at), "strength": strength});
+    let five = |with: u64| {
+        json!([
+            memory(with, 126_680, 600),
+            memory(with, 123_065, 598),
+            memory(with, 119_450, 595),
+            memory(with, 115_835, 593),
+            memory(with, 112_220, 590),
+        ])
+    };
+    assert_eq!(person(1)["memories"], five(2));
+    assert_eq!(person(2)["memories"], five(1));
+    let belief = json!({
+        "statement": {"tat": {"doer": 1, "kind": 0, "other": 2, "day": 1}},
+        "certainty": 1000,
+        "since": dated(108_605),
+        "source": 0,
+        "origin": 0,
+        "basis": "gesehen",
+        "secret": false,
+    });
+    assert_eq!(person(1)["beliefs"], json!([belief.clone()]));
+    assert_eq!(person(2)["beliefs"], json!([belief]));
+    // The hand history, not the live log. The drop is at the choice, so nothing fades,
+    // and trust is the line's 320. The live belief of the same statement is not a secret.
+    // The deed was done on house day 1 and the clock is still that day, so truth is true.
+    let history: Vec<LogEntry> = serde_json::from_str(
+        r#"[
+            {"id":4,"t":108000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
+             "payload":{"core:believed":{"statement":{"tat":{"doer":1,"kind":0,"other":2,"day":1}},
+             "certainty":1000,"basis":"gesehen","source":null,"origin":null,"replaced":false}}},
+            {"id":5,"t":108000,"subjects":[{"sim":1}],"causes":[{"event":4}],
+             "payload":{"core:bond_changed":{"other":2,"before":[700,400,500,500,600,0],"after":[700,320,500,500,600,0]}}}
+        ]"#,
+    )
+    .expect("the history");
+    let rows = [Company {
+        object: 0,
+        liked: None,
+        company: 0,
+        avoided: Some(sim(2)),
+        avoid: 8_000,
+    }];
+    let why = sim_cli::why_answer(
+        &world,
+        &hers,
+        0,
+        false,
+        None,
+        |_| 0,
+        sim_cli::social_view::CompanyAt {
+            rows: &rows,
+            history: &history,
+        },
+    )
+    .expect("answers")
+    .expect("a choice");
+    assert_eq!(
+        why["company"],
+        json!([{
+            "object": 0, "liked": 0, "affection": 0, "familiarity": 0, "company": 0,
+            "avoided": 2, "trust": 320, "avoid": 8000,
+            "belief": {
+                "found": true,
+                "statement": {"tat": {"doer": 1, "kind": 0, "other": 2, "day": 1}},
+                "certainty": 1000, "basis": "gesehen", "source": 0, "origin": 0,
+                "secret": false, "truth": "true"
+            }
+        }])
+    );
 }

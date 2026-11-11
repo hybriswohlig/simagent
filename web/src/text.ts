@@ -481,6 +481,7 @@ export const TEXT = {
   social_topic_recall: "über eine Erinnerung",
   social_topic_apology: "über eine Entschuldigung",
   social_belief: "Glaubt: {statement}. Sicherheit {certainty}, {basis}{source}.",
+  social_belief_since: "Glaubt seit {since}: {statement}. Sicherheit {certainty}, {basis}{source}.",
   social_belief_source: ", von {name}",
   social_secret: " Geheimnis.",
   social_believes: "glaubt: {statement}. Sicherheit {certainty}, {basis}{source}.",

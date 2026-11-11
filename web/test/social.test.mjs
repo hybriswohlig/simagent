@@ -37,6 +37,7 @@ const belief = (statement, extra = {}) => ({
   source: 2,
   origin: 2,
   secret: false,
+  since: { t: 1, date: DATE },
   ...extra,
 });
 
@@ -47,30 +48,37 @@ const entry = (code, fields, subjects = [{ sim: 1 }]) => ({
 });
 
 test("a belief on the card, a father once paternity exists, a deed, a source and a secret", () => {
-  // ADR-0031 section 8: "Glaubt: {Tom} ist der Vater von {Kind}. Sicherheit 900, geschlossen."
+  // ADR-0031 section 8, with "seit" from plan section 2 in the page's date style.
+  // "Glaubt seit …: {Tom} ist der Vater von {Kind}. Sicherheit 900, geschlossen."
+  const seit = "Glaubt seit Jahr 1, 1. Monat, 1. Tag: ";
   assert.equal(
     beliefSentence(belief(father(1), { basis: "geschlossen", source: 0, origin: 0 }), name),
-    "Glaubt: Tom ist der Vater von Kind. Sicherheit 900, geschlossen.",
+    `${seit}Tom ist der Vater von Kind. Sicherheit 900, geschlossen.`,
   );
   // The page's example with a source: "Sicherheit 900, gehört, von Lena."
   assert.equal(
     beliefSentence(belief(father(1)), name),
-    "Glaubt: Tom ist der Vater von Kind. Sicherheit 900, gehört, von Lena.",
+    `${seit}Tom ist der Vater von Kind. Sicherheit 900, gehört, von Lena.`,
   );
   assert.equal(
     beliefSentence(belief(deed(3, 0, 1), { certainty: 800, basis: "gesehen", source: 0 }), name),
-    "Glaubt: Mia hat Tom geneckt. Sicherheit 800, gesehen.",
+    `${seit}Mia hat Tom geneckt. Sicherheit 800, gesehen.`,
+  );
+  const seen = { year: 1, day_of_year: 57, month: 2, day_of_month: 1, week: 8, weekday: 1, season: 0, second_of_day: 0 };
+  assert.equal(
+    beliefSentence(belief(deed(3, 0, 1), { certainty: 1000, basis: "gesehen", source: 0, since: { t: 2, date: seen } }), name),
+    "Glaubt seit Jahr 1, 3. Monat, 2. Tag: Mia hat Tom geneckt. Sicherheit 1000, gesehen.",
   );
   assert.equal(
     beliefSentence(belief(deed(1, 1, 5), { basis: "beteiligt", source: 0 }), name),
-    "Glaubt: Tom hat über Eva gelästert. Sicherheit 900, beteiligt.",
+    `${seit}Tom hat über Eva gelästert. Sicherheit 900, beteiligt.`,
   );
   assert.equal(
     beliefSentence(belief(deed(1, 2, 3), { basis: "widerlegt", certainty: 0, source: 0 }), name),
-    "Glaubt: Tom hat Mia belogen. Sicherheit 0, widerlegt.",
+    `${seit}Tom hat Mia belogen. Sicherheit 0, widerlegt.`,
   );
   const secret = beliefSentence(belief(father(1), { secret: true }), name);
-  assert.equal(secret, "Glaubt: Tom ist der Vater von Kind. Sicherheit 900, gehört, von Lena. Geheimnis.");
+  assert.equal(secret, `${seit}Tom ist der Vater von Kind. Sicherheit 900, gehört, von Lena. Geheimnis.`);
   assert.equal(secret.includes("Wahr"), false);
 });
 
@@ -139,10 +147,10 @@ test("the chronicle tells a saying, hides a lie, and refutes with the ADR's sent
   const lie = entry("core:told", { to: 3, statement: deed(5, 1, 1), certainty: 900, lie: true });
   assert.equal(speak(toldSegments(lie, false), name), "Tom erzählt Mia etwas");
   assert.equal(speak(toldSegments(lie, true), name), "Tom lügt Mia an: Eva hat über Tom gelästert.");
-  // ADR-0031 section 8: "{A} widerlegt {B}: {A} ist der Vater von {Kind}."
-  // The man in the statement is someone else; the sentence names the refuter.
-  const parents = entry("core:refuted", { by: 2, statement: father(9), source: 1 }, [{ sim: 1 }]);
-  assert.equal(speak(refuteSegments(parents), name), "Lena widerlegt Tom: Lena ist der Vater von Kind.");
+  // ADR-0031 section 8, corrected 2026-11-11: "{A} widerlegt {B}: {F} ist der Vater von {Kind}."
+  // {F} is the man on the corrected statement, not the refuter.
+  const parents = entry("core:refuted", { by: 2, statement: father(5), source: 1 }, [{ sim: 1 }]);
+  assert.equal(speak(refuteSegments(parents), name), "Lena widerlegt Tom: Eva ist der Vater von Kind.");
   // "{A} widerlegt {B}: {T} hat nicht über {O} gelästert." and the same for the other deeds.
   const gossip = entry("core:refuted", { by: 2, statement: deed(3, 1, 5), source: 1 }, [{ sim: 1 }]);
   assert.equal(speak(refuteSegments(gossip), name), "Lena widerlegt Tom: Mia hat nicht über Eva gelästert.");

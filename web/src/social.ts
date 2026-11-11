@@ -1,6 +1,6 @@
 import { object } from "./card.js";
 import { dateText } from "./dates.js";
-import type { EventItem, HouseBond, HouseLayout, HouseMemory, WhyCompany } from "./generated/export.js";
+import type { DatedSecond, EventItem, HouseBond, HouseLayout, HouseMemory, WhyCompany } from "./generated/export.js";
 import { KIND_WORDS, TEXT } from "./text.js";
 
 /** A piece of a social line: text, a person by sim, or `null` when a role is empty. */
@@ -13,13 +13,15 @@ export type NameOf = (id: number) => string;
 export type DayView = { readonly sim: number; readonly name: NameOf; readonly cheat: boolean };
 
 /** The words of a belief the card and "Warum?" share (ADR-0031 section 8). `source` is 0 when
- * the belief has none. `VaterVon` is worded here so the line works once paternity exists. */
+ * the belief has none. `since` is the card's date; "Warum?" does not send one. `VaterVon` is
+ * worded here so the line works once paternity exists. */
 export type BeliefWords = {
   readonly statement: { readonly [key: string]: unknown };
   readonly certainty: number;
   readonly basis: string;
   readonly source: number;
   readonly secret: boolean;
+  readonly since?: DatedSecond;
 };
 
 const TOPICS: readonly (keyof typeof TEXT)[] = [
@@ -144,10 +146,10 @@ export function bondSentence(bond: HouseBond, name: NameOf): string {
   return `${name(bond.other)}: ${bondValues(bond)}`;
 }
 
-/** A deed or a father, as pieces so each person stays a link. `father` replaces the man of a
- * `VaterVon` (the refutation names the refuter, ADR-0031 section 8). `negate` is the refutation
- * of a deed. The house day stays out of the sentence. */
-function claim(statement: unknown, negate: boolean, father: number | null): Segment[] | null {
+/** A deed or a father, as pieces so each person stays a link. The man of a `VaterVon` is the
+ * one the statement names. `negate` is the refutation of a deed. The house day stays out of
+ * the sentence. */
+function claim(statement: unknown, negate: boolean): Segment[] | null {
   const body = object(statement);
   if (body === null) {
     return null;
@@ -155,7 +157,7 @@ function claim(statement: unknown, negate: boolean, father: number | null): Segm
   const fatherOf = object(body["vater_von"]);
   if (fatherOf !== null) {
     const child = num(fatherOf["child"]);
-    const man = father ?? num(fatherOf["man"]);
+    const man = num(fatherOf["man"]);
     if (child === null || man === null) {
       return null;
     }
@@ -184,7 +186,7 @@ function claim(statement: unknown, negate: boolean, father: number | null): Segm
 }
 
 function statementText(statement: unknown, name: NameOf): string {
-  const parts = claim(statement, false, null);
+  const parts = claim(statement, false);
   return parts === null ? TEXT.social_something : speak(parts, name);
 }
 
@@ -193,11 +195,19 @@ function beliefTail(belief: BeliefWords, name: NameOf): { readonly statement: st
   return { statement: statementText(belief.statement, name), source };
 }
 
-/** The card's line for one belief (ADR-0031 section 8). The card shows the belief, not whether
- * it is true. A secret hangs on the end. */
+/** The card's line for one belief (ADR-0031 section 8, plan section 2). The card shows the
+ * belief, not whether it is true, and since when the answer carried a date. "Warum?" has no
+ * date, so its line stays without one. A secret hangs on the end. */
 export function beliefSentence(belief: BeliefWords, name: NameOf): string {
   const tail = beliefTail(belief, name);
-  const line = fill(TEXT.social_belief, { statement: tail.statement, certainty: belief.certainty, basis: belief.basis, source: tail.source });
+  const template = belief.since === undefined ? TEXT.social_belief : TEXT.social_belief_since;
+  const line = fill(template, {
+    since: belief.since === undefined ? "" : dateText(belief.since.date),
+    statement: tail.statement,
+    certainty: belief.certainty,
+    basis: belief.basis,
+    source: tail.source,
+  });
   return belief.secret ? `${line}${TEXT.social_secret}` : line;
 }
 
@@ -260,7 +270,7 @@ export function toldSegments(item: EventItem, cheat: boolean): Segment[] | null 
   if (lie && !cheat) {
     return [speaker, ` ${TEXT.social_tells} `, hearer, ` ${TEXT.social_something}`];
   }
-  const said = claim(read.body["statement"], false, null);
+  const said = claim(read.body["statement"], false);
   if (said === null) {
     return [speaker, ` ${TEXT.social_tells} `, hearer, ` ${TEXT.social_something}`];
   }
@@ -269,8 +279,8 @@ export function toldSegments(item: EventItem, cheat: boolean): Segment[] | null 
   return [speaker, ` ${verb} `, hearer, tail, ...said, "."];
 }
 
-/** A refutation, the ADR's sentence (ADR-0031 section 8). For a father the refuter is named as
- * the father; for a deed the deed is denied. */
+/** A refutation, the ADR's sentence (ADR-0031 section 8). The corrected statement already
+ * names the true father. A deed is denied. */
 export function refuteSegments(item: EventItem): Segment[] | null {
   const read = bodyOf(item);
   if (read === null || read.code !== "core:refuted") {
@@ -281,8 +291,7 @@ export function refuteSegments(item: EventItem): Segment[] | null {
     return null;
   }
   const statement = read.body["statement"];
-  const father = object(statement)?.["vater_von"] === undefined ? null : by;
-  const said = claim(statement, true, father);
+  const said = claim(statement, true);
   if (said === null) {
     return null;
   }
