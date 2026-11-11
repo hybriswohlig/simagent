@@ -385,7 +385,7 @@ pub enum LogPayload {
     #[serde(rename = "core:unbelieved")]
     Unbelieved { statement: Statement },
     /// A person (the subject) told `to` the `statement`, at the certainty the speaker holds.
-    /// `lie` stays false until the lie slice (ADR-0031 sections 3 and 5).
+    /// `lie` is a lie (ADR-0031 sections 3 and 4); the developer sees it, the page does not.
     #[serde(rename = "core:told")]
     Told {
         to: SimId,
@@ -393,8 +393,8 @@ pub enum LogPayload {
         certainty: u16,
         lie: bool,
     },
-    /// Reserved so the order is believed, unbelieved, told, refuted (ADR-0031 section 5).
-    /// Nothing writes it until the refutation slice.
+    /// A false belief of the subject was refuted by `by` (ADR-0031 section 5). `statement`
+    /// is the belief afterwards. `source` is the immediate source it had before.
     #[serde(rename = "core:refuted")]
     Refuted {
         by: SimId,

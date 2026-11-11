@@ -1,8 +1,8 @@
 //! A talk of two people at one sociable furniture (ADR-0030 section 3). Planning follows an
 //! arrival; the run is the event, or the same-second end that must happen first. Necken writes
-//! the seen deed `neckt`. Klatsch, when one of the two has material, passes one statement on
-//! and writes the seen deed `lästert` (ADR-0031 sections 2 and 3). Refutation and the memory
-//! "Widerlegung" wait for a later slice. A reason to lie stays false until the lie slice.
+//! the seen deed `neckt`. Klatsch passes one statement on, or a lie when the speaker has a
+//! reason and the lie draw hits, and writes the seen deed `lästert` (ADR-0031 sections 2 to 4).
+//! Every topic may then refute one false belief and both remember "Widerlegung" (section 5).
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -18,18 +18,18 @@ use crate::data_id::DataId;
 use crate::house::data::Need;
 use crate::house::state::Place;
 use crate::ids::{EventId, HouseholdId, MAX_JS_SAFE, SimId};
-use crate::log::{Cause, Causes, LogPayload, Subject};
-use crate::rng::WorldSeed;
+use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
+use crate::rng::{DrawKey, WorldSeed};
 use crate::social::belief::{
-    Belief, Statement, choose_speaker, gossip_material, has_lie_reason, heard_bond_steps,
-    live_material, said_belief,
+    Basis, Belief, Statement, choose_speaker, gossip_material, heard_bond_steps, lie_reason,
+    lie_statement, live_material, pick_refutation, refute, said_belief,
 };
-use crate::social::bond::TRUST;
-use crate::social::data::TALK;
+use crate::social::bond::{GRUDGE, TRUST};
+use crate::social::data::{REFUTED, TALK};
 use crate::social::memory::Memory;
 use crate::social::talk::{
-    GOSSIP, TEASE, TalkFacts, TalkPair, choose_topic, house_day, interests, recall_strength,
-    talk_conditions, topic_actor, topic_outcome,
+    GOSSIP, TEASE, TalkFacts, TalkPair, choose_topic, house_day, interests, lie_draw_key,
+    recall_strength, refute_draw_key, talk_conditions, talk_ppm, topic_actor, topic_outcome,
 };
 use crate::time::{SimDuration, SimTime};
 use crate::world::{EventPayload, SimCtx};
@@ -490,9 +490,8 @@ fn recall(
     found.since = now;
 }
 
-/// Steps 0 to 4, 6, 7 and 8 of section 3 "Ablauf". Step 5, refutation, is a later slice.
-/// `plan_next` is false when an end of this second runs the talk: the two do not both stay,
-/// so no successor is planned.
+/// Steps 0 to 8 of section 3 "Ablauf". `plan_next` is false when an end of this second runs
+/// the talk: the two do not both stay, so no successor is planned.
 pub(crate) fn run(
     domain: &mut DomainState,
     data: &Data,
@@ -552,9 +551,16 @@ pub(crate) fn run(
         window,
         dropped,
     );
-    // `has_lie_reason` stays false until the lie slice (ADR-0031 section 4).
-    let reason_a = has_lie_reason(a, b).then_some(a);
-    let reason_b = has_lie_reason(b, a).then_some(b);
+    // The reason is read before the topic's bond steps (an apology can change a grudge).
+    // READING: the reference also skips the speaker. The ADR names only "not the hearer".
+    let members: Vec<SimId> = (domain.members.get(&home))
+        .map(|members| members.iter().copied().collect())
+        .unwrap_or_default();
+    let grudge_toward =
+        |owner: SimId, other: SimId| edge_at(domain, owner, other, now, fade)[GRUDGE];
+    let from = social.beliefs.lie_grudge;
+    let reason_a = lie_reason(a, b, &members, |w| grudge_toward(a, w), from);
+    let reason_b = lie_reason(b, a, &members, |w| grudge_toward(b, w), from);
     let gossip = !material_a.is_empty()
         || !material_b.is_empty()
         || reason_a.is_some()
@@ -633,29 +639,78 @@ pub(crate) fn run(
     }
     if topic == GOSSIP
         && let Some(speaker) = choose_speaker(a, &material_a, reason_a, b, &material_b, reason_b)
-        && let Some(said) = said_belief(if speaker == a {
+    {
+        let hearer = if speaker == a { b } else { a };
+        let reason = if speaker == a { reason_a } else { reason_b };
+        let material = if speaker == a {
             &material_a
         } else {
             &material_b
-        })
-    {
-        cause = pass_on(
-            domain,
-            data,
-            &Pass {
-                speaker,
-                said,
-                place: (home, object),
-                day,
-                now,
-                fade,
-            },
-            &mut charges,
-            cause,
-            ctx,
-        );
+        };
+        // No roll without a reason. A miss is not logged and is not the cause of a true telling.
+        let lie = reason.and_then(|w| {
+            let key = lie_draw_key(domain.key_of(speaker), now, domain.key_of(hearer));
+            let u = talk_ppm(WorldSeed::new(seed), key);
+            (u < u64::from(social.beliefs.lie_ppm)).then_some((w, key))
+        });
+        if let Some((w, key)) = lie {
+            let (statement, certainty) = lie_statement(w, hearer, day, &social.beliefs);
+            let said = Belief {
+                statement,
+                certainty,
+                since: now,
+                source: None,
+                origin: None,
+                basis: Basis::Gehoert,
+                secret: false,
+            };
+            cause = pass_on(
+                domain,
+                data,
+                &Pass {
+                    speaker,
+                    said,
+                    place: (home, object),
+                    day,
+                    now,
+                    fade,
+                    lie: Some(key),
+                },
+                &mut charges,
+                cause,
+                ctx,
+            );
+        } else if let Some(said) = said_belief(material) {
+            cause = pass_on(
+                domain,
+                data,
+                &Pass {
+                    speaker,
+                    said,
+                    place: (home, object),
+                    day,
+                    now,
+                    fade,
+                    lie: None,
+                },
+                &mut charges,
+                cause,
+                ctx,
+            );
+        }
     }
-    // Step 5, refutation, and the memory "Widerlegung" wait for a later slice.
+    let refuted = refute_one(
+        domain,
+        data,
+        (a, b),
+        day,
+        now,
+        fade,
+        seed,
+        &mut charges,
+        &mut cause,
+        ctx,
+    );
     let recall_topic =
         (social.topics.get(topic)).is_some_and(|row| row.id.as_str() == "core:recall");
     if recall_topic && let Some((left, right)) = shared {
@@ -666,10 +721,18 @@ pub(crate) fn run(
         plan_forget(domain, a, by, ctx);
         plan_forget(domain, b, by, ctx);
     }
-    let (cause, kept_a) = wrote_memory(domain, data, a, b, cause, ctx);
+    let (cause, kept_a) = wrote_memory(domain, data, a, b, TALK, cause, ctx);
     charge(&mut entries_a, kept_a);
-    let (cause, kept_b) = wrote_memory(domain, data, b, a, cause, ctx);
+    let (mut cause, kept_b) = wrote_memory(domain, data, b, a, TALK, cause, ctx);
     charge(&mut entries_b, kept_b);
+    if refuted {
+        let (next, kept) = wrote_memory(domain, data, a, b, REFUTED, cause, ctx);
+        charge(&mut entries_a, kept);
+        cause = next;
+        let (next, kept) = wrote_memory(domain, data, b, a, REFUTED, cause, ctx);
+        charge(&mut entries_b, kept);
+        cause = next;
+    }
     let topic_u8 = u8::try_from(topic).unwrap_or_else(|_| panic!("invariant talk.topic"));
     let talked = ctx.emit(
         LogPayload::Talked {
@@ -729,7 +792,7 @@ impl Charges<'_> {
     }
 }
 
-/// One said statement and where it is said.
+/// One said statement and where it is said. `lie` is the draw that made it a lie.
 struct Pass {
     speaker: SimId,
     said: Belief,
@@ -737,6 +800,7 @@ struct Pass {
     day: i64,
     now: SimTime,
     fade: (u16, u16),
+    lie: Option<DrawKey>,
 }
 
 /// The deed number of `id` in `beliefs.deeds`.
@@ -835,13 +899,125 @@ fn offer_seen(
     cause
 }
 
-/// Step 4 (ADR-0030 section 3, ADR-0031 section 3): `core:told`, the hearer's belief, one
-/// bond step when the belief was stored and was not a confirmation, then the speaker's deed
-/// `lästert` about the doer of the said statement, seen by everyone old enough at the
-/// furniture. The deed is recorded even when a viewer already holds it.
+/// The biological father, living or archived. Founders have none (ADR-0031 section 5).
+fn true_father(domain: &DomainState, child: SimId) -> Option<SimId> {
+    let parents = (domain.sims.get(&child).and_then(|person| person.parents))
+        .or_else(|| domain.archive.get(&child).and_then(|person| person.parents));
+    parents.map(|parents| parents.father)
+}
+
+/// Step 5 (ADR-0031 section 5), after the topic. At most one refutation: first `a`, then
+/// `b`, the smallest key, and one draw. A miss writes nothing. The belief is replaced in
+/// place (`core:refuted`, not `core:believed`). Trust in the old source falls by the data
+/// step; grudge rises as well when that source is the origin. No source, no step, and no
+/// new edge. Returns whether it landed, so step 6 can write "Widerlegung".
+///
+/// READING: the reference adds the grudge whenever origin and source are the same person,
+/// including a `VaterVon` that had a source. The checked `VaterVon` has none.
+#[allow(clippy::too_many_arguments)]
+fn refute_one(
+    domain: &mut DomainState,
+    data: &Data,
+    pair: (SimId, SimId),
+    day: i64,
+    now: SimTime,
+    fade: (u16, u16),
+    seed: u64,
+    charges: &mut Charges<'_>,
+    cause: &mut Cause,
+    ctx: &mut SimCtx<'_, '_>,
+) -> bool {
+    let social = data
+        .social()
+        .unwrap_or_else(|| panic!("invariant belief.social"));
+    let (a, b) = pair;
+    let beliefs_a = (domain.house.social.beliefs.get(&a))
+        .cloned()
+        .unwrap_or_default();
+    let beliefs_b = (domain.house.social.beliefs.get(&b))
+        .cloned()
+        .unwrap_or_default();
+    let deeds_a = (domain.house.social.deeds.get(&a))
+        .cloned()
+        .unwrap_or_default();
+    let deeds_b = (domain.house.social.deeds.get(&b))
+        .cloned()
+        .unwrap_or_default();
+    let Some(pick) = pick_refutation(
+        a,
+        &beliefs_a,
+        &deeds_a,
+        b,
+        &beliefs_b,
+        &deeds_b,
+        |child| true_father(domain, child),
+        day,
+        social.limits.deed_window_days,
+    ) else {
+        return false;
+    };
+    let key = refute_draw_key(domain.key_of(pick.refuter), now, domain.key_of(pick.hearer));
+    let u = talk_ppm(WorldSeed::new(seed), key);
+    if u >= u64::from(social.beliefs.refute_ppm) {
+        return false;
+    }
+    let held = if pick.hearer == a {
+        &beliefs_a
+    } else {
+        &beliefs_b
+    };
+    let old = (held.iter().copied())
+        .find(|belief| belief.key() == pick.key)
+        .unwrap_or_else(|| panic!("invariant belief.key"));
+    let true_man = match old.statement {
+        Statement::VaterVon { child, .. } => true_father(domain, child),
+        Statement::Tat { .. } => None,
+    };
+    let effect = refute(old, pick.refuter, true_man, now, &social.beliefs);
+    let statement = effect.belief.statement;
+    belief::store_refuted(domain, pick.hearer, effect.belief);
+    let id = ctx.emit(
+        LogPayload::Refuted {
+            by: pick.refuter,
+            statement,
+            source: old.source,
+        },
+        vec![Subject::Sim(pick.hearer)],
+        Causes::new(Cause::Random(DrawRef::from(key))),
+    );
+    charges.add(pick.hearer, 1);
+    *cause = Cause::Event(id);
+    if let Some((source, steps)) = effect.toward_source
+        && holds_bond(domain, pick.hearer, source)
+    {
+        let (before, after) = change_bond(domain, pick.hearer, source, &steps, now, fade);
+        if before != after {
+            let id = ctx.emit(
+                LogPayload::BondChanged {
+                    other: source,
+                    before,
+                    after,
+                },
+                vec![Subject::Sim(pick.hearer)],
+                Causes::new(cause.clone()),
+            );
+            *cause = Cause::Event(id);
+            charges.add(pick.hearer, 1);
+        }
+    }
+    true
+}
+
+/// Step 4 (ADR-0030 section 3, ADR-0031 sections 3 and 4): `core:told`, the hearer's belief,
+/// one bond step when the belief was stored and was not a confirmation, then the speaker's
+/// deed. A lie records `lügt` toward the hearer (not seen) and says `Tat(W, lästert, hearer,
+/// today)` without the speaker adopting it. Either way the seen deed is `lästert` of the
+/// speaker about the doer of the said statement, for everyone old enough at the furniture.
 ///
 /// READING: the bond step is on the hearer's edge to the doer, not to the speaker. If that
-/// edge does not exist, none is formed and no `core:bond_changed` is written.
+/// edge does not exist, none is formed and no `core:bond_changed` is written. The first entry
+/// after a lie draw names the draw. Later entries of the step name the previous entry, so the
+/// hearer's `core:bond_changed` stays caused by `core:believed` (ADR-0031 section 5, Meiden).
 fn pass_on(
     domain: &mut DomainState,
     data: &Data,
@@ -858,19 +1034,29 @@ fn pass_on(
     } else {
         charges.a
     };
+    let told_cause = match pass.lie {
+        Some(key) => Causes::new(Cause::Random(DrawRef::from(key))),
+        None => Causes::new(cause),
+    };
     let told = ctx.emit(
         LogPayload::Told {
             to: hearer,
             statement: pass.said.statement,
             certainty: pass.said.certainty,
-            lie: false,
+            lie: pass.lie.is_some(),
         },
         vec![Subject::Sim(pass.speaker)],
-        Causes::new(cause),
+        told_cause,
     );
     let mut cause = Cause::Event(told);
     charges.add(pass.speaker, 1);
     let trust = trust_in(domain, data, hearer, pass.speaker, pass.now, pass.fade);
+    // A lie has no speaker belief, so the hearer's origin is the speaker.
+    let speaker_belief = if pass.lie.is_some() {
+        None
+    } else {
+        Some(pass.said)
+    };
     match belief::store_heard(
         domain,
         data,
@@ -879,7 +1065,7 @@ fn pass_on(
             incoming: pass.said.statement,
             speaker: pass.speaker,
             speaker_certainty: pass.said.certainty,
-            speaker_belief: Some(pass.said),
+            speaker_belief,
             trust,
         },
         cause.clone(),
@@ -918,6 +1104,19 @@ fn pass_on(
     let Statement::Tat { doer, .. } = pass.said.statement else {
         panic!("invariant talk.gossip");
     };
+    if pass.lie.is_some() {
+        let lies = DataId::new("core:lies").unwrap_or_else(|_| panic!("invariant belief.deed"));
+        let lying = deed_kind(data, &lies);
+        belief::record_deed(
+            domain,
+            data,
+            pass.speaker,
+            lying,
+            hearer,
+            pass.day,
+            pass.now,
+        );
+    }
     let gossips = DataId::new("core:gossips").unwrap_or_else(|_| panic!("invariant belief.deed"));
     let kind = deed_kind(data, &gossips);
     belief::record_deed(domain, data, pass.speaker, kind, doer, pass.day, pass.now);
@@ -930,18 +1129,19 @@ fn pass_on(
     offer_seen(domain, data, statement, pass.place, charges, cause, ctx)
 }
 
-/// The memory "Gespräch" for `owner`, about `other`. Returns the cause of the next entry and
+/// The memory `kind` for `owner`, about `other`. Returns the cause of the next entry and
 /// how many entries named `owner`.
 fn wrote_memory(
     domain: &mut DomainState,
     data: &Data,
     owner: SimId,
     other: SimId,
+    kind: u16,
     cause: Cause,
     ctx: &mut SimCtx<'_, '_>,
 ) -> (Cause, u16) {
     let with = others(Some(other), None);
-    match remember(domain, data, owner, (TALK, with), cause.clone(), ctx) {
+    match remember(domain, data, owner, (kind, with), cause.clone(), ctx) {
         Some(WroteMemory::Kept(id)) => (Cause::Event(id), 1),
         Some(WroteMemory::Displaced(id)) => (Cause::Event(id), 2),
         None => (cause, 0),

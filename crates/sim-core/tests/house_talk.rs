@@ -7,20 +7,21 @@
 mod common;
 
 use common::day::{self, MORNING, Run};
+use serde_json::json;
 use sim_core::canonical::PROJECTION_VERSION;
 use sim_core::data_id::{Code, DataId};
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::input::{Command, Input, MoveIn, MoveOut};
 use sim_core::lineage::LineageKey;
-use sim_core::log::{LogEntry, LogPayload, Subject};
+use sim_core::log::{Cause, DrawRef, LogEntry, LogPayload, Subject};
 use sim_core::mortality::accident_age;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::belief::{
-    Basis, Belief, DeedAnswer, LAESTERT, NECKT, Statement, gossip_material, live_material,
+    Basis, Belief, DeedAnswer, LAESTERT, LUEGT, NECKT, Statement, gossip_material, live_material,
 };
 use sim_core::social::bond::{GRUDGE, TRUST};
-use sim_core::social::data::TALK;
-use sim_core::social::talk::house_day;
+use sim_core::social::data::{REFUTED, TALK};
+use sim_core::social::talk::{house_day, lie_draw_key, refute_draw_key};
 use sim_core::time::{SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{EventPayload, FORMAT_VERSION, LoadError, World, YearOut};
@@ -1352,4 +1353,453 @@ fn moving_in_again_judges_a_frozen_deed_against_the_new_house_day() {
     let again = run.world.state().house().households[&home].since;
     assert_eq!(house_day(again, again), 0);
     assert!(!holds_day(&run, 1, 1), "day 1 is after the new house day");
+}
+
+/// A long meal, a one-minute snack and a long toilet, and no departure. Partner trust is
+/// 600, the figure the ADR uses for a parent heard by a child. Housemate grudge starts at
+/// 800 so it is still at least 700 after fade. Founder 0 always teases, so a played Necken
+/// cannot plant that grudge, and a taken-in child is a housemate, not a son or daughter.
+/// The repository's social file is not the one this run uses.
+fn lie_data() -> sim_core::data::Data {
+    let repository = include_str!("../../../data/house/day.json");
+    let day = repository
+        .replace(
+            r#""school": {"from_age": 6, "until_age": 18"#,
+            r#""school": {"from_age": 6, "until_age": 7"#,
+        )
+        .replace(
+            "\"from_age\": 18,\n    \"until_age\": 67,",
+            "\"from_age\": 7,\n    \"until_age\": 8,",
+        );
+    assert_ne!(day, repository, "the ages in the day file still bind");
+    // Hunger in this test house falls by 1 an hour. An offer lasts at most 12 h, so the
+    // chain parks them on the toilet again before it ends. Bedtime does not cut an action.
+    scene(20_000, 3, 3, 60, &day, 1e-9, 43_200).with_social(common::repository_social_with(
+        |social| {
+            social["bonds"]["start"]["partner"][1] = json!(600);
+            social["bonds"]["start"]["housemate"][1] = json!(600);
+            social["bonds"]["start"]["housemate"][5] = json!(800);
+        },
+    ))
+}
+
+/// Woman of 30, man of 60, girl of 10. He is 60 so Necken is closed and Klatsch can win.
+/// She is founder 0. The girl is the only other member, so she is W.
+fn lie_born() -> [i64; 3] {
+    [-30 * year(), -60 * year(), -10 * year()]
+}
+
+fn founder(index: u64) -> LineageKey {
+    let tag = DataId::new("test:social").expect("tag");
+    LineageKey::founder(&tag, index)
+}
+
+/// Moved in at 23:59:59 of day 0, as [`day::Run::family`].
+fn lie_family() -> (Run, HouseholdId) {
+    let (run, home) = day::Run::family(lie_data(), 0x5EED, "test:social", &lie_born(), 0);
+    let since = run.world.state().house().households[&home].since;
+    assert_eq!(since, t(86_399));
+    (run, home)
+}
+
+/// Moved in at second 1000, before the morning of day 0, so a talk at 23 400 is house day 1.
+fn lie_early() -> (Run, HouseholdId) {
+    let mut run = day::Run::founded(lie_data(), 0x5EED, "test:social", &lie_born());
+    run.advance(999);
+    let home = run.together(3).expect("one household");
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    let since = run.world.state().house().households[&home].since;
+    assert_eq!(since, t(1_000));
+    (run, home)
+}
+
+/// The couple at the table in time for a talk at `at`. `with_w` seats W one second before
+/// it, so a deed of W is not material and the talks W's arrival plans are not due yet.
+fn stage(run: &mut Run, at: i64, with_w: bool) {
+    let arrival = arrive(
+        run,
+        at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(1, DINING), (2, DINING)],
+    );
+    assert_eq!(arrival + TALK_DELAY, at);
+    if with_w {
+        let joined = arrive(run, at - WITHIN_ROOM - 2, &[(3, DINING)]);
+        assert_eq!(joined, at - 1);
+    }
+    run.advance(at);
+}
+
+/// Off the table. A command submitted at `now` acts on the next second.
+fn to_toilet(run: &mut Run, now: i64, ids: &[u64]) {
+    for &id in ids {
+        run.submit(command(id, TOILET));
+    }
+    run.advance(now + 1 + WITHIN_ROOM);
+}
+
+fn caused_by(entry: &LogEntry, draw: DrawRef) -> bool {
+    matches!(entry.causes.as_slice(), [Cause::Random(got)] if *got == draw)
+}
+
+fn event_cause(entry: &LogEntry) -> sim_core::ids::EventId {
+    match entry.causes.as_slice() {
+        [Cause::Event(id)] => *id,
+        other => panic!("an earlier entry, got {other:?}"),
+    }
+}
+
+fn told_lies(run: &Run) -> Vec<&LogEntry> {
+    (run.log.iter())
+        .filter(|entry| matches!(entry.payload, LogPayload::Told { lie: true, .. }))
+        .collect()
+}
+
+fn refutations(run: &Run) -> Vec<&LogEntry> {
+    (run.log.iter())
+        .filter(|entry| matches!(entry.payload, LogPayload::Refuted { .. }))
+        .collect()
+}
+
+/// The reference's first miss for founder 0 toward founder 1: second 22 800, u = 68 860.
+/// The grudge is a reason, Klatsch is open, and a miss says nothing.
+#[test]
+fn a_missed_lie_draw_says_nothing() {
+    let (mut run, _) = lie_early();
+    arrive(
+        &mut run,
+        6 * 3_600,
+        &[(1, TOILET), (2, TOILET), (3, TOILET)],
+    );
+    let at = 22_800;
+    stage(&mut run, at, false);
+    assert_eq!(talked(&run).len(), 1);
+    assert_eq!(
+        talked(&run)[0].payload,
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+    assert!(told_lies(&run).is_empty());
+    assert!(refutations(&run).is_empty());
+    let draw = DrawRef::from(lie_draw_key(founder(0), t(at), founder(1)));
+    assert!(run.log.iter().all(|entry| !caused_by(entry, draw)));
+    assert!(!run.world.state().house().social.deeds.contains_key(&sim(1)));
+    assert_eq!(bond(&run, 2, 3)[TRUST], 600);
+    assert!(memory_about(&run, 1, 2, at));
+    assert!(memory_about(&run, 2, 1, at));
+}
+
+/// The reference's first hit for founder 0 toward founder 1: second 23 400, u = 22 823.
+/// Said at 900, heard at 660 from trust 600, and the housemate edge steps once.
+#[test]
+fn a_lie_at_the_first_hit_is_heard_at_660() {
+    let (mut run, home) = lie_early();
+    arrive(
+        &mut run,
+        6 * 3_600,
+        &[(1, TOILET), (2, TOILET), (3, TOILET)],
+    );
+    let at = 23_400;
+    stage(&mut run, at, false);
+    let since = run.world.state().house().households[&home].since;
+    let day = house_day(t(at), since);
+    assert_eq!(day, 1);
+    let said = laestert(3, 2, day);
+    let told = told_lies(&run);
+    assert_eq!(told.len(), 1);
+    assert_eq!(told[0].t, t(at));
+    assert_eq!(told[0].subjects, vec![Subject::Sim(sim(1))]);
+    assert_eq!(
+        told[0].payload,
+        LogPayload::Told {
+            to: sim(2),
+            statement: said,
+            certainty: 900,
+            lie: true,
+        }
+    );
+    let draw = DrawRef::from(lie_draw_key(founder(0), t(at), founder(1)));
+    assert!(caused_by(told[0], draw));
+    let heard_entry = (run.log.iter())
+        .find(|entry| {
+            entry.t == t(at)
+                && entry.subjects == vec![Subject::Sim(sim(2))]
+                && matches!(
+                    entry.payload,
+                    LogPayload::Believed { statement, certainty: 660, .. } if statement == said
+                )
+        })
+        .expect("the hearer believes it");
+    assert_eq!(
+        day::number(&event_cause(heard_entry)),
+        day::number(&told[0].id)
+    );
+    let stepped = (run.log.iter())
+        .find(|entry| {
+            entry.t == t(at)
+                && entry.subjects == vec![Subject::Sim(sim(2))]
+                && matches!(entry.payload, LogPayload::BondChanged { other, .. } if other == sim(3))
+        })
+        .expect("the edge to W");
+    assert_eq!(
+        day::number(&event_cause(stepped)),
+        day::number(&heard_entry.id)
+    );
+    let heard = belief(&run, 2, said);
+    assert_eq!(heard.certainty, 660);
+    assert_eq!(heard.basis, Basis::Gehoert);
+    assert_eq!(heard.source, Some(sim(1)));
+    assert_eq!(heard.origin, Some(sim(1)));
+    assert_eq!(heard.since, t(at));
+    assert!(!heard.secret);
+    assert!(
+        run.world.state().house().social.beliefs[&sim(1)]
+            .iter()
+            .all(|held| held.statement != said)
+    );
+    // Grudge fades by 10 a day from the move-in, then the heard step adds 100.
+    let elapsed = at - since.as_secs();
+    let grudge = u16::try_from(800 - 10 * elapsed / 86_400 + 100).expect("grudge");
+    assert_eq!(grudge, 898);
+    assert_eq!(bond(&run, 2, 3)[TRUST], 520);
+    assert_eq!(bond(&run, 2, 3)[GRUDGE], grudge);
+    let deeds = &run.world.state().house().social.deeds[&sim(1)];
+    assert_eq!(deeds.items.len(), 2);
+    assert_eq!(deeds.items[0].kind, LUEGT);
+    assert_eq!(deeds.items[0].other, sim(2));
+    assert_eq!(deeds.items[0].day, day);
+    assert_eq!(deeds.items[1].kind, LAESTERT);
+    assert_eq!(deeds.items[1].other, sim(3));
+    assert_eq!(deeds.items[1].day, day);
+    let seen = laestert(1, 3, day);
+    for owner in [1_u64, 2] {
+        let held = belief(&run, owner, seen);
+        assert_eq!(held.certainty, 1000);
+        assert_eq!(held.basis, Basis::Gesehen);
+    }
+    assert!(
+        run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .get(&sim(3))
+            .is_none_or(|list| list.iter().all(|held| held.statement != seen))
+    );
+    assert!(refutations(&run).is_empty());
+    assert_eq!(
+        talked(&run)[0].payload,
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+}
+
+/// The reference's three hits of founder 0 toward founder 1 in three house days:
+/// 114 000, 229 800 and 324 000. Trust 600 falls by 80 each time. At 360 the choice
+/// avoids W, and `core:company` names her.
+#[test]
+fn three_lies_end_at_avoidance() {
+    let (mut run, home) = lie_family();
+    let since = run.world.state().house().households[&home].since;
+    let park = |run: &mut Run, at: i64| {
+        arrive(run, at, &[(1, TOILET), (2, TOILET), (3, TOILET)]);
+    };
+    park(&mut run, MORNING);
+    let talks = [114_000_i64, 229_800, 324_000];
+    let trusts = [520_u16, 440, 360];
+    // The toilet lasts 12 h. These seconds restart it before it ends and before the next talk.
+    let bridges = [150_000_i64, 190_000, 270_000, 310_000];
+    for (index, &at) in talks.iter().enumerate() {
+        stage(&mut run, at, index > 0);
+        let day = house_day(t(at), since);
+        assert_eq!(day, i64::try_from(index + 1).expect("day"));
+        let said = laestert(3, 2, day);
+        assert_eq!(belief(&run, 2, said).certainty, 660);
+        assert_eq!(belief(&run, 2, said).basis, Basis::Gehoert);
+        assert_eq!(bond(&run, 2, 3)[TRUST], trusts[index]);
+        let told = (told_lies(&run).into_iter())
+            .find(|entry| entry.t == t(at))
+            .expect("the lie");
+        assert_eq!(told.subjects, vec![Subject::Sim(sim(1))]);
+        assert!(caused_by(
+            told,
+            DrawRef::from(lie_draw_key(founder(0), t(at), founder(1)))
+        ));
+        if let Some(&next) = talks.get(index + 1) {
+            to_toilet(&mut run, at, &[1, 2, 3]);
+            for &bridge in bridges
+                .iter()
+                .filter(|&&bridge| bridge > at && bridge < next)
+            {
+                park(&mut run, bridge);
+            }
+        }
+    }
+    assert_eq!(told_lies(&run).len(), 3);
+    assert_eq!(talked(&run).len(), 3);
+    assert!(refutations(&run).is_empty());
+    run.submit(command(2, FRIDGE));
+    run.advance(talks[2] + 200);
+    assert_eq!(bond(&run, 2, 3)[TRUST], 360);
+    assert_eq!(talked(&run).len(), 3, "no further talk before W's");
+    let company = (run.log.iter())
+        .filter(|entry| entry.t.as_secs() > talks[2])
+        .filter(|entry| entry.subjects == vec![Subject::Sim(sim(2))])
+        .find(|entry| matches!(entry.payload, LogPayload::Company { .. }))
+        .expect("his choice");
+    match &company.payload {
+        LogPayload::Company { objects } => {
+            assert_eq!(objects.len(), 1);
+            let row = &objects[0];
+            assert_eq!(row.object, DINING);
+            assert_eq!(row.avoided, Some(sim(3)));
+            assert_eq!(row.avoid, 8_000);
+            assert_eq!(row.liked, Some(sim(1)));
+            assert_eq!(row.company, 8_000);
+        }
+        other => panic!("core:company, got {other:?}"),
+    }
+}
+
+fn refuted_memory(run: &Run, owner: u64, other: u64, at: i64) -> bool {
+    (run.world.state().house().social.memories.get(&sim(owner))).is_some_and(|list| {
+        list.iter().any(|memory| {
+            memory.kind == REFUTED
+                && memory.at == t(at)
+                && memory.since == t(at)
+                && memory.strength == 700
+                && memory.fade == 50
+                && memory.valence == -300
+                && memory.with == [Some(sim(other)), None]
+        })
+    })
+}
+
+/// After the lie at 23 400, W and the hearer talk at 27 000. The reference's refutation
+/// draw of founder 2 toward founder 1 hits (u = 218 846). One refutation, then the edge
+/// to the liar.
+#[test]
+fn the_doer_refutes_the_lie() {
+    let (mut run, home) = lie_early();
+    arrive(
+        &mut run,
+        6 * 3_600,
+        &[(1, TOILET), (2, TOILET), (3, TOILET)],
+    );
+    let lie_at = 23_400;
+    stage(&mut run, lie_at, false);
+    let since = run.world.state().house().households[&home].since;
+    let day = house_day(t(lie_at), since);
+    let said = laestert(3, 2, day);
+    assert_eq!(belief(&run, 2, said).certainty, 660);
+    to_toilet(&mut run, lie_at, &[1, 2]);
+    let at = 27_000;
+    let arrival = arrive(
+        &mut run,
+        at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(2, DINING), (3, DINING)],
+    );
+    assert_eq!(arrival + TALK_DELAY, at);
+    run.advance(at);
+    assert_eq!(refutations(&run).len(), 1);
+    let refuted = refutations(&run)[0];
+    assert_eq!(refuted.t, t(at));
+    assert_eq!(refuted.subjects, vec![Subject::Sim(sim(2))]);
+    assert_eq!(
+        refuted.payload,
+        LogPayload::Refuted {
+            by: sim(3),
+            statement: said,
+            source: Some(sim(1)),
+        }
+    );
+    let draw = DrawRef::from(refute_draw_key(founder(2), t(at), founder(1)));
+    assert!(caused_by(refuted, draw));
+    let held = belief(&run, 2, said);
+    assert_eq!(held.certainty, 0);
+    assert_eq!(held.basis, Basis::Widerlegt);
+    assert_eq!(held.since, t(at));
+    assert_eq!(held.source, Some(sim(3)));
+    assert_eq!(held.origin, Some(sim(3)));
+    assert!(!held.secret);
+    assert_eq!(held.statement, said);
+    let stepped = (run.log.iter())
+        .find(|entry| {
+            entry.t == t(at)
+                && entry.subjects == vec![Subject::Sim(sim(2))]
+                && matches!(entry.payload, LogPayload::BondChanged { other, .. } if other == sim(1))
+        })
+        .expect("the edge to the liar");
+    assert_eq!(day::number(&event_cause(stepped)), day::number(&refuted.id));
+    assert_eq!(bond(&run, 2, 1)[TRUST], 480);
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 150);
+    assert!(run.log.iter().all(|entry| {
+        entry.t != t(at) || !matches!(entry.payload, LogPayload::Believed { .. })
+    }));
+    let remembered: Vec<u16> = (run.log.iter())
+        .filter(|entry| entry.t == t(at))
+        .filter_map(|entry| match entry.payload {
+            LogPayload::Remembered { kind, .. } => Some(kind),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(remembered, vec![TALK, TALK, REFUTED, REFUTED]);
+    assert!(memory_about(&run, 2, 3, at));
+    assert!(memory_about(&run, 3, 2, at));
+    assert!(refuted_memory(&run, 2, 3, at));
+    assert!(refuted_memory(&run, 3, 2, at));
+    assert_eq!(
+        talked(&run).last().expect("the talk").payload,
+        LogPayload::Talked {
+            other: sim(3),
+            object: DINING,
+            topic: 5,
+            actor: Some(sim(3)),
+        }
+    );
+}
+
+/// The same seat at 30 600. The reference's refutation draw misses (u = 533 784), so the
+/// lie stays and the liar's edge does not move.
+#[test]
+fn a_missed_refutation_leaves_the_lie() {
+    let (mut run, home) = lie_early();
+    arrive(
+        &mut run,
+        6 * 3_600,
+        &[(1, TOILET), (2, TOILET), (3, TOILET)],
+    );
+    let lie_at = 23_400;
+    stage(&mut run, lie_at, false);
+    let since = run.world.state().house().households[&home].since;
+    let said = laestert(3, 2, house_day(t(lie_at), since));
+    to_toilet(&mut run, lie_at, &[1, 2]);
+    let at = 30_600;
+    let arrival = arrive(
+        &mut run,
+        at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(2, DINING), (3, DINING)],
+    );
+    assert_eq!(arrival + TALK_DELAY, at);
+    run.advance(at);
+    assert!(refutations(&run).is_empty());
+    let draw = DrawRef::from(refute_draw_key(founder(2), t(at), founder(1)));
+    assert!(run.log.iter().all(|entry| !caused_by(entry, draw)));
+    let held = belief(&run, 2, said);
+    assert_eq!(held.certainty, 660);
+    assert_eq!(held.basis, Basis::Gehoert);
+    assert_eq!(held.source, Some(sim(1)));
+    assert_eq!(held.origin, Some(sim(1)));
+    assert_eq!(bond(&run, 2, 1)[TRUST], 600);
+    assert_eq!(bond(&run, 2, 1)[GRUDGE], 0);
+    assert!(!refuted_memory(&run, 2, 3, at));
+    assert!(!refuted_memory(&run, 3, 2, at));
+    assert!(memory_about(&run, 2, 3, at));
 }

@@ -237,6 +237,16 @@ pub(super) fn store_heard(
     }
 }
 
+/// Replaces the belief of this key in place. A refutation is not `core:believed`
+/// (ADR-0031 section 5): the talk writes `core:refuted`. The key is already held.
+pub(super) fn store_refuted(domain: &mut DomainState, holder: SimId, belief: Belief) {
+    let list = (domain.house.social.beliefs.get_mut(&holder))
+        .unwrap_or_else(|| panic!("invariant belief.key"));
+    let at = (list.binary_search_by_key(&belief.key(), Belief::key))
+        .unwrap_or_else(|_| panic!("invariant belief.key"));
+    list[at] = belief;
+}
+
 /// Appends an own deed of today. Days outside the calendar window fall here, because this
 /// handler already touches the list (ADR-0031 section 1, addendum 2026-11-11). The clock
 /// does not cut them. The cap may still close a day inside that window (`dropped_day`).
