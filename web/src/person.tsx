@@ -214,7 +214,7 @@ export function TreeView({ run, glass }: { run: string; glass: Hourglass }) {
 }
 
 /** The chronicle of one person: the entries of the log about them, newest first. */
-function PersonChronicle({ run, sim, names }: { run: string; sim: string; names: ReadonlyMap<number, string> }) {
+function PersonChronicle({ run, sim, names, cheat }: { run: string; sim: string; names: ReadonlyMap<number, string>; cheat: boolean }) {
   const [retries, setRetries] = useState(0);
   const key = `${run}/${sim}/${retries}`;
   const [loaded, setLoaded] = useState<Loaded<readonly EventItem[]>>({ state: "loading", key });
@@ -236,6 +236,7 @@ function PersonChronicle({ run, sim, names }: { run: string; sim: string; names:
       names={names}
       failed={shown.state === "failed" ? TEXT[shown.text] : null}
       retry={() => setRetries((n) => n + 1)}
+      cheat={cheat}
     />
   );
 }
@@ -687,7 +688,7 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
       <TreeView run={run} glass={glass} />
       <PinButton key={`${run}/${sim}`} run={run} person={person} />
       <KinForm key={`${run}/${sim}`} run={run} sim={sim} pedigree={pedigree} ages={ages} />
-      <PersonChronicle key={changed} run={run} sim={sim} names={namesOf(pedigree)} />
+      <PersonChronicle key={changed} run={run} sim={sim} names={namesOf(pedigree)} cheat={cheat} />
     </section>
   );
 }

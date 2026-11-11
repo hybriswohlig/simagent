@@ -79,6 +79,14 @@ test("the reserve at half and at 0, and its word beside what the person does", (
   assert.equal(word("wasted"), "ausgezehrt");
 });
 
+test("a talk names the other person and the topic", () => {
+  const talked = item(9, "core:talked", { other: 2, object: 0, topic: 1, actor: 1 });
+  talked.entry.subjects = [{ sim: 1 }, { sim: 2 }];
+  const name = (id) => (id === 2 ? "Mia" : "Tom");
+  assert.deepEqual(dayLine(LAYOUT, talked, { sim: 1, name, cheat: false }), { text: "redet mit Mia über ein Lob", choice: false });
+  assert.equal(dayLine(LAYOUT, talked, { sim: 2, name, cheat: false }).text, "redet mit Tom über ein Lob");
+});
+
 test("the day list by calendar day", () => {
   const items = [
     item(1, "core:idle", {}, date(0, 5, 79_000)),

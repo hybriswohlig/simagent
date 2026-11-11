@@ -118,7 +118,24 @@ fn why_recomputes_the_choice() {
                 .map(|row| row.company - row.avoid)
                 .unwrap_or(0)
         };
-        let Some(answer) = why_answer(&world, entry, 0, false, ended, bonus).expect("recomputes")
+        let company_rows = match (log[..at].iter())
+            .rev()
+            .find(|other| {
+                other.t == entry.t
+                    && other.subjects == entry.subjects
+                    && matches!(other.payload, LogPayload::Company { .. })
+            })
+            .map(|other| &other.payload)
+        {
+            Some(LogPayload::Company { objects }) => objects.as_slice(),
+            _ => &[],
+        };
+        let company = sim_cli::social_view::CompanyAt {
+            rows: company_rows,
+            history: &log[..at],
+        };
+        let Some(answer) =
+            why_answer(&world, entry, 0, false, ended, bonus, company).expect("recomputes")
         else {
             continue;
         };
