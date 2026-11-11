@@ -414,6 +414,26 @@ function surfaceMaterial(hex, style, roughness) {
 // Post-morph, pre-skin band. ny is 0 at the lowest vertex and 1 at the crown.
 // The cut is the base of the neck, above the chest, down to mid-thigh.
 // Arm X is still the A-pose, outside the ribcage, so the hanging arm stays bare.
+// Linear mean of young_lightskinned_female_diffuse.png, pixels above luma 0.08.
+// Dividing by this leaves pores and lip colour, and the contract skin sets the tone.
+const SKIN_MEAN = new THREE.Vector3(0.616986, 0.356523, 0.236129);
+
+const SKIN_DETAIL = `
+  #ifdef USE_MAP
+    vec3 tex = sampledDiffuseColor.rgb;
+    vec3 ratio = clamp(tex / uSkinMean, vec3(0.25), vec3(1.5));
+    // The albedo also paints eyes, brows and nostril cavities. At full strength
+    // those read as a dark blotch under the eye and brow proxies. Keep the
+    // pore grain and the lip redness, and lift only that near-black paint.
+    vec3 detail = mix(vec3(1.0), ratio, 0.62);
+    detail = max(detail, vec3(0.76));
+    float warm = clamp(ratio.r - max(ratio.g, ratio.b), 0.0, 0.35);
+    vec3 skinCol = uSkin * detail;
+    skinCol += uSkin * vec3(0.07, 0.02, 0.008) * smoothstep(0.03, 0.14, warm);
+    diffuseColor.rgb = skinCol;
+  #endif
+`;
+
 const CLOTH_BAND = `
   if (uCut > 0.0 && vBind.y < uCut) discard;
   float ny = (vBind.y - uFloor) / uSpan;
@@ -425,16 +445,20 @@ const CLOTH_BAND = `
   diffuseColor.rgb = mix(diffuseColor.rgb, uCloth, vertical * (1.0 - arm));
 `;
 
-function paintCloth(material, floor, span, cutY) {
+function paintCloth(material, floor, span, cutY, skinHex) {
   const uniforms = {
     uCloth: { value: new THREE.Color(CLOTH) },
+    uSkin: { value: new THREE.Color(skinHex) },
+    uSkinMean: { value: SKIN_MEAN },
     uFloor: { value: floor },
     uSpan: { value: Math.max(span, 0.2) },
     uCut: { value: cutY },
   };
-  material.customProgramCacheKey = () => "bodysuit-basis";
+  material.customProgramCacheKey = () => "bodysuit-skin";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uCloth = uniforms.uCloth;
+    shader.uniforms.uSkin = uniforms.uSkin;
+    shader.uniforms.uSkinMean = uniforms.uSkinMean;
     shader.uniforms.uSpan = uniforms.uSpan;
     shader.uniforms.uFloor = uniforms.uFloor;
     shader.uniforms.uCut = uniforms.uCut;
@@ -443,9 +467,9 @@ function paintCloth(material, floor, span, cutY) {
       "#include <morphtarget_vertex>",
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
-    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${shader.fragmentShader.replace(
+    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${shader.fragmentShader.replace(
       "#include <color_fragment>",
-      `#include <color_fragment>\n${CLOTH_BAND}`,
+      `#include <color_fragment>\n${SKIN_DETAIL}\n${CLOTH_BAND}`,
     )}`;
   };
   material.onBeforeRender = () => {
@@ -459,7 +483,9 @@ function paintCloth(material, floor, span, cutY) {
 }
 
 function bodyMaterial(skinHex, style, floor, span, cutY) {
-  return paintCloth(surfaceMaterial(skinHex, style, 0.58), floor, span, cutY);
+  const material = surfaceMaterial("#ffffff", style, 0.8);
+  material.map = state.skin;
+  return paintCloth(material, floor, span, cutY, skinHex);
 }
 
 function litMaterial(style, roughness) {
@@ -771,6 +797,23 @@ function addFitted(mesh, head, proxy, humanPos, material, order, nudgeZ) {
   return object;
 }
 
+// eyebrow001's inner ends sit between the eyes, on the nose, and the hair
+// strokes there read as a dark grid. The arcs over the eyes stay.
+function browFaces(proxy, humanPos) {
+  const fitted = fitProxy(proxy, humanPos);
+  const faces = proxy.faces;
+  const kept = [];
+  for (let t = 0; t < faces.length; t += 3) {
+    const a = faces[t];
+    const b = faces[t + 1];
+    const c = faces[t + 2];
+    const cx = (fitted[a * 3] + fitted[b * 3] + fitted[c * 3]) / 3;
+    if (Math.abs(cx) < 0.02) continue;
+    kept.push(a, b, c);
+  }
+  return kept;
+}
+
 function hairChoice(body) {
   if (body.body_form_age < 16) return "hair_child";
   if (body.sex === "male") return "hair_short";
@@ -793,8 +836,10 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, styl
   const brows = clamp(body.eyebrow_density, 0, 1);
   if (brows > 0.02) {
     addFitted(
-      mesh, head, pack.brows, humanPos,
-      strandMaterial(style, pack.brows.texture, hairHex, THREE.MathUtils.lerp(0.22, 0.02, brows), 0, marks.crown, -8),
+      mesh, head, { ...pack.brows, faces: browFaces(pack.brows, humanPos) }, humanPos,
+      // The card's empty area is not true zero: alpha 1–30 is compression fringe.
+      // A threshold near 0.02 turns that fringe into a dark grid on the nose.
+      strandMaterial(style, pack.brows.texture, hairHex, THREE.MathUtils.lerp(0.45, 0.18, brows), 0, marks.crown, -8),
       3,
       0.003,
     );
@@ -1499,9 +1544,23 @@ async function loadPack() {
   return { human, proxies };
 }
 
+async function loadSkin() {
+  const texture = await new THREE.TextureLoader().loadAsync(
+    "/cache/mh-system/skins/young_caucasian_female/young_lightskinned_female_diffuse.png",
+  );
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // body.glb is a glTF export: v = 0 is the top of the image. The proxy
+  // textures are raw OBJ uvs and stay flipped the other way.
+  texture.flipY = false;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return texture;
+}
+
 async function boot() {
   status.textContent = "Loading the body…";
-  const [family, gltf, pack] = await Promise.all([
+  const [family, gltf, pack, skin] = await Promise.all([
     fetch("/cache/family.json").then((response) => {
       if (!response.ok) throw new Error(`family.json HTTP ${response.status}`);
       return response.json();
@@ -1510,9 +1569,11 @@ async function boot() {
       new GLTFLoader().load("/cache/body.glb", resolve, undefined, reject);
     }),
     loadPack(),
+    loadSkin(),
   ]);
   state.family = family;
   state.pack = pack;
+  state.skin = skin;
   state.template = gltf.scene;
   state.normalGroups = buildNormalGroups(findMesh(gltf.scene).geometry);
   const line = family.line || {};

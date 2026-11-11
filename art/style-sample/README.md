@@ -39,7 +39,9 @@ minimum, middle and maximum.
 
 A is stylised-realistic: standard material, light kept under the albedo,
 face axes a little stronger. B is toon shading with a dark rim. C is flat
-unlit colour. Skin, hair and iris colours are the contract
+unlit colour. Skin uses the CC0 young-caucasian-female diffuse, divided by
+its average and multiplied by the contract skin colour. The darkest painted
+eyes and brows in that texture are lifted. Hair and iris colours are the contract
 `melanin_to_srgb` tables, interpolated in linear light and stored on the
 material as sRGB. A shader band colours the torso and hips navy, with a
 straight cut at the base of the neck. Eyes, brows, lashes and hair are

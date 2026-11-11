@@ -65,6 +65,29 @@ cut at the base of the neck. The cut is a constant height on the morphed mesh,
 so the neckline stays a clean edge. Head, arms, hands and lower legs stay skin.
 Breast shape is still the mesh under that colour. No clothes file is added.
 
+## Skin
+
+The face and body use the MakeHuman system-assets default light skin. The
+material is CC0, released September 2020, same pack as the proxies above.
+
+| | |
+|---|---|
+| Material | `skins/young_caucasian_female/young_caucasian_female.mhmat` |
+| Diffuse | `skins/young_caucasian_female/young_lightskinned_female_diffuse.png` |
+| Local file | `/Users/dariushk/.cache/simagent-art/mh-system/skins/young_caucasian_female/young_lightskinned_female_diffuse.png` |
+
+The page divides the texture by its average linear colour
+`(0.617, 0.357, 0.236)` and multiplies by the contract skin colour, so
+melanin still sets the tone. The mix is partial. Near-black paint in that
+albedo (the drawn eyes, brows and nostrils) is lifted, so it does not
+blotch the face under the eye and brow proxies. Pores stay. Lips and cheeks
+pick up a little extra warmth where the texture is already redder.
+Roughness is 0.8, with no metal. The body is a glTF mesh, so this texture
+is sampled with v = 0 at the top. The mhmat points at the litsphere
+`data/litspheres/lit_standard_skin.png`,
+which is not in this pack. `shaderConfig normal` is false, and the directory
+has no normal or bump image, so the sample has no skin normal map.
+
 ## Eyes, brows, lashes and hair
 
 These proxies come from the MakeHuman community system-assets pack. The zip is
@@ -101,7 +124,8 @@ on this mesh could not be kept off the neck, so the jaw stays skin.
 - `rigs/standard/rig.mixamo.json` and `weights.mixamo.json` are in the same directory. This sample does not use Mixamo, and it does not use assets from any game.
 - The system-assets zip also contains clothes, skins, teeth and other hair.
   This sample uses only the eye, brow, lash and three hair proxies in the
-  table above. It does not use clothes or skin textures from that zip.
+  table above, plus the young caucasian female skin in the skin section.
+  It does not use clothes from that zip.
 - The zip does not contain this base mesh or these morph targets. Those stay
   the MPFB2 files at the top of this note.
 - `macrodetails/height/*` (144 targets) and the breast/proportion grids are left unused. Height is a bone scale. See `MAPPING.md`.
