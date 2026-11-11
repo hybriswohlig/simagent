@@ -431,6 +431,15 @@ const SKIN_DETAIL = `
     vec3 skinCol = uSkin * detail;
     skinCol += uSkin * vec3(0.07, 0.02, 0.008) * smoothstep(0.03, 0.14, warm);
     diffuseColor.rgb = skinCol;
+    // Beard mask: 1 is mustache and chin, lower values are jaw then cheeks.
+    // Lips, the nose and the neck are 0. Low coverage keeps the core only.
+    float beardM = texture(uBeardMap, vMapUv).r;
+    float edge = mix(0.50, 0.06, clamp(uBeardCoverage, 0.0, 1.0));
+    float grow = smoothstep(edge, edge + 0.18, beardM);
+    // Stubble is darker than the hair colour, or grey hair vanishes on pale skin.
+    vec3 beardCol = uBeardCol * vec3(0.28, 0.24, 0.22);
+    float ink = clamp(grow * uBeardDensity * 1.4, 0.0, 0.8);
+    diffuseColor.rgb = mix(diffuseColor.rgb, beardCol, ink);
   #endif
 `;
 
@@ -445,20 +454,28 @@ const CLOTH_BAND = `
   diffuseColor.rgb = mix(diffuseColor.rgb, uCloth, vertical * (1.0 - arm));
 `;
 
-function paintCloth(material, floor, span, cutY, skinHex) {
+function paintCloth(material, floor, span, cutY, skinHex, beard) {
   const uniforms = {
     uCloth: { value: new THREE.Color(CLOTH) },
     uSkin: { value: new THREE.Color(skinHex) },
     uSkinMean: { value: SKIN_MEAN },
+    uBeardCol: { value: new THREE.Color(beard.color) },
+    uBeardDensity: { value: beard.density },
+    uBeardCoverage: { value: beard.coverage },
+    uBeardMap: { value: state.beard },
     uFloor: { value: floor },
     uSpan: { value: Math.max(span, 0.2) },
     uCut: { value: cutY },
   };
-  material.customProgramCacheKey = () => "bodysuit-skin";
+  material.customProgramCacheKey = () => "bodysuit-skin-beard";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uCloth = uniforms.uCloth;
     shader.uniforms.uSkin = uniforms.uSkin;
     shader.uniforms.uSkinMean = uniforms.uSkinMean;
+    shader.uniforms.uBeardCol = uniforms.uBeardCol;
+    shader.uniforms.uBeardDensity = uniforms.uBeardDensity;
+    shader.uniforms.uBeardCoverage = uniforms.uBeardCoverage;
+    shader.uniforms.uBeardMap = uniforms.uBeardMap;
     shader.uniforms.uSpan = uniforms.uSpan;
     shader.uniforms.uFloor = uniforms.uFloor;
     shader.uniforms.uCut = uniforms.uCut;
@@ -467,7 +484,7 @@ function paintCloth(material, floor, span, cutY, skinHex) {
       "#include <morphtarget_vertex>",
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
-    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${shader.fragmentShader.replace(
+    shader.fragmentShader = `varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${shader.fragmentShader.replace(
       "#include <color_fragment>",
       `#include <color_fragment>\n${SKIN_DETAIL}\n${CLOTH_BAND}`,
     )}`;
@@ -482,10 +499,10 @@ function paintCloth(material, floor, span, cutY, skinHex) {
   return material;
 }
 
-function bodyMaterial(skinHex, style, floor, span, cutY) {
+function bodyMaterial(skinHex, style, floor, span, cutY, beard) {
   const material = surfaceMaterial("#ffffff", style, 0.8);
   material.map = state.skin;
-  return paintCloth(material, floor, span, cutY, skinHex);
+  return paintCloth(material, floor, span, cutY, skinHex, beard);
 }
 
 function litMaterial(style, roughness) {
@@ -659,34 +676,6 @@ function eyeMaterial(style, texture, irisHex, skinHex) {
     );
   };
   return material;
-}
-
-function beardMaterial(style, hairHex, density) {
-  const material = litMaterial(style, 0.7);
-  material.color.setHex(0xffffff);
-  material.side = THREE.DoubleSide;
-  material.polygonOffset = true;
-  material.polygonOffsetFactor = -2;
-  material.polygonOffsetUnits = -2;
-  const uniforms = {
-    uHair: { value: new THREE.Color(hairHex) },
-    uDensity: { value: density },
-  };
-  return bindShader(
-    material,
-    `beard-${style}`,
-    uniforms,
-    "attribute vec3 aMesh;\nvarying vec3 vMesh;",
-    "vMesh = aMesh;",
-    "varying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uDensity;",
-    `
-      vec2 cell = floor(vMesh.xy * 240.0);
-      float fiber = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
-      if (uDensity < 0.9 && fiber > uDensity) discard;
-      diffuseColor.rgb = uHair * mix(0.72, 1.05, fiber);
-      diffuseColor.a = 1.0;
-    `,
-  );
 }
 
 function outlineMaterial(cutY) {
@@ -918,115 +907,6 @@ function jawProfile(cloud) {
   return { lipLo, noseDy, noseZ, chinDy, chinZ };
 }
 
-function buildBeard(mesh, head, cloud, body, hairHex, style, marks) {
-  if (body.sex !== "male") return 0;
-  const density = clamp(body.beard_density, 0, 1);
-  if (density <= 0.04) return 0;
-  const coverage = clamp(body.beard_coverage, 0, 1);
-  const { xyz, maxY } = cloud;
-  const { noseDy, noseZ, chinZ } = marks.jaw;
-  // The nose tip is the only stable landmark. The mouth sits about 4–6 cm
-  // below it and the neck about 10 cm below it, so the chin is the short
-  // band between those two. A lip-relative band kept landing on the neck.
-  const mustacheHi = noseDy - 0.003;
-  const mustacheLo = noseDy - 0.012;
-  const mustacheHalf = 0.008 + 0.022 * coverage;
-  const index = mesh.geometry.index;
-  const positions = [];
-  const meshSpace = [];
-  const faces = [];
-  const map = new Map();
-  const corner = (vertex) => {
-    let slot = map.get(vertex);
-    if (slot !== undefined) return slot;
-    slot = positions.length / 3;
-    map.set(vertex, slot);
-    positions.push(xyz[vertex * 3], xyz[vertex * 3 + 1], xyz[vertex * 3 + 2]);
-    meshSpace.push(xyz[vertex * 3], xyz[vertex * 3 + 1], xyz[vertex * 3 + 2]);
-    return slot;
-  };
-  const normals = [];
-  const at = (vertex) => [xyz[vertex * 3], xyz[vertex * 3 + 1], xyz[vertex * 3 + 2]];
-  for (let t = 0; t < index.count; t += 3) {
-    const a = index.getX(t);
-    const b = index.getX(t + 1);
-    const c = index.getX(t + 2);
-    const pa = at(a);
-    const pb = at(b);
-    const pc = at(c);
-    const abx = pb[0] - pa[0];
-    const aby = pb[1] - pa[1];
-    const abz = pb[2] - pa[2];
-    const acx = pc[0] - pa[0];
-    const acy = pc[1] - pa[1];
-    const acz = pc[2] - pa[2];
-    const bcx = pc[0] - pb[0];
-    const bcy = pc[1] - pb[1];
-    const bcz = pc[2] - pb[2];
-    if (abx * abx + aby * aby + abz * abz > 0.00032) continue;
-    if (acx * acx + acy * acy + acz * acz > 0.00032) continue;
-    if (bcx * bcx + bcy * bcy + bcz * bcz > 0.00032) continue;
-    const nx = aby * acz - abz * acy;
-    const ny = abz * acx - abx * acz;
-    const nz = abx * acy - aby * acx;
-    const length = Math.hypot(nx, ny, nz) || 1;
-    if (nz / length < 0.4) continue;
-    if (ny / length < -0.45) continue;
-    const mx = (pa[0] + pb[0] + pc[0]) / 3;
-    const my = (pa[1] + pb[1] + pc[1]) / 3;
-    const mz = (pa[2] + pb[2] + pc[2]) / 3;
-    const dys = [pa[1] - maxY, pb[1] - maxY, pc[1] - maxY];
-    const minDy = Math.min(...dys);
-    const maxDy = Math.max(...dys);
-    const dy = my - maxY;
-    const ax = Math.abs(mx);
-    // Chin-relative shells kept falling on the mouth or the neck. The stable
-    // layer is the strip under the nose. It does not cross the lip.
-    if (!(minDy >= mustacheLo && maxDy <= mustacheHi && ax <= mustacheHalf && mz > noseZ - 0.02)) continue;
-    const ia = corner(a);
-    const ib = corner(b);
-    const ic = corner(c);
-    faces.push(ia, ib, ic);
-    for (const slot of [ia, ib, ic]) {
-      normals[slot * 3] = (normals[slot * 3] || 0) + nx;
-      normals[slot * 3 + 1] = (normals[slot * 3 + 1] || 0) + ny;
-      normals[slot * 3 + 2] = (normals[slot * 3 + 2] || 0) + nz;
-    }
-  }
-  if (!faces.length) return 0;
-  let meanZ = 0;
-  for (let i = 2; i < normals.length; i += 3) meanZ += normals[i];
-  const flip = meanZ < 0 ? -1 : 1;
-  const shell = new Float32Array(positions.length);
-  const kept = new Float32Array(meshSpace);
-  for (let i = 0; i < positions.length; i += 3) {
-    let nx = normals[i] || 0;
-    let ny = normals[i + 1] || 0;
-    let nz = normals[i + 2] || 0;
-    const length = Math.hypot(nx, ny, nz) || 1;
-    nx = flip * nx / length;
-    ny = flip * ny / length;
-    nz = flip * nz / length;
-    shell[i] = positions[i] + nx * 0.0022;
-    shell[i + 1] = positions[i + 1] + ny * 0.0022;
-    shell[i + 2] = positions[i + 2] + nz * 0.0022;
-    normals[i] = nx;
-    normals[i + 1] = ny;
-    normals[i + 2] = nz;
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(toHeadLocal(shell, headMatrix(mesh, head)), 3));
-  geometry.setAttribute("aMesh", new THREE.BufferAttribute(kept, 3));
-  geometry.setIndex(faces);
-  geometry.computeVertexNormals();
-  const object = new THREE.Mesh(geometry, beardMaterial(style, hairHex, density));
-  object.name = "beard";
-  object.frustumCulled = false;
-  object.renderOrder = 3;
-  head.add(object);
-  return faces.length / 3;
-}
-
 // Rest pose (body.glb): upper-arm local +Y is the bone, local +Z is world
 // forward. The elbow is a +X bend of the forearm, so the hand sits forward.
 // setFromUnitVectors rolls that bend behind the body. A local-Z turn swings
@@ -1188,7 +1068,12 @@ function buildPerson(template, member, x) {
   const iris = rampColor(IRIS, member.body.iris_melanin);
   const cloth = morphedYSpan(mesh, weights);
   const cutY = state.close ? marks.maxY + marks.jaw.noseDy - 0.098 : -1;
-  mesh.material = bodyMaterial(skin, state.style, cloth.minY, cloth.span, cutY);
+  const bearded = member.sex === "male";
+  mesh.material = bodyMaterial(skin, state.style, cloth.minY, cloth.span, cutY, {
+    color: hair,
+    density: bearded ? clamp(member.body.beard_density, 0, 1) : 0,
+    coverage: bearded ? clamp(member.body.beard_coverage, 0, 1) : 0,
+  });
   mesh.frustumCulled = false;
   let outline = null;
   if (state.style === "B") {
@@ -1202,7 +1087,6 @@ function buildPerson(template, member, x) {
   const body = { ...member.body, sex: member.sex };
   const humanPos = humanPositions(weights);
   const groom = addGrooming(mesh, head, humanPos, body, hair, iris, skin, state.style, marks);
-  const beardTris = buildBeard(mesh, head, cloud, body, hair, state.style, marks);
   scene.add(wrapper);
   wrapper.updateWorldMatrix(true, true);
   hangArms(root, shaped.slices.child);
@@ -1221,7 +1105,7 @@ function buildPerson(template, member, x) {
   return {
     wrapper, mesh, head, outline, spines, rest, scale, tag, marks,
     anchor: new THREE.Vector3(), member, shaped, skin, hair, iris,
-    hairName: groom.hairName, beardTris, arms: root.userData.arms,
+    hairName: groom.hairName, beardTris: 0, arms: root.userData.arms,
   };
 }
 
@@ -1558,9 +1442,22 @@ async function loadSkin() {
   return texture;
 }
 
+async function loadBeard() {
+  const texture = await new THREE.TextureLoader().loadAsync("/cache/beard-mask.png");
+  // Data, not colour. Same glTF uv orientation as the skin.
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.flipY = false;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
 async function boot() {
   status.textContent = "Loading the body…";
-  const [family, gltf, pack, skin] = await Promise.all([
+  const [family, gltf, pack, skin, beard] = await Promise.all([
     fetch("/cache/family.json").then((response) => {
       if (!response.ok) throw new Error(`family.json HTTP ${response.status}`);
       return response.json();
@@ -1570,10 +1467,12 @@ async function boot() {
     }),
     loadPack(),
     loadSkin(),
+    loadBeard(),
   ]);
   state.family = family;
   state.pack = pack;
   state.skin = skin;
+  state.beard = beard;
   state.template = gltf.scene;
   state.normalGroups = buildNormalGroups(findMesh(gltf.scene).geometry);
   const line = family.line || {};

@@ -48,9 +48,10 @@ straight cut at the base of the neck. Eyes, brows, lashes and hair are
 MakeHuman proxies fitted to the morphed body (see `../ASSETS.md`). Hair
 uses a short male cut, a longer female cut, or a child cut under 16.
 `balding_stage` opens the crown and temples of the short cut. `hair_density`
-and `eyebrow_density` raise the alpha-test threshold. A beard is a thin
-shell under the nose, coloured from the hair, and it does not cover the
-mouth. The arms hang at the sides. In the face framing the body is cut
+and `eyebrow_density` raise the alpha-test threshold. A beard is a soft
+mask on the upper lip, chin and jaw, spreading onto the cheeks as
+`beard_coverage` rises. It is coloured from the hair and it does not cover
+the mouth. The arms hang at the sides. In the face framing the body is cut
 below the neck. Grey is a mix toward neutral grey. Height
 is a uniform scale of the root bone after the age, fat and muscle morphs.
 The page also loads `/cache/proxies/proxies.json` and `proxies.bin`.

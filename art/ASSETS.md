@@ -115,9 +115,14 @@ The page fits each proxy with its `.mhclo` bindings. Textures use alpha test.
 
 Hair colour is the contract hair melanin mixed with `hair_grey_fraction`.
 `hair_density` lowers the alpha-test coverage. There is no beard proxy in
-this pack. The beard is a thin shell under the nose, built from the body
-mesh and coloured from the hair. It does not cover the mouth. A chin sheet
-on this mesh could not be kept off the neck, so the jaw stays skin.
+this pack, and the system-assets zip has no beard texture. The page paints
+one from the neutral CC0 body (`body.glb`) into
+`/Users/dariushk/.cache/simagent-art/beard-mask.png`. Weight 1 is the
+mustache and the chin. Lower weights are the jaw, then the cheeks.
+`beard_coverage` decides how far that shadow spreads, and `beard_density`
+sets its opacity. The colour is the hair colour, darkened so grey hair
+still reads on pale skin. Lips, the nose and the neck stay 0. No new
+downloaded asset.
 
 ## Not used
 
