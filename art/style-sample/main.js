@@ -1514,6 +1514,89 @@ function hangArms(root, child) {
   root.userData.arms = pose;
 }
 
+// Local +Y runs along the bone. A negative thigh X and a positive calf X
+// bring the knee forward and the heel back. The foot X undoes most of that
+// pitch so the sole stays down. Left is +X, so a positive pelvis Z lifts it.
+function idleStance(root, member) {
+  const hash = hashSim(personKey(member));
+  const weightLeft = (hash & 1) === 0;
+  const vary = 0.82 + ((hash >>> 8) % 7) * 0.03;
+  const young = typeof member.age_years === "number" && member.age_years <= 13 ? 0.85 : 1;
+  const amount = vary * young;
+  const sign = weightLeft ? 1 : -1;
+  const turn = findBone(root, "pelvis");
+  if (turn) turn.rotateZ(0.09 * amount * sign);
+  [0.04, 0.028, 0.012].forEach((roll, index) => {
+    const spine = findBone(root, `spine_0${index + 1}`);
+    if (spine) spine.rotateZ(-roll * amount * sign);
+  });
+  const mid = findBone(root, "spine_02");
+  if (mid) mid.rotateY(0.018 * amount * ((hash >>> 4) & 1 ? 1 : -1));
+  const drop = 0.07 * amount;
+  const clavL = findBone(root, "clavicle_l");
+  const clavR = findBone(root, "clavicle_r");
+  if (clavL) clavL.rotateZ(-drop - (weightLeft ? 0.018 * amount : 0));
+  if (clavR) clavR.rotateZ(drop + (weightLeft ? 0 : 0.018 * amount));
+  bendLeg(root, weightLeft ? "r" : "l", 0.22 * amount, 0.55 * amount);
+  bendLeg(root, weightLeft ? "l" : "r", 0.05 * amount, 0.1 * amount);
+  const arm = young < 1 ? 0.45 : 1;
+  relaxArm(root, weightLeft ? "r" : "l", 0.1 * amount * arm);
+  relaxArm(root, weightLeft ? "l" : "r", 0.03 * amount * arm);
+  curlHand(root, "l", amount * (0.85 + ((hash >>> 12) % 4) * 0.04));
+  curlHand(root, "r", amount * (0.72 + ((hash >>> 16) % 4) * 0.04));
+  root.updateWorldMatrix(true, true);
+}
+
+function bendLeg(root, side, thighPitch, knee) {
+  const thigh = findBone(root, `thigh_${side}`);
+  const calf = findBone(root, `calf_${side}`);
+  const foot = findBone(root, `foot_${side}`);
+  if (!thigh || !calf || !foot) return;
+  thigh.rotateX(-thighPitch);
+  calf.rotateX(knee);
+  foot.rotateX(-(knee - thighPitch) * 0.85);
+}
+
+function relaxArm(root, side, extra) {
+  const lower = findBone(root, `lowerarm_${side}`);
+  if (lower) lower.rotateX(extra);
+}
+
+function curlHand(root, side, scale) {
+  const hand = findBone(root, `hand_${side}`);
+  if (!hand) return;
+  root.updateWorldMatrix(true, true);
+  [
+    ["index", 0.38],
+    ["middle", 0.44],
+    ["ring", 0.48],
+    ["pinky", 0.42],
+  ].forEach(([name, base]) => {
+    [1, 2, 3].forEach((seg) => {
+      const bone = findBone(root, `${name}_0${seg}_${side}`);
+      if (!bone) return;
+      const bend = base * scale * (seg === 2 ? 1.1 : seg === 3 ? 0.65 : 0.8);
+      curlTowardPalm(bone, hand, bend);
+    });
+  });
+  [0.15, 0.18, 0.08].forEach((angle, index) => {
+    const bone = findBone(root, `thumb_0${index + 1}_${side}`);
+    if (bone) curlTowardPalm(bone, hand, angle * scale);
+  });
+}
+
+function curlTowardPalm(bone, hand, angle) {
+  const handQ = hand.getWorldQuaternion(new THREE.Quaternion());
+  const boneQ = bone.getWorldQuaternion(new THREE.Quaternion());
+  const palm = new THREE.Vector3(0, 0, 1).applyQuaternion(handQ);
+  const along = new THREE.Vector3(0, 1, 0).applyQuaternion(boneQ);
+  const axis = new THREE.Vector3().crossVectors(along, palm);
+  if (axis.lengthSq() < 1e-8) return;
+  axis.normalize().applyQuaternion(boneQ.invert());
+  bone.rotateOnAxis(axis, angle);
+  bone.updateWorldMatrix(true, true);
+}
+
 function neutralBody(eumelanin, pheomelanin) {
   const body = {
     body_form_age: 30,
@@ -1686,6 +1769,7 @@ function buildPerson(template, member, x) {
   scene.add(wrapper);
   wrapper.updateWorldMatrix(true, true);
   hangArms(root, shaped.slices.child);
+  idleStance(root, member);
   const spines = ["spine_01", "spine_02", "spine_03"].map((name) => findBone(root, name)).filter(Boolean);
   const rest = spines.map((spine) => spine.quaternion.clone());
   const tag = document.createElement("div");
