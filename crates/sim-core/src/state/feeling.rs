@@ -329,10 +329,121 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use alloc::collections::BTreeMap;
+
     use super::*;
+    use crate::data_id::DataId;
+    use crate::genome::{Genome, Sex};
+    use crate::house::state::MovedIn;
+    use crate::ids::HouseholdId;
+    use crate::lineage::LineageKey;
+    use crate::state::Sim;
+    use crate::time::YEAR;
 
     fn id(n: u64) -> SimId {
         SimId::try_from(n).expect("valid")
+    }
+
+    fn t(secs: i64) -> SimTime {
+        SimTime::from_secs(secs)
+    }
+
+    /// A person of 30 in a moved-in household, with the repository's social data.
+    fn domain_with_one() -> (DomainState, Data) {
+        let home = HouseholdId::try_from(1).expect("valid");
+        let mut domain = DomainState::new();
+        let lineage_key = LineageKey::founder(&DataId::new("test:talk").expect("tag"), 1);
+        domain.keys.insert(lineage_key, id(1));
+        domain.sims.insert(
+            id(1),
+            Sim {
+                born: t(-30 * YEAR.as_secs()),
+                lineage_key,
+                sex: Sex::Female,
+                genome: Genome::reference(Sex::Female),
+                afflictions: alloc::vec::Vec::new(),
+                conceptions: 0,
+                births: 0,
+                partnerships: 0,
+                household: home,
+                moved_out: false,
+                carer: None,
+                parents: None,
+                social_parents: alloc::vec::Vec::new(),
+                pool: None,
+            },
+        );
+        domain.house.households.insert(
+            home,
+            MovedIn {
+                house: DataId::new("test:talk").expect("tag"),
+                morning: true,
+                since: t(0),
+                last_talk: BTreeMap::new(),
+            },
+        );
+        let raw: SocialData =
+            serde_json::from_str(include_str!("../../../../data/social/social.json"))
+                .expect("social json");
+        let data = crate::data::testing::data().with_social(raw.checked().expect("social checks"));
+        (domain, data)
+    }
+
+    fn feel_of(channels: [u16; 4], temper: i16, since: i64) -> Feel {
+        Feel {
+            channels,
+            since: t(since),
+            temper,
+            temper_since: t(since),
+        }
+    }
+
+    /// Moving out writes the values down at that second (joy 800 - 300 and temper 200 - 100 a day
+    /// later), `since` that second; values that have faded to nothing leave no entry; a person
+    /// who has left the world is not put back; moving in sets `since` and nothing else; leaving
+    /// the world drops them (ADR-0032 section 1).
+    #[test]
+    fn a_move_out_writes_down_a_move_in_resumes_and_leaving_the_world_drops() {
+        let day = 86_400;
+        let (mut domain, data) = domain_with_one();
+        let one = id(1);
+        domain
+            .house
+            .social
+            .feelings
+            .insert(one, feel_of([800, 0, 0, 0], 200, 0));
+        leave(&mut domain, &data, one, t(day));
+        assert_eq!(
+            domain.house.social.feelings.get(&one),
+            Some(&feel_of([500, 0, 0, 0], 100, day))
+        );
+        // Frozen: a second write at a later second of the person outside would fade it, but
+        // nothing writes outside; moving in sets `since` and keeps the values.
+        resume(&mut domain, one, t(9 * day));
+        assert_eq!(
+            domain.house.social.feelings.get(&one),
+            Some(&feel_of([500, 0, 0, 0], 100, 9 * day))
+        );
+        // All five values faded by the move: no entry is kept.
+        leave(&mut domain, &data, one, t(12 * day));
+        assert_eq!(domain.house.social.feelings.get(&one), None);
+        // Someone with no entry stays without; a person who left the world is not put back.
+        leave(&mut domain, &data, one, t(13 * day));
+        domain
+            .house
+            .social
+            .feelings
+            .insert(one, feel_of([800, 0, 0, 0], 200, 0));
+        domain.sims.remove(&one);
+        leave(&mut domain, &data, one, t(day));
+        assert!(domain.house.social.feelings.is_empty());
+        domain
+            .house
+            .social
+            .feelings
+            .insert(one, feel_of([1, 0, 0, 0], 0, 0));
+        left_world(&mut domain, one);
+        assert!(domain.house.social.feelings.is_empty());
     }
 
     /// Acceptance 6 ("auch wenn er verwandt war"): a partner who is also a relative has the
