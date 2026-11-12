@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::house::choice::{CRITICAL, next_choice};
+use crate::house::choice::{CRITICAL, next_choice_drag};
 use crate::house::data::{
     AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
 };
@@ -182,6 +182,25 @@ pub fn next_choice_of(
     taken: &BTreeSet<(u16, u8)>,
     (start, after): (SimTime, SimTime),
 ) -> Option<SimTime> {
+    next_choice_of_drag(
+        (house, data),
+        (born, key, seed),
+        person,
+        taken,
+        (start, after),
+        |_| 0,
+    )
+}
+
+/// As [`next_choice_of`], weighing each object with `drag` ([`next_choice_drag`]).
+fn next_choice_of_drag(
+    (house, data): (&House, &HouseData),
+    (born, key, seed): (SimTime, crate::lineage::LineageKey, u64),
+    person: &InHouse,
+    taken: &BTreeSet<(u16, u8)>,
+    (start, after): (SimTime, SimTime),
+    drag: impl Fn(u16) -> i64,
+) -> Option<SimTime> {
     let (room, start) = match person.place {
         Place::Room(room) => (room, start),
         Place::Walking { to, arrive, .. } => (to, start.max(arrive)),
@@ -198,14 +217,63 @@ pub fn next_choice_of(
     };
     let draw = || work_draw(seed, key);
     let leaves = |at: SimTime| day_departure(data.day(), born, draw, at);
-    next_choice(
+    next_choice_drag(
         (house, data),
         (born, &person.needs, room),
         free,
         (start, after),
         moods,
         leaves,
+        drag,
     )
+}
+
+/// The bonus-0 second and, when that second is the search's own `start`, the second with the
+/// live drag ([`next_choice_of_drag`]).
+pub(crate) struct IdlePlan {
+    pub plain: Option<SimTime>,
+    /// Set only when `plain` is the caller's `start`.
+    pub dragged: Option<SimTime>,
+}
+
+impl IdlePlan {
+    /// The second to put on the queue. A search that names `start` is replaced by the dragged
+    /// one, which is `None` when the net keeps every offer under `ENOUGH` until bedtime.
+    pub(crate) fn scheduled(&self, start: SimTime) -> Option<SimTime> {
+        match self.plain {
+            Some(at) if at == start => self.dragged,
+            other => other,
+        }
+    }
+
+    /// A pending `Decide` at `time` is the bonus-0 second, or the dragged second when the
+    /// bonus-0 search names `start` (the choice has not run yet, or it has and was replanned).
+    pub(crate) fn accepts(&self, start: SimTime, time: SimTime) -> bool {
+        self.plain == Some(time) || (self.plain == Some(start) && self.dragged == Some(time))
+    }
+}
+
+/// The next `Decide` of an idle person (ADR-0026, addendum of 2026-11-04 after the playtest).
+/// The bonus-0 search is kept when it names a later second, so company never pulls it earlier.
+/// When it names `start`, `drag(object)` is `min(0, scaled company − avoid)` at that second: a
+/// negative net can put the only enough offer under `ENOUGH`, the choice idles, and planning
+/// `start` again would schedule the same choice (ADR-0030 section 4, ADR-0032 section 5).
+pub(crate) fn idle_plan(
+    (house, data): (&House, &HouseData),
+    who: (SimTime, crate::lineage::LineageKey, u64),
+    person: &InHouse,
+    taken: &BTreeSet<(u16, u8)>,
+    (start, after): (SimTime, SimTime),
+    drag: impl Fn(u16) -> i64,
+) -> IdlePlan {
+    let plain = next_choice_of((house, data), who, person, taken, (start, after));
+    let dragged = match plain {
+        Some(at) if at == start => {
+            next_choice_of_drag((house, data), who, person, taken, (start, after), drag)
+        }
+        _ => None,
+    };
+    IdlePlan { plain, dragged }
 }
 
 /// The second the time-filler of `person` at its object ends (ADR-0026, addendum of 2026-11-04

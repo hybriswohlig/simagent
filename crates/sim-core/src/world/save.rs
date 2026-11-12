@@ -2713,12 +2713,18 @@ fn taken_for(
     Some(taken)
 }
 
-/// The next choice of a person idle in a room or on its walk to the room one stays in, not lying
-/// and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest), recomputed from
-/// the second the loaded world runs next, planned in the clock (its addendum on comfort and the
-/// time-filler), with the places of its household taken by an action or held for others; `None`
-/// for anyone else or if nothing comes.
-fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
+/// The bonus-0 second and the dragged second of a person idle in a room or on its walk to the
+/// room one stays in, not lying and waiting for nothing (ADR-0026, addendum of 2026-11-04 after
+/// the playtest), recomputed from the second the loaded world runs next, planned in the clock
+/// (its addendum on comfort and the time-filler), with the places of its household taken by an
+/// action or held for others. `None` for anyone else. The drag is the same negative net `decide`
+/// subtracts (ADR-0030 section 4, ADR-0032 section 5), and only when the bonus-0 search names the
+/// open second.
+fn choice_plan(
+    loaded: &LoadedState,
+    rules: &Rules<'_>,
+    sim: SimId,
+) -> Option<crate::house::state::IdlePlan> {
     let person = loaded.house.sims.get(&sim)?;
     let houses = rules.data.houses()?;
     let house = house_of(loaded, rules.data, sim)?;
@@ -2734,7 +2740,45 @@ fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<Sim
     let taken = taken_for(loaded, rules, sim, start)?;
     let who = (me.born, me.lineage_key, rules.seed);
     let from = (start, loaded.closed_through);
-    crate::house::state::next_choice_of((house, houses), who, person, &taken, from)
+    let members = loaded
+        .sims
+        .iter()
+        .filter(|(_, other)| other.household == me.household)
+        .map(|(id, _)| *id);
+    let drag = match rules.data.social() {
+        Some(social) => {
+            let (bonuses, _, temper) = crate::state::action::seat_bonus(
+                social,
+                &loaded.house.social,
+                house,
+                sim,
+                start,
+                members,
+                |other| {
+                    let person = loaded.house.sims.get(&other)?;
+                    Some((person.action, person.place))
+                },
+            );
+            crate::state::action::object_drag(&bonuses, temper)
+        }
+        None => Vec::new(),
+    };
+    Some(crate::house::state::idle_plan(
+        (house, houses),
+        who,
+        person,
+        &taken,
+        from,
+        |object| drag.get(usize::from(object)).copied().unwrap_or(0),
+    ))
+}
+
+/// The second the run would have queued for `sim` ([`choice_plan`]).
+fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
+    let start = loaded
+        .closed_through
+        .checked_add(SimDuration::from_secs(1))?;
+    choice_plan(loaded, rules, sim).and_then(|plan| plan.scheduled(start))
 }
 
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at
@@ -2951,10 +2995,13 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             }
             // A choice planned by a handler runs in its second (ADR-0026 section 3), so after a
             // run only the next choice of an idle person is pending, at the second it is
-            // recomputed for (ADR-0026, addendum of 2026-11-04 after the playtest). An input at
-            // the clock plans one for the next second, once per person idle in a room: a command
-            // or another input that freed a place held for a waiter, or a day begun (ADR-0024
-            // sections 2 and 5); a waiter has none (the house part's checks).
+            // recomputed for (ADR-0026, addendum of 2026-11-04 after the playtest). That second
+            // is the bonus-0 search, or the dragged one when the search names the open second
+            // and the choice has already idled (ADR-0030 section 4). A save from the second
+            // before that choice still holds the bonus-0 time. An input at the clock plans one
+            // for the next second, once per person idle in a room: a command or another input
+            // that freed a place held for a waiter, or a day begun (ADR-0024 sections 2 and 5);
+            // a waiter has none (the house part's checks).
             EventPayload::Decide { sim } => {
                 let idle = (loaded.house.sims.get(sim)).is_some_and(|person| {
                     let room = matches!((person.place, person.action), (Place::Room(_), None));
@@ -2962,7 +3009,11 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                 });
                 let next = clock.checked_add(SimDuration::from_secs(1)) == Some(entry.time);
                 let by_input = rules.opened && idle && next;
-                let planned = choice_due(loaded, rules, *sim) == Some(entry.time);
+                let open = clock.checked_add(SimDuration::from_secs(1));
+                let planned = open.is_some_and(|start| {
+                    (choice_plan(loaded, rules, *sim))
+                        .is_some_and(|plan| plan.accepts(start, entry.time))
+                });
                 entry.period.is_none() && choices.insert(*sim) && (by_input || planned)
             }
             // Once per person with needs, at the start of its night of today if that is still
