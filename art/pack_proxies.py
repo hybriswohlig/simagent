@@ -40,6 +40,12 @@ def age_targets(sex: str, age: str) -> list[str]:
     return [f"macrodetails/{race}-{sex}-{age}.target.gz" for race in RACES]
 
 
+def target_file(rel) -> tuple[str, float]:
+    if isinstance(rel, tuple):
+        return rel[0], float(rel[1])
+    return rel, 1.0
+
+
 MORPHS = [
     ("age_male_child", age_targets("male", "child"), True),
     ("age_male_young", age_targets("male", "young"), True),
@@ -103,6 +109,26 @@ MORPHS = [
         "mouth/mouth-lowerlip-volume-incr.target.gz",
     ], False),
     ("face_axis_12", ["mouth/mouth-scale-horiz-incr.target.gz"], False),
+    # Provisional axes. Same files as build_body.py. Not in the contract.
+    ("neck_length", ["neck/measure-neck-height-incr.target.gz"], False),
+    ("hand_size", ["hands/l-hand-scale-incr.target.gz", "hands/r-hand-scale-incr.target.gz"], False),
+    ("foot_size", ["feet/l-foot-scale-incr.target.gz", "feet/r-foot-scale-incr.target.gz"], False),
+    ("ear_size", ["ears/l-ear-scale-incr.target.gz", "ears/r-ear-scale-incr.target.gz"], False),
+    ("ear_projection", ["ears/l-ear-flap-incr.target.gz", "ears/r-ear-flap-incr.target.gz"], False),
+    ("eye_roundness", ["eyes/l-eye-height2-incr.target.gz", "eyes/r-eye-height2-incr.target.gz"], False),
+    ("forehead_height", ["forehead/forehead-scale-vert-incr.target.gz"], False),
+    ("buttock_volume", ["buttocks/buttocks-volume-incr.target.gz"], False),
+    ("buttock_lift", ["hip/hip-trans-up.target.gz"], False),
+    ("waist_width", ["torso/measure-waist-circ-incr.target.gz"], False),
+    ("breast_volume", ["breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness.target.gz"], False),
+    ("breast_height", ["breast/breast-trans-up.target.gz"], False),
+    ("nose_bridge", ["nose/nose-hump-incr.target.gz"], False),
+    ("nose_tip", ["nose/nose-point-up.target.gz"], False),
+    ("brow_arch", ["eyebrows/eyebrows-angle-up.target.gz"], False),
+    ("lip_ratio", [
+        ("mouth/mouth-upperlip-volume-incr.target.gz", 1.0),
+        ("mouth/mouth-lowerlip-volume-incr.target.gz", -1.0),
+    ], False),
 ]
 
 PROXIES = [
@@ -555,14 +581,15 @@ def main() -> None:
     for name, rels, mean in MORPHS:
         acc = {index: [0.0, 0.0, 0.0] for index in order}
         for rel in rels:
-            path = TARGETS / rel
+            rel_path, scale = target_file(rel)
+            path = TARGETS / rel_path
             if not path.is_file():
                 fail(f"Missing target {path}")
             for index, delta in load_target(path, wanted).items():
                 slot = acc[index]
-                slot[0] += delta[0]
-                slot[1] += delta[1]
-                slot[2] += delta[2]
+                slot[0] += delta[0] * scale
+                slot[1] += delta[1] * scale
+                slot[2] += delta[2] * scale
         if mean:
             count = float(len(rels))
             for slot in acc.values():

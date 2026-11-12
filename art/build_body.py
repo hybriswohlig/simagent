@@ -59,6 +59,13 @@ def age_targets(sex: str, age: str) -> list[str]:
     return [f"macrodetails/{race}-{sex}-{age}.target.gz" for race in RACES]
 
 
+def target_file(rel) -> tuple[str, float]:
+    """A path, or (path, scale). A negative scale flips a one-sided sculpt."""
+    if isinstance(rel, tuple):
+        return rel[0], float(rel[1])
+    return rel, 1.0
+
+
 MORPHS = [
     ("age_male_child", "body_form_age, androgenic_development", age_targets("male", "child"), False),
     ("age_male_young", "body_form_age, androgenic_development", age_targets("male", "young"), False),
@@ -171,6 +178,43 @@ MORPHS = [
      ], True),
     ("face_axis_12", "face_axis_12",
      ["mouth/mouth-scale-horiz-incr.target.gz"], True),
+    # Provisional axes (decision 2026-11-12). Not in the body contract.
+    # The direct editor stores them locally. See MAPPING.md.
+    ("neck_length", "neck_length_z",
+     ["neck/measure-neck-height-incr.target.gz"], True),
+    ("hand_size", "hand_size_z",
+     ["hands/l-hand-scale-incr.target.gz", "hands/r-hand-scale-incr.target.gz"], True),
+    ("foot_size", "foot_size_z",
+     ["feet/l-foot-scale-incr.target.gz", "feet/r-foot-scale-incr.target.gz"], True),
+    ("ear_size", "ear_size_z",
+     ["ears/l-ear-scale-incr.target.gz", "ears/r-ear-scale-incr.target.gz"], True),
+    ("ear_projection", "ear_projection_z",
+     ["ears/l-ear-flap-incr.target.gz", "ears/r-ear-flap-incr.target.gz"], True),
+    ("eye_roundness", "eye_roundness_z",
+     ["eyes/l-eye-height2-incr.target.gz", "eyes/r-eye-height2-incr.target.gz"], True),
+    ("forehead_height", "forehead_height_z",
+     ["forehead/forehead-scale-vert-incr.target.gz"], True),
+    ("buttock_volume", "buttock_volume_z",
+     ["buttocks/buttocks-volume-incr.target.gz"], True),
+    ("buttock_lift", "buttock_lift_z",
+     ["hip/hip-trans-up.target.gz"], True),
+    ("waist_width", "waist_width_z",
+     ["torso/measure-waist-circ-incr.target.gz"], True),
+    ("breast_volume", "breast_volume_z",
+     ["breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness.target.gz"], True),
+    ("breast_height", "breast_height_z",
+     ["breast/breast-trans-up.target.gz"], True),
+    ("nose_bridge", "nose_bridge_z",
+     ["nose/nose-hump-incr.target.gz"], True),
+    ("nose_tip", "nose_tip_z",
+     ["nose/nose-point-up.target.gz"], True),
+    ("brow_arch", "brow_arch_z",
+     ["eyebrows/eyebrows-angle-up.target.gz"], True),
+    ("lip_ratio", "lip_ratio_z",
+     [
+         ("mouth/mouth-upperlip-volume-incr.target.gz", 1.0),
+         ("mouth/mouth-lowerlip-volume-incr.target.gz", -1.0),
+     ], True),
 ]
 
 AGE_HEIGHT_KEYS = [
@@ -359,12 +403,13 @@ def add_shape_keys(mesh, targets: Path, delta_scale: float) -> list[str]:
             fail(f"Refusing Mixamo morph {name}")
         acc = np.zeros((count, 3), dtype=np.float64)
         for rel in rels:
-            if "mixamo" in rel.lower():
-                fail(f"Refusing Mixamo target {rel}")
-            path = targets / rel
+            rel_path, scale = target_file(rel)
+            if "mixamo" in rel_path.lower():
+                fail(f"Refusing Mixamo target {rel_path}")
+            path = targets / rel_path
             if not path.is_file():
                 fail(f"Missing target {path}")
-            acc += load_target(path, count)
+            acc += load_target(path, count) * scale
         # Each race file is a full delta from the base. Mean them so the
         # three weights are 1/3 and sum to 1. Other multi-file keys are
         # bilateral halves and stay summed.

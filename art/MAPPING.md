@@ -5,7 +5,9 @@ the face axes get a meaning, and the only place a contract value becomes a
 shape-key weight. The glb stores every key at 0. `build_body.py` writes it to
 the cache, not the repository.
 
-43 shape keys. The skeleton is the MakeHuman game-engine rig (53 bones).
+59 shape keys. Sixteen of them are provisional axes for the direct editor
+and are not in the body contract. The skeleton is the MakeHuman
+game-engine rig (53 bones).
 `height_cm` is not a shape key.
 
 ## What was measured
@@ -222,8 +224,48 @@ one key.
 
 This is not the unofficial list in ADR-0005 (width, lower face, jaw angle,
 chin, cheekbones, eye spacing, eye size, brow, nose length, nose width,
-mouth, ears). `forehead/forehead-scale-vert-incr` exists and is unused.
-Ears are not one of the twelve.
+mouth, ears). Ears are not one of the twelve. The forehead target is a
+provisional key below, not one of these twelve.
+
+## Provisional axes
+
+Decision of 2026-11-12 (`docs/entscheidung-koerperachsen-v1.md`): Kimi's
+seven axes, plus the nine from the addendum. The core does not store them
+yet. `?edit=2` keeps them in page state only. Nothing is written into
+`family.json` or the contract. Weight is `z / 4`, same scale as the direct
+keys above. A negative weight mirrors the incr sculpt. Every file is a
+CC0 MakeHuman target from the pinned mpfb2 commit.
+
+These are stand-ins, not a finished genetic mapping. `waist_width` reuses
+the waist-circumference sculpt that `fat_central` already uses, as its own
+key, so a waist drag is not the same number as body fat. `breast_volume`
+reuses the max-cup sculpt as its own key. There is no glute-only lift
+file, so `buttock_lift` is the hip translation upward. `lip_ratio` adds
+the upper-lip volume sculpt and subtracts the lower-lip one.
+
+`breast_volume` and `breast_height` are multiplied by `breast_development`
+and forced to 0 for a male, before puberty (`body_form_age` ≤ 12), or when
+`breast_development` is below 0.12. The other provisional keys have no sex
+or age gate in this sample.
+
+| Key | Axis | Targets, under `targets/` | Positive means |
+|---|---|---|---|
+| `neck_length` | `neck_length_z` | `neck/measure-neck-height-incr` | longer neck |
+| `hand_size` | `hand_size_z` | `hands/l-hand-scale-incr` + `r-hand-scale-incr` | larger hands |
+| `foot_size` | `foot_size_z` | `feet/l-foot-scale-incr` + `r-foot-scale-incr` | larger feet |
+| `ear_size` | `ear_size_z` | `ears/l-ear-scale-incr` + `r-ear-scale-incr` | larger ears |
+| `ear_projection` | `ear_projection_z` | `ears/l-ear-flap-incr` + `r-ear-flap-incr` | ears stick out |
+| `eye_roundness` | `eye_roundness_z` | `eyes/l-eye-height2-incr` + `r-eye-height2-incr` | rounder eye opening |
+| `forehead_height` | `forehead_height_z` | `forehead/forehead-scale-vert-incr` | taller forehead |
+| `buttock_volume` | `buttock_volume_z` | `buttocks/buttocks-volume-incr` | fuller buttocks |
+| `buttock_lift` | `buttock_lift_z` | `hip/hip-trans-up` | higher buttocks |
+| `waist_width` | `waist_width_z` | `torso/measure-waist-circ-incr` | wider waist |
+| `breast_volume` | `breast_volume_z` | `breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness` | fuller bust, gated |
+| `breast_height` | `breast_height_z` | `breast/breast-trans-up` | higher bust, gated |
+| `nose_bridge` | `nose_bridge_z` | `nose/nose-hump-incr` | higher nose bridge |
+| `nose_tip` | `nose_tip_z` | `nose/nose-point-up` | tip turned up |
+| `brow_arch` | `brow_arch_z` | `eyebrows/eyebrows-angle-up` | more arched brows |
+| `lip_ratio` | `lip_ratio_z` | `mouth/mouth-upperlip-volume-incr` minus `mouth-lowerlip-volume-incr` | fuller upper lip |
 
 ## Height
 
