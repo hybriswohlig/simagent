@@ -9,7 +9,7 @@
 //! the most entries of one person in one day, and the seconds it took. It is red when fewer
 //! than 200 persons with needs live in the families' houses at the first morning, or when a
 //! counted limit breaks: 48 choices per person and day and 32 offers per choice (plan section
-//! 4.8), 150 entries per person and day (ADR-0024 section 6). The time is reported against its
+//! 4.8), 200 entries per person and day (ADR-0024 section 6, raised from 150 in phase 3). The time is reported against its
 //! target of 5 s, never a reason to be red. Outside the gate; a debug build runs the release
 //! build of itself, so the time is the release time.
 
@@ -46,7 +46,7 @@ pub const PERSONS: usize = 200;
 /// entries per person and day (ADR-0024 section 6).
 pub const CHOICES_PER_DAY: usize = 48;
 pub const OFFERS_PER_CHOICE: usize = 32;
-pub const ENTRIES_PER_DAY: usize = 150;
+pub const ENTRIES_PER_DAY: usize = 200;
 /// The time the week should take in release.
 const TARGET_SECS: f64 = 5.0;
 
@@ -387,7 +387,7 @@ mod tests {
             [
                 "49 choices of one person in one day, above 48",
                 "33 offers of one choice, above 32",
-                "151 entries of one person in one day, above 150",
+                "201 entries of one person in one day, above 200",
             ]
         );
     }
