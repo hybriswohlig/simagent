@@ -72,6 +72,8 @@ pub(super) fn settle(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let mut last = None;
+    // The last `core:need_empty` of this call, the cause of its feeling (ADR-0032 section 3).
+    let mut last_empty = None;
     // A need written down after the crossings were planned last.
     let mut written = false;
     for (at, need) in NEEDS.into_iter().enumerate() {
@@ -84,6 +86,7 @@ pub(super) fn settle(
         let empty = LogPayload::NeedEmpty { need };
         let entry = ctx.emit(empty, vec![Subject::Sim(sim)], causes.clone());
         last = Some(entry);
+        last_empty = Some(entry);
         match need {
             // Hunger at 0 starts the reserve's drain: a change of rates (ADR-0026, addendum of
             // 2026-11-06 on hunger at 0).
@@ -110,6 +113,10 @@ pub(super) fn settle(
     let Some(last) = last else {
         return;
     };
+    // However many needs reached 0 in this call, the row counts once.
+    if let Some(empty) = last_empty {
+        super::feeling::need_empty(domain, data, sim, empty, ctx);
+    }
     if written {
         plan_crossings(domain, data, sim, last, ctx);
     }

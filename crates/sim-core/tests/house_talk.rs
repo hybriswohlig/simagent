@@ -2004,7 +2004,11 @@ fn three_lies_end_at_avoidance() {
             assert_eq!(row.avoided, Some(sim(3)));
             assert_eq!(row.avoid, 8_000);
             assert_eq!(row.liked, Some(sim(1)));
-            assert_eq!(row.company, 8_000);
+            // The company is the temper's scaled value (ADR-0032 section 5): the third lie he
+            // heard gave him anger +200 and sadness +100 on values the 95 000 s since the second
+            // had faded to 0, so a temper of (0 - 200 - 100) / 4 = -75, and 8 000 · 925 / 1000 =
+            // 7 400. The avoid stays whole.
+            assert_eq!(row.company, 7_400);
         }
         other => panic!("core:company, got {other:?}"),
     }

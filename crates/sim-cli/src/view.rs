@@ -366,7 +366,13 @@ impl Server {
             ["api", "sheet"] => sheet(),
             ["api", "runs", run, "events"] => {
                 let query = request.query.as_deref().unwrap_or("");
-                self.read(run, |dir| events(dir, query))
+                self.read(run, |dir| {
+                    let feelings = self
+                        .data_of(dir)
+                        .ok()
+                        .and_then(|data| data.social().map(|social| social.feelings.clone()));
+                    events(dir, query, feelings.as_ref())
+                })
             }
             ["api", "runs", run, route @ ("advance" | "input")] => {
                 match parse_write(route, &request.body) {
@@ -1318,8 +1324,9 @@ fn company_before(
     Ok(rows)
 }
 
-/// Bond and belief lines in the domain log at `path` from the start through byte `until`
-/// (the byte after the choice). `core:unbelieved` is not a belief. `Err` for a log it cannot
+/// Bond, belief and feeling lines in the domain log at `path` from the start through byte
+/// `until` (the byte after the choice). `core:unbelieved` is not a belief. Feeling lines let
+/// "Warum?" replay the temper at the choice (ADR-0032 section 7). `Err` for a log it cannot
 /// read or a line it cannot parse.
 fn social_prefix(path: &Path, until: u64) -> Result<Vec<sim_core::log::LogEntry>, ()> {
     use std::io::Read;
@@ -1337,7 +1344,9 @@ fn social_prefix(path: &Path, until: u64) -> Result<Vec<sim_core::log::LogEntry>
         }
         let bond = line.contains("\"core:bond_");
         let believed = line.contains("\"core:believed\"");
-        if !bond && !believed {
+        let felt = line.contains("\"core:felt\"");
+        let moved = line.contains("\"core:moved_out\"") || line.contains("\"core:moved_in\"");
+        if !bond && !believed && !felt && !moved {
             continue;
         }
         entries.push(serde_json::from_str(line).map_err(drop)?);
@@ -1509,8 +1518,13 @@ fn leading_id(line: &str) -> Option<u64> {
 /// [`EVENTS_PER_PAGE`]; `next` is the id of the last one if
 /// more follow (the next page asks `after` it). The log is read as a stream and only up to
 /// the first entry beyond the page; an entry at or before `after` is passed by its id
-/// without being parsed. Only complete lines count (see [`complete_lines`]).
-fn events(dir: &Path, query: &str) -> Response {
+/// without being parsed. Only complete lines count (see [`complete_lines`]). A `core:felt`
+/// also carries `before`, the four channels just before that entry (ADR-0032 section 7).
+fn events(
+    dir: &Path,
+    query: &str,
+    feelings: Option<&sim_core::social::data::FeelingRules>,
+) -> Response {
     use std::io::BufRead;
     let Some(query) = event_query(query) else {
         return Response::error(400, "bad_query");
@@ -1553,6 +1567,11 @@ fn events(dir: &Path, query: &str) -> Response {
             }
         }
     }
+    if let Some(rules) = feelings
+        && let Err(()) = attach_before(dir, &mut page, rules)
+    {
+        return invalid();
+    }
     let next = (page.last())
         .filter(|_| more)
         .map(|last| last["entry"]["id"].clone())
@@ -1560,6 +1579,70 @@ fn events(dir: &Path, query: &str) -> Response {
     let body =
         json!({"format": "simagent.view.events", "version": 2, "events": page, "next": next});
     Response::new(200, JSON, format!("{body}\n").into_bytes())
+}
+
+/// The channels just before each `core:felt` on `page`, from the feeling lines up to the
+/// latest such entry. Pages without one stay as they are. `Err` for a log it cannot read or
+/// a feeling line it cannot parse.
+fn attach_before(
+    dir: &Path,
+    page: &mut [Value],
+    rules: &sim_core::social::data::FeelingRules,
+) -> Result<(), ()> {
+    use std::io::BufRead;
+    let mut latest = None;
+    for item in page.iter() {
+        if item["entry"]["payload"].get("core:felt").is_none() {
+            continue;
+        }
+        let id = item["entry"]["id"].as_u64().ok_or(())?;
+        latest = Some(latest.map_or(id, |so_far: u64| so_far.max(id)));
+    }
+    let Some(latest) = latest else {
+        return Ok(());
+    };
+    let file = std::fs::File::open(dir.join(files::EVENTS)).map_err(drop)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = String::new();
+    let mut history = Vec::new();
+    loop {
+        line.clear();
+        reader.read_line(&mut line).map_err(drop)?;
+        if !line.ends_with('\n') {
+            break;
+        }
+        if leading_id(&line).is_some_and(|id| id > latest) {
+            break;
+        }
+        let felt = line.contains("\"core:felt\"");
+        let moved = line.contains("\"core:moved_out\"") || line.contains("\"core:moved_in\"");
+        if !felt && !moved {
+            continue;
+        }
+        history.push(serde_json::from_str(&line).map_err(drop)?);
+    }
+    let before = crate::social_view::channels_before(rules, &history);
+    for item in page.iter_mut() {
+        let Some(id) = item["entry"]["id"].as_u64() else {
+            continue;
+        };
+        let Some(channels) = before.get(&id) else {
+            continue;
+        };
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        object.insert(
+            "before".to_owned(),
+            json!({
+                "joy": channels[0],
+                "anger": channels[1],
+                "sadness": channels[2],
+                "fear": channels[3],
+            }),
+        );
+    }
+    Ok(())
 }
 
 /// `simagent view <runs> [--port N] [--web DIR]`: prints its address, then serves until the
@@ -1715,6 +1798,40 @@ mod tests {
         std::fs::write(&log, shuffled).expect("written");
         // 19 999, 20 005, 20 003: the entry 20 005 is followed by a smaller id.
         assert_eq!(find_entry(&log, 20_005), Err(()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Joy 800 at the joy rate of 300 a day is 500 a day later, and that is what `before` says.
+    #[test]
+    fn a_felt_entry_carries_the_channels_from_before_it() {
+        use sim_core::social::data::SocialData;
+        let raw: SocialData =
+            serde_json::from_str(include_str!("../../../data/social/social.json"))
+                .expect("the file");
+        let rules = raw.checked().expect("checked").feelings;
+        let base = std::env::temp_dir().join(format!("simagent-felt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("a directory");
+        let felt = |id: u64, t: i64, joy: u16| {
+            format!(
+                "{{\"id\":{id},\"t\":{t},\"subjects\":[{{\"sim\":1}}],\"causes\":[{{\"rule\":\"core:test\"}}],\"payload\":{{\"core:felt\":{{\"joy\":{joy},\"anger\":0,\"sadness\":0,\"fear\":0,\"temper\":0}}}}}}\n"
+            )
+        };
+        let log = format!("{}{}", felt(1, 0, 800), felt(2, 86_400, 500));
+        std::fs::write(base.join("events.ndjson"), log).expect("written");
+        let response = events(&base, "", Some(&rules));
+        assert_eq!(response.status, 200);
+        let page: Value = serde_json::from_slice(&response.body).expect("json");
+        let events = page["events"].as_array().expect("events");
+        assert_eq!(
+            events[0]["before"],
+            json!({"joy": 0, "anger": 0, "sadness": 0, "fear": 0})
+        );
+        assert_eq!(
+            events[1]["before"],
+            json!({"joy": 500, "anger": 0, "sadness": 0, "fear": 0})
+        );
+        assert_eq!(page["version"], json!(2));
         let _ = std::fs::remove_dir_all(&base);
     }
 

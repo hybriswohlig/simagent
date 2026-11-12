@@ -1360,3 +1360,155 @@ fn saves_while_lying_and_after_each_consequence_run_on_the_same() {
         }
     }
 }
+
+/// The test house on the social data of the repository (no talk, no company) with `change` made
+/// to it first: a need at 0 is a row of the feelings' table (ADR-0032 section 3).
+fn with_feelings(data: Data, change: impl FnOnce(&mut Value)) -> Data {
+    data.with_social(common::repository_social_without_talks(change))
+}
+
+/// The row `need_empty` of the table in the social file.
+fn need_empty_row(file: &mut Value) -> &mut Value {
+    (file["feelings"]["table"].as_array_mut().expect("the table"))
+        .iter_mut()
+        .find(|row| row["occasion"] == "need_empty")
+        .expect("the row")
+}
+
+/// The `core:felt` entries of `id` as (second after `origin`, payload).
+fn felt(run: &Run, id: u64, origin: i64) -> Vec<(i64, LogPayload)> {
+    (run.log.iter())
+        .filter(|entry| entry.subjects == [Subject::Sim(sim(id))])
+        .filter(|entry| matches!(entry.payload, LogPayload::Felt { .. }))
+        .map(|entry| (entry.t.as_secs() - origin, entry.payload.clone()))
+        .collect()
+}
+
+fn felt_payload(channels: [u16; 4], temper: i16) -> LogPayload {
+    let [joy, anger, sadness, fear] = channels;
+    LogPayload::Felt {
+        joy,
+        anger,
+        sadness,
+        fear,
+        temper,
+    }
+}
+
+/// Needs at 0 and the contagion of anger (ADR-0032 sections 3 and 4) in the house of
+/// `two_needs_at_0_in_one_second`: the energy and the bladder of the woman reach 0 in one second,
+/// 3 600 s in, and the row of the table counts once, its cause the last `core:need_empty` of the
+/// call, the bladder's: anger +800 (the repository's 150, raised here to 800 so that she is above
+/// the 700 of the contagion) and fear +100, a temper of (0 - 800 - 0 - 100) / 4 = -225. The man sits
+/// on the toilet in the bath all day. She gets up at 21 600 s and takes the shower in the bath:
+/// her anger is 800 - 300 · 18 000 / 86 400 = 738, still at least 700, so on her `core:reached`
+/// at 21 602 s he, in that room, gets +150 (below 700, capped at 699, so 150), a temper of -37,
+/// one `core:felt` caused by her arrival. She is not touched: she has no second entry. He pushes
+/// nobody on.
+#[test]
+fn a_need_at_0_is_felt_once_and_an_angry_arrival_pushes_the_one_in_the_room() {
+    let kinds = with(kinds(), "core:toilet", offer("use", "bladder", 1, 43_200));
+    let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
+    let data = data(
+        &rates([0, -900, -500, 0, 0], [0, 100, 0, 0, 0], [0; 5]),
+        &day_file(),
+        &kinds,
+    );
+    let data = with_feelings(data, |file| need_empty_row(file)["anger"] = json!(800));
+    let script = Script::saturday(data).input(SATURDAY, command(2, TOILET));
+    let run = script.run(SATURDAY + 22_000);
+    // Two needs at 0 in 3 600 s, one row: the last entry of the call is the cause.
+    let zero = SATURDAY + 3_600;
+    let last = entry_of(&run, 1, zero, &empty(Need::Bladder));
+    let hers = felt(&run, 1, SATURDAY);
+    assert_eq!(hers, [(3_600, felt_payload([0, 800, 0, 100], -225))]);
+    let entry = (run.log.iter())
+        .find(|e| e.t.as_secs() == zero && matches!(e.payload, LogPayload::Felt { .. }))
+        .expect("her entry");
+    assert!(caused_by(entry, &last.id));
+    // The arrival at 21 602 s: his one entry, caused by her `core:reached`.
+    assert_eq!(
+        felt(&run, 2, SATURDAY),
+        [(21_602, felt_payload([0, 150, 0, 0], -37))]
+    );
+    let arrival = entry_of(&run, 1, SATURDAY + 21_602, &reached(SHOWER));
+    let pushed = (run.log.iter())
+        .find(|e| {
+            e.subjects == [Subject::Sim(sim(2))] && matches!(e.payload, LogPayload::Felt { .. })
+        })
+        .expect("his entry");
+    assert!(caused_by(pushed, &arrival.id));
+}
+
+/// A row that is absent is all 0 (ADR-0032 section 3): with no row for a need at 0 nothing is
+/// written, no entry and no stored feelings, however many needs reach 0.
+#[test]
+fn an_occasion_without_a_row_writes_nothing() {
+    let kinds = with(kinds(), "core:toilet", offer("use", "bladder", 1, 43_200));
+    let kinds = with(kinds, "core:shower", offer("shower", "hygiene", 480, 900));
+    let data = data(
+        &rates([0, -900, -500, 0, 0], [0, 100, 0, 0, 0], [0; 5]),
+        &day_file(),
+        &kinds,
+    );
+    let data = with_feelings(data, |file| {
+        let table = file["feelings"]["table"].as_array_mut().expect("the table");
+        table.retain(|row| row["occasion"] != "need_empty");
+    });
+    let script = Script::saturday(data).input(SATURDAY, command(2, TOILET));
+    let run = script.run(SATURDAY + 4_000);
+    let hers = doings(&run, 1, SATURDAY);
+    assert!(
+        hers.contains(&(3_600, empty(Need::Bladder))),
+        "she did reach 0"
+    );
+    assert!(felt(&run, 1, SATURDAY).is_empty() && felt(&run, 2, SATURDAY).is_empty());
+    assert!(run.world.state().house().social.feelings.is_empty());
+}
+
+/// Coming home angry is read before the settle of the same return (ADR-0032 section 4): all five
+/// needs of the woman are put at 0 on her return at 13:20, so five `core:need_empty` entries and
+/// one `core:felt`, caused by the last of them (fun's): anger 800 and fear 100. Her anger on
+/// arrival was 0, so the man at the table in the hall, where she comes in, is not pushed, though
+/// she has 800 a moment later.
+#[test]
+fn coming_home_pushes_with_the_anger_it_arrives_with_not_the_one_it_settles() {
+    let tag = part_time();
+    let jumps = day_with(|day| {
+        day["return_jumps"] = json!({"hunger": -1000, "energy": -1000, "bladder": -1000, "hygiene": -1000, "fun": -1000});
+    });
+    let kinds = with(
+        kinds(),
+        "core:dining_table",
+        offer("eat", "hunger", 1, 43_200),
+    );
+    let data = data(&rates([0; 5], [0, 100, 0, 0, 0], [0; 5]), &jumps, &kinds);
+    let data = with_feelings(data, |file| need_empty_row(file)["anger"] = json!(800));
+    let script = Script::on(data, &tag, 0).input(MORNING, command(2, TABLE));
+    let run = script.run(MORNING + BACK + 60);
+    let him = &run.world.state().house().sims[&sim(2)];
+    assert_eq!(
+        him.place,
+        Place::Room(HALL),
+        "he sits at the table in the hall"
+    );
+    let home = entry_of(
+        &run,
+        1,
+        MORNING + BACK,
+        &LogPayload::CameHome { place: Duty::Work },
+    );
+    let last = entry_of(&run, 1, MORNING + BACK, &empty(Need::Fun));
+    assert!(caused_by(last, &home.id));
+    assert_eq!(
+        felt(&run, 1, MORNING),
+        [(BACK, felt_payload([0, 800, 0, 100], -225))]
+    );
+    let entry = (run.log.iter())
+        .find(|e| {
+            e.subjects == [Subject::Sim(sim(1))] && matches!(e.payload, LogPayload::Felt { .. })
+        })
+        .expect("her entry");
+    assert!(caused_by(entry, &last.id));
+    assert!(felt(&run, 2, MORNING).is_empty(), "he was not pushed");
+}

@@ -18,7 +18,9 @@ use common::day::{self, MORNING, Run, number, places_hold};
 use serde_json::json;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
-use sim_core::house::choice::{ENOUGH, crosses_departure, filler, lasts, mood, next_choice, score};
+use sim_core::house::choice::{
+    Bonus, ENOUGH, crosses_departure, filler, lasts, mood, next_choice, score,
+};
 use sim_core::house::data::{House, HouseData};
 use sim_core::house::need::NeedSample;
 use sim_core::house::reserve::Reserve;
@@ -91,7 +93,8 @@ fn a_need_weighs_from_its_comfort() {
             (30, values, room),
             (None, None),
             no_mood,
-            |_| 0,
+            0,
+            |_| Bonus::NONE,
         )
     };
     let hungry = |hunger: u16| [hunger, 1000, 1000, 1000, 1000];
@@ -672,7 +675,8 @@ fn an_offer_that_runs_into_the_departure_is_closed() {
             (30, values, 0),
             (None, depart_in),
             no_mood,
-            |_| 0,
+            0,
+            |_| Bonus::NONE,
         )
         .iter())
         .map(|scored| scored.object)

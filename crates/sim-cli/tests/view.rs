@@ -736,7 +736,12 @@ fn the_events_come_in_pages_and_filtered() {
         let items = page["events"].as_array().expect("events");
         let entries: Vec<Value> = (items.iter())
             .map(|item| {
-                assert_eq!(item.as_object().map(serde_json::Map::len), Some(2));
+                let keys = item.as_object().map(serde_json::Map::len);
+                // `before` is only on a `core:felt` (ADR-0032 section 7). This fixture has none.
+                assert!(
+                    keys == Some(2) || (keys == Some(3) && item.get("before").is_some()),
+                    "{item}"
+                );
                 let t = item["entry"]["t"].as_i64().expect("a time");
                 assert_eq!(item["date"], date(t), "{query}");
                 item["entry"].clone()
@@ -2175,7 +2180,7 @@ fn settings_file(values: &str) -> String {
 
 /// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
 /// `the_base_game_loads`).
-const BASE_HASH: &str = "01ce3a4b0ac58e6f";
+const BASE_HASH: &str = "f3cb25b35a27ab32";
 
 /// The data hash in the manifest of the run in `dir`.
 fn data_hash(dir: &Path) -> String {
@@ -3165,7 +3170,7 @@ fn a_house_over_http() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["format"], &answer["version"], &answer["at"]),
-            (&json!("simagent.view.house"), &json!(10), &dated(at))
+            (&json!("simagent.view.house"), &json!(11), &dated(at))
         );
         assert_eq!(
             (&answer["household"], &answer["house"], &answer["comfort"]),
@@ -3222,12 +3227,12 @@ fn a_house_over_http() {
              "action": {"object": 5, "offer": 0, "slot": 0, "until": null, "filler": false,
                         "departs": false},
              "waits": null, "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": [], "joy": 0, "anger": 0, "sadness": 0, "fear": 0, "temper": 0},
             {"sim": 2, "place": walking(3, MORNING + 3),
              "action": {"object": 6, "offer": 0, "slot": 0, "until": null, "filler": false,
                         "departs": false},
              "waits": null, "needs": morning, "weights": weights,
-             "collapsed": false, "smells": false, "commands": by_day(&[5]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
+             "collapsed": false, "smells": false, "commands": by_day(&[5]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": [], "joy": 0, "anger": 0, "sadness": 0, "fear": 0, "temper": 0},
         ])
     );
     step("minutes10", MORNING + 600);
@@ -3236,12 +3241,12 @@ fn a_house_over_http() {
         json!([
             {"sim": 1, "place": {"room": 3}, "action": null, "waits": 6,
              "needs": [584, 894, 986, 695, 790], "weights": [116, 106, 0, 205, 210],
-             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": [], "joy": 0, "anger": 0, "sadness": 0, "fear": 0, "temper": 0},
             {"sim": 2, "place": {"room": 3},
              "action": {"object": 6, "offer": 0, "slot": 0, "until": dated(MORNING + 903),
                         "filler": false, "departs": false},
              "waits": null, "needs": [584, 894, 480, 1000, 790], "weights": [116, 106, 220, 0, 210],
-             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []},
+             "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": [], "joy": 0, "anger": 0, "sadness": 0, "fear": 0, "temper": 0},
         ])
     );
     step("hour", MORNING + 4_200);
@@ -3284,7 +3289,7 @@ fn young_children_in_the_house() {
         let answer = json_of(&body);
         assert_eq!(
             (&answer["version"], &answer["at"], &answer["house"]),
-            (&json!(10), &dated(at), &json!("core:flat"))
+            (&json!(11), &dated(at), &json!("core:flat"))
         );
         answer
     };
@@ -3442,7 +3447,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 10,
+                "version": 11,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -3460,6 +3465,8 @@ fn why_over_http() {
                 "now": null,
                 // Still the person's latest choice at the clock: its reserve then (version 9).
                 "reserve": full_reserve(sim),
+                // No feeling line before this choice (version 11).
+                "temper": 0,
                 // The first morning's toilet and shower weigh no company (version 10).
                 "company": [],
             }),
@@ -3546,7 +3553,7 @@ fn a_command_over_http() {
                           "departs": false},
                "waits": null, "needs": [600, 900, 500, 700, 800],
                "weights": [100, 100, 200, 200, 200],
-               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []})
+               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": [], "joy": 0, "anger": 0, "sadness": 0, "fear": 0, "temper": 0})
     );
     let minutes = r#"{"step":"minutes10"}"#;
     assert_eq!(post(port, "/api/runs/couple/advance", minutes).0, 200);
@@ -3601,7 +3608,7 @@ fn a_command_over_http() {
                           "departs": false},
                "waits": null, "needs": [584, 894, 480, 1000, 790],
                "weights": [116, 106, 220, 0, 210],
-               "collapsed": false, "smells": false, "commands": by_day(&[]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []})
+               "collapsed": false, "smells": false, "commands": by_day(&[]), "reserve": full_reserve(2), "bonds": [{"other": 1, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": [], "joy": 0, "anger": 0, "sadness": 0, "fear": 0, "temper": 0})
     );
 }
 
@@ -3674,7 +3681,7 @@ fn the_house_answer_after_a_command() {
                           "departs": false},
                "waits": null, "needs": [598, 899, 826, 700, 799],
                "weights": [102, 101, 0, 200, 201],
-               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": []})
+               "collapsed": false, "smells": false, "commands": by_day(&[6]), "reserve": full_reserve(1), "bonds": [{"other": 2, "affection": 700, "trust": 700, "respect": 500, "attraction": 500, "familiarity": 599, "grudge": 0}], "memories": [], "beliefs": [], "joy": 0, "anger": 0, "sadness": 0, "fear": 0, "temper": 0})
     );
 }
 
@@ -3779,7 +3786,7 @@ fn the_house_answer_of_one_lying_and_of_one_who_smells() {
         let answer = sim_cli::house_answer(world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(10));
+        assert_eq!(answer["version"], json!(11));
         (answer["persons"].as_array().expect("persons").iter())
             .map(|person| person[name].clone())
             .collect()
@@ -3838,7 +3845,7 @@ fn the_offers_a_command_may_name_follow_the_night() {
         let answer = sim_cli::house_answer(&world, household)
             .expect("answers")
             .expect("a house");
-        assert_eq!(answer["version"], json!(10));
+        assert_eq!(answer["version"], json!(11));
         let persons = answer["persons"].as_array().expect("persons");
         assert_eq!(persons.len(), 2);
         for person in persons {
@@ -3942,7 +3949,7 @@ fn the_house_answer_ends_an_action_at_the_departure() {
     let answer = sim_cli::house_answer(&world, household)
         .expect("answers")
         .expect("a house");
-    assert_eq!(answer["version"], json!(10));
+    assert_eq!(answer["version"], json!(11));
     let action = &answer["persons"][0]["action"];
     assert_eq!(
         (
@@ -4015,7 +4022,7 @@ fn why_names_what_is_urgent() {
     )
     .expect("answers")
     .expect("a choice");
-    assert_eq!(why["version"], json!(10));
+    assert_eq!(why["version"], json!(11));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -4219,7 +4226,7 @@ fn why_names_what_a_time_filler_ends_for_when_a_wait_follows() {
         )
         .expect("answers")
         .expect("a choice");
-        assert_eq!(why["version"], json!(10));
+        assert_eq!(why["version"], json!(11));
         let told = &why["filler"];
         assert_eq!(
             (&told["until"], &told["ends"], &told["then"]),
@@ -4531,22 +4538,22 @@ fn company_names_the_belief_that_last_lowered_trust() {
     assert_eq!(
         answer["company"],
         json!([
-            {"object": 0, "liked": 2, "affection": 700, "familiarity": 640, "company": 8000,
+            {"object": 0, "liked": 2, "affection": 700, "familiarity": 640, "company": 8000, "plain": 8000,
              "avoided": 3, "trust": 300, "avoid": 8000,
              "belief": {"found": true, "statement": {"vater_von": {"child": 1, "man": 9}},
                         "certainty": 900, "basis": "gehört", "source": 2, "origin": 2,
                         "secret": false, "truth": "false"}},
-            {"object": 1, "liked": 0, "affection": 0, "familiarity": 0, "company": 0,
+            {"object": 1, "liked": 0, "affection": 0, "familiarity": 0, "company": 0, "plain": 0,
              "avoided": 6, "trust": 320, "avoid": 1000,
              "belief": {"found": true, "statement": {"tat": {"doer": 2, "kind": 0, "other": 1, "day": 0}},
                         "certainty": 600, "basis": "gesehen", "source": 0, "origin": 0,
                         "secret": false, "truth": "false"}},
-            {"object": 2, "liked": 0, "affection": 0, "familiarity": 0, "company": 0,
+            {"object": 2, "liked": 0, "affection": 0, "familiarity": 0, "company": 0, "plain": 0,
              "avoided": 4, "trust": 430, "avoid": 1000,
              "belief": {"found": true, "statement": {"tat": {"doer": 3, "kind": 1, "other": 2, "day": 0}},
                         "certainty": 500, "basis": "geschlossen", "source": 0, "origin": 0,
                         "secret": false, "truth": "unknown"}},
-            {"object": 4, "liked": 2, "affection": 700, "familiarity": 640, "company": 100,
+            {"object": 4, "liked": 2, "affection": 700, "familiarity": 640, "company": 100, "plain": 8000,
              "avoided": 0, "trust": 0, "avoid": 0, "belief": none}
         ])
     );
@@ -4708,7 +4715,7 @@ fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
     let answer = sim_cli::house_answer(&world, household)
         .expect("answers")
         .expect("a house");
-    assert_eq!(answer["version"], json!(10));
+    assert_eq!(answer["version"], json!(11));
     let persons = answer["persons"].as_array().expect("persons");
     let person = |id: u64| {
         persons
@@ -4777,7 +4784,7 @@ fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
     assert_eq!(
         why["company"],
         json!([{
-            "object": 0, "liked": 0, "affection": 0, "familiarity": 0, "company": 0,
+            "object": 0, "liked": 0, "affection": 0, "familiarity": 0, "company": 0, "plain": 0,
             "avoided": 2, "trust": 320, "avoid": 8000,
             "belief": {
                 "found": true,
@@ -4787,4 +4794,173 @@ fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
             }
         }])
     );
+}
+
+/// The house answer carries the channels and the temper at its second (ADR-0032 section 7).
+/// Stored at that second they stay. A day earlier, joy 800 at 300 a day is 500, anger 120 is 0
+/// and temper −400 at 100 a day is −300.
+#[test]
+fn the_house_answer_names_the_feelings_at_its_second() {
+    use sim_core::social::feeling::Feel;
+    use sim_core::world::{World, YearOut};
+    // Before the first morning the house answer lists no person (they are still moving in).
+    // At that morning the feelings map is still empty: nothing has written a channel.
+    let (mut world, household) = couple_in_the_flat(|_, _| {});
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
+    world.take_log();
+    let at = world.closed_through().as_secs();
+    // Postcard of the feelings map, by hand (ADR-0003: only sim-core may depend on postcard).
+    // A map is its length, then each key and value. A sim is its number. A channel is a varint,
+    // a time and the temper are zigzag, and the four channels have no length in front.
+    let push_varint = |out: &mut Vec<u8>, mut value: u64| {
+        loop {
+            let low = u8::try_from(value & 0x7f).expect("seven bits");
+            value >>= 7;
+            if value == 0 {
+                out.push(low);
+                return;
+            }
+            out.push(low | 0x80);
+        }
+    };
+    let zigzag = |n: i64| {
+        let bits = u64::from_le_bytes(n.to_le_bytes());
+        (bits << 1) ^ bits.wrapping_shr(63).wrapping_neg()
+    };
+    let forge = |world: &World, feelings: &[(u64, Feel)]| {
+        let bytes = world.save(&[]).expect("saved");
+        let projection = world.canonical_bytes();
+        let start = (bytes.windows(projection.len()))
+            .position(|window| window == projection)
+            .expect("the projection");
+        assert_eq!(projection.last(), Some(&0), "the feelings map is empty");
+        let mut map = Vec::new();
+        push_varint(&mut map, u64::try_from(feelings.len()).expect("a map"));
+        for (who, feel) in feelings {
+            push_varint(&mut map, *who);
+            for channel in feel.channels {
+                push_varint(&mut map, u64::from(channel));
+            }
+            push_varint(&mut map, zigzag(feel.since.as_secs()));
+            push_varint(&mut map, zigzag(i64::from(feel.temper)));
+            push_varint(&mut map, zigzag(feel.temper_since.as_secs()));
+        }
+        let end = start + projection.len();
+        let mut forged = bytes[..end - 1].to_vec();
+        forged.extend(map);
+        forged.extend(&bytes[end..]);
+        let (loaded, hashes) = World::load(&forged, world.data().clone()).expect("loads");
+        assert!(hashes.is_empty());
+        loaded
+    };
+    let stored = |channels: [u16; 4], temper: i16, since: i64| Feel {
+        channels,
+        since: SimTime::from_secs(since),
+        temper,
+        temper_since: SimTime::from_secs(since),
+    };
+    let read = |answer: &Value, sim: u64| {
+        let persons = answer["persons"].as_array().expect("persons");
+        let person = persons
+            .iter()
+            .find(|person| person["sim"] == sim)
+            .expect("the person");
+        json!([
+            person["joy"],
+            person["anger"],
+            person["sadness"],
+            person["fear"],
+            person["temper"]
+        ])
+    };
+    let same = forge(&world, &[(1, stored([420, 120, 0, 0], 180, at))]);
+    let answer = sim_cli::house_answer(&same, household)
+        .expect("answers")
+        .expect("a house");
+    assert_eq!(answer["version"], json!(11));
+    assert_eq!(read(&answer, 1), json!([420, 120, 0, 0, 180]));
+    assert_eq!(read(&answer, 2), json!([0, 0, 0, 0, 0]));
+    let faded = forge(&world, &[(1, stored([800, 120, 0, 0], -400, at - DAY))]);
+    let answer = sim_cli::house_answer(&faded, household)
+        .expect("answers")
+        .expect("a house");
+    assert_eq!(read(&answer, 1), json!([500, 0, 0, 0, -300]));
+}
+
+/// "Warum?" carries the temper at the choice and the unscaled company (ADR-0032 section 7).
+/// −300 at the choice stays −300, and the row says 5600 beside the constant 8000. One day
+/// later the temper is −200. Ten days frozen outside, then one day back, is −200 rather than 0.
+#[test]
+fn why_names_the_temper_and_the_unscaled_company() {
+    use sim_core::log::{Company, LogEntry, LogPayload, Subject};
+    use sim_core::world::YearOut;
+    let (mut world, _) = couple_in_the_flat(|_, _| {});
+    let mut out = YearOut::default();
+    world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
+    let hers = (world.take_log().into_iter())
+        .find(|entry| {
+            entry.subjects
+                == [Subject::Sim(
+                    sim_core::ids::SimId::try_from(1).expect("a sim"),
+                )]
+                && matches!(entry.payload, LogPayload::ActionStarted { .. })
+        })
+        .expect("her first choice");
+    let t = hers.t.as_secs();
+    let liked = sim_core::ids::SimId::try_from(2).expect("a sim");
+    let row = |company: i64| Company {
+        object: 0,
+        liked: Some(liked),
+        company,
+        avoided: None,
+        avoid: 0,
+    };
+    let felt = |id: u64, at: i64, temper: i16| -> LogEntry {
+        serde_json::from_str(&format!(
+            r#"{{"id":{id},"t":{at},"subjects":[{{"sim":1}}],"causes":[{{"rule":"core:test"}}],"payload":{{"core:felt":{{"joy":0,"anger":0,"sadness":0,"fear":0,"temper":{temper}}}}}}}"#
+        ))
+        .expect("a felt line")
+    };
+    let moved = |id: u64, at: i64, payload: &str| -> LogEntry {
+        serde_json::from_str(&format!(
+            r#"{{"id":{id},"t":{at},"subjects":[{{"sim":1}}],"causes":[{{"rule":"core:test"}}],"payload":{payload}}}"#
+        ))
+        .expect("a move")
+    };
+    let ask = |history: &[LogEntry], company: i64| {
+        let rows = [row(company)];
+        sim_cli::why_answer(
+            &world,
+            &hers,
+            0,
+            false,
+            None,
+            |_| 0,
+            sim_cli::social_view::CompanyAt {
+                rows: &rows,
+                history,
+            },
+        )
+        .expect("answers")
+        .expect("a choice")
+    };
+    let now = ask(&[felt(1, t, -300)], 5_600);
+    assert_eq!(now["temper"], json!(-300));
+    assert_eq!(now["version"], json!(11));
+    assert_eq!(now["company"][0]["company"], json!(5_600));
+    assert_eq!(now["company"][0]["plain"], json!(8_000));
+    assert_eq!(ask(&[felt(1, t - DAY, -300)], 5_600)["temper"], json!(-200));
+    let left = t - 11 * DAY;
+    let back = t - DAY;
+    let gap = [
+        felt(1, left, -300),
+        moved(2, left, r#"{"core:moved_out":{"household":1}}"#),
+        moved(
+            3,
+            back,
+            r#"{"core:moved_in":{"household":1,"house":"core:flat"}}"#,
+        ),
+    ];
+    assert_eq!(ask(&gap, 8_000)["temper"], json!(-200));
 }

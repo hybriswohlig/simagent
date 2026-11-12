@@ -122,5 +122,26 @@
     "heard_aimed_grudge": 100,
     "heard_other_trust": -20,
     "deeds": ["core:teases", "core:gossips", "core:lies"]
+  },
+  "feelings": {
+    "rates": { "joy": 300, "anger": 300, "sadness": 150, "fear": 400 },
+    "mood_return": 100,
+    "table": [
+      { "occasion": "talk_everyday", "joy": 40 },
+      { "occasion": "talk_praise", "joy": 150 },
+      { "occasion": "talk_tease", "anger": 100 },
+      { "occasion": "talk_recall", "joy": 100 },
+      { "occasion": "talk_apology", "joy": 50, "anger": -200 },
+      { "occasion": "heard", "anger": 200, "sadness": 100 },
+      { "occasion": "refuted", "anger": 150 },
+      { "occasion": "birth", "joy": 800 },
+      { "occasion": "partner_lost", "sadness": 1000, "fear": 200 },
+      { "occasion": "relative_died", "sadness": 800, "fear": 100 },
+      { "occasion": "partnership_began", "joy": 600 },
+      { "occasion": "separated", "anger": 300, "sadness": 600 },
+      { "occasion": "need_empty", "anger": 150, "fear": 100 }
+    ],
+    "band": { "min_affection": 600, "numerator": 3, "denominator": 2 },
+    "contagion": { "min_anger": 700, "step": 150, "cap": 699 }
   }
 }
