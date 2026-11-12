@@ -71,7 +71,8 @@ mask on the upper lip, chin and jaw, spreading onto the cheeks as
 `beard_coverage` rises. It is coloured from the hair and it does not cover
 the mouth. The idle puts the weight on one leg, with a soft knee, a small hip
 shift and relaxed hands. Which leg carries the weight comes from the sim id.
-The arms hang at the sides. In the face framing the body is cut
+The arms hang at the sides. The lineup stands on a wood floor against a
+plaster wall, with a shelf in the gap before the palette checks. In the face framing the body is cut
 below the neck. Grey is a mix toward neutral grey. Height
 is a uniform scale of the root bone after the age, fat and muscle morphs.
 The page also loads `/cache/proxies/proxies.json` and `proxies.bin`.

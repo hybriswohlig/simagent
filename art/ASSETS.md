@@ -106,6 +106,78 @@ lighting only. It is not the room and it is not drawn as the background.
 | Size | 1 686 299 bytes |
 | MD5 | `74e6ef69ea9024c2cc25b3a7de8ec2f7` |
 
+## Room
+
+The lineup stands on a wood floor against a plaster wall. A shelf fills the
+gap before the palette checks, so a person's height has something to stand
+next to. All three are Poly Haven CC0. The files stay in the cache.
+
+### Wood floor
+
+`wood_floor` by Dimitrios Savva. Each tile is 1.7 m square, and the floor
+repeats that size. Roughness and the OpenGL normal are sampled with the diffuse.
+
+| | |
+|---|---|
+| Licence | CC0. https://polyhaven.com/license |
+| Asset | https://polyhaven.com/a/wood_floor |
+| Diffuse | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/wood_floor/wood_floor_diff_1k.jpg |
+| Local | `/Users/dariushk/.cache/simagent-art/room/wood_floor_diff_1k.jpg` |
+| Size | 734 493 bytes |
+| MD5 | `b7e927d2bf2f8f103820ff3890c8407c` |
+| Roughness | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/wood_floor/wood_floor_rough_1k.jpg |
+| Roughness local | `/Users/dariushk/.cache/simagent-art/room/wood_floor_rough_1k.jpg` |
+| Roughness size | 527 754 bytes |
+| Roughness MD5 | `36146634f1dbd1bc30cd071857584c10` |
+| Normal | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/wood_floor/wood_floor_nor_gl_1k.jpg |
+| Normal local | `/Users/dariushk/.cache/simagent-art/room/wood_floor_nor_gl_1k.jpg` |
+| Normal size | 423 303 bytes |
+| Normal MD5 | `620f174d2c09b579c5d02d37b2106668` |
+
+### Plaster wall
+
+`plastered_wall` by Amal Kumar. The tile is 2 m square.
+
+| | |
+|---|---|
+| Licence | CC0. https://polyhaven.com/license |
+| Asset | https://polyhaven.com/a/plastered_wall |
+| Diffuse | https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plastered_wall/plastered_wall_diff_1k.jpg |
+| Local | `/Users/dariushk/.cache/simagent-art/room/plastered_wall_diff_1k.jpg` |
+| Size | 617 080 bytes |
+| MD5 | `9f64cd14ded4938e64ab6c6bb3de3c19` |
+
+### Shelf
+
+`Shelf_01` by Gabriel Radić. The glTF is already in metres: 1.00 m wide,
+2.08 m tall and 0.26 m deep. The page does not scale it. The bin is the one
+Poly Haven ships with the 1k glTF.
+
+| | |
+|---|---|
+| Licence | CC0. https://polyhaven.com/license |
+| Asset | https://polyhaven.com/a/Shelf_01 |
+| glTF | https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/Shelf_01/Shelf_01_1k.gltf |
+| Local | `/Users/dariushk/.cache/simagent-art/room/Shelf_01_1k.gltf` |
+| Size | 2 617 bytes |
+| MD5 | `9e852782eeae96108206c888d2b68df1` |
+| Buffer | https://dl.polyhaven.org/file/ph-assets/Models/gltf/4k/Shelf_01/Shelf_01.bin |
+| Buffer local | `/Users/dariushk/.cache/simagent-art/room/Shelf_01.bin` |
+| Buffer size | 12 676 bytes |
+| Buffer MD5 | `bf2ff8bef60025c079565fd1926b8476` |
+| Diffuse | https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/Shelf_01/Shelf_01_diff_1k.jpg |
+| Diffuse local | `/Users/dariushk/.cache/simagent-art/room/textures/Shelf_01_diff_1k.jpg` |
+| Diffuse size | 153 220 bytes |
+| Diffuse MD5 | `965ce260ce114308026fe98260cd482a` |
+| Normal | https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/Shelf_01/Shelf_01_nor_gl_1k.jpg |
+| Normal local | `/Users/dariushk/.cache/simagent-art/room/textures/Shelf_01_nor_gl_1k.jpg` |
+| Normal size | 231 393 bytes |
+| Normal MD5 | `3ccf77ba277b06f29e3e68233a83bae7` |
+| ARM | https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/Shelf_01/Shelf_01_arm_1k.jpg |
+| ARM local | `/Users/dariushk/.cache/simagent-art/room/textures/Shelf_01_arm_1k.jpg` |
+| ARM size | 205 542 bytes |
+| ARM MD5 | `b0044e2cc568cd2a7f906ca56f473542` |
+
 ## Skin
 
 The face and body use the MakeHuman system-assets default light skin. The

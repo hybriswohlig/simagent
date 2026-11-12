@@ -154,13 +154,87 @@ function updateKeyDir() {
   keyDirView.copy(key.position).normalize().transformDirection(camera.matrixWorldInverse);
 }
 
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(80, 80),
-  new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 1, metalness: 0 }),
+// Poly Haven maps are metres: wood boards are 1.7 m, plaster is 2 m.
+// The wall is tall enough to fill the wide lineup frame. The shelf stands
+// in the gap before the palette checks (centers near x=2.94 and x=4.87).
+const WOOD_M = 1.7;
+const PLASTER_M = 2;
+const FLOOR_M = 80;
+const WALL_W = 24;
+const WALL_H = 7;
+const roomLoads = new THREE.LoadingManager();
+let roomFailed = false;
+roomLoads.onLoad = () => {
+  if (!roomFailed) document.body.dataset.room = "1";
+};
+roomLoads.onError = () => {
+  roomFailed = true;
+  document.body.dataset.room = "0";
+};
+const texLoader = new THREE.TextureLoader(roomLoads);
+
+function tiled(url, across, down, colorSpace) {
+  const map = texLoader.load(url);
+  map.colorSpace = colorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.repeat.set(across, down);
+  map.anisotropy = 8;
+  return map;
+}
+
+const woodRepeat = FLOOR_M / WOOD_M;
+const woodDiff = tiled("/cache/room/wood_floor_diff_1k.jpg", woodRepeat, woodRepeat, THREE.SRGBColorSpace);
+const woodRough = tiled("/cache/room/wood_floor_rough_1k.jpg", woodRepeat, woodRepeat, THREE.NoColorSpace);
+const woodNor = tiled("/cache/room/wood_floor_nor_gl_1k.jpg", woodRepeat, woodRepeat, THREE.NoColorSpace);
+const plasterDiff = tiled(
+  "/cache/room/plastered_wall_diff_1k.jpg",
+  WALL_W / PLASTER_M,
+  WALL_H / PLASTER_M,
+  THREE.SRGBColorSpace,
 );
+
+function backdropMaterial(map, extra) {
+  if (state.style === "C") return new THREE.MeshBasicMaterial({ map, toneMapped: false });
+  return new THREE.MeshStandardMaterial(Object.assign({ map, roughness: 1, metalness: 0 }, extra));
+}
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(FLOOR_M, FLOOR_M), backdropMaterial(woodDiff, {
+  roughnessMap: woodRough,
+  normalMap: woodNor,
+}));
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.002;
 scene.add(ground);
+
+const wall = new THREE.Mesh(
+  new THREE.PlaneGeometry(WALL_W, WALL_H),
+  backdropMaterial(plasterDiff, { roughness: 0.94 }),
+);
+wall.position.set(0, WALL_H / 2, -1.5);
+wall.receiveShadow = true;
+scene.add(wall);
+
+function assignBackdrop() {
+  const previousGround = ground.material;
+  ground.material = backdropMaterial(woodDiff, { roughnessMap: woodRough, normalMap: woodNor });
+  previousGround.dispose();
+  const previousWall = wall.material;
+  wall.material = backdropMaterial(plasterDiff, { roughness: 0.94 });
+  previousWall.dispose();
+}
+
+// Shelf_01 is already in metres (1.00 x 2.08 x 0.26). Back face is local z=0.
+new GLTFLoader(roomLoads).load("/cache/room/Shelf_01_1k.gltf", (gltf) => {
+  const shelf = gltf.scene;
+  shelf.position.set(3.9, 0, -0.55);
+  shelf.traverse((node) => {
+    if (!node.isMesh) return;
+    node.castShadow = true;
+    node.receiveShadow = true;
+  });
+  scene.add(shelf);
+});
 
 // SAO stained the cloth and haloed the silhouette. N8AO renders the
 // beauty itself, so the composer target stays single-sample. FXAA stands
@@ -1845,10 +1919,7 @@ function restyle() {
   members.forEach((member, index) => {
     state.people.push(buildPerson(state.template, member, xs[index]));
   });
-  const floor = state.style === "C"
-    ? new THREE.MeshBasicMaterial({ color: 0xc9c3b8, toneMapped: false })
-    : new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 1, metalness: 0, side: THREE.FrontSide });
-  ground.material = floor;
+  assignBackdrop();
   applyStyleLights(state.style);
   publishReport();
   updateFaceButtons();
