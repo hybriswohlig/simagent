@@ -10,6 +10,8 @@ use sim_core::ids::{EventId, SimId};
 use sim_core::log::{Cause, Company, LogEntry, LogPayload, Subject};
 use sim_core::social::belief::{Basis, DeedAnswer, Deeds, Statement};
 use sim_core::social::bond::{Bond, TRUST};
+use sim_core::social::data::FeelingRules;
+use sim_core::social::feeling::{channel_at, temper_at};
 use sim_core::social::memory::Memory;
 use sim_core::social::talk::house_day;
 use sim_core::time::SimTime;
@@ -147,12 +149,24 @@ fn one_row(
         Some(other) => avoid_json(world, chooser, other, at, history)?,
         None => missing_belief(),
     };
+    // `company` in the log is already scaled by the temper. `plain` is the data constant the
+    // choice adds when someone is liked, so the page can say both without reversing the scale.
+    let plain = match row.liked {
+        Some(_) => world
+            .state()
+            .data()
+            .social()
+            .map(|social| i64::from(social.choice.company))
+            .unwrap_or(0),
+        None => 0,
+    };
     Ok(json!({
         "object": row.object,
         "liked": sim_number(row.liked),
         "affection": liked[0],
         "familiarity": liked[4],
         "company": row.company,
+        "plain": plain,
         "avoided": sim_number(row.avoided),
         "trust": avoided[TRUST],
         "avoid": row.avoid,
@@ -465,5 +479,236 @@ fn fade_rates(state: &WorldState) -> (u16, u16) {
     match state.data().social() {
         Some(social) => (social.bonds.familiarity_fade, social.bonds.grudge_fade),
         None => (0, 0),
+    }
+}
+
+/// Feelings replayed from the log. A move-out freezes them, so the days outside do not fade
+/// (ADR-0032 section 7). A move-in keeps the frozen values and starts the fade again.
+#[derive(Clone, Copy)]
+struct Held {
+    channels: [u16; 4],
+    since: SimTime,
+    temper: i16,
+    temper_since: SimTime,
+    frozen: bool,
+}
+
+fn channels_now(held: &Held, t: SimTime, rules: &FeelingRules) -> [u16; 4] {
+    if held.frozen {
+        return held.channels;
+    }
+    let rates = rules.rates.all();
+    core::array::from_fn(|channel| {
+        channel_at(held.channels[channel], rates[channel], held.since, t)
+    })
+}
+
+fn temper_now(held: &Held, t: SimTime, rules: &FeelingRules) -> i16 {
+    if held.frozen {
+        held.temper
+    } else {
+        temper_at(held.temper, rules.mood_return, held.temper_since, t)
+    }
+}
+
+fn sims_of(entry: &LogEntry) -> Vec<SimId> {
+    entry
+        .subjects
+        .iter()
+        .map(|Subject::Sim(sim)| *sim)
+        .collect()
+}
+
+/// `history` in order. `until` drops lines after that second. The map is the state after the
+/// last kept line; the second map is the channels just before each `core:felt`.
+fn replay(
+    rules: &FeelingRules,
+    history: &[LogEntry],
+    until: Option<SimTime>,
+) -> (BTreeMap<SimId, Held>, BTreeMap<u64, [u16; 4]>) {
+    let mut held: BTreeMap<SimId, Held> = BTreeMap::new();
+    let mut before = BTreeMap::new();
+    for entry in history {
+        if until.is_some_and(|until| entry.t > until) {
+            continue;
+        }
+        match &entry.payload {
+            LogPayload::Felt {
+                joy,
+                anger,
+                sadness,
+                fear,
+                temper,
+            } => {
+                let [Subject::Sim(sim)] = entry.subjects.as_slice() else {
+                    continue;
+                };
+                let prior = match held.get(sim) {
+                    Some(stored) => channels_now(stored, entry.t, rules),
+                    None => [0; 4],
+                };
+                if let Some(id) = event_number(&entry.id) {
+                    before.insert(id, prior);
+                }
+                held.insert(
+                    *sim,
+                    Held {
+                        channels: [*joy, *anger, *sadness, *fear],
+                        since: entry.t,
+                        temper: *temper,
+                        temper_since: entry.t,
+                        frozen: false,
+                    },
+                );
+            }
+            LogPayload::MovedOut { .. } => {
+                for sim in sims_of(entry) {
+                    let Some(stored) = held.get(&sim).filter(|stored| !stored.frozen).copied()
+                    else {
+                        continue;
+                    };
+                    held.insert(
+                        sim,
+                        Held {
+                            channels: channels_now(&stored, entry.t, rules),
+                            since: entry.t,
+                            temper: temper_now(&stored, entry.t, rules),
+                            temper_since: entry.t,
+                            frozen: true,
+                        },
+                    );
+                }
+            }
+            LogPayload::MovedIn { .. } => {
+                for sim in sims_of(entry) {
+                    let Some(stored) = held.get(&sim).copied() else {
+                        continue;
+                    };
+                    let (channels, temper) = if stored.frozen {
+                        (stored.channels, stored.temper)
+                    } else {
+                        (
+                            channels_now(&stored, entry.t, rules),
+                            temper_now(&stored, entry.t, rules),
+                        )
+                    };
+                    held.insert(
+                        sim,
+                        Held {
+                            channels,
+                            since: entry.t,
+                            temper,
+                            temper_since: entry.t,
+                            frozen: false,
+                        },
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    (held, before)
+}
+
+/// The temper of `sim` at `at` (ADR-0032 section 7). Lines after `at` are ignored. No feeling
+/// line means 0, and so does a world without feeling rules.
+pub(crate) fn temper_of(
+    rules: Option<&FeelingRules>,
+    sim: SimId,
+    at: SimTime,
+    history: &[LogEntry],
+) -> i16 {
+    let Some(rules) = rules else {
+        return 0;
+    };
+    match replay(rules, history, Some(at)).0.get(&sim) {
+        Some(stored) => temper_now(stored, at, rules),
+        None => 0,
+    }
+}
+
+/// The four channels just before each `core:felt` in `history`, keyed by the entry's number.
+pub(crate) fn channels_before(
+    rules: &FeelingRules,
+    history: &[LogEntry],
+) -> BTreeMap<u64, [u16; 4]> {
+    replay(rules, history, None).1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sim_core::social::data::SocialData;
+
+    fn rules() -> FeelingRules {
+        let raw: SocialData =
+            serde_json::from_str(include_str!("../../../data/social/social.json"))
+                .expect("the file");
+        raw.checked().expect("checked").feelings
+    }
+
+    fn line(id: u64, t: i64, subjects: &str, payload: &str) -> LogEntry {
+        serde_json::from_str(&format!(
+            r#"{{"id":{id},"t":{t},"subjects":[{subjects}],"causes":[{{"rule":"core:test"}}],"payload":{payload}}}"#
+        ))
+        .expect("a line")
+    }
+
+    fn who(id: u64) -> SimId {
+        SimId::try_from(id).expect("a sim")
+    }
+
+    /// Temper −300 frozen across ten days outside, then one day after moving back in, is −200.
+    /// Fading the whole eleven days would reach 0.
+    #[test]
+    fn a_move_out_freezes_the_temper_across_the_gap() {
+        let rules = rules();
+        let day = 86_400;
+        let felt = r#"{"core:felt":{"joy":0,"anger":0,"sadness":0,"fear":0,"temper":-300}}"#;
+        let out = r#"{"core:moved_out":{"household":1}}"#;
+        let inn = r#"{"core:moved_in":{"household":1,"house":"core:flat"}}"#;
+        let history = vec![
+            line(1, 0, r#"{"sim":1}"#, felt),
+            line(2, 0, r#"{"sim":1}"#, out),
+            line(3, 10 * day, r#"{"sim":1}"#, inn),
+        ];
+        let at = SimTime::from_secs(11 * day);
+        assert_eq!(temper_of(Some(&rules), who(1), at, &history), -200);
+        assert_eq!(
+            temper_of(Some(&rules), who(1), SimTime::from_secs(0), &history),
+            -300
+        );
+        assert_eq!(temper_of(None, who(1), at, &history), 0);
+    }
+
+    /// Joy 800 at 300 a day is 500 a day later. A move-out in the same second keeps 800.
+    #[test]
+    fn channels_before_a_felt_fade_unless_the_person_is_outside() {
+        let rules = rules();
+        let day = 86_400;
+        let joy = |value: u16| {
+            format!(
+                r#"{{"core:felt":{{"joy":{value},"anger":0,"sadness":0,"fear":0,"temper":0}}}}"#
+            )
+        };
+        let open = vec![
+            line(1, 0, r#"{"sim":1}"#, &joy(800)),
+            line(2, day, r#"{"sim":1}"#, &joy(0)),
+        ];
+        let before = channels_before(&rules, &open);
+        assert_eq!(before.get(&1), Some(&[0, 0, 0, 0]));
+        assert_eq!(before.get(&2), Some(&[500, 0, 0, 0]));
+        let frozen = vec![
+            line(1, 0, r#"{"sim":1}"#, &joy(800)),
+            line(
+                2,
+                0,
+                r#"{"sim":1}"#,
+                r#"{"core:moved_out":{"household":1}}"#,
+            ),
+            line(3, day, r#"{"sim":1}"#, &joy(0)),
+        ];
+        let before = channels_before(&rules, &frozen);
+        assert_eq!(before.get(&3), Some(&[800, 0, 0, 0]));
     }
 }
