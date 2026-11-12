@@ -742,26 +742,17 @@ const SKIN_DETAIL = `
     vec3 beardCol = uBeardCol * vec3(0.28, 0.24, 0.22);
     float ink = clamp(grow * uBeardDensity * 1.4, 0.0, 0.8);
     diffuseColor.rgb = mix(diffuseColor.rgb, beardCol, ink);
-    // The hairline tear is scalp showing through alpha holes. The hair crown
-    // sits behind this crown, so the forehead edge is 6–11 cm forward, not 5.
-    // Darken that band to the hair colour. Leave the brow and the bald dome.
-    float scalpBelow = uCrown.y - vBind.y;
-    float scalpSide = abs(vBind.x - uCrown.x);
-    float scalpFwd = vBind.z - uCrown.z;
-    float down = smoothstep(0.015, 0.032, scalpBelow) * (1.0 - smoothstep(0.095, 0.118, scalpBelow));
-    float sideOk = 1.0 - smoothstep(0.088, 0.108, scalpSide);
-    float frontOk = 1.0 - smoothstep(0.095, 0.125, scalpFwd);
-    float temple = smoothstep(0.04, 0.065, scalpBelow) * (1.0 - smoothstep(0.105, 0.128, scalpBelow));
-    temple *= smoothstep(0.025, 0.05, scalpSide) * (1.0 - smoothstep(0.092, 0.112, scalpSide));
-    temple *= 1.0 - smoothstep(0.09, 0.12, scalpFwd);
-    float scalp = max(down * sideOk * frontOk, temple);
-    float baldHole = smoothstep(0.012, 0.065, scalpSide);
-    float dome = 1.0 - smoothstep(0.012, 0.038, scalpBelow);
-    scalp *= mix(1.0, baldHole, smoothstep(0.12, 0.7, uBald));
-    scalp *= mix(1.0, 1.0 - dome, smoothstep(0.25, 0.8, uBald));
+    // Per fragment, so a crack in the middle of a big triangle still matches
+    // the hair. A box down the face painted the forehead and the eyes.
+    float scalp = 0.0;
+    for (int i = 0; i < 80; i++) {
+      float dist = distance(vBind, uRim[i]);
+      scalp = max(scalp, 1.0 - smoothstep(0.010, 0.020, dist));
+    }
     float hairGate = smoothstep(0.02, 0.22, uHairDensity);
-    vec3 scalpCol = uBeardCol * vec3(0.55, 0.50, 0.46);
-    diffuseColor.rgb = mix(diffuseColor.rgb, scalpCol, clamp(scalp, 0.0, 1.0) * 0.96 * hairGate);
+    // Match the dark strand, not a lighter brown. A pale rim reads as a tear.
+    vec3 scalpCol = uBeardCol * vec3(0.36, 0.32, 0.28);
+    diffuseColor.rgb = mix(diffuseColor.rgb, scalpCol, scalp * 0.96 * hairGate);
   #endif
 `;
 
@@ -796,7 +787,6 @@ const SKIN_WRAP = `
 
 function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks, scalp) {
   const warm = style === "A";
-  const crown = marks.crown || [0, marks.maxY, 0];
   const uniforms = {
     uSkin: { value: new THREE.Color(skinHex) },
     uSkinMean: { value: SKIN_MEAN },
@@ -810,11 +800,11 @@ function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks, s
     uNose: { value: new THREE.Vector3(0, marks.maxY + marks.jaw.noseDy, marks.jaw.noseZ) },
     uChin: { value: new THREE.Vector3(marks.chin[0], marks.chin[1], marks.chin[2]) },
     uKeyDir: { value: keyDirView },
-    uCrown: { value: new THREE.Vector3(crown[0], crown[1], crown[2]) },
     uHairDensity: { value: scalp ? scalp.density : 0 },
-    uBald: { value: scalp ? scalp.bald : 0 },
+    uRim: { value: Array.from({ length: 80 }, () => new THREE.Vector3(0, -8, 0)) },
   };
-  material.customProgramCacheKey = () => (warm ? "skin-beard-a4" : "skin-beard-4");
+  material.userData.rim = uniforms.uRim.value;
+  material.customProgramCacheKey = () => (warm ? "skin-beard-a6" : "skin-beard-6");
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSkin = uniforms.uSkin;
     shader.uniforms.uSkinMean = uniforms.uSkinMean;
@@ -828,15 +818,14 @@ function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks, s
     shader.uniforms.uNose = uniforms.uNose;
     shader.uniforms.uChin = uniforms.uChin;
     shader.uniforms.uKeyDir = uniforms.uKeyDir;
-    shader.uniforms.uCrown = uniforms.uCrown;
     shader.uniforms.uHairDensity = uniforms.uHairDensity;
-    shader.uniforms.uBald = uniforms.uBald;
+    shader.uniforms.uRim = uniforms.uRim;
     material.userData.shader = shader;
     shader.vertexShader = `varying vec3 vBind;\n${shader.vertexShader.replace(
       "#include <morphtarget_vertex>",
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
-    const scalpDecl = "uniform vec3 uCrown;\nuniform float uHairDensity;\nuniform float uBald;\n";
+    const scalpDecl = "uniform float uHairDensity;\nuniform vec3 uRim[80];\n";
     const decl = warm
       ? `varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nuniform vec3 uNose;\nuniform vec3 uChin;\nuniform vec3 uKeyDir;\n${scalpDecl}float skinMask;\n`
       : `varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${scalpDecl}float skinMask;\n`;
@@ -927,17 +916,19 @@ const HAIR_VERTEX = `
   float crownW = smoothstep(0.12, 0.55, uBald);
   float templeW = smoothstep(0.18, 0.75, uBald);
   vKeep = 1.0 - clamp(crownW * crownHole + templeW * temple, 0.0, 1.0);
-  // Tuck only the hairline ring into the scalp. Lashes and brows leave uFill at 0.
+  // Slide the hairline hem down over the seam. Lashes and brows leave uFill at 0.
   // aMesh stays put for the fragment test; transformed is the drawn shell.
   if (uFill > 0.5) {
-    float tuckBelow = uCrown.y - aMesh.y;
-    float tuckSide = abs(aMesh.x - uCrown.x);
-    float tuckFwd = aMesh.z - uCrown.z;
-    float tuck = smoothstep(0.045, 0.07, tuckBelow) * (1.0 - smoothstep(0.10, 0.125, tuckBelow));
-    tuck *= 1.0 - smoothstep(0.09, 0.11, tuckSide);
-    tuck *= smoothstep(0.045, 0.08, tuckFwd) * (1.0 - smoothstep(0.11, 0.135, tuckFwd));
-    transformed.y -= 0.003 * tuck;
-    transformed.z -= 0.003 * tuck;
+    float hemBelow = uCrown.y - aMesh.y;
+    float hemSide = abs(aMesh.x - uCrown.x);
+    float hemFwd = aMesh.z - uCrown.z;
+    float hem = smoothstep(0.012, 0.035, hemBelow) * (1.0 - smoothstep(0.08, 0.115, hemBelow));
+    hem *= 1.0 - smoothstep(0.082, 0.108, hemSide);
+    hem *= smoothstep(-0.03, 0.01, hemFwd);
+    float sideSign = aMesh.x >= uCrown.x ? 1.0 : -1.0;
+    transformed.x += sideSign * 0.004 * hem * smoothstep(0.02, 0.055, hemSide);
+    transformed.y -= 0.006 * hem;
+    transformed.z += 0.003 * hem;
   }
 `;
 
@@ -949,12 +940,13 @@ const STRAND_FRAG = `
     // Four texels. This only feathers the cut. It does not decide the part fill.
     float softA = hairA;
     if (uSoft > 0.5) {
-      vec2 texel = vec2(0.002);
-      softA += texture(map, vMapUv + vec2(texel.x, 0.0)).a;
-      softA += texture(map, vMapUv - vec2(texel.x, 0.0)).a;
-      softA += texture(map, vMapUv + vec2(0.0, texel.y)).a;
-      softA += texture(map, vMapUv - vec2(0.0, texel.y)).a;
-      softA *= 0.2;
+      // Grow into the transparent teeth. An average with the empty texels
+      // pulled the cut inward and left a pale rim.
+      vec2 texel = vec2(0.0045);
+      softA = max(softA, texture(map, vMapUv + vec2(texel.x, 0.0)).a);
+      softA = max(softA, texture(map, vMapUv - vec2(texel.x, 0.0)).a);
+      softA = max(softA, texture(map, vMapUv + vec2(0.0, texel.y)).a);
+      softA = max(softA, texture(map, vMapUv - vec2(0.0, texel.y)).a);
     }
     cover *= softA;
     float shade = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
@@ -1660,6 +1652,119 @@ function chosenHair(body, sim) {
   return hairStyleOf(body, sim);
 }
 
+function smooth01(edge0, edge1, x) {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+const hairAlphaMaps = new Map();
+
+function hairAlphaMap(texture) {
+  const image = texture && texture.image;
+  if (!image || !image.width) return null;
+  if (hairAlphaMaps.has(image)) return hairAlphaMaps.get(image);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(image, 0, 0);
+  const map = {
+    data: context.getImageData(0, 0, image.width, image.height).data,
+    width: image.width,
+    height: image.height,
+  };
+  hairAlphaMaps.set(image, map);
+  return map;
+}
+
+// Proxy textures are OBJ uvs with flipY, so v = 0 is the bottom row.
+function hairTexelAlpha(map, u, v) {
+  if (!map) return 1;
+  const x = Math.min(map.width - 1, Math.max(0, Math.round(u * (map.width - 1))));
+  const y = Math.min(map.height - 1, Math.max(0, Math.round((1 - v) * (map.height - 1))));
+  return map.data[(y * map.width + x) * 4 + 3] / 255;
+}
+
+// Same discard as the hair vertex shader. A bald crown has no cards, so the
+// skin there stays the skin colour.
+function hairKept(point, crown, bald) {
+  if (bald < 0.12) return true;
+  const dx = point[0] - crown[0];
+  const dz = point[2] - crown[2];
+  const radial = Math.hypot(dx, dz);
+  const radius = 0.018 + 0.054 * bald;
+  const crownHole = (1 - smooth01(radius * 0.28, radius, radial))
+    * smooth01(crown[1] - 0.12, crown[1] - 0.015, point[1]);
+  const temple = smooth01(0.022, 0.055, Math.abs(dx))
+    * smooth01(crown[2] - 0.015, crown[2] + 0.045, point[2])
+    * smooth01(crown[1] - 0.14, crown[1] - 0.045, point[1])
+    * (1 - smooth01(crown[1] - 0.02, crown[1] + 0.01, point[1]));
+  const keep = 1 - Math.min(
+    1,
+    smooth01(0.12, 0.55, bald) * crownHole + smooth01(0.18, 0.75, bald) * temple,
+  );
+  return keep > 0.5;
+}
+
+// One point per 1.6 cm cell, at most 80. The fragment shader measures to these.
+// Empty slots stay under the floor so they never tint the skin.
+function packRim(slots, points) {
+  for (let i = 0; i < slots.length; i += 1) slots[i].set(0, -8, 0);
+  if (!points.length) return;
+  const cell = 0.016;
+  const bins = new Map();
+  for (let i = 0; i < points.length; i += 1) {
+    const p = points[i];
+    const key = `${Math.floor(p[0] / cell)},${Math.floor(p[1] / cell)},${Math.floor(p[2] / cell)}`;
+    if (!bins.has(key)) bins.set(key, p);
+  }
+  let list = [...bins.values()];
+  if (list.length > slots.length) {
+    list.sort((a, b) => Math.atan2(a[0], a[2]) - Math.atan2(b[0], b[2]) || b[1] - a[1]);
+    const step = list.length / slots.length;
+    const kept = [];
+    for (let i = 0; i < slots.length; i += 1) {
+      kept.push(list[Math.min(list.length - 1, Math.floor(i * step))]);
+    }
+    list = kept;
+  }
+  for (let i = 0; i < list.length; i += 1) slots[i].set(list[i][0], list[i][1], list[i][2]);
+}
+
+function opaqueHairPoints(proxy, humanPos, threshold, bald) {
+  const fitted = fitProxy(proxy, humanPos);
+  let crownI = 0;
+  for (let i = 3; i < fitted.length; i += 3) {
+    if (fitted[i + 1] > fitted[crownI + 1]) crownI = i;
+  }
+  const crown = [fitted[crownI], fitted[crownI + 1], fitted[crownI + 2]];
+  const map = hairAlphaMap(proxy.texture);
+  const uv = proxy.uv;
+  const points = [];
+  for (let i = 0; i < proxy.count; i += 1) {
+    if (hairTexelAlpha(map, uv[i * 2], uv[i * 2 + 1]) < threshold) continue;
+    const point = [fitted[i * 3], fitted[i * 3 + 1], fitted[i * 3 + 2]];
+    if (!hairKept(point, crown, bald)) continue;
+    points.push(point);
+  }
+  return points;
+}
+
+function paintScalp(mesh, humanPos, body, sim) {
+  const slots = mesh.material.userData.rim;
+  if (!slots) return;
+  const hairName = chosenHair(body, sim);
+  const density = clamp(body.hair_density, 0, 1);
+  const pack = state.pack.proxies[hairName];
+  if (!(density > 0.02 && pack)) {
+    packRim(slots, []);
+    return;
+  }
+  const bald = hairName === "hair_short" ? clamp(body.balding_stage, 0, 7) / 7 : 0;
+  const threshold = THREE.MathUtils.lerp(0.9, 0.2, density);
+  packRim(slots, opaqueHairPoints(pack, humanPos, threshold, bald));
+}
+
 // Top of the fitted hair. The scalp crown sits under it, and a cap measured
 // from the scalp paints the part down onto the forehead.
 function hairCrown(proxy, humanPos) {
@@ -2057,12 +2162,12 @@ function buildPerson(template, member, x) {
     coverage: bearded ? clamp(member.body.beard_coverage, 0, 1) : 0,
   }, marks, {
     density: clamp(member.body.hair_density, 0, 1),
-    bald: bearded ? clamp(member.body.balding_stage, 0, 7) / 7 : 0,
   });
   mesh.castShadow = true;
   mesh.frustumCulled = false;
   const body = { ...member.body, sex: member.sex };
   const humanPos = humanPositions(weights, editor);
+  paintScalp(mesh, humanPos, body, personKey(member));
   const outfit = outfitOf(member);
   const suitProxy = state.pack.proxies[outfit.suit];
   const shoeProxy = state.pack.proxies[outfit.shoes];
