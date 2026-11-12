@@ -17,7 +17,8 @@ use sim_core::log::{Cause, DrawRef, LogEntry, LogPayload, Subject};
 use sim_core::mortality::accident_age;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::belief::{
-    Basis, Belief, DeedAnswer, LAESTERT, LUEGT, NECKT, Statement, gossip_material, live_material,
+    Basis, Belief, DeedAnswer, Deeds, LAESTERT, LUEGT, NECKT, Statement, gossip_material,
+    live_material,
 };
 use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::{REFUTED, TALK};
@@ -1330,10 +1331,9 @@ fn a_deed_stays_inert_after_thirty_house_days_and_is_cut_on_the_next_record() {
     );
 }
 
-/// READING: ADR-0031 section 1 freezes deeds on moving out and is silent on the next move-in.
-/// Memories resume when the person enters a moved-in household again. A frozen deed is judged
-/// the same way, against the house day counted from the new `since`. Day 1 is after that
-/// today of 0, so it drops, with no entry. It is still there while the household is outside.
+/// A frozen deed of house day 1 is after the new stay's house day 0, so the next move-in
+/// cuts it (ADR-0031 section 1, addendum 2026-11-11). It is still there while the household
+/// is outside.
 #[test]
 fn moving_in_again_judges_a_frozen_deed_against_the_new_house_day() {
     let (mut run, home) = couple(7_200);
@@ -1353,6 +1353,65 @@ fn moving_in_again_judges_a_frozen_deed_against_the_new_house_day() {
     let again = run.world.state().house().households[&home].since;
     assert_eq!(house_day(again, again), 0);
     assert!(!holds_day(&run, 1, 1), "day 1 is after the new house day");
+}
+
+/// A tease on the move-in day is house day 0. Moving out keeps it. Moving in a year later
+/// cuts every deed of that stay, day 0 included, because the new stay counts from 0 again
+/// (ADR-0031 section 1 and the addendum of 2026-11-11). A move-in touches the lists, so the
+/// cut writes no entry. The belief that names day 0 stays, and that day of the new stay is
+/// known not to have been done. She is 50, so her fertility factor is already 0 and the year
+/// outside bears no child.
+#[test]
+fn a_move_in_day_tease_is_cut_when_the_household_moves_in_again() {
+    let born = [-50 * year(), -52 * year()];
+    let mut run = Run::founded(data(7_200, 2), 0x5EED, "test:social", &born);
+    let home = run.together(2).expect("their household");
+    let morning = 6 * 3600;
+    run.advance(morning - 1);
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    run.advance(morning);
+    let since = run.world.state().house().households[&home].since;
+    assert_eq!(since, t(morning));
+    let arrival = arrive(&mut run, morning, &[(1, DINING), (2, DINING)]);
+    let first = arrival + TALK_DELAY;
+    assert_eq!(house_day(t(first), since), 0);
+    run.advance(first);
+    assert!(holds_day(&run, 1, 0), "the actor's deed is house day 0");
+    let seen = neckt(1, 2, 0);
+    for owner in [1_u64, 2] {
+        assert_eq!(belief(&run, owner, seen).basis, Basis::Gesehen);
+    }
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    assert!(holds_day(&run, 1, 0), "moving out freezes the deed");
+    let moved_out = first + 1;
+    run.advance(moved_out + year() - 1);
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    let again = run.world.state().house().households[&home].since;
+    assert_eq!(house_day(again, again), 0);
+    assert!(
+        !run.world.state().house().social.deeds.contains_key(&sim(1)),
+        "day 0 of the earlier stay is cut with the list"
+    );
+    let window = run
+        .world
+        .data()
+        .social()
+        .expect("social")
+        .limits
+        .deed_window_days;
+    assert_eq!(window, 30, "ADR-0031 section 1");
+    assert_eq!(
+        Deeds::default().knows(NECKT, sim(2), 0, 0, window),
+        DeedAnswer::NotDone,
+        "the new stay's day 0 was not done"
+    );
+    for owner in [1_u64, 2] {
+        assert_eq!(
+            belief(&run, owner, seen).basis,
+            Basis::Gesehen,
+            "the belief that names the old day stays"
+        );
+    }
 }
 
 /// A long meal, a one-minute snack and a long toilet, and no departure. Partner trust is
