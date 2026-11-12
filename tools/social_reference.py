@@ -559,20 +559,37 @@ class Company:
 
 
 def choice_bonus(
-    present: List[int], edges_at_now: Dict[int, Tuple[int, ...]], company: int = COMPANY, avoid: int = AVOID
+    seated: List[int],
+    edges_at_now: Dict[int, Tuple[int, ...]],
+    company: int = COMPANY,
+    avoid: int = AVOID,
+    on_the_way: Optional[List[int]] = None,
 ) -> Company:
-    """The two components for one sociable furniture, outside the mood: `present` are the
-    other household members sitting there or on their way (reserved seat), `edges_at_now`
-    the chooser's edges to them (bond_values_at). `liked`: among those with affection +
-    familiarity >= 600 the one with the largest sum (then the smaller SimId); `avoided`:
-    among those with trust < 400 the one with the smallest trust (then the smaller SimId).
-    Each counts at most once per offer. READING (ADR-0030 4): 'Sitzt dort jemand' for the
-    avoid is taken as the same set as for the company (seated or on the way). A person
-    without an edge is not considered."""
+    """The two components for one sociable furniture, outside the mood. `seated` have
+    arrived. `on_the_way` hold a reserved place and have not arrived. `edges_at_now` are
+    the chooser's edges (bond_values_at). Company counts both sets (ADR-0030 section 4):
+    `liked` is, among those with affection + familiarity >= 600, the largest sum, then the
+    smaller SimId. Avoid counts only someone who sits: `avoided` is, among the seated with
+    trust < 400, the smallest trust, then the smaller SimId. Each counts at most once per
+    offer. READING (ADR-0030 4): company is 'sitzt oder auf dem Weg'; avoid is 'Sitzt dort
+    jemand', arrived only. A person without an edge is not considered."""
+    liked, _ = _components([*seated, *(on_the_way or [])], edges_at_now)
+    _, avoided = _components(seated, edges_at_now)
+    return Company(
+        liked,
+        company if liked is not None else 0,
+        avoided,
+        avoid if avoided is not None else 0,
+    )
+
+
+def _components(
+    present: List[int], edges_at_now: Dict[int, Tuple[int, ...]]
+) -> Tuple[Optional[int], Optional[int]]:
     liked = avoided = None
     best_sum = -1
     worst_trust = None
-    for sim in sorted(present):
+    for sim in sorted(set(present)):
         edge = edges_at_now.get(sim)
         if edge is None:
             continue
@@ -581,7 +598,7 @@ def choice_bonus(
             liked, best_sum = sim, s
         if edge[TRUST] < AVOID_BELOW_TRUST and (worst_trust is None or edge[TRUST] < worst_trust):
             avoided, worst_trust = sim, edge[TRUST]
-    return Company(liked, company if liked is not None else 0, avoided, avoid if avoided is not None else 0)
+    return liked, avoided
 
 
 # ---------------------------------------------------------------------------------------
@@ -1420,6 +1437,16 @@ def check_choice_bonus() -> None:
     c = choice_bonus([5, 9], {5: e(500, 450, 300), 9: e(0, 320, 0)})
     expect("company and avoid both count, sum 0", (c.liked, c.company, c.avoided, c.avoid, c.net), (5, 8000, 9, 8000, 0))
     expect("person without edge is skipped", choice_bonus([5], {}), Company(None, 0, None, 0))
+    # Trust 300, affection 700 + familiarity 600. On the way: company, no avoid. Seated: both.
+    walker = {2: e(700, 300, 600)}
+    c = choice_bonus([], walker, on_the_way=[2])
+    expect("walker trust 300: company, no avoid", (c.liked, c.company, c.avoided, c.avoid), (2, 8000, None, 0))
+    c = choice_bonus([2], walker)
+    expect(
+        "seated trust 300: avoid applies, company stays",
+        (c.liked, c.company, c.avoided, c.avoid, c.net),
+        (2, 8000, 2, 8000, 0),
+    )
 
 
 def check_beliefs() -> None:
