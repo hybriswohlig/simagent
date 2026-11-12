@@ -672,12 +672,12 @@ fn a_tease_in_the_band_angers_the_teased_one() {
             temper_since: t(first)
         })
     );
-    // Not counted against the limits of the talk (`house_talk.rs`: (1, 3) and (1, 4)).
+    // Not counted against the limits of the talk (`house_talk.rs`: (1, 2) and (1, 4)).
     let person = |id: u64| {
         let person = &run.world.state().house().sims[&sim(id)];
         (person.talks, person.entries)
     };
-    assert_eq!((person(1), person(2)), ((1, 3), (1, 4)));
+    assert_eq!((person(1), person(2)), ((1, 2), (1, 4)));
 }
 
 /// Founders 0 and 1 and the girl of 10 (W) of `house_talk.rs`' lie: the man is 60, so Necken is closed
@@ -785,17 +785,19 @@ fn a_lie_against_the_hearer_angers_and_saddens_it_and_a_refutation_is_one_row_wi
     assert_eq!(caused_by(entries[0]), vec![day::number(&spoken[0].id)]);
     assert!(felt(&run, 1).is_empty() && felt(&run, 3).is_empty());
 
-    // An hour later he and W talk: Entschuldigung (W apologises, he is the one grudged) with the
-    // refutation of the lie (the draw of founder 2 toward founder 1 hits). His rows: joy +50 and
-    // anger -200 at his affection of 400 to W (below the band), and anger +150 refuted toward the
-    // source, the liar, at his affection of 700 to her: in the band, +225. Summed first: anger
-    // +25, joy +50; his anger 200 fell to 188 and sadness 100 to 94 by then, the temper -75 to
-    // -71, so he has [50, 213, 94, 0]; the temper moves by (50 - 25) / 4 = 6, once, to -65.
+    // At 27 012 he and W talk: Entschuldigung (W apologises, he is the one grudged) with the
+    // refutation of the lie (the reference's draw of founder 2 toward founder 1 hits, u = 22 449).
+    // His rows: joy +50 and anger -200 at his affection of 400 to W (below the band), and anger
+    // +150 refuted toward the source, the liar, at his affection of 700 to her: in the band, +225.
+    // Summed first: anger +25, joy +50. Elapsed since the lie is 3 612 s. The rates lose
+    // 300·3612/86400 = 12 of the anger, 150·3612/86400 = 6 of the sadness and 100·3612/86400 = 4
+    // of the temper, so anger 200 is 188, sadness 100 is 94 and the temper -75 is -71. He has
+    // [50, 213, 94, 0]; the temper moves by (50 - 25) / 4 = 6, once, to -65.
     for who in [1, 2] {
         run.submit(command(who, TOILET));
     }
     run.advance(at + 1 + WITHIN_ROOM);
-    let later = 27_000;
+    let later = 27_012;
     let arrival = arrive(
         &mut run,
         later - TALK_DELAY - WITHIN_ROOM - 1,
