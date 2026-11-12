@@ -9,13 +9,15 @@ mod common;
 use common::day::{self, MORNING, Run};
 use serde_json::json;
 use sim_core::canonical::PROJECTION_VERSION;
-use sim_core::data_id::{str_key, Code, DataId};
+use sim_core::data_id::{Code, DataId, str_key};
 use sim_core::genome::Sex;
 use sim_core::ids::{HouseholdId, SimId};
-use sim_core::input::{Command, Couple, Founder, Input, MoveIn, MoveOut, SeparatePartnership, Start};
+use sim_core::input::{
+    Command, Couple, Founder, Input, MoveIn, MoveOut, SeparatePartnership, Start,
+};
 use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, DrawRef, LogEntry, LogPayload, Subject};
-use sim_core::mortality::{accident_age, disease_age, StepHazard};
+use sim_core::mortality::{StepHazard, accident_age, disease_age};
 use sim_core::params::WorldParams;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::belief::{
@@ -24,8 +26,10 @@ use sim_core::social::belief::{
 };
 use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::{REFUTED, TALK};
-use sim_core::social::talk::{house_day, interests, lie_draw_key, refute_draw_key, talk_ppm, TEASE};
-use sim_core::time::{SimDuration, SimTime, MONTH, YEAR};
+use sim_core::social::talk::{
+    TEASE, house_day, interests, lie_draw_key, refute_draw_key, talk_ppm,
+};
+use sim_core::time::{MONTH, SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{EventPayload, FORMAT_VERSION, LoadError, World, YearOut};
 
@@ -1423,10 +1427,12 @@ fn orphan_seed() -> u64 {
     let mother = LineageKey::founder(&tag, 0);
     let father = LineageKey::founder(&tag, 1);
     let child = LineageKey::child(mother, father, 0, 0);
-    (1..20_000).find(|&seed| {
-        let world = WorldSeed::new(seed);
-        interests(world, mother)[TEASE] == 0 && interests(world, child)[TEASE] > 0
-    }).expect("a seed")
+    (1..20_000)
+        .find(|&seed| {
+            let world = WorldSeed::new(seed);
+            interests(world, mother)[TEASE] == 0 && interests(world, child)[TEASE] > 0
+        })
+        .expect("a seed")
 }
 
 /// Her death of `test:dummy_disease`: onset 30, hazard 1 000 per year, exposure from second
@@ -1582,7 +1588,9 @@ fn an_orphan_join_drops_the_deed_of_the_old_stay() {
     let conceived = MONTH.as_secs();
     run.advance(conceived);
     assert!(
-        run.log.iter().any(|entry| matches!(entry.payload, LogPayload::Conception { .. })),
+        run.log
+            .iter()
+            .any(|entry| matches!(entry.payload, LogPayload::Conception { .. })),
         "rate 1 conceives on the first attempt"
     );
     run.submit(Input::SeparatePartnership(SeparatePartnership {
@@ -1610,8 +1618,16 @@ fn an_orphan_join_drops_the_deed_of_the_old_stay() {
     );
     assert_eq!(key, expected);
     assert!(interests(WorldSeed::new(seed), key)[TEASE] > 0);
-    let mother_home = run.world.state().household_of(sim(1)).expect("her household");
-    let father_home = run.world.state().household_of(sim(2)).expect("his household");
+    let mother_home = run
+        .world
+        .state()
+        .household_of(sim(1))
+        .expect("her household");
+    let father_home = run
+        .world
+        .state()
+        .household_of(sim(2))
+        .expect("his household");
     assert_ne!(mother_home, father_home);
     assert_eq!(run.world.state().household_of(child), Some(mother_home));
 
@@ -1623,7 +1639,9 @@ fn an_orphan_join_drops_the_deed_of_the_old_stay() {
     assert!(move_morning > born_at + 6 * year());
     assert!(death - born_at < 18 * year());
     run.advance(move_morning - 1);
-    run.submit(Input::MoveIn(MoveIn { household: mother_home }));
+    run.submit(Input::MoveIn(MoveIn {
+        household: mother_home,
+    }));
     run.advance(move_morning);
     let since = run.world.state().house().households[&mother_home].since;
     assert_eq!(since, t(move_morning));
@@ -1649,7 +1667,9 @@ fn an_orphan_join_drops_the_deed_of_the_old_stay() {
     assert_eq!(house_day(t(death), t(father_morning)), 1);
     assert!(father_morning > first);
     run.advance(father_morning - 1);
-    run.submit(Input::MoveIn(MoveIn { household: father_home }));
+    run.submit(Input::MoveIn(MoveIn {
+        household: father_home,
+    }));
     run.advance(death);
     let died = run.log.iter().find(|entry| {
         entry.subjects == vec![Subject::Sim(sim(1))]
