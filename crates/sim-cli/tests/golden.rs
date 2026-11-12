@@ -915,7 +915,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 45);
+    assert_eq!(logs.len(), 46);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
