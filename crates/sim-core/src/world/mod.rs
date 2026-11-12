@@ -1018,8 +1018,8 @@ mod tests {
     /// the Y as variant 1 with 0, mt 0), no affliction (0), no conception (0), no live
     /// birth (0), no partnership (0), household 1, not moved out (0), no parents (0), no
     /// social parents (0) and not from the pool (0). The used households of the pool (none,
-    /// 0) follow the archive, then the empty house: eight zero bytes, the four maps, the
-    /// memories, the bonds, the beliefs and the deeds (projection 23, `EMPTY_HOUSE` in
+    /// 0) follow the archive, then the empty house: nine zero bytes, the four maps, the
+    /// memories, the bonds, the beliefs, the deeds and the feelings (projection 24, `EMPTY_HOUSE` in
     /// tools/world_reference.py). The talk adds none of these: its counters and last-talk
     /// seconds live in the person and the household, and an open Talk lives in the queue.
     #[test]
@@ -1028,9 +1028,9 @@ mod tests {
         world.submit(start(&[-5])).expect("accepted");
         let before = world.canonical_bytes();
         assert_eq!(
-            before[before.len() - 10..],
-            [0; 10],
-            "an empty archive, no household used, an empty house of eight zero bytes"
+            before[before.len() - 11..],
+            [0; 11],
+            "an empty archive, no household used, an empty house of nine zero bytes"
         );
         world
             .state
@@ -1038,11 +1038,12 @@ mod tests {
             .archive
             .insert(SimId::try_from(2).expect("valid"), archived());
         let mut expected = before.clone();
-        expected.truncate(before.len() - 10);
+        expected.truncate(before.len() - 11);
         expected.extend([1, 2, 17, 3, 0, 7]);
         expected.extend(ARCHIVED_KEY_VARINT);
         expected.extend([
             1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0,
         ]);
         assert_eq!(world.canonical_bytes(), expected);
     }

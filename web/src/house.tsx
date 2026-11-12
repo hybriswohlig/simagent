@@ -17,11 +17,11 @@ import { failureCode, inputFailureText, refusalText } from "./refusals.js";
 import { labels, plan, spots, timeOfDay } from "./render/plan.js";
 import { format } from "./router.js";
 import { readable } from "./contract.js";
-import { beliefSentence, bondValues, companyWords, memorySentence, named } from "./social.js";
+import { beliefSentence, bondValues, companyWords, feelingWords, memorySentence, named } from "./social.js";
 import { KIND_WORDS, ROOM_WORDS, TEXT } from "./text.js";
 import { weightWords, whyText } from "./why.js";
 
-const HOUSE = { format: "simagent.view.house", version: 10 } as const;
+const HOUSE = { format: "simagent.view.house", version: 11 } as const;
 const ADVANCED = { format: "simagent.view.advanced", version: 1 } as const;
 const INPUT = { format: "simagent.view.input", version: 1 } as const;
 const EVENTS = { format: "simagent.view.events", version: 2 } as const;
@@ -33,7 +33,7 @@ const DAY_PAGES = 10;
 const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 10 } as const;
+const WHY = { format: "simagent.view.why", version: 11 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 
@@ -70,6 +70,52 @@ function useHouse(run: string, household: string, at: string): Loaded<HouseAnswe
     };
   }, [key]);
   return current(loaded, key);
+}
+
+/** The household's `core:felt` lines of the last 24 hours, one read per person with needs, so a
+ * day line can name whom an arrival infected (ADR-0032 section 7). A failed read leaves the
+ * lines out; each person's own day still loads. */
+function useFelt(run: string, house: HouseAnswer | null): readonly EventItem[] {
+  const [felts, setFelts] = useState<readonly EventItem[]>([]);
+  const at = house?.at.t ?? null;
+  const sims = house === null ? "" : house.persons.map((person) => person.sim).join(",");
+  useEffect(() => {
+    if (at === null || sims === "") {
+      setFelts([]);
+      return;
+    }
+    let live = true;
+    const from = at - DAY_SECONDS;
+    const to = at + 1;
+    const read = async () => {
+      const all: EventItem[] = [];
+      for (const sim of sims.split(",")) {
+        let after: number | null = null;
+        for (let page = 0; page < DAY_PAGES; page += 1) {
+          const next = after === null ? "" : `&after=${after}`;
+          const json = await getJson(`/api/runs/${run}/events?subject=${sim}&from=${from}&to=${to}${next}`, EVENTS);
+          const answer = json as unknown as EventsAnswer;
+          for (const item of answer.events) {
+            if (item.entry.payload["core:felt"] !== undefined) {
+              all.push(item);
+            }
+          }
+          if (answer.next === null) {
+            break;
+          }
+          after = answer.next;
+        }
+      }
+      return all;
+    };
+    read()
+      .then((all) => live && setFelts(all))
+      .catch(() => live && setFelts([]));
+    return () => {
+      live = false;
+    };
+  }, [run, at, sims]);
+  return felts;
 }
 
 /** The words of a room, its name, "into" it and "in" it. */
@@ -117,7 +163,7 @@ function Why({ run, house, entry, names }: { run: string; house: HouseAnswer; en
     return <span>{TEXT.failed_network}</span>;
   }
   const { told, now } = whyText(why, house.layout);
-  const social = companyWords(why.company, house.layout, named(names));
+  const social = companyWords(why.company, house.layout, named(names), why.temper);
   return (
     <div style={{ marginLeft: "1em", color: "#444" }}>
       {told}
@@ -141,12 +187,14 @@ function Day({
   sim,
   names,
   cheat,
+  felts,
 }: {
   run: string;
   house: HouseAnswer;
   sim: number;
   names: ReadonlyMap<number, string>;
   cheat: boolean;
+  felts: readonly EventItem[];
 }) {
   const [items, setItems] = useState<readonly EventItem[] | "failed">([]);
   const from = house.at.t - DAY_SECONDS;
@@ -181,7 +229,7 @@ function Day({
   }
   const view = { sim, name: named(names), cheat };
   const lines = items
-    .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item, view) }))
+    .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item, view, felts) }))
     .filter((pair): pair is { item: EventItem; date: EventItem["date"]; line: DayLine } => pair.line !== null);
   if (lines.length === 0) {
     return null;
@@ -374,9 +422,9 @@ function Command({
   );
 }
 
-/** A resident's portrait, name and line; for a person with needs its five needs as bars, its
- * bonds, memories and beliefs, its day and, at home, a command; for a child under 6 (`person`
- * null) where it is, and its bonds. */
+/** A resident's portrait, name and line; for a person with needs its feelings, its five needs
+ * as bars, its bonds, memories and beliefs, its day and, at home, a command; for a child under
+ * 6 (`person` null) where it is, and its bonds. */
 function Resident({
   run,
   house,
@@ -391,6 +439,7 @@ function Resident({
   bonds,
   memories,
   beliefs,
+  felts,
 }: {
   run: string;
   house: HouseAnswer;
@@ -405,6 +454,7 @@ function Resident({
   bonds: readonly HouseBond[];
   memories: readonly HouseMemory[];
   beliefs: readonly HouseBelief[];
+  felts: readonly EventItem[];
 }) {
   const known = pedigree.persons.find((p) => p.sim === sim);
   const name = known === undefined ? String(sim) : fullName(known);
@@ -429,9 +479,10 @@ function Resident({
         </p>
         {person !== null && (
           <>
+            <p style={{ margin: "0.2em 0 0" }}>{feelingWords(person)}</p>
             <Needs person={person} name={known?.first_name ?? name} comfort={house.comfort} />
             <Social run={run} names={names} bonds={bonds} memories={memories} beliefs={beliefs} />
-            <Day run={run} house={house} sim={sim} names={names} cheat={cheat} />
+            <Day run={run} house={house} sim={sim} names={names} cheat={cheat} felts={felts} />
             {commandable(person) && <Command run={run} layout={house.layout} person={person} name={name} given={given} />}
           </>
         )}
@@ -588,6 +639,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
   }
   const persons = lastPedigree.current;
   const looks = lastPeople.current;
+  const felts = useFelt(run, house);
   useEffect(() => {
     if (house !== null && latest.current === null) {
       const start = standing(house.at.t, house.at.date);
@@ -715,6 +767,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
                 bonds={person.bonds}
                 memories={person.memories}
                 beliefs={person.beliefs}
+                felts={felts}
               />
             ))}
             {house.children.map((child) => (
@@ -733,6 +786,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
                 bonds={child.bonds}
                 memories={[]}
                 beliefs={[]}
+                felts={felts}
               />
             ))}
           </ul>

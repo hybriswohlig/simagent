@@ -18,6 +18,7 @@ use crate::house::day::{next_night, night};
 use crate::house::need::{FULL, NeedSample};
 use crate::lineage::LineageKey;
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed, tags};
+use crate::social::feeling::scaled_company;
 use crate::time::{HOUR, MAX_ABS_SECS, MINUTE, SimTime, YEAR};
 
 /// The best offer must bring at least this many points; below it the person idles.
@@ -42,6 +43,34 @@ pub struct Scored {
     pub offer: u16,
     pub mood: i8,
     pub points: i64,
+}
+
+/// What the people at a furniture add and take for it in a choice (ADR-0030 section 4): `company`
+/// the points for sitting with a liked person, `avoid` the points off for sitting with a distrusted
+/// one, both from the data and not negative. `score` scales the company with the chooser's temper
+/// (ADR-0032 section 5) and leaves the avoid as it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bonus {
+    pub company: i64,
+    pub avoid: i64,
+}
+
+impl Bonus {
+    /// Nobody there who counts.
+    pub const NONE: Bonus = Bonus {
+        company: 0,
+        avoid: 0,
+    };
+
+    /// Only company.
+    pub const fn company(company: i64) -> Bonus {
+        Bonus { company, avoid: 0 }
+    }
+
+    /// Only avoid.
+    pub const fn avoid(avoid: i64) -> Bonus {
+        Bonus { company: 0, avoid }
+    }
 }
 
 /// The age a choice is made at (ADR-0026 section 3): whole years from `born` to `at`, at
@@ -83,9 +112,10 @@ pub fn mood(
 /// `values` in `room`, by object and then offer, each with its mood `moods(object, offer)` in
 /// percent: `(Σ weight · gain) · (100 + mood) / 100 − 50 · walking seconds`, truncated toward
 /// zero, and `(151 − v) · 10⁹` for each critical need the offer raises; the mood scales neither
-/// the walk, `bonus(object)`, nor that (ADR-0026, addendum of 2026-11-04 on the mood). `bonus` is
-/// company minus avoid for that furniture (ADR-0030 section 4), added after the scaled needs like
-/// the walk. A fallback offer is scored here, so it gets the bonus too. The gain of a need the offer
+/// the walk, the bonus of the furniture, nor that (ADR-0026, addendum of 2026-11-04 on the mood).
+/// `bonus` is company and avoid for that furniture (ADR-0030 section 4); the net, the company
+/// scaled by `temper`, the chooser's, as `company · (1000 + temper) / 1000` toward 0 (ADR-0032
+/// section 5) minus the avoid, is added after the scaled needs like the walk. A fallback offer is scored here, so it gets the bonus too. The gain of a need the offer
 /// raises is `min(rate · length / 3600, 1000 − v)`, with the length `seconds` or `max_seconds`
 /// and the rates of the age band of `age`; its weight `max(0, comfort − v)` (the addendum on
 /// comfort and the time-filler). An offer of sleep is open only in the person's night,
@@ -99,7 +129,8 @@ pub fn score(
     (age, values, room): (u8, [u16; 5], u8),
     (night_left, depart_in): (Option<i64>, Option<i64>),
     moods: impl Fn(u16, u16) -> i8,
-    bonus: impl Fn(u16) -> i64,
+    temper: i16,
+    bonus: impl Fn(u16) -> Bonus,
 ) -> Vec<Scored> {
     let Some(band) = age_band(age) else {
         return Vec::new();
@@ -125,14 +156,9 @@ pub fn score(
                 continue;
             }
             let mood = moods(object, offer);
-            let points = points(
-                def,
-                (data.rates(), band, length),
-                values,
-                walk,
-                mood,
-                bonus(object),
-            );
+            let furniture = bonus(object);
+            let net = scaled_company(furniture.company, temper) - furniture.avoid;
+            let points = points(def, (data.rates(), band, length), values, walk, mood, net);
             scored.push(Scored {
                 object,
                 offer,

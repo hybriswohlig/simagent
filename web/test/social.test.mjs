@@ -11,6 +11,7 @@ import {
   beliefSentence,
   bondSentence,
   companyWords,
+  feelingWords,
   memorySentence,
   refuteSegments,
   speak,
@@ -195,6 +196,47 @@ test("Warum names the company and, for someone avoided, the belief and the truth
   assert.equal(avoided.includes("Glaubt"), false);
   assert.equal(avoided.includes("Wahr"), false);
   assert.equal(companyWords([{ ...rows[0], belief: { ...rows[0].belief, truth: "true" } }], layout, name).endsWith("Wahr ist es."), true);
+});
+
+test("the card names channels above 0 and always the temper", () => {
+  assert.equal(feelingWords({ joy: 420, anger: 120, sadness: 0, fear: 0, temper: 180 }), "Freude 420, Ärger 120. Stimmung +180");
+  assert.equal(feelingWords({ joy: 0, anger: 0, sadness: 0, fear: 0, temper: 0 }), "Stimmung +0");
+  assert.equal(feelingWords({ joy: 0, anger: 0, sadness: 0, fear: 0, temper: -300 }), "Stimmung \u2212300");
+  assert.equal(
+    feelingWords({ joy: 1, anger: 2, sadness: 3, fear: 4, temper: 5 }),
+    "Freude 1, Ärger 2, Trauer 3, Angst 4. Stimmung +5",
+  );
+});
+
+test("Warum sets the temper beside the company, with the unscaled constant", () => {
+  const layout = {
+    rooms: [],
+    doors: [],
+    objects: [{ kind: "core:dining_table", room: "kitchen", x: 0, y: 0, w: 1, h: 1, slots: 4, offers: ["eat"] }],
+  };
+  const belief = { found: false, statement: {}, certainty: 0, basis: "", source: 0, origin: 0, secret: false, truth: "none" };
+  const liked = {
+    object: 0,
+    liked: 3,
+    affection: 640,
+    familiarity: 300,
+    company: 5600,
+    plain: 8000,
+    avoided: 0,
+    trust: 0,
+    avoid: 0,
+    belief,
+  };
+  assert.equal(
+    companyWords([liked], layout, name, -300),
+    "setzt sich zu Mia (Zuneigung 640, Vertrautheit 300). Stimmung \u2212300: Gesellschaft 5600 statt 8000.",
+  );
+  assert.equal(
+    companyWords([{ ...liked, company: 8000 }], layout, name, 0),
+    "setzt sich zu Mia (Zuneigung 640, Vertrautheit 300). Stimmung +0: Gesellschaft 8000 statt 8000.",
+  );
+  const avoided = { ...liked, liked: 0, affection: 0, familiarity: 0, company: 0, plain: 0, avoided: 1, trust: 320, avoid: 8000 };
+  assert.equal(companyWords([avoided], layout, name, -300).includes("Stimmung"), false);
 });
 
 test("the chronicle keeps a telling and a refutation, and not every bond change", () => {

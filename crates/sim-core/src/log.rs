@@ -401,6 +401,17 @@ pub enum LogPayload {
         statement: Statement,
         source: Option<SimId>,
     },
+    /// A person (the subject) felt something: the four channels and the temper after an
+    /// occasion (ADR-0032 section 6). One per person and occasion; in a talk one per person after
+    /// `core:talked`, whatever its rows were. Written only if a channel or the temper changed.
+    #[serde(rename = "core:felt")]
+    Felt {
+        joy: u16,
+        anger: u16,
+        sadness: u16,
+        fear: u16,
+        temper: i16,
+    },
 }
 
 /// One sociable furniture a choice weighed (ADR-0030 section 4). `avoid` is positive and is

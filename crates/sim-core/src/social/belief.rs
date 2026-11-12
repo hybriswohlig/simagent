@@ -312,6 +312,18 @@ pub fn insert(
     BeliefInsertion::Displaced(old)
 }
 
+/// The doer W of a statement `Tat(W, lästert, hearer, …)` or `Tat(W, lügt, hearer, …)`: a deed
+/// of gossip or of a lie aimed at the hearer (ADR-0031 section 3, "der gezielte Schritt").
+/// `None` for any other statement.
+pub fn aimed_doer(hearer: SimId, statement: Statement) -> Option<SimId> {
+    match statement {
+        Statement::Tat {
+            doer, kind, other, ..
+        } if other == hearer && (kind == LAESTERT || kind == LUEGT) => Some(doer),
+        Statement::Tat { .. } | Statement::VaterVon { .. } => None,
+    }
+}
+
 /// The steps on the hearer's edge to the doer of a heard deed (ADR-0031 section 3). A
 /// `lästert` or `lügt` against the hearer is trust and grudge in one entry. Any other deed,
 /// `neckt` included, is trust only. A `VaterVon` has none. A confirmation does not ask.
@@ -320,10 +332,10 @@ pub fn heard_bond_steps(
     statement: Statement,
     rules: &BeliefRules,
 ) -> Option<Vec<(usize, i16)>> {
-    let Statement::Tat { kind, other, .. } = statement else {
+    if !matches!(statement, Statement::Tat { .. }) {
         return None;
-    };
-    if other == hearer && (kind == LAESTERT || kind == LUEGT) {
+    }
+    if aimed_doer(hearer, statement).is_some() {
         Some(vec![
             (TRUST, rules.heard_aimed_trust),
             (GRUDGE, rules.heard_aimed_grudge),

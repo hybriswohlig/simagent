@@ -115,8 +115,8 @@ pub struct Decisions {
 }
 
 /// The house part of the domain state, each map in the projection after `pool_used`, then the
-/// social part (ADR-0030 section 5, ADR-0031 section 7, projection 23): in a run without
-/// `MoveIn` it is eight zero lengths. The talk's day counters and last-talk seconds live in
+/// social part (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6, projection 24): in a
+/// run without `MoveIn` it is nine zero lengths. The talk's day counters and last-talk seconds live in
 /// `InHouse` and `MovedIn`, and an open Talk lives in the queue.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HouseState {

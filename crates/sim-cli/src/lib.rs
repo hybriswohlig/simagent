@@ -377,8 +377,9 @@ fn reserve_json(person: &sim_core::house::state::InHouse, at: SimTime) -> serde_
 /// 8, ADR-0021, addendum of 2026-11-05 on the house page). Each person's reserve at hunger 0 with
 /// its band (version 9, `reserve_json`, ADR-0026, addendum of 2026-11-06 on hunger at 0). Each
 /// person, and each child, carries the bonds settled at the clock, the five strongest memories
-/// and every belief (version 10, ADR-0030 sections 1 and 2, ADR-0031 section 8). `None`
-/// for a household without a house.
+/// and every belief (version 10, ADR-0030 sections 1 and 2, ADR-0031 section 8). Each person
+/// with needs carries the four channels and the temper at the clock (version 11, ADR-0032
+/// section 7). `None` for a household without a house.
 pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::day::{YoungPlace, departure, night, work_draw, young_place};
     use sim_core::house::need::EMERGENCY;
@@ -532,6 +533,14 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             .map(|(comfort, value)| comfort.saturating_sub(value))
             .collect();
         let (bonds, memories, beliefs) = social_view::snapshot(state, sim, at);
+        let (channels, temper) = match state.data().social() {
+            Some(social) => sim_core::social::feeling::read(
+                state.house().social.feelings.get(&sim),
+                at,
+                &social.feelings,
+            ),
+            None => ([0; 4], 0),
+        };
         persons.push(serde_json::json!({
             "sim": sim.get(),
             "place": place,
@@ -547,6 +556,11 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
             "bonds": bonds,
             "memories": memories,
             "beliefs": beliefs,
+            "joy": channels[sim_core::social::feeling::JOY],
+            "anger": channels[sim_core::social::feeling::ANGER],
+            "sadness": channels[sim_core::social::feeling::SADNESS],
+            "fear": channels[sim_core::social::feeling::FEAR],
+            "temper": temper,
         }));
     }
     // The members without needs (ADR-0024 sections 2 and 4): none before the first morning;
@@ -575,7 +589,7 @@ pub fn house_answer(world: &World, household: u64) -> Result<Option<serde_json::
         .collect();
     Ok(Some(serde_json::json!({
         "format": "simagent.view.house",
-        "version": 10,
+        "version": 11,
         "at": dated(at),
         "household": household.get(),
         "house": moved.house,
@@ -669,8 +683,9 @@ fn places_taken(
 /// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `bonus(object)` is that
 /// furniture's company minus its avoid, from the choice's `core:company` entry, outside the mood;
 /// 0 where that entry has no row for it (ADR-0030 section 4). `company` names those rows and the
-/// bond and belief lines the avoid step is read from (version 10, ADR-0031 section 5). `None`
-/// for any other entry.
+/// bond and belief lines the avoid step is read from (version 10, ADR-0031 section 5).
+/// `temper` is that person's temper at the choice, and each company row names the unscaled
+/// company beside the logged one (version 11, ADR-0032 section 7). `None` for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
@@ -864,10 +879,16 @@ pub fn why_answer(
         Some(until) => Some(short_values(world, (house, houses), &fill, until)?),
         None => None,
     };
+    let temper = social_view::temper_of(
+        world.state().data().social().map(|social| &social.feelings),
+        *sim,
+        entry.t,
+        company.history,
+    );
     let company = social_view::company_rows(world, *sim, entry.t, company)?;
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 10,
+        "version": 11,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
@@ -884,6 +905,7 @@ pub fn why_answer(
         "offers": offers,
         "now": now,
         "reserve": reserve,
+        "temper": temper,
         "company": company,
     })))
 }
@@ -1239,7 +1261,7 @@ fn scored_offers(
     choice: &ChoiceAt<'_>,
     bonus: impl Fn(u16) -> i64,
 ) -> Result<Vec<sim_core::house::choice::Scored>, CliError> {
-    use sim_core::house::choice::{age, mood, score};
+    use sim_core::house::choice::{Bonus, age, mood, score};
     use sim_core::house::day::night;
     let broken = |what: &str| CliError::new("save_rejected", format!("the choice: {what}"));
     let state = world.state();
@@ -1260,7 +1282,10 @@ fn scored_offers(
     };
     let depart_in = choice.leaves.map(|leaves| (leaves - choice.at).as_secs());
     let values = (age, choice.needs, choice.room);
-    let mut scored = score(house, houses, values, (left, depart_in), moods, bonus);
+    // The company in `core:company` is the temper's scaled value already (ADR-0032 section 5), so
+    // the net the entry gives goes in at temper 0, which scales nothing.
+    let net = |object| Bonus::company(bonus(object));
+    let mut scored = score(house, houses, values, (left, depart_in), moods, 0, net);
     scored.sort_by_key(|scored| {
         (
             core::cmp::Reverse(scored.points),

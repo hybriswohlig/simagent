@@ -21,7 +21,7 @@ use std::time::Instant;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
-use sim_core::house::choice::{age, mood, score};
+use sim_core::house::choice::{Bonus, age, mood, score};
 use sim_core::house::day::night;
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::input::{Couple, Founder, Input, MoveIn, PoolStart, Start};
@@ -259,7 +259,8 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
             (years, needs, room),
             (left, None),
             moods,
-            |_| 0,
+            0,
+            |_| Bonus::NONE,
         )
         .len();
         counted.most_offers = counted.most_offers.max(weighed);

@@ -1056,6 +1056,30 @@ fn server_answers(
     answers.push(("EventsAnswer", get(port, "/api/runs/town/events")?));
     let none = "/api/runs/town/events?from=-5&to=-1";
     answers.push(("EventsAnswer", get(port, none)?));
+    // `before` is only on a `core:felt`. The first page of the log is before any, so page
+    // forward from the first morning until one entry carries it (ADR-0032 section 7).
+    let mut felt_page = None;
+    let mut felt_after = String::new();
+    for _ in 0..40 {
+        let page = get(
+            port,
+            &format!("/api/runs/town/events?from={social_from}{felt_after}"),
+        )?;
+        let has = page["events"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row.get("before").is_some()));
+        if has {
+            felt_page = Some(page);
+            break;
+        }
+        match page["next"].as_u64() {
+            Some(next) => felt_after = format!("&after={next}"),
+            None => break,
+        }
+    }
+    let felt_page =
+        felt_page.ok_or("no core:felt on the town's pages carried its channels before")?;
+    answers.push(("EventsAnswer", felt_page));
     drop(server);
     Ok(answers)
 }
