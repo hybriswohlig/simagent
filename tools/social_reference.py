@@ -71,7 +71,7 @@ COMPANY_MIN_SUM = 600
 AVOID_BELOW_TRUST = 400
 
 LIE_PPM = 50_000  # ADR-0031 4
-REFUTE_PPM = 500_000  # ADR-0031 5
+REFUTE_PPM = 200_000  # ADR-0031 5, addendum 2026-11-12
 LIE_GRUDGE = 700
 LIE_CERTAINTY = 900
 HEARD_CAP = 900
@@ -1768,7 +1768,7 @@ def check_beliefs() -> None:
     bond = bond_apply(Bond(3, (500, 600, 400, 0, 300, 100), 0), 0, {TRUST: -120, GRUDGE: 150})
     expect("refute applied to an edge", (bond.values[TRUST], bond.values[GRUDGE]), (480, 250))
     expect("draw rule: lie below 50000", (lies(49_999), lies(50_000)), (True, False))
-    expect("draw rule: refute below 500000", (refutes(499_999), refutes(500_000)), (True, False))
+    expect("draw rule: refute below 200000", (refutes(199_999), refutes(200_000)), (True, False))
 
 
 def check_paternity() -> None:
@@ -2016,7 +2016,7 @@ def print_pins() -> None:
                 f"  topic, a=founder {x}, b=founder {y}, ages 30/32, {label}: allowed {allowed},"
                 f" sums {sums}, chosen {topic} {TOPIC_NAMES[topic]}, actor {who}"
             )
-    print("TALK_LIE (u in 0..999999, lie if < 50000) and TALK_REFUTE (refute if < 500000),")
+    print("TALK_LIE (u in 0..999999, lie if < 50000) and TALK_REFUTE (refute if < 200000),")
     print("seed 0x5EED, occasion = second, subject = speaker/refuter, detail = hearer:")
     for second in (6 * 3600, 6 * 3600 + 3600, 2 * DAY + 18 * 3600):
         for s_i, h_i in ((0, 1), (1, 0), (2, 3), (3, 2)):
