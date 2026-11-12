@@ -2,9 +2,9 @@
 //! their checks. Everything is an integer; nothing here is a float. The kinds of memory with
 //! their start strength, fade and valence, the start values of the bonds by role and their fades,
 //! the topics of a talk with conditions and steps, the choice's company and avoid, the beliefs'
-//! numbers and the limits. The memory, the bonds and the choice's company and avoid are what the
-//! core uses so far. The topics' outcomes and the beliefs are read and checked so the data hash
-//! does not move again when a later slice comes.
+//! numbers and the limits, and the feelings' rates, table, band and contagion (ADR-0032 section 6).
+//! The topics' outcomes and the beliefs are read and checked so the data hash does not move again
+//! when a later slice comes.
 
 use alloc::vec::Vec;
 use core::fmt;
@@ -53,6 +53,8 @@ const MOST_DEEDS: usize = 16;
 /// section 4).
 const MOST_POINTS: RangeInclusive<u32> = 1..=100_000_000;
 const MILLION: u32 = 1_000_000;
+/// The most a rate, the temper's return or a band number may be (ADR-0032 section 1).
+const MOST_RATE: u16 = 10_000;
 
 /// The checked social data, as `data/social/social.json` holds them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +66,7 @@ pub struct SocialData {
     pub topics: Vec<Topic>,
     pub choice: ChoiceRules,
     pub beliefs: BeliefRules,
+    pub feelings: FeelingRules,
 }
 
 /// The limits (ADR-0030 sections 1 to 3 and 5, ADR-0031 sections 1 and 2): memories, bonds and
@@ -225,6 +228,86 @@ pub struct BeliefRules {
     pub deeds: Vec<DataId>,
 }
 
+/// The feelings (ADR-0032 section 6): the loss of each channel per day, the temper's return to 0
+/// per day, the table of occasions, the relationship band and the contagion.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FeelingRules {
+    pub rates: ChannelRates,
+    pub mood_return: u16,
+    pub table: Vec<FeelingRow>,
+    pub band: Band,
+    pub contagion: Contagion,
+}
+
+/// The loss per day of each channel, 0 to 10 000 (ADR-0032 section 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelRates {
+    pub joy: u16,
+    pub anger: u16,
+    pub sadness: u16,
+    pub fear: u16,
+}
+
+/// The occasions of the table in the order of their numbers (ADR-0032 section 3): the topics of a
+/// talk that move a feeling (`gossip` has no row), a heard deed aimed at the hearer, a refutation,
+/// the birth of an own child, the death of the partner and of a relative, a partnership that
+/// began and one that ended by separation, and a need that reached 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Occasion {
+    TalkEveryday,
+    TalkPraise,
+    TalkTease,
+    TalkRecall,
+    TalkApology,
+    Heard,
+    Refuted,
+    Birth,
+    PartnerLost,
+    RelativeDied,
+    PartnershipBegan,
+    Separated,
+    NeedEmpty,
+}
+
+/// One row of the table: the steps of an occasion on joy, anger, sadness and fear. A step left
+/// out of the file is 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FeelingRow {
+    pub occasion: Occasion,
+    #[serde(default)]
+    pub joy: i16,
+    #[serde(default)]
+    pub anger: i16,
+    #[serde(default)]
+    pub sadness: i16,
+    #[serde(default)]
+    pub fear: i16,
+}
+
+/// The relationship band (ADR-0032 section 3): with an affection of at least `min_affection` to
+/// the person of the row, each step is `step · numerator / denominator`, toward 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Band {
+    pub min_affection: u16,
+    pub numerator: u16,
+    pub denominator: u16,
+}
+
+/// The contagion (ADR-0032 section 4): whoever arrives in a room with an anger of at least
+/// `min_anger` gives everyone there who is below it `step` more anger, at most `cap`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Contagion {
+    pub min_anger: u16,
+    pub step: u16,
+    pub cap: u16,
+}
+
 /// The rule a social file breaks (`social.*` codes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SocialError {
@@ -247,6 +330,10 @@ pub enum SocialError {
     Choice,
     /// A belief number out of range or a repeated or missing kind of deed.
     Beliefs,
+    /// A rate or the temper's return above 10 000, a repeated occasion or a step outside -1000 to
+    /// 1000, a band threshold above 1000 or a denominator outside 1 to 10 000 or a numerator above
+    /// 10 000, a contagion value above 1000 or a cap that is not below the anger that infects.
+    Feelings,
 }
 
 impl fmt::Display for SocialError {
@@ -260,6 +347,7 @@ impl fmt::Display for SocialError {
             SocialError::Furniture => "social.furniture",
             SocialError::Choice => "social.choice",
             SocialError::Beliefs => "social.beliefs",
+            SocialError::Feelings => "social.feelings",
         })
     }
 }
@@ -281,6 +369,7 @@ impl SocialData {
         self.check_topics()?;
         self.choice.checked()?;
         self.beliefs.checked()?;
+        self.feelings.checked()?;
         Ok(self)
     }
 
@@ -427,5 +516,48 @@ impl BeliefRules {
             && (1..=MOST_DEEDS).contains(&self.deeds.len())
             && all_unique(self.deeds.iter());
         ok.then_some(()).ok_or(SocialError::Beliefs)
+    }
+}
+
+impl FeelingRules {
+    fn checked(&self) -> Result<(), SocialError> {
+        let rates = self.rates.all();
+        let steps_fit = |row: &FeelingRow| row.steps().iter().all(|step| DELTA.contains(step));
+        let once = (self.table.iter())
+            .enumerate()
+            .all(|(at, row)| self.table[..at].iter().all(|a| a.occasion != row.occasion));
+        let ok = rates.iter().all(|rate| *rate <= MOST_RATE)
+            && self.mood_return <= MOST_RATE
+            && once
+            && self.table.iter().all(steps_fit)
+            && self.band.min_affection <= 1000
+            && self.band.numerator <= MOST_RATE
+            && (1..=MOST_RATE).contains(&self.band.denominator)
+            && self.contagion.min_anger <= 1000
+            && self.contagion.step <= 1000
+            && self.contagion.cap < self.contagion.min_anger;
+        ok.then_some(()).ok_or(SocialError::Feelings)
+    }
+
+    /// The steps of `occasion` on joy, anger, sadness and fear; all 0 for an occasion without a
+    /// row (ADR-0032 section 3).
+    pub fn steps(&self, occasion: Occasion) -> [i16; 4] {
+        (self.table.iter())
+            .find(|row| row.occasion == occasion)
+            .map_or([0; 4], FeelingRow::steps)
+    }
+}
+
+impl ChannelRates {
+    /// The four rates in the order joy, anger, sadness, fear.
+    pub fn all(&self) -> [u16; 4] {
+        [self.joy, self.anger, self.sadness, self.fear]
+    }
+}
+
+impl FeelingRow {
+    /// The four steps in the order joy, anger, sadness, fear.
+    pub fn steps(&self) -> [i16; 4] {
+        [self.joy, self.anger, self.sadness, self.fear]
     }
 }
