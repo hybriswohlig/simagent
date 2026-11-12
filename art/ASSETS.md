@@ -92,6 +92,20 @@ Inspected, CC0, and not worn: `fedora01`, `fedora_cocked`, `female_sportsuit01`,
 `male_casualsuit02`, `male_casualsuit03`, `male_casualsuit04`,
 `male_elegantsuit01`, `male_worksuit01`, `shoes02`, `shoes03`, `shoes05`.
 
+## Studio light
+
+Style A uses the Poly Haven HDRI `studio_small_03` by Greg Zaal as image-based
+lighting only. It is not the room and it is not drawn as the background.
+
+| | |
+|---|---|
+| Licence | CC0. https://polyhaven.com/license |
+| Asset | https://polyhaven.com/a/studio_small_03 |
+| File | https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_03_1k.hdr |
+| Local | `/Users/dariushk/.cache/simagent-art/hdri/studio_small_03_1k.hdr` |
+| Size | 1 686 299 bytes |
+| MD5 | `74e6ef69ea9024c2cc25b3a7de8ec2f7` |
+
 ## Skin
 
 The face and body use the MakeHuman system-assets default light skin. The

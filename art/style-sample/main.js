@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
+import { N8AOPass } from "https://cdn.jsdelivr.net/npm/n8ao@2.0.1/dist/N8AO.js";
 
 const SKIN = {
   eumelanin: [0, 0.25, 0.5, 0.75, 1],
@@ -75,6 +81,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
+renderer.toneMappingExposure = 1;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setClearColor(0xe7e2da, 1);
 
 const scene = new THREE.Scene();
@@ -82,6 +90,17 @@ const camera = new THREE.PerspectiveCamera(26, 1, 0.05, 80);
 const hemi = new THREE.HemisphereLight(0xfffaf6, 0xe6ddd2, Math.PI * 0.42);
 const key = new THREE.DirectionalLight(0xfff6ee, Math.PI * 0.38);
 key.position.set(-2.4, 5.2, 4.6);
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.00025;
+key.shadow.normalBias = 0.02;
+key.shadow.radius = 4;
+key.shadow.camera.near = 0.4;
+key.shadow.camera.far = 24;
+key.shadow.camera.left = -8;
+key.shadow.camera.right = 8;
+key.shadow.camera.top = 8;
+key.shadow.camera.bottom = -8;
+key.shadow.camera.updateProjectionMatrix();
 const fill = new THREE.DirectionalLight(0xf6efe6, Math.PI * 0.12);
 fill.position.set(4.2, 2.2, 3);
 const rim = new THREE.DirectionalLight(0xffd8c2, Math.PI * 0.16);
@@ -89,7 +108,18 @@ rim.position.set(0.6, 3.4, -4.4);
 scene.add(hemi, key, fill, rim);
 const keyDirView = new THREE.Vector3();
 
+let studioMap = null;
+
 function applyStyleLights(style) {
+  const grade = style === "A";
+  // ACES runs once, in OutputPass. A render target skips the material pass,
+  // so styles B and C stay on the direct path with no tone map.
+  renderer.toneMapping = grade ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+  renderer.shadowMap.enabled = grade;
+  key.castShadow = grade;
+  ground.receiveShadow = grade;
+  scene.environment = grade ? studioMap : null;
+  scene.environmentIntensity = grade ? 0.18 : 1;
   const lit = style !== "C";
   hemi.visible = lit;
   key.visible = lit;
@@ -103,7 +133,7 @@ function applyStyleLights(style) {
     key.intensity = Math.PI * 0.48;
     key.position.set(-2.2, 4.6, 4.0);
     fill.color.setHex(0xb7c7dc);
-    fill.intensity = Math.PI * 0.22;
+    fill.intensity = Math.PI * 0.14;
     fill.position.set(4.6, 1.8, 2.4);
     rim.color.setHex(0xffd0b0);
     rim.intensity = Math.PI * 0.16;
@@ -123,6 +153,7 @@ function applyStyleLights(style) {
 function updateKeyDir() {
   keyDirView.copy(key.position).normalize().transformDirection(camera.matrixWorldInverse);
 }
+
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(80, 80),
   new THREE.MeshStandardMaterial({ color: 0xc9c3b8, roughness: 1, metalness: 0 }),
@@ -130,6 +161,35 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.002;
 scene.add(ground);
+
+// SAO stained the cloth and haloed the silhouette. N8AO renders the
+// beauty itself, so the composer target stays single-sample. FXAA stands
+// in for MSAA on style A. OutputPass applies ACES and sRGB once.
+const drawSize = new THREE.Vector2();
+const composer = new EffectComposer(renderer);
+const n8aoPass = new N8AOPass(scene, camera);
+n8aoPass.configuration.aoRadius = 0.1;
+n8aoPass.configuration.distanceFalloff = 0.45;
+n8aoPass.configuration.intensity = 2.2;
+n8aoPass.configuration.gammaCorrection = false;
+n8aoPass.configuration.screenSpaceRadius = false;
+n8aoPass.setQualityMode("High");
+const fxaaPass = new ShaderPass(FXAAShader);
+composer.addPass(n8aoPass);
+composer.addPass(fxaaPass);
+composer.addPass(new OutputPass());
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+new RGBELoader().load("/cache/hdri/studio_small_03_1k.hdr", (hdr) => {
+  studioMap = pmrem.fromEquirectangular(hdr).texture;
+  hdr.dispose();
+  pmrem.dispose();
+  if (state.style === "A") scene.environment = studioMap;
+  document.body.dataset.env = "1";
+}, undefined, () => {
+  document.body.dataset.env = "0";
+  console.error("studio HDR failed to load");
+});
 
 const toonGradient = makeGradient();
 const clock = new THREE.Clock();
@@ -1235,6 +1295,7 @@ function addClothes(mesh, humanPos, outfit, style) {
     // detached inverse stayed at identity and the placement was applied twice.
     object.bindMode = "attached";
     object.bind(mesh.skeleton, mesh.bindMatrix);
+    object.castShadow = true;
     object.frustumCulled = false;
     object.renderOrder = proxy.kind === "shoes" ? 2 : 1;
     object.position.copy(mesh.position);
@@ -1596,6 +1657,7 @@ function buildPerson(template, member, x) {
     density: bearded ? clamp(member.body.beard_density, 0, 1) : 0,
     coverage: bearded ? clamp(member.body.beard_coverage, 0, 1) : 0,
   }, marks);
+  mesh.castShadow = true;
   mesh.frustumCulled = false;
   const body = { ...member.body, sex: member.sex };
   const humanPos = humanPositions(weights);
@@ -1802,6 +1864,9 @@ function resize() {
   renderer.setSize(width, height, false);
   camera.aspect = width / Math.max(height, 1);
   camera.updateProjectionMatrix();
+  composer.setSize(width, height);
+  renderer.getDrawingBufferSize(drawSize);
+  fxaaPass.material.uniforms.resolution.value.set(1 / Math.max(drawSize.x, 1), 1 / Math.max(drawSize.y, 1));
 }
 
 function animate() {
@@ -1831,7 +1896,8 @@ function animate() {
     person.tag.style.top = `${y}px`;
   }
   updateKeyDir();
-  renderer.render(scene, camera);
+  if (state.style === "A") composer.render();
+  else renderer.render(scene, camera);
   if (!state.ready) {
     state.ready = true;
     document.body.dataset.ready = "1";
