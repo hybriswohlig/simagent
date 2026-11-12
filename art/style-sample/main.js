@@ -2146,7 +2146,6 @@ function buildPerson(template, member, x) {
   // Root scale lifts the feet by pivot * (scale - 1). Drop the wrapper so they stay on Y=0.
   wrapper.position.y = -pivot * (1 - scale);
   wrapper.position.x = x;
-  if (state.editMode === 2) wrapper.rotation.y = state.editYaw || 0;
   const cloud = morphedCloud(mesh, weights);
   const marks = landmarks(cloud);
   const skin = gridColor(SKIN, member.body.skin_eumelanin, member.body.skin_pheomelanin);
@@ -2192,8 +2191,15 @@ function buildPerson(template, member, x) {
   }
   scene.add(wrapper);
   wrapper.updateWorldMatrix(true, true);
+  // hangArms reads the arm in world XY and drops world Z. A yaw already on
+  // the wrapper turns that bone onto Z, the hang is skipped, and the side
+  // view stays in the T-pose. Pose first, then turn the figure.
   hangArms(root, shaped.slices.child);
   idleStance(root, member);
+  if (state.editMode === 2) {
+    wrapper.rotation.y = state.editYaw || 0;
+    wrapper.updateWorldMatrix(true, true);
+  }
   const spines = ["spine_01", "spine_02", "spine_03"].map((name) => findBone(root, name)).filter(Boolean);
   const rest = spines.map((spine) => spine.quaternion.clone());
   const tag = document.createElement("div");
