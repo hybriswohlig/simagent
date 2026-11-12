@@ -247,6 +247,11 @@ fn belief(run: &Run, owner: u64, statement: Statement) -> Belief {
         .expect("belief")
 }
 
+fn holds(run: &Run, owner: u64, statement: Statement) -> bool {
+    (run.world.state().house().social.beliefs.get(&sim(owner)))
+        .is_some_and(|list| list.iter().any(|belief| belief.statement == statement))
+}
+
 fn neckt(doer: u64, other: u64, day: i64) -> Statement {
     Statement::Tat {
         doer: sim(doer),
@@ -315,22 +320,21 @@ fn partners_tease_and_talk_again_an_hour_later() {
     assert!(memory_about(&run, 2, 1, first));
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 60);
     assert_eq!(bond(&run, 1, 2)[GRUDGE], 0);
-    // The first Necken of the day also writes one `core:believed` for each of the two.
-    assert_eq!(counts(&run, 1), (1, 3));
+    // The first Necken of the day writes one `core:believed` for the target only.
+    assert_eq!(counts(&run, 1), (1, 2));
     assert_eq!(counts(&run, 2), (1, 4));
     let since = run.world.state().house().households[&home].since;
     let day = sim_core::social::talk::house_day(t(first), since);
     assert_eq!(day, 1);
     let seen = neckt(1, 2, day);
-    for owner in [1, 2] {
-        let held = belief(&run, owner, seen);
-        assert_eq!(held.certainty, 1000);
-        assert_eq!(held.basis, Basis::Gesehen);
-        assert_eq!(held.source, None);
-        assert_eq!(held.origin, None);
-        assert!(!held.secret);
-        assert_eq!(held.since, t(first));
-    }
+    let held = belief(&run, 2, seen);
+    assert_eq!(held.certainty, 1000);
+    assert_eq!(held.basis, Basis::Gesehen);
+    assert_eq!(held.source, None);
+    assert_eq!(held.origin, None);
+    assert!(!held.secret);
+    assert_eq!(held.since, t(first));
+    assert!(!holds(&run, 1, seen));
     let deeds = &run.world.state().house().social.deeds[&sim(1)];
     assert_eq!(deeds.items.len(), 1);
     assert_eq!(deeds.items[0].kind, NECKT);
@@ -348,14 +352,22 @@ fn partners_tease_and_talk_again_an_hour_later() {
     assert_eq!(talked(&run).len(), 2);
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 120);
     // The same statement is already seen, so the second Necken adds no belief. The deed is
-    // still appended.
-    assert_eq!(counts(&run, 1), (2, 5));
+    // still appended. The doer still holds none.
+    assert_eq!(counts(&run, 1), (2, 4));
     assert_eq!(counts(&run, 2), (2, 7));
     assert_eq!(
         run.world.state().house().social.deeds[&sim(1)].items.len(),
         2
     );
-    assert_eq!(run.world.state().house().social.beliefs[&sim(1)].len(), 1);
+    assert!(
+        !run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .contains_key(&sim(1))
+    );
+    assert_eq!(run.world.state().house().social.beliefs[&sim(2)].len(), 1);
     assert_eq!(
         run.world.talk_at(sim(1), sim(2)),
         Some(t(second + PAIR_GAP))
@@ -411,7 +423,7 @@ fn an_action_end_in_the_same_second_runs_the_talk() {
     let spoken = talked(&run);
     assert_eq!(spoken.len(), 1);
     assert_eq!(spoken[0].t, t(at));
-    assert_eq!(counts(&run, 1), (1, 3));
+    assert_eq!(counts(&run, 1), (1, 2));
     assert_eq!(counts(&run, 2), (1, 4));
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 60);
     assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
@@ -429,8 +441,8 @@ fn an_action_end_in_the_same_second_runs_the_talk() {
 
 /// Five Necken leave him 16 entries, so 18 of the day's 34 are free and the next talk is
 /// planned (ADR-0030 sections 3 and 5). It is due in the second the meals end. The child
-/// sits down first. She teases the child, and he, at the same table with two free places,
-/// sees that deed. The child then teases him. He has 13 free, below the 16 a talk needs, so
+/// sits down first. She teases the child. A `neckt` is held only by the target, so he does
+/// not see it. The child then teases him. He has 14 free, below the 16 a talk needs, so
 /// that end does not run the couple's talk: the counts, the grudge and the last talk stay,
 /// and nothing is planned. The end still cancels the event.
 ///
@@ -439,10 +451,10 @@ fn an_action_end_in_the_same_second_runs_the_talk() {
 /// 123 006, the sixth at 126 606. The meal is 18 600 s, and 108 006 + 18 600 = 126 606.
 /// The child is sent at 123 007, arrives at 123 012 and talks at 123 612; those successors
 /// are at 127 212, after the meal. The first Necken of a statement writes one `core:believed`
-/// besides the memory and the talk, and the target's bond step. A repeat does not. She acts
-/// in the five couple talks (11) and teases the child (14), then sees the child's tease (15).
-/// He is the target of the five (16), sees her tease (17) and is the child's target (21).
-/// The child writes 4, then 3. His grudge toward her is 5 * 60 = 300; one hour fades none
+/// for the target, besides the memory and the talk, and the target's bond step. A repeat
+/// does not, and the doer writes no belief. She acts in the five couple talks (10) and
+/// teases the child (12). He is the target of the five (16) and of the child's tease (20).
+/// The child writes 4, then 2. His grudge toward her is 5 * 60 = 300; one hour fades none
 /// (`10 * 3 600 / 86 400` = 0). The house day at 126 606 is 1, so the counters do not reset.
 #[test]
 fn an_action_end_in_the_same_second_skips_a_talk_without_sixteen_free_entries() {
@@ -464,7 +476,7 @@ fn an_action_end_in_the_same_second_skips_a_talk_without_sixteen_free_entries() 
 
     run.advance(fifth);
     assert_eq!(talked(&run).len(), 5);
-    assert_eq!(counts(&run, 1), (5, 11));
+    assert_eq!(counts(&run, 1), (5, 10));
     assert_eq!(counts(&run, 2), (5, 16));
     assert_eq!(counts(&run, 3), (0, 0));
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 300);
@@ -498,23 +510,27 @@ fn an_action_end_in_the_same_second_skips_a_talk_without_sixteen_free_entries() 
             .all(|entry| { matches!(entry.payload, LogPayload::Talked { topic: 2, .. }) })
     );
     assert_eq!(talked(&run).len(), 7);
-    assert_eq!(counts(&run, 1), (6, 15));
-    assert_eq!(counts(&run, 2), (6, 21));
-    assert_eq!(counts(&run, 3), (2, 7));
+    assert_eq!(counts(&run, 1), (6, 12));
+    assert_eq!(counts(&run, 2), (6, 20));
+    assert_eq!(counts(&run, 3), (2, 6));
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 300);
     assert_eq!(run.world.talk_at(sim(1), sim(2)), Some(t(sixth)));
     let watched = neckt(1, 3, 1);
-    let held = belief(&run, 2, watched);
+    assert!(!holds(&run, 1, watched));
+    assert!(!holds(&run, 2, watched));
+    let held = belief(&run, 3, watched);
     assert_eq!(held.certainty, 1000);
     assert_eq!(held.basis, Basis::Gesehen);
     assert_eq!(held.source, None);
     assert_eq!(held.origin, None);
     assert!(!held.secret);
+    assert_eq!(belief(&run, 2, neckt(1, 2, 1)).basis, Basis::Gesehen);
+    assert_eq!(belief(&run, 2, neckt(3, 2, 1)).basis, Basis::Gesehen);
 
     run.advance(sixth);
-    assert_eq!(counts(&run, 1), (6, 15));
-    assert_eq!(counts(&run, 2), (6, 21));
-    assert_eq!(counts(&run, 3), (2, 7));
+    assert_eq!(counts(&run, 1), (6, 12));
+    assert_eq!(counts(&run, 2), (6, 20));
+    assert_eq!(counts(&run, 3), (2, 6));
     assert_eq!(bond(&run, 2, 1)[GRUDGE], 300);
     assert_eq!(talked(&run).len(), 7);
     assert!(talked(&run).iter().all(|entry| entry.t != t(sixth)));
@@ -601,11 +617,11 @@ fn a_death_in_the_same_second_comes_after_the_talk() {
     );
     run.advance(at);
     assert_eq!(talked(&run).len(), 1);
-    assert_eq!(counts(&run, 1), (1, 3));
+    assert_eq!(counts(&run, 1), (1, 2));
     assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
     assert!(!run.world.state().house().sims.contains_key(&sim(2)));
     let social = &run.world.state().house().social;
-    assert!(social.beliefs.contains_key(&sim(1)));
+    assert!(!social.beliefs.contains_key(&sim(1)));
     assert!(social.deeds.contains_key(&sim(1)));
     assert!(!social.beliefs.contains_key(&sim(2)));
     assert!(!social.deeds.contains_key(&sim(2)));
@@ -625,8 +641,8 @@ fn moving_out_at_the_talk_cancels_it() {
     assert_eq!(run.world.talk_at(sim(1), sim(2)), None);
 }
 
-/// Moving out after a Necken keeps the beliefs and the deed. The two stay alive and leave
-/// the house part (ADR-0031 section 1).
+/// Moving out after a Necken keeps the target's belief and the actor's deed. The two stay
+/// alive and leave the house part (ADR-0031 section 1). The doer never held the seen deed.
 #[test]
 fn moving_out_freezes_beliefs_and_deeds() {
     let (mut run, home) = couple(7_200);
@@ -636,7 +652,8 @@ fn moving_out_freezes_beliefs_and_deeds() {
     let since = run.world.state().house().households[&home].since;
     let day = sim_core::social::talk::house_day(t(first), since);
     let seen = neckt(1, 2, day);
-    assert_eq!(belief(&run, 1, seen).certainty, 1000);
+    assert!(!holds(&run, 1, seen));
+    assert_eq!(belief(&run, 2, seen).certainty, 1000);
     assert_eq!(
         run.world.state().house().social.deeds[&sim(1)].items.len(),
         1
@@ -646,10 +663,10 @@ fn moving_out_freezes_beliefs_and_deeds() {
     assert_eq!(run.world.state().living(), 2);
     assert!(!run.world.state().house().sims.contains_key(&sim(1)));
     assert!(!run.world.state().house().sims.contains_key(&sim(2)));
-    let held = belief(&run, 1, seen);
+    assert!(!holds(&run, 1, seen));
+    let held = belief(&run, 2, seen);
     assert_eq!(held.certainty, 1000);
     assert_eq!(held.basis, Basis::Gesehen);
-    assert_eq!(belief(&run, 2, seen).basis, Basis::Gesehen);
     let deeds = &run.world.state().house().social.deeds[&sim(1)];
     assert_eq!(deeds.items.len(), 1);
     assert_eq!(deeds.items[0].kind, NECKT);
@@ -676,7 +693,7 @@ fn a_seen_deed_is_passed_on_with_the_heard_certainty_and_the_bond_step() {
     assert_eq!(day, 1);
     let teased = neckt(3, 2, day);
     assert_eq!(belief(&run, 2, teased).certainty, 1000);
-    assert_eq!(belief(&run, 3, teased).basis, Basis::Gesehen);
+    assert!(!holds(&run, 3, teased));
     assert!(
         !run.world
             .state()
@@ -685,7 +702,7 @@ fn a_seen_deed_is_passed_on_with_the_heard_certainty_and_the_bond_step() {
             .beliefs
             .contains_key(&sim(1))
     );
-    assert_eq!(counts(&run, 3), (1, 3));
+    assert_eq!(counts(&run, 3), (1, 2));
     assert_eq!(counts(&run, 2), (1, 4));
     assert_eq!(counts(&run, 1), (0, 0));
 
@@ -731,19 +748,9 @@ fn a_seen_deed_is_passed_on_with_the_heard_certainty_and_the_bond_step() {
     assert!(!heard.secret);
     assert_eq!(bond(&run, 1, 3)[TRUST], 430);
     let passed = laestert(2, 3, day);
-    for owner in [1_u64, 2] {
-        let held = belief(&run, owner, passed);
-        assert_eq!(held.certainty, 1000);
-        assert_eq!(held.basis, Basis::Gesehen);
-        assert_eq!(held.source, None);
-        assert_eq!(held.origin, None);
-        assert!(!held.secret);
-    }
-    assert!(
-        run.world.state().house().social.beliefs[&sim(3)]
-            .iter()
-            .all(|held| held.statement != passed)
-    );
+    assert!(!holds(&run, 1, passed));
+    assert!(!holds(&run, 2, passed));
+    assert!(!holds(&run, 3, passed));
     let deeds = &run.world.state().house().social.deeds[&sim(2)];
     assert_eq!(deeds.items.len(), 1);
     assert_eq!(deeds.items[0].kind, LAESTERT);
@@ -754,9 +761,9 @@ fn a_seen_deed_is_passed_on_with_the_heard_certainty_and_the_bond_step() {
         NECKT
     );
     assert!(!run.world.state().house().social.deeds.contains_key(&sim(1)));
-    assert_eq!(counts(&run, 3), (1, 3));
-    assert_eq!(counts(&run, 2), (2, 8));
-    assert_eq!(counts(&run, 1), (1, 5));
+    assert_eq!(counts(&run, 3), (1, 2));
+    assert_eq!(counts(&run, 2), (2, 7));
+    assert_eq!(counts(&run, 1), (1, 4));
     assert_eq!(
         run.world.talk_at(sim(1), sim(2)),
         Some(t(gossip_at + PAIR_GAP))
@@ -988,7 +995,15 @@ fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
     assert_eq!(deeds.items.len(), 2);
     assert_eq!(deeds.items[0].day, 1);
     assert_eq!(deeds.items[1].day, 1);
-    let beliefs = run.world.state().house().social.beliefs[&sim(1)].clone();
+    assert!(
+        !run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .contains_key(&sim(1))
+    );
+    let beliefs = run.world.state().house().social.beliefs[&sim(2)].clone();
     assert_eq!(beliefs.len(), 1);
     assert_eq!(beliefs[0].certainty, 1000);
     assert_eq!(beliefs[0].basis, Basis::Gesehen);
@@ -1037,12 +1052,12 @@ fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
     future.day = 2;
     refuse(&data, &bytes, &pair, &[one, encode(&future)].concat());
 
-    let owned = [encode(&sim(1)), encode(&beliefs)].concat();
+    let owned = [encode(&sim(2)), encode(&beliefs)].concat();
     let mut sure = beliefs.clone();
     sure[0].certainty = 900;
     assert!(
         World::load(
-            &spliced(&bytes, &owned, &[encode(&sim(1)), encode(&sure)].concat()),
+            &spliced(&bytes, &owned, &[encode(&sim(2)), encode(&sure)].concat()),
             data.clone()
         )
         .is_ok()
@@ -1053,7 +1068,7 @@ fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
         &data,
         &bytes,
         &owned,
-        &[encode(&sim(1)), encode(&over)].concat(),
+        &[encode(&sim(2)), encode(&over)].concat(),
     );
     let mut refuted = beliefs.clone();
     refuted[0].certainty = 500;
@@ -1062,7 +1077,7 @@ fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
         &data,
         &bytes,
         &owned,
-        &[encode(&sim(1)), encode(&refuted)].concat(),
+        &[encode(&sim(2)), encode(&refuted)].concat(),
     );
     let mut secret = beliefs.clone();
     secret[0].secret = true;
@@ -1070,48 +1085,75 @@ fn loaded_deeds_and_beliefs_keep_the_section_7_checks() {
         &data,
         &bytes,
         &owned,
-        &[encode(&sim(1)), encode(&secret)].concat(),
+        &[encode(&sim(2)), encode(&secret)].concat(),
     );
 }
 
 /// Two beliefs on one person: swapping them, or giving them one key, is refused. A child
-/// under 6 holds neither list (ADR-0031 section 7).
+/// under 6 holds neither list (ADR-0031 section 7). The two beliefs are the man's `neckt`
+/// from his partner and the later `neckt` from the child. A `neckt` is held only by the
+/// target (ADR-0031 addendum 2026-11-12).
 #[test]
 fn a_child_under_six_holds_no_belief_and_two_beliefs_stay_sorted() {
     let quiet = without_departure(7_200);
-    let born = [-60 * year(), -32 * year(), -10 * year()];
-    let (mut run, _) = day::Run::family(quiet.clone(), 0x5EED, "test:social", &born, 0);
-    let arrival = arrive(&mut run, MORNING, &[(1, FRIDGE), (2, DINING), (3, DINING)]);
+    let born = [-30 * year(), -32 * year(), -10 * year()];
+    let (mut run, home) = day::Run::family(quiet.clone(), 0x5EED, "test:social", &born, 0);
+    let arrival = arrive(&mut run, MORNING, &[(1, DINING), (2, DINING), (3, FRIDGE)]);
     let first = arrival + TALK_DELAY;
     run.advance(first);
-    run.submit(command(3, FRIDGE));
-    run.submit(command(1, DINING));
-    let gossip_at = first + 1 + WITHIN_ROOM + TALK_DELAY;
-    run.advance(gossip_at);
+    run.submit(command(3, DINING));
+    let child_talk = first + 1 + WITHIN_ROOM + TALK_DELAY;
+    assert!(
+        child_talk < first + PAIR_GAP,
+        "the couple's next talk is later"
+    );
+    run.advance(child_talk);
+    let since = run.world.state().house().households[&home].since;
+    let day = house_day(t(first), since);
+    assert_eq!(day, 1);
+    assert_eq!(talked(&run).len(), 3);
+    assert!(
+        talked(&run)
+            .iter()
+            .all(|entry| { matches!(entry.payload, LogPayload::Talked { topic: 2, .. }) })
+    );
+    let couple = neckt(1, 2, day);
+    let from_child = neckt(3, 2, day);
+    let watched = neckt(1, 3, day);
+    assert!(!holds(&run, 1, couple));
+    assert!(!holds(&run, 1, watched));
+    assert!(!holds(&run, 2, watched));
+    assert_eq!(belief(&run, 3, watched).basis, Basis::Gesehen);
     let beliefs = run.world.state().house().social.beliefs.clone();
-    let heard = &beliefs[&sim(1)];
-    assert_eq!(heard.len(), 2);
-    assert!(heard[0].key() < heard[1].key());
+    let held = &beliefs[&sim(2)];
+    assert_eq!(held.len(), 2);
+    assert_eq!(held[0].statement, couple);
+    assert_eq!(held[1].statement, from_child);
+    assert!(held[0].key() < held[1].key());
+    assert_eq!(held[0].certainty, 1000);
+    assert_eq!(held[1].certainty, 1000);
+    assert_eq!(held[0].basis, Basis::Gesehen);
+    assert_eq!(held[1].basis, Basis::Gesehen);
     let bytes = run.world.save(&run.out.year_hashes).expect("saved");
     assert!(World::load(&bytes, quiet.clone()).is_ok());
 
-    let mut swapped = heard.clone();
+    let mut swapped = held.clone();
     swapped.swap(0, 1);
-    let owned = [encode(&sim(1)), encode(heard)].concat();
+    let owned = [encode(&sim(2)), encode(held)].concat();
     refuse(
         &quiet,
         &bytes,
         &owned,
-        &[encode(&sim(1)), encode(&swapped)].concat(),
+        &[encode(&sim(2)), encode(&swapped)].concat(),
     );
-    let mut duplicated = heard.clone();
+    let mut duplicated = held.clone();
     duplicated[1].statement = duplicated[0].statement;
-    assert_eq!(encode(heard).len(), encode(&duplicated).len());
+    assert_eq!(encode(held).len(), encode(&duplicated).len());
     refuse(
         &quiet,
         &bytes,
         &owned,
-        &[encode(&sim(1)), encode(&duplicated)].concat(),
+        &[encode(&sim(2)), encode(&duplicated)].concat(),
     );
 
     let young = data(7_200, 3);
@@ -1384,9 +1426,8 @@ fn a_move_in_day_tease_is_cut_when_the_household_moves_in_again() {
     run.advance(first);
     assert!(holds_day(&run, 1, 0), "the actor's deed is house day 0");
     let seen = neckt(1, 2, 0);
-    for owner in [1_u64, 2] {
-        assert_eq!(belief(&run, owner, seen).basis, Basis::Gesehen);
-    }
+    assert!(!holds(&run, 1, seen));
+    assert_eq!(belief(&run, 2, seen).basis, Basis::Gesehen);
     run.submit(Input::MoveOut(MoveOut { household: home }));
     assert!(holds_day(&run, 1, 0), "moving out freezes the deed");
     let moved_out = first + 1;
@@ -1411,13 +1452,12 @@ fn a_move_in_day_tease_is_cut_when_the_household_moves_in_again() {
         DeedAnswer::NotDone,
         "the new stay's day 0 was not done"
     );
-    for owner in [1_u64, 2] {
-        assert_eq!(
-            belief(&run, owner, seen).basis,
-            Basis::Gesehen,
-            "the belief that names the old day stays"
-        );
-    }
+    assert!(!holds(&run, 1, seen));
+    assert_eq!(
+        belief(&run, 2, seen).basis,
+        Basis::Gesehen,
+        "the belief that names the old day stays"
+    );
 }
 
 /// The first seed whose founder 0 has no interest in Necken and whose first child with
@@ -1549,8 +1589,8 @@ fn orphan_data() -> sim_core::data::Data {
 
 /// An orphan of 6 or more joins a relative who already lives in a house (ADR-0018 section
 /// 4). The child's Necken on house day 40 of the mother's stay has no meaning in the
-/// father's calendar. The join drops it, with no entry, and the save loads. The belief
-/// that names that day stays.
+/// father's calendar. The join drops it, with no entry, and the save loads. The target
+/// holds the seen deed until her death drops it.
 #[test]
 fn an_orphan_join_drops_the_deed_of_the_old_stay() {
     let seed = orphan_seed();
@@ -1662,6 +1702,9 @@ fn an_orphan_join_drops_the_deed_of_the_old_stay() {
     );
     assert!(holds_day(&run, child.get(), 40), "the deed is house day 40");
     let seen = neckt(child.get(), 1, 40);
+    assert_eq!(belief(&run, 1, seen).certainty, 1000);
+    assert_eq!(belief(&run, 1, seen).basis, Basis::Gesehen);
+    assert!(!holds(&run, child.get(), seen));
 
     let father_morning = morning_before(death);
     assert_eq!(house_day(t(death), t(father_morning)), 1);
@@ -1688,10 +1731,18 @@ fn an_orphan_join_drops_the_deed_of_the_old_stay() {
         !run.world.state().house().social.deeds.contains_key(&child),
         "day 40 of the mother's stay is cut when the child joins"
     );
-    assert_eq!(
-        belief(&run, child.get(), seen).basis,
-        Basis::Gesehen,
-        "the belief that names the old day stays"
+    assert!(
+        !holds(&run, child.get(), seen),
+        "the doer never held the seen deed"
+    );
+    assert!(
+        !run.world
+            .state()
+            .house()
+            .social
+            .beliefs
+            .contains_key(&sim(1)),
+        "her death drops the belief that named that day"
     );
     let bytes = run.world.save(&run.out.year_hashes).expect("saved");
     World::load(&bytes, built).expect("the save loads");
@@ -1897,11 +1948,7 @@ fn a_lie_at_the_first_hit_is_heard_at_660() {
     assert_eq!(heard.origin, Some(sim(1)));
     assert_eq!(heard.since, t(at));
     assert!(!heard.secret);
-    assert!(
-        run.world.state().house().social.beliefs[&sim(1)]
-            .iter()
-            .all(|held| held.statement != said)
-    );
+    assert!(!holds(&run, 1, said));
     // Grudge fades by 10 a day from the move-in, then the heard step adds 100.
     let elapsed = at - since.as_secs();
     let grudge = u16::try_from(800 - 10 * elapsed / 86_400 + 100).expect("grudge");
@@ -1917,20 +1964,9 @@ fn a_lie_at_the_first_hit_is_heard_at_660() {
     assert_eq!(deeds.items[1].other, sim(3));
     assert_eq!(deeds.items[1].day, day);
     let seen = laestert(1, 3, day);
-    for owner in [1_u64, 2] {
-        let held = belief(&run, owner, seen);
-        assert_eq!(held.certainty, 1000);
-        assert_eq!(held.basis, Basis::Gesehen);
-    }
-    assert!(
-        run.world
-            .state()
-            .house()
-            .social
-            .beliefs
-            .get(&sim(3))
-            .is_none_or(|list| list.iter().all(|held| held.statement != seen))
-    );
+    assert!(!holds(&run, 1, seen));
+    assert!(!holds(&run, 2, seen));
+    assert!(!holds(&run, 3, seen));
     assert!(refutations(&run).is_empty());
     assert_eq!(
         talked(&run)[0].payload,
@@ -1966,6 +2002,21 @@ fn three_lies_end_at_avoidance() {
         assert_eq!(belief(&run, 2, said).certainty, 660);
         assert_eq!(belief(&run, 2, said).basis, Basis::Gehoert);
         assert_eq!(bond(&run, 2, 3)[TRUST], trusts[index]);
+        let seen = laestert(1, 3, day);
+        if index == 0 {
+            assert!(!holds(&run, 1, seen));
+            assert!(!holds(&run, 2, seen));
+            assert!(!holds(&run, 3, seen));
+        } else {
+            let held = belief(&run, 3, seen);
+            assert_eq!(held.certainty, 1000);
+            assert_eq!(held.basis, Basis::Gesehen);
+            assert_eq!(held.source, None);
+            assert_eq!(held.origin, None);
+            assert!(!held.secret);
+            assert!(!holds(&run, 1, seen));
+            assert!(!holds(&run, 2, seen));
+        }
         let told = (told_lies(&run).into_iter())
             .find(|entry| entry.t == t(at))
             .expect("the lie");
@@ -2210,11 +2261,14 @@ fn talked_at(run: &Run, at: i64) -> LogPayload {
 /// case in `the_lie_and_the_refutation_match_the_reference`.
 ///
 /// Seconds are the reference's, seed `0x5EED`. 23 400 lies (founder 0 toward 1, u = 22 823).
-/// 27 000 passes it on (founder 1 toward 0 misses, u = 883 351). 27 800 refutes the hearer's
-/// copy (founder 2 toward 1 hits, u = 289 620). 28 600 tells the doer what was seen, and her
-/// refutation of the remaining copy misses (u = 664 049). 29 400 she tells it onward and the
-/// lie draw misses (u = 724 145), so the deed is recorded. 30 600 would refute (founder 1
-/// toward 0, u = 482 675) and the lie draw misses (u = 210 480).
+/// 27 000 passes it on (founder 1 toward 0 misses, u = 883 351). The fourth person sits
+/// through that talk and holds the seen `lästert`; the speaker and the sentence hearer do
+/// not. 27 800 refutes the hearer's copy (founder 2 toward 1 hits, u = 289 620). 28 600 the
+/// witness tells the girl (founder 3 toward 2 misses, u = 215 629), so the girl holds what
+/// the man did at 733. 29 400 the girl tells the woman (founder 2 toward 0 misses,
+/// u = 664 883). That records the girl's gossip about him, and the statement is true. Her
+/// trust in him falls by 20, to 580. 30 600 would refute (founder 1 toward 0, u = 482 675)
+/// and writes nothing. The lie draw of founder 0 toward 1 misses (u = 210 480).
 #[test]
 fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     let (mut run, home) = lie_early_four();
@@ -2244,10 +2298,19 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     );
     to_toilet(&mut run, lie_at, &[1, 2]);
 
-    // The hearer passes the lie on. His own lie draw misses, so the woman holds it too,
-    // and both see him gossip about the girl.
+    // The hearer passes the lie on. His own lie draw misses, so the woman holds it too.
+    // Speaker and sentence hearer do not hold the seen `lästert`. The fourth person sits
+    // one second before the talk, so she does.
     let pass_at = 27_000;
-    stage(&mut run, pass_at, false);
+    let arrival = arrive(
+        &mut run,
+        pass_at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(1, DINING), (2, DINING)],
+    );
+    assert_eq!(arrival + TALK_DELAY, pass_at);
+    let joined = arrive(&mut run, pass_at - WITHIN_ROOM - 2, &[(4, DINING)]);
+    assert_eq!(joined, pass_at - 1);
+    run.advance(pass_at);
     let passed_lie = DrawRef::from(lie_draw_key(founder(1), t(pass_at), founder(0)));
     assert!(
         run.log
@@ -2263,8 +2326,14 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     assert_eq!(heard.origin, Some(sim(1)));
     assert_eq!(belief(&run, 2, said).basis, Basis::Gehoert);
     let seen_man = laestert(2, 3, day);
-    assert_eq!(belief(&run, 1, seen_man).certainty, 1000);
-    assert_eq!(belief(&run, 1, seen_man).basis, Basis::Gesehen);
+    assert!(!holds(&run, 1, seen_man));
+    assert!(!holds(&run, 2, seen_man));
+    let witnessed = belief(&run, 4, seen_man);
+    assert_eq!(witnessed.certainty, 1000);
+    assert_eq!(witnessed.basis, Basis::Gesehen);
+    assert_eq!(witnessed.source, None);
+    assert_eq!(witnessed.origin, None);
+    assert!(!witnessed.secret);
     assert_eq!(
         talked_at(&run, pass_at),
         LogPayload::Talked {
@@ -2274,7 +2343,7 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
             actor: None,
         }
     );
-    to_toilet(&mut run, pass_at, &[1, 2]);
+    to_toilet(&mut run, pass_at, &[1, 2, 4]);
 
     // The girl refutes the hearer's copy. The woman's copy stays.
     let refute_at = 27_800;
@@ -2305,77 +2374,69 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     );
     to_toilet(&mut run, refute_at, &[2, 3]);
 
-    // The woman tells the girl the seen deed. The fourth person sits in time to see the
-    // telling, so that deed is not material when the girl repeats it, and stands up before
-    // her own talks. The girl's refutation of the remaining copy misses.
+    // The witness tells the girl what the man did. Her lie draw misses, so this is that
+    // deed and not a lie. The girl is the one it is about, so her edge to him steps.
+    // Speaker and sentence hearer hold no seen copy of this telling. The girl's own
+    // gossip is not recorded yet: she is the hearer, not the speaker.
     let tell_at = 28_600;
     let seated = arrive(
         &mut run,
         tell_at - TALK_DELAY - WITHIN_ROOM - 1,
-        &[(1, DINING), (3, DINING)],
+        &[(3, DINING), (4, DINING)],
     );
     assert_eq!(seated + TALK_DELAY, tell_at);
-    let joined = arrive(&mut run, seated, &[(4, DINING)]);
-    assert!(joined < tell_at, "she is seated before the telling");
     run.advance(tell_at);
     assert_eq!(talked(&run).len(), 4);
-    let girl_heard = belief(&run, 3, seen_man);
-    assert_eq!(girl_heard.certainty, 733);
-    assert_eq!(girl_heard.basis, Basis::Gehoert);
-    let seen_woman = laestert(1, 2, day);
-    assert_eq!(belief(&run, 4, seen_woman).certainty, 1000);
-    assert_eq!(belief(&run, 4, seen_woman).basis, Basis::Gesehen);
+    let tell_lie = lie_draw_key(founder(3), t(tell_at), founder(2));
+    assert_eq!(talk_ppm(WorldSeed::new(0x5EED), tell_lie), 215_629);
+    assert!(
+        run.log
+            .iter()
+            .all(|entry| !caused_by(entry, DrawRef::from(tell_lie)))
+    );
+    assert!(told_lies(&run).iter().all(|entry| entry.t != t(tell_at)));
+    let told = (run.log.iter())
+        .find(|entry| entry.t == t(tell_at) && matches!(entry.payload, LogPayload::Told { .. }))
+        .expect("she tells what she saw");
+    assert_eq!(told.subjects, vec![Subject::Sim(sim(4))]);
+    assert_eq!(
+        told.payload,
+        LogPayload::Told {
+            to: sim(3),
+            statement: seen_man,
+            certainty: 1000,
+            lie: false,
+        }
+    );
+    let heard_seen = belief(&run, 3, seen_man);
+    assert_eq!(heard_seen.certainty, 733);
+    assert_eq!(heard_seen.basis, Basis::Gehoert);
+    assert_eq!(heard_seen.source, Some(sim(4)));
+    assert_eq!(heard_seen.origin, Some(sim(4)));
+    assert_eq!(belief(&run, 4, seen_man).certainty, 1000);
+    assert_eq!(belief(&run, 4, seen_man).basis, Basis::Gesehen);
+    assert!(!holds(&run, 1, seen_man));
+    assert!(!holds(&run, 2, seen_man));
+    assert!(!holds(&run, 3, laestert(4, 2, day)));
+    assert!(!holds(&run, 4, laestert(4, 2, day)));
     assert!(
         run.world
             .state()
             .house()
             .social
-            .beliefs
-            .get(&sim(4))
-            .is_none_or(|list| list.iter().all(|held| held.statement != seen_man))
+            .deeds
+            .get(&sim(3))
+            .is_none()
     );
     assert_eq!(belief(&run, 1, said).certainty, 484);
     assert_eq!(belief(&run, 1, said).basis, Basis::Gehoert);
-    let missed = DrawRef::from(refute_draw_key(founder(2), t(tell_at), founder(0)));
-    assert!(run.log.iter().all(|entry| !caused_by(entry, missed)));
+    // Grudge fades by 10 a day from the move-in: 10 * 27 600 / 86 400 = 3, then the
+    // sentence names her, so trust -80 and grudge +100.
+    assert_eq!(bond(&run, 3, 2)[TRUST], 520);
+    assert_eq!(bond(&run, 3, 2)[GRUDGE], 897);
+    assert_eq!(refutations(&run).len(), 1);
     assert_eq!(
         talked_at(&run, tell_at),
-        LogPayload::Talked {
-            other: sim(3),
-            object: DINING,
-            topic: 3,
-            actor: None,
-        }
-    );
-    to_toilet(&mut run, tell_at, &[1, 3, 4]);
-
-    // The girl tells the fourth person. Her lie draw misses, so she says what the man did,
-    // and that records her own gossip about him. The lie is now a true deed.
-    let deed_at = 29_400;
-    let arrival = arrive(
-        &mut run,
-        deed_at - TALK_DELAY - WITHIN_ROOM - 1,
-        &[(3, DINING), (4, DINING)],
-    );
-    assert_eq!(arrival + TALK_DELAY, deed_at);
-    run.advance(deed_at);
-    let deed_lie = DrawRef::from(lie_draw_key(founder(2), t(deed_at), founder(3)));
-    assert!(
-        run.log
-            .iter()
-            .filter(|entry| entry.t == t(deed_at))
-            .all(|entry| !caused_by(entry, deed_lie))
-    );
-    assert!(told_lies(&run).iter().all(|entry| entry.t != t(deed_at)));
-    let deeds = &run.world.state().house().social.deeds[&sim(3)];
-    assert_eq!(
-        deeds.knows(LAESTERT, sim(2), day, day, 30),
-        DeedAnswer::Done
-    );
-    assert_eq!(belief(&run, 2, said).basis, Basis::Widerlegt);
-    assert_eq!(belief(&run, 1, said).basis, Basis::Gehoert);
-    assert_eq!(
-        talked_at(&run, deed_at),
         LogPayload::Talked {
             other: sim(4),
             object: DINING,
@@ -2383,13 +2444,79 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
             actor: None,
         }
     );
-    to_toilet(&mut run, deed_at, &[3, 4]);
+    to_toilet(&mut run, tell_at, &[3, 4]);
+
+    // The girl tells the woman. Her lie draw misses, so she says what the man did, and
+    // that records her own gossip about him. The lie is now a true deed. The woman was
+    // not the one named, so her trust in him falls by 20 only. Speaker and sentence
+    // hearer do not take the seen copy.
+    let deed_at = 29_400;
+    let arrival = arrive(
+        &mut run,
+        deed_at - TALK_DELAY - WITHIN_ROOM - 1,
+        &[(1, DINING), (3, DINING)],
+    );
+    assert_eq!(arrival + TALK_DELAY, deed_at);
+    run.advance(deed_at);
+    let deed_lie = lie_draw_key(founder(2), t(deed_at), founder(0));
+    assert_eq!(talk_ppm(WorldSeed::new(0x5EED), deed_lie), 664_883);
+    assert!(
+        run.log
+            .iter()
+            .all(|entry| !caused_by(entry, DrawRef::from(deed_lie)))
+    );
+    assert!(told_lies(&run).iter().all(|entry| entry.t != t(deed_at)));
+    let told = (run.log.iter())
+        .find(|entry| entry.t == t(deed_at) && matches!(entry.payload, LogPayload::Told { .. }))
+        .expect("she tells what the man did");
+    assert_eq!(told.subjects, vec![Subject::Sim(sim(3))]);
+    assert_eq!(
+        told.payload,
+        LogPayload::Told {
+            to: sim(1),
+            statement: seen_man,
+            certainty: 733,
+            lie: false,
+        }
+    );
+    let deeds = &run.world.state().house().social.deeds[&sim(3)];
+    assert_eq!(
+        deeds.knows(LAESTERT, sim(2), day, day, 30),
+        DeedAnswer::Done
+    );
+    // She trusts the girl at 580: the passing stepped that edge by 20. floor(733 * 1080 / 1500) = 527.
+    let woman_heard = belief(&run, 1, seen_man);
+    assert_eq!(woman_heard.certainty, 527);
+    assert_eq!(woman_heard.basis, Basis::Gehoert);
+    assert_eq!(woman_heard.source, Some(sim(3)));
+    assert_eq!(woman_heard.origin, Some(sim(4)));
+    assert!(!holds(&run, 3, said));
+    assert!(!holds(&run, 4, said));
+    assert_eq!(belief(&run, 2, said).basis, Basis::Widerlegt);
+    assert_eq!(belief(&run, 1, said).certainty, 484);
+    assert_eq!(belief(&run, 1, said).basis, Basis::Gehoert);
+    assert_eq!(belief(&run, 3, seen_man).certainty, 733);
+    assert_eq!(bond(&run, 1, 2)[TRUST], 580);
+    assert_eq!(bond(&run, 1, 2)[GRUDGE], 0);
+    assert_eq!(bond(&run, 3, 2)[TRUST], 520);
+    assert_eq!(bond(&run, 3, 2)[GRUDGE], 897);
+    assert_eq!(refutations(&run).len(), 1);
+    assert_eq!(
+        talked_at(&run, deed_at),
+        LogPayload::Talked {
+            other: sim(3),
+            object: DINING,
+            topic: 3,
+            actor: None,
+        }
+    );
+    to_toilet(&mut run, deed_at, &[1, 3]);
 
     let man_to_woman = bond(&run, 2, 1);
     let woman_to_man = bond(&run, 1, 2);
     assert_eq!(man_to_woman[TRUST], 480);
     assert_eq!(man_to_woman[GRUDGE], 150);
-    assert_eq!(woman_to_man[TRUST], 600);
+    assert_eq!(woman_to_man[TRUST], 580);
     assert_eq!(woman_to_man[GRUDGE], 0);
 
     // X with Y. He holds the statement widerlegt and she still holds it, and it is true.

@@ -197,6 +197,35 @@ pub fn hear(
     }
 }
 
+/// Who among `seated` stores a deed seen at the furniture (ADR-0031 addendum 2026-11-12).
+///
+/// `neckt` is stored only by the target (`other`), and not when that person is the doer.
+/// `lästert` is stored by every seated person except the doer and except `hearer`, the hearer
+/// of the sentence in this talk. `hearer` is `None` when the deed is not the seen act of a
+/// sentence, and then only the doer is left out. Any other kind is stored by nobody. The
+/// order is the order of `seated`. Age is the caller's check.
+pub fn audience(
+    kind: u16,
+    doer: SimId,
+    other: SimId,
+    seated: &[SimId],
+    hearer: Option<SimId>,
+) -> Vec<SimId> {
+    match kind {
+        NECKT => seated
+            .iter()
+            .copied()
+            .filter(|&holder| holder == other && holder != doer)
+            .collect(),
+        LAESTERT => seated
+            .iter()
+            .copied()
+            .filter(|&holder| holder != doer && Some(holder) != hearer)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// A deed seen in a talk: certainty 1000, basis `gesehen`, source and origin empty. It replaces
 /// a heard sentence of the same key and leaves every other basis alone (ADR-0031 section 2).
 pub fn see(held: Option<Belief>, statement: Statement, now: SimTime) -> Taken {
@@ -246,10 +275,12 @@ pub enum BeliefInsertion {
     Refused,
 }
 
-/// The order in which a belief falls: smallest certainty, then the older `since`, then the
-/// smaller key.
-fn falls(belief: Belief) -> (u16, SimTime, StatementKey) {
-    (belief.certainty, belief.since, belief.key())
+/// The order in which a belief falls. Unprotected `gesehen` falls before every other basis.
+/// Within a group: smallest certainty, then the older `since`, then the smaller key
+/// (ADR-0031 addendum 2026-11-12).
+fn falls(belief: Belief) -> (u8, u16, SimTime, StatementKey) {
+    let later = u8::from(belief.basis != Basis::Gesehen);
+    (later, belief.certainty, belief.since, belief.key())
 }
 
 fn kept_back(belief: Belief, own_children: &[SimId]) -> bool {
@@ -265,8 +296,10 @@ fn kept_back(belief: Belief, own_children: &[SimId]) -> bool {
 /// Takes `new` into the sorted `list`. The key must be new. A full list drops the weakest of
 /// the ones that may fall and of `new`, unless `new` is protected, in which case it never
 /// falls (ADR-0031 section 2: never a `secret`, never a `VaterVon` of the holder's own child).
-/// The newcomer counts, as in ADR-0030 section 1. One belief falls, even when the list is
-/// already past `cap` (the reference builds that case).
+/// Protection comes first. After it, an unprotected `gesehen` falls before any other basis,
+/// and within each group the order is smallest certainty, then the older `since`, then the
+/// smaller key (ADR-0031 addendum 2026-11-12). The newcomer counts, as in ADR-0030 section 1.
+/// One belief falls, even when the list is already past `cap` (the reference builds that case).
 ///
 /// # Panics
 ///
@@ -288,7 +321,7 @@ pub fn insert(
         list.insert(at, new);
         return BeliefInsertion::Added;
     }
-    let mut weakest: Option<(usize, (u16, SimTime, StatementKey))> = None;
+    let mut weakest: Option<(usize, (u8, u16, SimTime, StatementKey))> = None;
     for (index, belief) in list.iter().enumerate() {
         if kept_back(*belief, own_children) {
             continue;
@@ -1057,6 +1090,38 @@ mod tests {
         assert_eq!(see(Some(took_part), key, t(12)), Taken::Unchanged);
     }
 
+    /// `neckt` is the target's only. `lästert` is every seated person except the doer and
+    /// except the hearer of the sentence (ADR-0031 addendum 2026-11-12).
+    #[test]
+    fn the_audience_of_a_seen_deed_is_the_target_or_the_bystanders() {
+        let seated = [id(1), id(2), id(3), id(4)];
+        assert_eq!(audience(NECKT, id(1), id(2), &seated, None), vec![id(2)]);
+        assert_eq!(
+            audience(NECKT, id(2), id(2), &seated, None),
+            Vec::<SimId>::new()
+        );
+        assert_eq!(
+            audience(NECKT, id(1), id(9), &seated, None),
+            Vec::<SimId>::new()
+        );
+        assert_eq!(
+            audience(LAESTERT, id(1), id(9), &seated, Some(id(2))),
+            vec![id(3), id(4)]
+        );
+        assert_eq!(
+            audience(LAESTERT, id(1), id(9), &seated, Some(id(8))),
+            vec![id(2), id(3), id(4)]
+        );
+        assert_eq!(
+            audience(LAESTERT, id(1), id(9), &seated, None),
+            vec![id(2), id(3), id(4)]
+        );
+        assert_eq!(
+            audience(LUEGT, id(1), id(2), &seated, None),
+            Vec::<SimId>::new()
+        );
+    }
+
     #[test]
     fn heard_bond_steps_match_the_reference_chain() {
         let rules = rules();
@@ -1206,6 +1271,95 @@ mod tests {
             BeliefInsertion::Refused
         );
         assert_eq!(protected.len(), 32);
+    }
+
+    /// Thirty-two deeds seen at 1000. `since` is `100 + day`, so day 0 is the oldest.
+    fn seen_full() -> Vec<Belief> {
+        let mut list = Vec::new();
+        for day in 0..32 {
+            list.push(seen_belief(tat(50, NECKT, 51, day), 100 + day));
+        }
+        list
+    }
+
+    /// A heard lie at housemate trust is `floor(900 · (500 + 450) / 1500)` = 570. It stays
+    /// in a list that is full of seen 1000s, because unprotected `gesehen` falls first. A
+    /// seen newcomer displaces a seen belief and leaves a heard one. The newcomer counts:
+    /// a seen newcomer older than every seen belief is refused, and it does not displace a
+    /// heard belief when the list holds none that were seen (ADR-0031 addendum 2026-11-12).
+    #[test]
+    fn gesehen_falls_before_every_other_basis_and_a_lie_at_570_stays() {
+        let rules = rules();
+        let certainty = heard_certainty(900, 450, &rules);
+        assert_eq!(certainty, 570);
+        let lie = heard(tat(60, LAESTERT, 61, 0), certainty, 1000, 7, 7);
+        let mut list = seen_full();
+        match insert(&mut list, lie, &[], 32) {
+            BeliefInsertion::Displaced(old) => {
+                assert_eq!(old.statement, tat(50, NECKT, 51, 0));
+                assert_eq!(old.basis, Basis::Gesehen);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(list.len(), 32);
+        assert_eq!(
+            find(&list, lie.key()).map(|belief| belief.certainty),
+            Some(570)
+        );
+
+        let heard_key = tat(50, NECKT, 51, 5);
+        let mut mixed = seen_full();
+        let at = mixed
+            .iter()
+            .position(|belief| belief.statement == heard_key)
+            .expect("day 5");
+        mixed[at] = heard(heard_key, 1, 105, 2, 2);
+        let seen_new = seen_belief(tat(60, NECKT, 61, 0), 1000);
+        match insert(&mut mixed, seen_new, &[], 32) {
+            BeliefInsertion::Displaced(old) => {
+                assert_eq!(old.statement, tat(50, NECKT, 51, 0));
+                assert_eq!(old.basis, Basis::Gesehen);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(find(&mixed, heard_key.key()).is_some_and(|belief| belief.basis == Basis::Gehoert));
+        assert_eq!(
+            find(&mixed, seen_new.key()).map(|belief| belief.certainty),
+            Some(1000)
+        );
+
+        let mut secret_seen = seen_full();
+        secret_seen[0].certainty = 1;
+        secret_seen[0].secret = true;
+        match insert(&mut secret_seen, lie, &[], 32) {
+            BeliefInsertion::Displaced(old) => assert_eq!(old.statement, tat(50, NECKT, 51, 1)),
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            find(&secret_seen, tat(50, NECKT, 51, 0).key()).is_some_and(|belief| belief.secret)
+        );
+
+        let mut only_heard = full(&[]);
+        let older_seen = seen_belief(tat(60, NECKT, 61, 2), 50);
+        assert_eq!(
+            insert(&mut only_heard, older_seen, &[], 32),
+            BeliefInsertion::Refused
+        );
+        assert!(find(&only_heard, older_seen.key()).is_none());
+        let mut older_than_seen = seen_full();
+        let weak_heard = heard(tat(50, NECKT, 51, 7), 1, 107, 2, 2);
+        let at = older_than_seen
+            .iter()
+            .position(|belief| belief.statement == weak_heard.statement)
+            .expect("day 7");
+        older_than_seen[at] = weak_heard;
+        let too_old = seen_belief(tat(60, NECKT, 61, 3), 50);
+        assert_eq!(
+            insert(&mut older_than_seen, too_old, &[], 32),
+            BeliefInsertion::Refused
+        );
+        assert!(find(&older_than_seen, weak_heard.key()).is_some());
+        assert!(find(&older_than_seen, too_old.key()).is_none());
     }
 
     #[test]
