@@ -23,10 +23,10 @@ What it implements:
 - `--canary`: how the three canaries of criterion 4 (passing on, avoidance, refutation
   switched off one at a time) show up as red in this report.
 - `--check`: hand-built logs. A full chain in order for the first hearer and for a later
-  hearer, the same links out of order, a chain missing each link, a two-hop passing, a lie
-  as the origin, and a few logs that must not complete a link. Entry ids increase in append
-  order. An event cause names an earlier entry of that handler call. A plan names an
-  earlier entry (ADR-0004).
+  hearer, the same links out of order, an early avoidance that does not hide a later one,
+  a chain missing each link, a two-hop passing, a lie as the origin, and a few logs that
+  must not complete a link. Entry ids increase in append order. An event cause names an
+  earlier entry of that handler call. A plan names an earlier entry (ADR-0004).
 
 Input, the on-disk domain log (ADR-0004 sections 7 and 8). Read from
 `crates/sim-core/src/log.rs` (the entry, the causes, the payload variants) and from the
@@ -42,7 +42,8 @@ types embed were confirmed in `crates/sim-core/src/social/belief.rs` (`Statement
 - Causes are externally tagged and snake_case: `{"event": <id>}`, `{"plan": {"by", "planned_at"}}`,
   `{"input": <seq>}`, `{"rule": "core:..."}`, `{"random": {"tag", "subject", "occasion", "detail"}}`
   with each draw field 16 lowercase hex digits. An event cause is an earlier entry of the same
-  handler call.
+  handler call. A lie draw's subject is the speaker and a refutation draw's subject is the
+  refuter; the occasion is that talk's second and the detail is the hearer.
 - A statement is `{"tat": {"doer", "kind", "other", "day"}}` or
   `{"vater_von": {"child", "man"}}`. Basis `gehört` is the heard one. Trust is value index 1
   of `before` / `after` on `core:bond_changed` (affection, trust, respect, attraction,
@@ -466,7 +467,8 @@ def _lowering(believed: dict, statement: dict, bonds: list, by_id: dict, index: 
     return None, ""
 
 
-def _company_after(bond: dict, companies: list, index: dict) -> dict | None:
+def _company_after(bond: dict, companies: list, index: dict, after: int | None) -> dict | None:
+    """The first avoidance after the trust drop and after the previous link, if there is one."""
     person = bond_other(bond)
     who = subject_of(bond)
     if person is None or who is None:
@@ -474,6 +476,8 @@ def _company_after(bond: dict, companies: list, index: dict) -> dict | None:
     found = None
     for company in companies:
         if not earlier(index, bond["id"], company["id"]):
+            continue
+        if not _later_than(index, after, company):
             continue
         if subject_of(company) != who or not avoids(company, person):
             continue
@@ -589,14 +593,14 @@ def _story_from(told, believed, told_on, bonds, companies, refuteds, by_id, inde
     if lowered is not None:
         story.lowered = lowered["id"]
         story.avoided_person = bond_other(lowered)
-        company = _company_after(lowered, companies, index)
-        if company is not None and _later_than(index, story.told_on, company):
+        company = _company_after(lowered, companies, index, story.told_on)
+        if company is not None:
             story.avoided = company["id"]
+    # Each later link is the first row after the previous one: avoidance, then refutation.
+    previous = story.avoided if story.avoided is not None else story.told_on
     candidates = []
     for refuted in _refutations(person, refuteds, index):
-        if not _later_than(index, story.told_on, refuted):
-            continue
-        if story.avoided is not None and not earlier(index, story.avoided, refuted["id"]):
+        if not _later_than(index, previous, refuted):
             continue
         candidates.append(refuted)
     chosen_refuted = None
@@ -819,14 +823,16 @@ def _plan(by: int, at: int) -> list:
     return [{"plan": {"by": by, "planned_at": at}}]
 
 
-def _draw(tag: str) -> list:
+def _draw(tag: str, subject: int, occasion: int, detail: int) -> list:
+    """A lie or refutation address. Subject is the speaker or the refuter, occasion the
+    second, detail the hearer."""
     return [
         {
             "random": {
                 "tag": tag,
-                "subject": "0000000000000001",
-                "occasion": "0000000000002328",
-                "detail": "0000000000000002",
+                "subject": f"{subject:016x}",
+                "occasion": f"{occasion:016x}",
+                "detail": f"{detail:016x}",
             }
         }
     ]
@@ -837,7 +843,7 @@ def _refuted(entry_id, second, hearer, statement, source, by=5) -> dict:
         entry_id,
         second,
         hearer,
-        _draw(REFUTE_DRAW),
+        _draw(REFUTE_DRAW, by, second, hearer),
         {"core:refuted": {"by": by, "statement": statement, "source": source}},
     )
 
@@ -854,7 +860,7 @@ def full_log(lie: bool = False) -> list:
     handler. The belief, the unbelieved and the bond follow, each event cause the previous
     entry. Later handlers name a plan.
     """
-    told_cause = _draw(LIE_DRAW) if lie else _event(12)
+    told_cause = _draw(LIE_DRAW, 1, 1000, 2) if lie else _event(12)
     return [
         _started(10, 100),
         _company(11, 500, 2, 4, _plan(10, 100)),
@@ -881,7 +887,7 @@ def later_log() -> list:
     """
     return [
         _started(10, 100),
-        _told(11, 1000, 1, 2, AIMED_AT_JONAS, True, _draw(LIE_DRAW)),
+        _told(11, 1000, 1, 2, AIMED_AT_JONAS, True, _draw(LIE_DRAW, 1, 1000, 2)),
         _believed(12, 1000, 2, AIMED_AT_JONAS, 1, 1, _event(11)),
         _bond(13, 1000, 2, 4, 450, 430, _event(12)),
         _told(14, 5000, 2, 3, AIMED_AT_JONAS, False, _plan(13, 1000)),
@@ -896,7 +902,7 @@ def later_log() -> list:
 def disordered_log() -> list:
     """The six links joined, but avoidance, refutation and trust loss precede the telling on."""
     return [
-        _told(10, 1000, 1, 2, SENTENCE, True, _draw(LIE_DRAW)),
+        _told(10, 1000, 1, 2, SENTENCE, True, _draw(LIE_DRAW, 1, 1000, 2)),
         _believed(11, 1000, 2, SENTENCE, 1, 1, _event(10)),
         _bond(12, 1000, 2, 4, 450, 370, _event(11)),
         _company(13, 2000, 2, 4, _plan(12, 1000)),
@@ -909,13 +915,32 @@ def disordered_log() -> list:
 def refuted_too_early() -> list:
     """Told on, then the refutation, and only afterwards the avoidance."""
     return [
-        _told(10, 1000, 1, 2, SENTENCE, True, _draw(LIE_DRAW)),
+        _told(10, 1000, 1, 2, SENTENCE, True, _draw(LIE_DRAW, 1, 1000, 2)),
         _believed(11, 1000, 2, SENTENCE, 1, 1, _event(10)),
         _bond(12, 1000, 2, 4, 450, 370, _event(11)),
         _told(13, 5000, 2, 3, SENTENCE, False, _plan(12, 1000)),
         _refuted(14, 6000, 2, SENTENCE, 1),
         _bond(15, 6000, 2, 1, 500, 380, _event(14)),
         _company(16, 8000, 2, 4, _plan(12, 7000)),
+    ]
+
+
+def avoidance_before_told_on() -> list:
+    """An avoidance before the onward telling, then a valid one after it.
+
+    Both rows are the same person avoiding the same doer. The early one must not hide
+    the later one.
+    """
+    return [
+        _started(10, 100),
+        _told(11, 1000, 1, 2, SENTENCE, False, _plan(10, 900)),
+        _believed(12, 1000, 2, SENTENCE, 1, 1, _event(11)),
+        _bond(13, 1000, 2, 4, 450, 370, _event(12)),
+        _company(14, 2000, 2, 4, _plan(13, 1000)),
+        _told(15, 5000, 2, 3, SENTENCE, False, _plan(13, 1000)),
+        _company(16, 8000, 2, 4, _plan(13, 7000)),
+        _refuted(17, 9000, 2, SENTENCE, 1),
+        _bond(18, 9000, 2, 1, 500, 380, _event(17)),
     ]
 
 
@@ -1150,6 +1175,8 @@ def check_all() -> None:
         0,
         ("refuted", "trust_loss"),
     )
+    report = _expect("avoidance_before_told_on", avoidance_before_told_on(), 1, 1, ())
+    _expect_ids(report, (11, 12, 15, 13, 16, 17, 18), False)
     report = _expect("later_hearer", later_log(), 1, 1, ())
     _expect_ids(
         report,
