@@ -458,9 +458,10 @@ pub(crate) fn decide(
 }
 
 /// Company and avoid for this choice, and the log rows of the furniture where one of them
-/// counts (ADR-0030 section 4). Someone there is another member of the household with an action
-/// on that object, sitting or still on the way. A bare hold is not enough, and a person with no
-/// bond is skipped. Without social data the bonus is 0 and there is no row.
+/// counts (ADR-0030 section 4). Company counts another member of the household with an action
+/// on that object, sitting or still on the way. Avoid counts only one who has arrived and sits.
+/// A bare hold is not enough, and a person with no bond is skipped. Without social data the
+/// bonus is 0 and there is no row.
 fn company_of(
     domain: &DomainState,
     data: &Data,
@@ -486,42 +487,50 @@ fn company_of(
         if !social.sociable(&def.kind) {
             continue;
         }
-        let mut present = Vec::new();
+        let mut for_company = Vec::new();
+        let mut for_avoid = Vec::new();
         for other in members {
             if *other == sim {
                 continue;
             }
-            let there = (domain.house.sims.get(other))
-                .and_then(|person| person.action)
-                .is_some_and(|action| action.object == object);
-            if there {
-                present.push(*other);
+            let Some(person) = domain.house.sims.get(other) else {
+                continue;
+            };
+            let Some(action) = person.action else {
+                continue;
+            };
+            if action.object != object {
+                continue;
+            }
+            // On the way the place is reserved, so company counts. Avoid waits for arrival.
+            for_company.push(*other);
+            if matches!(person.place, Place::Room(_)) {
+                for_avoid.push(*other);
             }
         }
-        let weighed = choice_bonus(
-            &present,
-            |other| {
-                let list = bonds?;
-                let at = list.binary_search_by_key(&other, |bond| bond.other).ok()?;
-                Some(list[at].values_at(now, familiarity, grudge))
-            },
-            (
-                i64::from(rules.company),
-                i64::from(rules.avoid),
-                rules.company_min_sum,
-                rules.avoid_below_trust,
-            ),
+        let edge = |other| {
+            let list = bonds?;
+            let at = list.binary_search_by_key(&other, |bond| bond.other).ok()?;
+            Some(list[at].values_at(now, familiarity, grudge))
+        };
+        let points = (
+            i64::from(rules.company),
+            i64::from(rules.avoid),
+            rules.company_min_sum,
+            rules.avoid_below_trust,
         );
-        if weighed.liked.is_none() && weighed.avoided.is_none() {
+        let liked = choice_bonus(&for_company, edge, points);
+        let avoided = choice_bonus(&for_avoid, edge, points);
+        if liked.liked.is_none() && avoided.avoided.is_none() {
             continue;
         }
-        nets[usize::from(object)] = weighed.company - weighed.avoid;
+        nets[usize::from(object)] = liked.company - avoided.avoid;
         rows.push(Company {
             object,
-            liked: weighed.liked,
-            company: weighed.company,
-            avoided: weighed.avoided,
-            avoid: weighed.avoid,
+            liked: liked.liked,
+            company: liked.company,
+            avoided: avoided.avoided,
+            avoid: avoided.avoid,
         });
     }
     (nets, rows)
