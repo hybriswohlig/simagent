@@ -9,20 +9,27 @@ mod common;
 use common::day::{self, MORNING, Run};
 use serde_json::json;
 use sim_core::canonical::PROJECTION_VERSION;
-use sim_core::data_id::{Code, DataId};
+use sim_core::data_id::{Code, DataId, str_key};
+use sim_core::genome::Sex;
 use sim_core::ids::{HouseholdId, SimId};
-use sim_core::input::{Command, Input, MoveIn, MoveOut};
+use sim_core::input::{
+    Command, Couple, Founder, Input, MoveIn, MoveOut, SeparatePartnership, Start,
+};
 use sim_core::lineage::LineageKey;
 use sim_core::log::{Cause, DrawRef, LogEntry, LogPayload, Subject};
-use sim_core::mortality::accident_age;
+use sim_core::mortality::{StepHazard, accident_age, disease_age};
+use sim_core::params::WorldParams;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::belief::{
-    Basis, Belief, DeedAnswer, LAESTERT, LUEGT, NECKT, Statement, gossip_material, live_material,
+    Basis, Belief, DeedAnswer, Deeds, LAESTERT, LUEGT, NECKT, Statement, gossip_material,
+    live_material,
 };
 use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::{REFUTED, TALK};
-use sim_core::social::talk::{house_day, lie_draw_key, refute_draw_key, talk_ppm};
-use sim_core::time::{SimDuration, SimTime, YEAR};
+use sim_core::social::talk::{
+    TEASE, house_day, interests, lie_draw_key, refute_draw_key, talk_ppm,
+};
+use sim_core::time::{MONTH, SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
 use sim_core::world::{EventPayload, FORMAT_VERSION, LoadError, World, YearOut};
 
@@ -1330,10 +1337,9 @@ fn a_deed_stays_inert_after_thirty_house_days_and_is_cut_on_the_next_record() {
     );
 }
 
-/// READING: ADR-0031 section 1 freezes deeds on moving out and is silent on the next move-in.
-/// Memories resume when the person enters a moved-in household again. A frozen deed is judged
-/// the same way, against the house day counted from the new `since`. Day 1 is after that
-/// today of 0, so it drops, with no entry. It is still there while the household is outside.
+/// A frozen deed of house day 1 is after the new stay's house day 0, so the next move-in
+/// cuts it (ADR-0031 section 1, addendum 2026-11-11). It is still there while the household
+/// is outside.
 #[test]
 fn moving_in_again_judges_a_frozen_deed_against_the_new_house_day() {
     let (mut run, home) = couple(7_200);
@@ -1353,6 +1359,342 @@ fn moving_in_again_judges_a_frozen_deed_against_the_new_house_day() {
     let again = run.world.state().house().households[&home].since;
     assert_eq!(house_day(again, again), 0);
     assert!(!holds_day(&run, 1, 1), "day 1 is after the new house day");
+}
+
+/// A tease on the move-in day is house day 0. Moving out keeps it. Moving in a year later
+/// cuts every deed of that stay, day 0 included, because the new stay counts from 0 again
+/// (ADR-0031 section 1 and the addendum of 2026-11-11). A move-in touches the lists, so the
+/// cut writes no entry. The belief that names day 0 stays, and that day of the new stay is
+/// known not to have been done. She is 50, so her fertility factor is already 0 and the year
+/// outside bears no child.
+#[test]
+fn a_move_in_day_tease_is_cut_when_the_household_moves_in_again() {
+    let born = [-50 * year(), -52 * year()];
+    let mut run = Run::founded(data(7_200, 2), 0x5EED, "test:social", &born);
+    let home = run.together(2).expect("their household");
+    let morning = 6 * 3600;
+    run.advance(morning - 1);
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    run.advance(morning);
+    let since = run.world.state().house().households[&home].since;
+    assert_eq!(since, t(morning));
+    let arrival = arrive(&mut run, morning, &[(1, DINING), (2, DINING)]);
+    let first = arrival + TALK_DELAY;
+    assert_eq!(house_day(t(first), since), 0);
+    run.advance(first);
+    assert!(holds_day(&run, 1, 0), "the actor's deed is house day 0");
+    let seen = neckt(1, 2, 0);
+    for owner in [1_u64, 2] {
+        assert_eq!(belief(&run, owner, seen).basis, Basis::Gesehen);
+    }
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    assert!(holds_day(&run, 1, 0), "moving out freezes the deed");
+    let moved_out = first + 1;
+    run.advance(moved_out + year() - 1);
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    let again = run.world.state().house().households[&home].since;
+    assert_eq!(house_day(again, again), 0);
+    assert!(
+        !run.world.state().house().social.deeds.contains_key(&sim(1)),
+        "day 0 of the earlier stay is cut with the list"
+    );
+    let window = run
+        .world
+        .data()
+        .social()
+        .expect("social")
+        .limits
+        .deed_window_days;
+    assert_eq!(window, 30, "ADR-0031 section 1");
+    assert_eq!(
+        Deeds::default().knows(NECKT, sim(2), 0, 0, window),
+        DeedAnswer::NotDone,
+        "the new stay's day 0 was not done"
+    );
+    for owner in [1_u64, 2] {
+        assert_eq!(
+            belief(&run, owner, seen).basis,
+            Basis::Gesehen,
+            "the belief that names the old day stays"
+        );
+    }
+}
+
+/// The first seed whose founder 0 has no interest in Necken and whose first child with
+/// founder 1 does. The child is then the actor of a tease (ADR-0030 section 3).
+fn orphan_seed() -> u64 {
+    let tag = DataId::new("test:social").expect("tag");
+    let mother = LineageKey::founder(&tag, 0);
+    let father = LineageKey::founder(&tag, 1);
+    let child = LineageKey::child(mother, father, 0, 0);
+    (1..20_000)
+        .find(|&seed| {
+            let world = WorldSeed::new(seed);
+            interests(world, mother)[TEASE] == 0 && interests(world, child)[TEASE] > 0
+        })
+        .expect("a seed")
+}
+
+/// Her death of `test:dummy_disease`: onset 30, hazard 1 000 per year, exposure from second
+/// 0, age 20 then. The budget is the public `DEATH_BUDGET` draw.
+fn disease_death_second(seed: u64) -> i64 {
+    let tag = DataId::new("test:social").expect("tag");
+    let mother = LineageKey::founder(&tag, 0);
+    let code = DataId::new("test:dummy_disease").expect("code");
+    let budget = Draws::new(WorldSeed::new(seed)).exponential(
+        DrawKey {
+            tag: tags::DEATH_BUDGET,
+            subject: mother.into(),
+            occasion: str_key(&code),
+            detail: 0,
+        },
+        1.0,
+    );
+    let at = disease_age(
+        30.0,
+        budget,
+        StepHazard {
+            before: 1_000.0,
+            change_age: 0.0,
+            after: 1_000.0,
+        },
+    )
+    .expect("the hazard is spent");
+    SimDuration::from_years_ceil(at - 20.0)
+        .expect("due")
+        .as_secs()
+}
+
+/// The 06:00 of the house-day bucket before `at`, so a move-in then makes `at` house day 1.
+fn morning_before(at: i64) -> i64 {
+    let index = (at - 6 * 3600).div_euclid(86_400);
+    6 * 3600 + (index - 1) * 86_400
+}
+
+/// A house with no school at 6 and no work before 66, offers of twelve hours, and only
+/// Necken allowed at the table. The mother is homozygous for a lethal recessive disease.
+fn orphan_data() -> sim_core::data::Data {
+    let repository = include_str!("../../../data/house/day.json");
+    let day = repository
+        .replace(
+            r#""school": {"from_age": 6, "until_age": 18"#,
+            r#""school": {"from_age": 7, "until_age": 8"#,
+        )
+        .replace(
+            "\"from_age\": 18,\n    \"until_age\": 67,",
+            "\"from_age\": 66,\n    \"until_age\": 67,",
+        );
+    assert_ne!(day, repository, "the ages in the day file still bind");
+    let disease = serde_json::json!([{
+        "code": "test:dummy_disease",
+        "carrier": {"locus": {
+            "locus": "core:disease_ar",
+            "penetrance_female": {"value": 1.0, "unit": "fraction"},
+            "penetrance_male": {"value": 1.0, "unit": "fraction"}
+        }},
+        "onset": {"fixed": {"age": {"value": 30.0, "unit": "year"}}},
+        "effect": {"death": {"per_year": {"value": 1000.0, "unit": "per_year"}}}
+    }]);
+    let (mut calibration, genome_map) = common::death_files(1e-9, None, disease);
+    let mut demography = common::demography();
+    common::window_fertility(&mut calibration, &mut demography, 1.0);
+    let definitions =
+        common::definitions_with(demography, calibration, genome_map).expect("definitions");
+    let social = common::repository_social_with(|file| {
+        file["limits"]["talks_per_day"] = serde_json::json!(1);
+        let topics = file["topics"].as_array_mut().expect("topics");
+        assert_eq!(topics[TEASE]["id"], "core:tease");
+        for (index, topic) in topics.iter_mut().enumerate() {
+            if index != TEASE {
+                topic["furniture"] = serde_json::json!([]);
+            }
+        }
+    });
+    let meal = 43_200;
+    let kinds = format!(
+        r#"[
+      {{"id": "core:dining_table", "slots": 2, "offers": [
+        {{"id": "eat", "rates": {{"hunger": 1}}, "seconds": {meal}, "min_age": 0, "max_age": 130}}]}},
+      {{"id": "core:fridge", "slots": 4, "offers": [
+        {{"id": "snack", "rates": {{"hunger": 1}}, "seconds": {meal}, "min_age": 0, "max_age": 130}}]}},
+      {{"id": "core:toilet", "slots": 4, "offers": [
+        {{"id": "use", "rates": {{"bladder": 1}}, "seconds": {meal}, "min_age": 0, "max_age": 130}}]}},
+      {{"id": "core:shower", "slots": 4, "offers": [
+        {{"id": "shower", "rates": {{"hygiene": 1}}, "seconds": {meal}, "min_age": 0, "max_age": 130}}]}},
+      {{"id": "core:sofa", "slots": 1, "offers": [
+        {{"id": "sit", "rates": {{"fun": 1}}, "seconds": {meal}, "min_age": 0, "max_age": 130}}]}},
+      {{"id": "core:bed", "slots": 2, "offers": [
+        {{"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}}]}}
+    ]"#
+    );
+    let house = r#"{
+      "id": "test:talk", "capacity": 2,
+      "rooms": [{"id": "hall", "entrance": true}, {"id": "den"}],
+      "child_day_room": "den", "child_night_room": "den", "dwell_room": "den",
+      "doors": [{"a": "hall", "b": "den", "seconds": 1}],
+      "objects": [
+        {"kind": "core:dining_table", "room": "hall"},
+        {"kind": "core:fridge", "room": "hall"},
+        {"kind": "core:toilet", "room": "hall"},
+        {"kind": "core:shower", "room": "hall"},
+        {"kind": "core:sofa", "room": "hall"},
+        {"kind": "core:bed", "room": "hall"}]
+    }"#;
+    let houses = common::houses_from(&day::rates(1, 0, 0), &day, &kinds, &[house]);
+    sim_core::data::Data::new(definitions)
+        .expect("checked")
+        .with_houses(houses)
+        .with_social(social)
+}
+
+/// An orphan of 6 or more joins a relative who already lives in a house (ADR-0018 section
+/// 4). The child's Necken on house day 40 of the mother's stay has no meaning in the
+/// father's calendar. The join drops it, with no entry, and the save loads. The belief
+/// that names that day stays.
+#[test]
+fn an_orphan_join_drops_the_deed_of_the_old_stay() {
+    let seed = orphan_seed();
+    let death = disease_death_second(seed);
+    let built = orphan_data();
+    let tag = DataId::new("test:social").expect("tag");
+    let mut run = Run {
+        world: World::new(built.clone()),
+        out: YearOut::default(),
+        log: Vec::new(),
+    };
+    run.submit(Input::Start(Start {
+        world_seed: seed,
+        founder_tag: tag.clone(),
+        world_params: WorldParams {
+            hereditary_diseases: true,
+            nutrition: Vec::new(),
+        },
+        founders: vec![
+            Founder {
+                born: t(-20 * year()),
+                sex: Sex::Female,
+                alleles: common::dummy(1, 1),
+            },
+            Founder {
+                born: t(-22 * year()),
+                sex: Sex::Male,
+                alleles: common::dummy(0, 0),
+            },
+        ],
+        couples: vec![Couple { woman: 0, man: 1 }],
+        capacity: None,
+        pool: None,
+    }));
+    let conceived = MONTH.as_secs();
+    run.advance(conceived);
+    assert!(
+        run.log
+            .iter()
+            .any(|entry| matches!(entry.payload, LogPayload::Conception { .. })),
+        "rate 1 conceives on the first attempt"
+    );
+    run.submit(Input::SeparatePartnership(SeparatePartnership {
+        woman: sim(1),
+        man: sim(2),
+    }));
+    let born_at = conceived + 10 * MONTH.as_secs();
+    run.advance(born_at);
+    let (child, key) = run
+        .log
+        .iter()
+        .find_map(|entry| match entry.payload {
+            LogPayload::Birth { lineage_key } if entry.t == t(born_at) => {
+                let Subject::Sim(child) = entry.subjects[0];
+                Some((child, lineage_key))
+            }
+            _ => None,
+        })
+        .expect("the birth");
+    let expected = LineageKey::child(
+        LineageKey::founder(&tag, 0),
+        LineageKey::founder(&tag, 1),
+        0,
+        0,
+    );
+    assert_eq!(key, expected);
+    assert!(interests(WorldSeed::new(seed), key)[TEASE] > 0);
+    let mother_home = run
+        .world
+        .state()
+        .household_of(sim(1))
+        .expect("her household");
+    let father_home = run
+        .world
+        .state()
+        .household_of(sim(2))
+        .expect("his household");
+    assert_ne!(mother_home, father_home);
+    assert_eq!(run.world.state().household_of(child), Some(mother_home));
+
+    // Fifty days before the father's move-in the child is past 6 and under 18, and house
+    // day 40 of that stay falls ten days before the join, so later talks do not fill the
+    // belief cap.
+    let father_morning = morning_before(death);
+    let move_morning = father_morning - 50 * 86_400;
+    assert!(move_morning > born_at + 6 * year());
+    assert!(death - born_at < 18 * year());
+    run.advance(move_morning - 1);
+    run.submit(Input::MoveIn(MoveIn {
+        household: mother_home,
+    }));
+    run.advance(move_morning);
+    let since = run.world.state().house().households[&mother_home].since;
+    assert_eq!(since, t(move_morning));
+    let day_40 = morning_of(since, 40);
+    let arrival = arrive(&mut run, day_40, &[(1, DINING), (child.get(), DINING)]);
+    let first = arrival + TALK_DELAY;
+    assert_eq!(house_day(t(first), since), 40);
+    run.advance(first);
+    let teased = talked(&run).last().expect("they tease").payload.clone();
+    assert_eq!(
+        teased,
+        LogPayload::Talked {
+            other: child,
+            object: DINING,
+            topic: u8::try_from(TEASE).expect("fits"),
+            actor: Some(child),
+        }
+    );
+    assert!(holds_day(&run, child.get(), 40), "the deed is house day 40");
+    let seen = neckt(child.get(), 1, 40);
+
+    let father_morning = morning_before(death);
+    assert_eq!(house_day(t(death), t(father_morning)), 1);
+    assert!(father_morning > first);
+    run.advance(father_morning - 1);
+    run.submit(Input::MoveIn(MoveIn {
+        household: father_home,
+    }));
+    run.advance(death);
+    let died = run.log.iter().find(|entry| {
+        entry.subjects == vec![Subject::Sim(sim(1))]
+            && matches!(entry.payload, LogPayload::Death { .. })
+    });
+    let died = died.expect("she dies");
+    assert_eq!(died.t, t(death), "the disease formula");
+    assert_eq!(
+        died.payload,
+        LogPayload::Death {
+            cause: Code::new("test:dummy_disease").expect("code"),
+        }
+    );
+    assert_eq!(run.world.state().household_of(child), Some(father_home));
+    assert!(
+        !run.world.state().house().social.deeds.contains_key(&child),
+        "day 40 of the mother's stay is cut when the child joins"
+    );
+    assert_eq!(
+        belief(&run, child.get(), seen).basis,
+        Basis::Gesehen,
+        "the belief that names the old day stays"
+    );
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    World::load(&bytes, built).expect("the save loads");
 }
 
 /// A long meal, a one-minute snack and a long toilet, and no departure. Partner trust is
