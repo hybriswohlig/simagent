@@ -1069,7 +1069,6 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
   material.polygonOffsetFactor = offset;
   material.polygonOffsetUnits = offset;
   // Soft coverage rounds the alpha-test stair. Brows stay a hard cut.
-  // Style A lashes opt in, so the row does not read as stitches.
   if (softEdge) material.alphaToCoverage = true;
   const uniforms = {
     uHair: { value: new THREE.Color(hairHex) },
@@ -1807,18 +1806,16 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, styl
   // The cornea sits behind the lid surface. Face is +Z. Enough to meet the
   // opening, not enough to leave the sphere in front of the lids.
   addFitted(mesh, head, pack.eyes, humanPos, eyeMaterial(style, pack.eyes.texture, irisHex, skinHex), 1, 0.0075);
-  // Style A keeps a thin dark fringe. The hard cut read as a row of stitches,
-  // and the back faces doubled it.
-  // Style A: darker and thinner than the stitch row, still visible as lashes.
-  const lashDark = style === "A" ? 0.85 : 0.62;
-  const lashCut = style === "A" ? 0.5 : 0.32;
-  const lashMat = strandMaterial(
-    style, pack.lashes.texture,
-    hexOf(mixLinear(linearOf(hairHex), [0, 0, 0], lashDark)),
-    lashCut, 0, marks.crown, -6, false, style === "A",
-  );
-  if (style === "A") lashMat.side = THREE.FrontSide;
-  addFitted(mesh, head, pack.lashes, humanPos, lashMat, 4, style === "A" ? 0.0022 : 0.0035);
+  // Style A leaves the lash cards off. Drawn over the sclera they break into
+  // white and black stitches, and a softened card is still that row.
+  if (style !== "A") {
+    const lashMat = strandMaterial(
+      style, pack.lashes.texture,
+      hexOf(mixLinear(linearOf(hairHex), [0, 0, 0], 0.62)),
+      0.32, 0, marks.crown, -6, false, false,
+    );
+    addFitted(mesh, head, pack.lashes, humanPos, lashMat, 4, 0.0035);
+  }
   return { hairName };
 }
 
