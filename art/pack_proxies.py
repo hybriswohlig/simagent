@@ -130,25 +130,26 @@ def read_text(path: Path) -> str:
 
 
 def ensure_proxy_files() -> None:
-    if EXTRACT.is_dir() and (EXTRACT / "eyes/low-poly/low-poly.mhclo").is_file():
-        return
-    if not ZIP_PATH.is_file():
-        fail(f"Missing {ZIP_PATH}")
-    EXTRACT.mkdir(parents=True, exist_ok=True)
     wanted = []
     for _name, mhclo, texture in PROXIES:
         wanted.append(mhclo)
         wanted.append(texture)
-        folder = str(Path(mhclo).parent)
-        wanted.append(str(Path(folder) / (Path(mhclo).stem + ".obj")))
+        folder = Path(mhclo).parent
+        wanted.append((folder / (Path(mhclo).stem + ".obj")).as_posix())
+    missing = [name for name in wanted if not (EXTRACT / name).is_file()]
+    if not missing:
+        return
+    if not ZIP_PATH.is_file():
+        fail(f"Missing {ZIP_PATH}")
+    EXTRACT.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(ZIP_PATH) as archive:
-        for name in archive.namelist():
-            if name.endswith("/"):
-                continue
-            if name in wanted or any(name.startswith(str(Path(item).parent) + "/") and name.endswith(".obj") for item in wanted):
-                dest = EXTRACT / name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(archive.read(name))
+        names = set(archive.namelist())
+        for name in missing:
+            if name not in names:
+                fail(f"Zip has no {name}")
+            dest = EXTRACT / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(archive.read(name))
 
 
 def parse_mhclo(path: Path) -> dict:
