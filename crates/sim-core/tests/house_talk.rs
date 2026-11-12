@@ -2419,15 +2419,7 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     assert!(!holds(&run, 2, seen_man));
     assert!(!holds(&run, 3, laestert(4, 2, day)));
     assert!(!holds(&run, 4, laestert(4, 2, day)));
-    assert!(
-        run.world
-            .state()
-            .house()
-            .social
-            .deeds
-            .get(&sim(3))
-            .is_none()
-    );
+    assert!(!run.world.state().house().social.deeds.contains_key(&sim(3)));
     assert_eq!(belief(&run, 1, said).certainty, 484);
     assert_eq!(belief(&run, 1, said).basis, Basis::Gehoert);
     // Grudge fades by 10 a day from the move-in: 10 * 27 600 / 86 400 = 3, then the
