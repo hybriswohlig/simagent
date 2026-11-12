@@ -36,8 +36,16 @@ const AGE_KEYS = [
 const FAT_MUSCLE = [
   "fat_male_max", "fat_male_min", "fat_female_max", "fat_female_min",
   "muscle_male_max", "muscle_male_min", "muscle_female_max", "muscle_female_min",
+  "fat_belly", "fat_upperarm", "muscle_arm", "muscle_shoulder", "muscle_chest",
 ];
 const MEASURE_KEYS = new Set([...AGE_KEYS, ...FAT_MUSCLE]);
+const HAIR_STYLES = [
+  { id: "hair_short", label: "kurz", cap: 0.042 },
+  { id: "hair_medium", label: "mittel", cap: 0.048 },
+  { id: "hair_long", label: "lang", cap: 0.05 },
+  { id: "hair_tied", label: "gebunden", cap: 0.036 },
+  { id: "hair_braid", label: "Zopf", cap: 0.04 },
+];
 
 const params = new URLSearchParams(location.search);
 const state = {
@@ -48,6 +56,11 @@ const state = {
   editIndex: 0,
   editBody: null,
   editBase: null,
+  hairStyle: "",
+  hairDye: "",
+  compare: ["fat", "muscle"].includes(params.get("compare")) ? params.get("compare") : "",
+  child: params.get("child") === "1",
+  still: params.get("still") === "1",
   people: [],
   facePage: Math.max(0, (Number(params.get("page")) || 1) - 1),
   clock: 0,
@@ -178,6 +191,53 @@ function hairColor(body) {
   return hexOf(mixLinear(linearOf(own), linearOf(GREY), body.hair_grey_fraction));
 }
 
+function hashSim(id) {
+  let hash = 2166136261;
+  const text = String(id);
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function personKey(member) {
+  if (member.sim != null) return String(member.sim);
+  return `palette:${member.age_years}`;
+}
+
+// Length is not a gene and not an age. The same sim id always picks the same
+// proxy. A balding man is forced onto the short cut so the crown can open.
+function hairStyleOf(body, sim) {
+  if (body.sex === "male" && body.balding_stage >= 1) return "hair_short";
+  return HAIR_STYLES[hashSim(sim) % HAIR_STYLES.length].id;
+}
+
+function hairMeta(id) {
+  return HAIR_STYLES.find((style) => style.id === id) || HAIR_STYLES[0];
+}
+
+function normalCdf(z) {
+  const sign = z < 0 ? -1 : 1;
+  const x = Math.abs(z) / Math.SQRT2;
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+  const t = 1 / (1 + p * x);
+  const erf = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * erf);
+}
+
+function zReadout(z, less, more) {
+  const pct = Math.round(clamp(normalCdf(z), 0, 1) * 100);
+  if (pct === 50) return "durchschnittlich";
+  if (pct > 50) return `${more} als ${pct} % der Menschen`;
+  return `${less} als ${100 - pct} % der Menschen`;
+}
+
 function ageSlices(age) {
   if (age <= 12) return [1, 0, 0];
   if (age <= 25) return [(25 - age) / 13, (age - 12) / 13, 0];
@@ -204,20 +264,24 @@ function morphWeights(body, sex, emphasise) {
     weights[`age_male_${name}`] = slices[index] * male;
     weights[`age_female_${name}`] = slices[index] * female;
   });
-  const fu = clamp(body.body_fat_z / 4, -1, 1);
-  const mu = clamp(body.muscle_z / 4, -1, 1);
-  const keep = (1 - Math.abs(fu)) * (1 - Math.abs(mu)) + Math.abs(fu) * Math.abs(mu);
-  const fatPos = Math.max(fu, 0) * (1 - Math.abs(mu));
-  const fatNeg = Math.max(-fu, 0) * (1 - Math.abs(mu));
-  const musPos = Math.max(mu, 0) * (1 - Math.abs(fu));
-  const musNeg = Math.max(-mu, 0) * (1 - Math.abs(fu));
+  // The universal weight files are small deltas on the base, about half a
+  // centimetre of girth at weight 1. They are added on top of the age blend.
+  // z = ±2 is the end of this clamp, so the weight is several times the sculpt.
+  const fat = clamp(body.body_fat_z / 2, -1, 1);
+  const muscle = clamp(body.muscle_z / 2, -1, 1);
+  const dist = clamp(body.fat_distribution_z / 2, -1, 1);
+  const heavy = Math.max(fat, 0);
+  const thin = Math.max(-fat, 0);
+  const bulk = Math.max(muscle, 0);
+  const soft = Math.max(-muscle, 0);
+  const belly = Math.max(dist, 0);
+  const hips = Math.max(-dist, 0);
   for (const branch of ["male", "female"]) {
-    const youngWeight = weights[`age_${branch}_young`];
-    weights[`age_${branch}_young`] = youngWeight * keep;
-    weights[`fat_${branch}_max`] = youngWeight * fatPos;
-    weights[`fat_${branch}_min`] = youngWeight * fatNeg;
-    weights[`muscle_${branch}_max`] = youngWeight * musPos;
-    weights[`muscle_${branch}_min`] = youngWeight * musNeg;
+    const branchShare = branch === "male" ? male : female;
+    weights[`fat_${branch}_max`] = branchShare * heavy * 6;
+    weights[`fat_${branch}_min`] = branchShare * thin * 6;
+    weights[`muscle_${branch}_max`] = branchShare * bulk * 2.4;
+    weights[`muscle_${branch}_min`] = branchShare * soft * 2.4;
   }
   const quarter = (value) => value / 4;
   weights.leg_upper = quarter(body.leg_ratio_z);
@@ -226,18 +290,26 @@ function morphWeights(body, sex, emphasise) {
   weights.shoulder_width = quarter(body.shoulder_width_z);
   weights.chest_depth = quarter(body.chest_depth_z);
   weights.pelvis_width = quarter(body.hip_width_z);
-  weights.fat_central = Math.max(body.fat_distribution_z, 0) / 4;
-  weights.fat_peripheral = Math.max(-body.fat_distribution_z, 0) / 4;
+  // Distribution shifts where the mass sits. Positive is belly and waist,
+  // negative is thighs and a little more arm. A thin body pulls those
+  // regions back. The belly file is a pregnancy sculpt, so it only adds a
+  // fraction, and only where the fat is central.
+  weights.fat_central = heavy * (0.8 + 1.8 * belly) - thin * (0.6 + 0.8 * belly);
+  weights.fat_belly = heavy * belly * 0.35;
+  weights.fat_peripheral = heavy * (0.7 + 1.6 * hips) - thin * (0.5 + 0.8 * hips);
+  weights.fat_upperarm = heavy * (1.6 + hips) - thin * (1.2 + 0.6 * hips);
+  weights.muscle_arm = bulk * 3.4 - soft * 1.8;
+  weights.muscle_shoulder = bulk * 2.8 - soft * 1.2;
+  weights.muscle_chest = bulk * 2.2 - soft * 0.9;
   // Young and old female corners include MakeHuman's average cup. breast_min
   // cancels that cup, so the chest under it is flat. The bust is then only
   // breast_max, the localized max-cup delta: nothing at 0, a bud by about
   // 0.17, one average cup at 0.5, and the full max cup at 1. Sex does not
   // scale it. A male keeps both weights at 0.
   const breast = clamp(body.breast_development, 0, 1);
-  const youngFemale =
-    (weights.age_female_young || 0) +
-    (weights.fat_female_max || 0) + (weights.fat_female_min || 0) +
-    (weights.muscle_female_max || 0) + (weights.muscle_female_min || 0);
+  // Fat is no longer a replacement of the young key, so the cup lives only
+  // on the female age weights. A child slice keeps both at 0 and stays flat.
+  const youngFemale = weights.age_female_young || 0;
   const oldFemale = weights.age_female_old || 0;
   const cup = clamp(breast / 0.5, 0, 1);
   weights.breast_min = sex === "male" ? 0 : youngFemale + oldFemale;
@@ -986,10 +1058,9 @@ function thickenBrows(fitted) {
   return out;
 }
 
-function hairChoice(body) {
-  if (body.body_form_age < 16) return "hair_child";
-  if (body.sex === "male") return "hair_short";
-  return "hair_long";
+function chosenHair(body, sim) {
+  if (state.edit && state.hairStyle) return state.hairStyle;
+  return hairStyleOf(body, sim);
 }
 
 // Top of the fitted hair. The scalp crown sits under it, and a cap measured
@@ -1003,19 +1074,18 @@ function hairCrown(proxy, humanPos) {
   return [fitted[best], fitted[best + 1], fitted[best + 2]];
 }
 
-function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, style, marks) {
+function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, style, marks, sim) {
   const pack = state.pack.proxies;
-  const hairName = hairChoice(body);
+  const hairName = chosenHair(body, sim);
   const density = clamp(body.hair_density, 0, 1);
-  if (density > 0.02) {
+  if (density > 0.02 && pack[hairName]) {
     const bald = hairName === "hair_short" ? clamp(body.balding_stage, 0, 7) / 7 : 0;
     const threshold = THREE.MathUtils.lerp(0.9, 0.2, density);
-    // Caps are the last midline height with opaque hair on both sides.
-    const cap = hairName === "hair_child" ? 0.06 : hairName === "hair_short" ? 0.042 : 0.05;
+    const cap = hairMeta(hairName).cap;
     const crown = hairCrown(pack[hairName], humanPos);
     addFitted(
       mesh, head, pack[hairName], humanPos,
-      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, crown, -1, true, true, cap, hairName === "hair_child"),
+      strandMaterial(style, pack[hairName].texture, hairHex, threshold, bald, crown, -1, true, true, cap, false),
       2,
     );
   }
@@ -1210,12 +1280,31 @@ function fullRoster() {
   return state.family.members.concat(paletteMembers());
 }
 
+function compareRoster() {
+  const adult = state.family.members.find((member) => member.role === "father")
+    || state.family.members.find((member) => member.age_years >= 25);
+  const word = state.compare === "muscle" ? "Muskeln" : "Fett";
+  return [-2, 0, 2].map((value) => ({
+    ...adult,
+    first_name: `${word} ${value > 0 ? "+" : ""}${value}`,
+    surname: "",
+    palette: false,
+    body: {
+      ...adult.body,
+      body_fat_z: state.compare === "fat" ? value : 0,
+      muscle_z: state.compare === "muscle" ? value : 0,
+    },
+  }));
+}
+
 function roster() {
   if (state.edit && state.editBody) {
     const member = state.family.members[state.editIndex];
     return [{ ...member, body: state.editBody }];
   }
+  if (state.compare) return compareRoster();
   let all = fullRoster();
+  if (state.child) all = all.filter((member) => member.age_years <= 13);
   if (state.focus) {
     const name = state.focus.toLowerCase();
     all = all.filter((member) => (member.first_name || "").toLowerCase() === name);
@@ -1267,7 +1356,8 @@ function buildPerson(template, member, x) {
   const cloud = morphedCloud(mesh, weights);
   const marks = landmarks(cloud);
   const skin = gridColor(SKIN, member.body.skin_eumelanin, member.body.skin_pheomelanin);
-  const hair = hairColor(member.body);
+  const geneticHair = hairColor(member.body);
+  const hair = state.edit && state.hairDye ? state.hairDye : geneticHair;
   const iris = rampColor(IRIS, member.body.iris_melanin);
   const cloth = morphedYSpan(mesh, weights);
   const cutY = state.close ? marks.maxY + marks.jaw.noseDy - 0.098 : -1;
@@ -1289,7 +1379,7 @@ function buildPerson(template, member, x) {
   }
   const body = { ...member.body, sex: member.sex };
   const humanPos = humanPositions(weights);
-  const groom = addGrooming(mesh, head, humanPos, body, hair, iris, skin, state.style, marks);
+  const groom = addGrooming(mesh, head, humanPos, body, hair, iris, skin, state.style, marks, personKey(member));
   scene.add(wrapper);
   wrapper.updateWorldMatrix(true, true);
   hangArms(root, shaped.slices.child);
@@ -1307,7 +1397,7 @@ function buildPerson(template, member, x) {
   labels.append(tag);
   return {
     wrapper, mesh, head, outline, spines, rest, scale, tag, marks,
-    anchor: new THREE.Vector3(), member, shaped, skin, hair, iris,
+    anchor: new THREE.Vector3(), member, shaped, skin, hair, geneticHair, iris,
     hairName: groom.hairName, beardTris: 0, arms: root.userData.arms,
   };
 }
@@ -1474,8 +1564,8 @@ function resize() {
 function animate() {
   const delta = clock.getDelta();
   state.clock += delta;
-  const breath = Math.sin(state.clock * 1.6);
-  const sway = Math.sin(state.clock * 0.7);
+  const breath = state.still ? 0 : Math.sin(state.clock * 1.6);
+  const sway = state.still ? 0 : Math.sin(state.clock * 0.7);
   for (const person of state.people) {
     person.spines.forEach((spine, index) => {
       const extra = new THREE.Quaternion().setFromEuler(new THREE.Euler(
@@ -1706,46 +1796,49 @@ const BODY_KEYS = [
   "breast_development",
 ];
 
-const FACE_AXIS_LABELS = [
-  "Nose width",
-  "Nose projection",
-  "Nose length",
-  "Jaw width",
-  "Chin height",
-  "Jaw prominence",
-  "Cheek fullness",
-  "Cheekbones",
-  "Eye size",
-  "Eye spacing",
-  "Lip fullness",
-  "Mouth width",
+const FACE_AXES = [
+  ["Nasenbreite", "schmaler", "breiter"],
+  ["Nasenvorsprung", "flacher", "vorspringender"],
+  ["Nasenlänge", "kürzer", "länger"],
+  ["Kieferbreite", "schmaler", "breiter"],
+  ["Kinnhöhe", "niedriger", "höher"],
+  ["Kiefervorsprung", "flacher", "vorspringender"],
+  ["Wangenfülle", "flacher", "voller"],
+  ["Wangenknochen", "weicher", "markanter"],
+  ["Augengröße", "kleiner", "größer"],
+  ["Augenabstand", "enger", "weiter"],
+  ["Lippenfülle", "schmaler", "voller"],
+  ["Mundbreite", "schmaler", "breiter"],
 ];
 
 const EDIT_SLIDERS = [
-  { group: "Body", key: "height_cm", label: "Height", min: 90, max: 210, step: 1 },
-  { key: "body_form_age", label: "Body maturity", min: 1, max: 90, step: 1, age: true },
-  { key: "body_fat_z", label: "Fat mass", min: -4, max: 4, step: 0.05 },
-  { key: "fat_distribution_z", label: "Fat distribution", min: -4, max: 4, step: 0.05 },
-  { key: "muscle_z", label: "Muscle", min: -4, max: 4, step: 0.05 },
-  { key: "shoulder_width_z", label: "Shoulder width", min: -4, max: 4, step: 0.05 },
-  { key: "hip_width_z", label: "Pelvis width", min: -4, max: 4, step: 0.05 },
-  { key: "breast_development", label: "Breast development", min: 0, max: 1, step: 0.01, breast: true },
-  { key: "leg_ratio_z", label: "Leg length", min: -4, max: 4, step: 0.05 },
-  ...FACE_AXIS_LABELS.map((label, index) => ({
-    group: index === 0 ? "Face" : undefined,
+  { group: "Körper", key: "height_cm", label: "Größe", min: 90, max: 210, step: 1 },
+  { key: "body_form_age", label: "Körperreife", min: 1, max: 90, step: 1, age: true },
+  { key: "body_fat_z", label: "Fettmasse", min: -3, max: 3, step: 0.05, z: true, less: "dünner", more: "schwerer" },
+  { key: "fat_distribution_z", label: "Fettverteilung (Bauch ↔ Hüfte)", min: -3, max: 3, step: 0.05, z: true, less: "mehr Hüfte", more: "mehr Bauch" },
+  { key: "muscle_z", label: "Muskeln", min: -3, max: 3, step: 0.05, z: true, less: "schwächer", more: "muskulöser" },
+  { key: "shoulder_width_z", label: "Schulterbreite", min: -3, max: 3, step: 0.05, z: true, less: "schmaler", more: "breiter" },
+  { key: "hip_width_z", label: "Beckenbreite", min: -3, max: 3, step: 0.05, z: true, less: "schmaler", more: "breiter" },
+  { key: "breast_development", label: "Brust", min: 0, max: 1, step: 0.01, breast: true },
+  { key: "leg_ratio_z", label: "Beinlänge", min: -3, max: 3, step: 0.05, z: true, less: "kürzer", more: "länger" },
+  ...FACE_AXES.map(([label, less, more], index) => ({
+    group: index === 0 ? "Gesicht" : undefined,
     key: `face_axis_${String(index + 1).padStart(2, "0")}`,
     label,
-    min: -4,
-    max: 4,
+    min: -3,
+    max: 3,
     step: 0.05,
+    z: true,
+    less,
+    more,
   })),
-  { group: "Colour", key: "skin_eumelanin", label: "Skin eumelanin", min: 0, max: 1, step: 0.01 },
-  { key: "skin_pheomelanin", label: "Skin pheomelanin", min: 0, max: 1, step: 0.01 },
-  { key: "hair_eumelanin", label: "Hair eumelanin", min: 0, max: 1, step: 0.01 },
-  { key: "hair_pheomelanin", label: "Hair pheomelanin", min: 0, max: 1, step: 0.01 },
-  { key: "iris_melanin", label: "Iris melanin", min: 0, max: 1, step: 0.01 },
-  { key: "balding_stage", label: "Balding stage", min: 0, max: 7, step: 0.1 },
-  { key: "beard_density", label: "Beard density", min: 0, max: 1, step: 0.01 },
+  { group: "Farbe", key: "skin_eumelanin", label: "Hautfarbe, Eumelanin", min: 0, max: 1, step: 0.01 },
+  { key: "skin_pheomelanin", label: "Hautfarbe, Phäomelanin", min: 0, max: 1, step: 0.01 },
+  { key: "hair_eumelanin", label: "Haarfarbe, Eumelanin", min: 0, max: 1, step: 0.01, hair: true },
+  { key: "hair_pheomelanin", label: "Haarfarbe, Phäomelanin", min: 0, max: 1, step: 0.01, hair: true },
+  { key: "iris_melanin", label: "Augenfarbe", min: 0, max: 1, step: 0.01 },
+  { key: "balding_stage", label: "Glatze", min: 0, max: 7, step: 0.1 },
+  { key: "beard_density", label: "Bart", min: 0, max: 1, step: 0.01 },
 ];
 
 let editDraw = null;
@@ -1773,19 +1866,54 @@ function writeContract() {
   }
 }
 
+function sliderSpec(key) {
+  return EDIT_SLIDERS.find((spec) => spec.key === key);
+}
+
+function sliderReadout(spec, value) {
+  if (!spec) return formatValue(value);
+  if (spec.z) return zReadout(value, spec.less, spec.more);
+  // The body contract stores centimetres only. It has no mean or spread
+  // by age and sex, so the slider cannot give a height percentile.
+  if (spec.key === "height_cm") return `${Math.round(value)} cm`;
+  if (spec.key === "body_form_age") return `${Math.round(value)} Jahre`;
+  if (spec.key === "breast_development") {
+    if (value < 0.05) return "flach";
+    return `${Math.round(value * 100)} %`;
+  }
+  if (spec.key === "balding_stage") return `Stufe ${formatValue(value)}`;
+  return formatValue(value);
+}
+
+function paintGeneticHair() {
+  const chip = document.querySelector("#genetic-hair");
+  if (chip && state.editBody) chip.style.background = hairColor(state.editBody);
+}
+
 function syncEditSliders() {
   const sex = state.family.members[state.editIndex].sex;
-  for (const input of document.querySelectorAll("#edit-sliders input")) {
+  for (const input of document.querySelectorAll("#edit-sliders input[data-key]")) {
     const key = input.dataset.key;
+    const spec = sliderSpec(key);
     input.value = String(state.editBody[key]);
     const out = input.parentElement.querySelector("output");
-    if (out) out.textContent = formatValue(state.editBody[key]);
+    if (out) out.textContent = sliderReadout(spec, state.editBody[key]);
     if (key === "breast_development") {
       const on = breastSliderOn(state.editBody, sex);
       input.disabled = !on;
       input.closest("label").classList.toggle("is-off", !on);
     }
   }
+  const hair = document.querySelector("#edit-hair");
+  if (hair) hair.value = state.hairStyle;
+  const dyeOn = document.querySelector("#edit-dye");
+  const dyeColor = document.querySelector("#edit-dye-color");
+  if (dyeOn) dyeOn.checked = Boolean(state.hairDye);
+  if (dyeColor) {
+    dyeColor.disabled = !state.hairDye;
+    if (state.hairDye) dyeColor.value = state.hairDye;
+  }
+  paintGeneticHair();
 }
 
 function drawEdit() {
@@ -1798,9 +1926,79 @@ function drawEdit() {
   });
 }
 
+function buildHairControls(root) {
+  const heading = document.createElement("h3");
+  heading.textContent = "Haar";
+  const note = document.createElement("p");
+  note.className = "hair-note";
+  note.textContent = "Frisur und Färbung ändern nur die Ansicht. Die genetische Farbe bleibt daneben.";
+  root.append(heading, note);
+
+  const row = document.createElement("label");
+  row.className = "hair-line";
+  const name = document.createElement("span");
+  name.textContent = "Frisur";
+  const select = document.createElement("select");
+  select.id = "edit-hair";
+  const auto = document.createElement("option");
+  auto.value = "";
+  auto.textContent = "aus der Person";
+  select.append(auto);
+  for (const style of HAIR_STYLES) {
+    const option = document.createElement("option");
+    option.value = style.id;
+    option.textContent = style.label;
+    select.append(option);
+  }
+  select.value = state.hairStyle;
+  select.addEventListener("change", () => {
+    state.hairStyle = select.value;
+    drawEdit();
+  });
+  row.append(name, select);
+  root.append(row);
+
+  const gene = document.createElement("div");
+  gene.className = "hair-line";
+  const geneName = document.createElement("span");
+  geneName.textContent = "genetisch";
+  const chip = document.createElement("i");
+  chip.id = "genetic-hair";
+  chip.style.background = hairColor(state.editBody);
+  gene.append(geneName, chip);
+  root.append(gene);
+
+  const dye = document.createElement("label");
+  dye.className = "hair-line hair-dye";
+  const dyeName = document.createElement("span");
+  dyeName.textContent = "gefärbt";
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.id = "edit-dye";
+  toggle.checked = Boolean(state.hairDye);
+  const color = document.createElement("input");
+  color.type = "color";
+  color.id = "edit-dye-color";
+  color.value = state.hairDye || "#7f6d5b";
+  color.disabled = !state.hairDye;
+  toggle.addEventListener("change", () => {
+    state.hairDye = toggle.checked ? color.value : "";
+    color.disabled = !toggle.checked;
+    drawEdit();
+  });
+  color.addEventListener("input", () => {
+    if (!toggle.checked) return;
+    state.hairDye = color.value;
+    drawEdit();
+  });
+  dye.append(dyeName, toggle, color);
+  root.append(dye);
+}
+
 function buildEditSliders() {
   const root = document.querySelector("#edit-sliders");
   root.replaceChildren();
+  buildHairControls(root);
   const sex = state.family.members[state.editIndex].sex;
   let group = "";
   for (const spec of EDIT_SLIDERS) {
@@ -1815,7 +2013,7 @@ function buildEditSliders() {
     const name = document.createElement("span");
     name.textContent = spec.label;
     const out = document.createElement("output");
-    out.textContent = formatValue(state.editBody[spec.key]);
+    out.textContent = sliderReadout(spec, state.editBody[spec.key]);
     const input = document.createElement("input");
     input.type = "range";
     input.min = String(spec.min);
@@ -1826,14 +2024,15 @@ function buildEditSliders() {
     if (spec.breast) {
       const on = breastSliderOn(state.editBody, sex);
       input.disabled = !on;
-      input.title = "Female branch, after puberty";
+      input.title = "Weiblicher Zweig, nach der Pubertät";
       if (!on) label.classList.add("is-off");
     }
     input.addEventListener("input", () => {
       const value = Number(input.value);
       state.editBody[spec.key] = value;
       if (spec.age) state.editBody.face_form_age = value;
-      out.textContent = formatValue(value);
+      out.textContent = sliderReadout(spec, value);
+      if (spec.hair) paintGeneticHair();
       if (spec.age) {
         const breast = root.querySelector('input[data-key="breast_development"]');
         if (breast) {
@@ -1846,6 +2045,15 @@ function buildEditSliders() {
       drawEdit();
     });
     label.append(name, out, input);
+    if (spec.z) {
+      const tick = document.createElement("span");
+      tick.className = "tick";
+      const mark = document.createElement("i");
+      const word = document.createElement("b");
+      word.textContent = "Durchschnitt";
+      tick.append(mark, word);
+      label.append(tick);
+    }
     root.append(label);
   }
 }
@@ -1855,6 +2063,8 @@ function loadEditPerson(index) {
   const member = state.family.members[index];
   state.editBase = { ...member.body };
   state.editBody = { ...member.body };
+  state.hairStyle = "";
+  state.hairDye = "";
   buildEditSliders();
   writeContract();
 }
@@ -1878,6 +2088,8 @@ function setupEditor() {
   });
   document.querySelector("#edit-reset").addEventListener("click", () => {
     state.editBody = { ...state.editBase };
+    state.hairStyle = "";
+    state.hairDye = "";
     syncEditSliders();
     writeContract();
     restyle();
