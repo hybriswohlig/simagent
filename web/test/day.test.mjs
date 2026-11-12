@@ -152,3 +152,62 @@ test("a person's line: until when, the departure that ends it named", () => {
   assert.equal(doing(HOME, person({ place: { away: { place: "work", until: dated(62_400) } } })), "bei der Arbeit bis 17:20");
   assert.equal(doing(HOME, person({ collapsed: true })), "liegt erschöpft am Boden im Flur");
 });
+
+// Contagion is a line of the arrival, from the infected persons' core:felt (ADR-0032 section 7).
+// A core:felt of one's own day is said only when a channel crosses 500 upward.
+const channels = (joy, anger, sadness, fear) => ({ joy, anger, sadness, fear });
+const zero = channels(0, 0, 0, 0);
+const feltBy = (id, sim, cause) => ({
+  entry: {
+    id,
+    t: 0,
+    subjects: [{ sim }],
+    causes: [{ event: cause }],
+    payload: { "core:felt": channels(0, 150, 0, 0) },
+  },
+  date: date(0, 5, 0),
+});
+const names = (id) => ({ 3: "Mia", 4: "Leo", 5: "Noah" })[id] ?? `Person ${id}`;
+const view = { sim: 1, name: names, cheat: false };
+
+test("an arrival infects by name, and only the persons its felt lines name", () => {
+  const arrival = item(10, "core:reached", { object: 0 });
+  assert.equal(dayLine(LAYOUT, arrival, view, []), null);
+  assert.equal(dayLine(LAYOUT, arrival, view, [feltBy(11, 3, 9)]), null);
+  assert.deepEqual(dayLine(LAYOUT, arrival, view, [feltBy(11, 3, 10)]), { text: "steckt Mia mit Ärger an", choice: false });
+  assert.equal(
+    dayLine(LAYOUT, arrival, view, [feltBy(13, 5, 10), feltBy(11, 3, 10)]).text,
+    "steckt Mia und Noah mit Ärger an",
+  );
+  assert.equal(
+    dayLine(LAYOUT, arrival, view, [feltBy(13, 5, 10), feltBy(12, 4, 10), feltBy(11, 3, 10)]).text,
+    "steckt Mia, Leo und Noah mit Ärger an",
+  );
+  assert.equal(dayLine(LAYOUT, arrival, undefined, [feltBy(11, 7, 10)]).text, "steckt Person 7 mit Ärger an");
+  const home = item(10, "core:came_home", { place: "work" });
+  assert.equal(dayLine(LAYOUT, home, view, [feltBy(11, 3, 10)]).text, "kommt von der Arbeit und steckt Mia mit Ärger an");
+  const idle = item(10, "core:idle", { room: 3, needs: [], busy: [], waits: null });
+  assert.deepEqual(dayLine(LAYOUT, idle, view, [feltBy(11, 3, 10)]), {
+    text: "tut nichts im Bad und steckt Mia mit Ärger an",
+    choice: true,
+  });
+});
+
+test("a felt line only when a channel crosses 500 upward", () => {
+  const felt = (before, after) => ({
+    entry: { id: 2, t: 0, subjects: [{ sim: 1 }], causes: [], payload: { "core:felt": after } },
+    date: date(0, 5, 0),
+    before,
+  });
+  assert.equal(dayLine(LAYOUT, felt(channels(0, 499, 0, 0), channels(0, 500, 0, 0))).text, "ist wütend");
+  assert.equal(dayLine(LAYOUT, felt(channels(0, 500, 0, 0), channels(0, 600, 0, 0))), null);
+  assert.equal(dayLine(LAYOUT, felt(undefined, channels(0, 800, 0, 0))), null);
+  assert.equal(dayLine(LAYOUT, felt(channels(499, 0, 0, 0), channels(500, 0, 0, 0))).text, "freut sich");
+  assert.equal(dayLine(LAYOUT, felt(channels(0, 0, 499, 0), channels(0, 0, 500, 0))).text, "ist traurig");
+  assert.equal(dayLine(LAYOUT, felt(channels(0, 0, 0, 499), channels(0, 0, 0, 500))).text, "hat Angst");
+  assert.equal(
+    dayLine(LAYOUT, felt(channels(499, 499, 0, 499), channels(500, 500, 100, 500))).text,
+    "freut sich, ist wütend, hat Angst",
+  );
+  assert.equal(dayLine(LAYOUT, item(4, "core:felt", zero)), null);
+});

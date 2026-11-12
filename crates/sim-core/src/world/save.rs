@@ -536,6 +536,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && house_consistent(loaded, data, now, (rules.opened, seed))
         && state::memory::consistent(loaded, data)
         && state::bond::consistent(loaded, data)
+        && state::feeling::consistent(loaded, data)
         && state::belief::consistent(loaded, data)
         && queue_consistent(loaded, now, &rules)
         && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)

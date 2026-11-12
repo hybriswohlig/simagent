@@ -4,13 +4,14 @@
 
 use serde_json::{Value, json};
 use sim_cli::data::{core_data, social_from};
-use sim_core::social::data::{BondValue, Condition, Step, Who, memory_kinds};
+use sim_core::social::data::{BondValue, Condition, Occasion, Step, Who, memory_kinds};
 
 const SOCIAL: &str = include_str!("../../../data/social/social.json");
 
 /// The data hash of the repository's data from `tools/data_reference.py` (ADR-0007), with the
-/// social data after the houses; without them it is 0a08eab115b75093.
-const DATA_HASH: u64 = 0x01ce_3a4b_0ac5_8e6f;
+/// social data after the houses; without them it is 0a08eab115b75093. The feelings of ADR-0032
+/// moved it from 01ce3a4b0ac58e6f.
+const DATA_HASH: u64 = 0xf3cb_25b3_5a27_ab32;
 
 /// The repository's data, for the kinds of furniture of its houses.
 fn repository() -> &'static sim_core::data::Data {
@@ -168,6 +169,47 @@ fn the_repository_social_data_loads_with_the_numbers_of_the_adrs() {
     );
     assert_eq!(beliefs.inferred_certainty, 900);
     assert_eq!(beliefs.deeds.len(), 3);
+    // The feelings, ADR-0032 sections 1 to 4 and 6: rates per day, the temper's return, the table
+    // of occasions in the order of the ADR, the band 600 and 3/2, the contagion 700, 150, 699.
+    let feelings = &social.feelings;
+    assert_eq!(feelings.rates.all(), [300, 300, 150, 400]);
+    assert_eq!(feelings.mood_return, 100);
+    let band = &feelings.band;
+    assert_eq!(
+        (band.min_affection, band.numerator, band.denominator),
+        (600, 3, 2)
+    );
+    let contagion = &feelings.contagion;
+    assert_eq!(
+        (contagion.min_anger, contagion.step, contagion.cap),
+        (700, 150, 699)
+    );
+    let rows: Vec<(Occasion, [i16; 4])> = (feelings.table.iter())
+        .map(|row| (row.occasion, row.steps()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (Occasion::TalkEveryday, [40, 0, 0, 0]),
+            (Occasion::TalkPraise, [150, 0, 0, 0]),
+            (Occasion::TalkTease, [0, 100, 0, 0]),
+            (Occasion::TalkRecall, [100, 0, 0, 0]),
+            (Occasion::TalkApology, [50, -200, 0, 0]),
+            (Occasion::Heard, [0, 200, 100, 0]),
+            (Occasion::Refuted, [0, 150, 0, 0]),
+            (Occasion::Birth, [800, 0, 0, 0]),
+            (Occasion::PartnerLost, [0, 0, 1000, 200]),
+            (Occasion::RelativeDied, [0, 0, 800, 100]),
+            (Occasion::PartnershipBegan, [600, 0, 0, 0]),
+            (Occasion::Separated, [0, 300, 600, 0]),
+            (Occasion::NeedEmpty, [0, 150, 0, 100]),
+        ]
+    );
+    // An occasion without a row is all 0 (the mild heard deed and gossip have none).
+    let mut thin = feelings.clone();
+    thin.table.retain(|row| row.occasion != Occasion::Birth);
+    assert_eq!(thin.steps(Occasion::Birth), [0; 4]);
+    assert_eq!(feelings.steps(Occasion::Birth), [800, 0, 0, 0]);
 }
 
 /// The data hash covers the social data; `tools/data_reference.py` encodes and checks the file
@@ -335,5 +377,58 @@ fn the_reader_and_the_core_reject_a_broken_file() {
     code(
         refused(|f| f["beliefs"]["deeds"] = json!(["core:lies", "core:lies"])),
         "social.beliefs",
+    );
+    // The feelings: the reader first (a field out of place or of the wrong type), then the core.
+    code(
+        refused(|f| f["feelings"]["extra"] = json!(1)),
+        "unknown field",
+    );
+    code(
+        refused(|f| drop(f["feelings"].as_object_mut().expect("o").remove("band"))),
+        "missing field",
+    );
+    code(
+        refused(|f| f["feelings"]["table"][0]["occasion"] = json!("quarrel")),
+        "unknown variant",
+    );
+    code(
+        refused(|f| f["feelings"]["table"][0]["hope"] = json!(1)),
+        "unknown field",
+    );
+    code(
+        refused(|f| f["feelings"]["rates"]["joy"] = json!(10_001)),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["rates"]["fear"] = json!(10_001)),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["mood_return"] = json!(10_001)),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["table"][1]["occasion"] = json!("talk_everyday")),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["table"][0]["joy"] = json!(1001)),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["band"]["min_affection"] = json!(1001)),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["band"]["denominator"] = json!(0)),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["contagion"]["step"] = json!(1001)),
+        "social.feelings",
+    );
+    code(
+        refused(|f| f["feelings"]["contagion"]["cap"] = json!(700)),
+        "social.feelings",
     );
 }

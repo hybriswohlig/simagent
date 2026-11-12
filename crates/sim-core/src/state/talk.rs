@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use super::action::person_mut;
 use super::belief::{self, Heard, HeardStore};
 use super::bond::{Formed, form_one, formation_refused};
+use super::feeling::{self, Pending};
 use super::memory::{WroteMemory, others, plan_forget, remember};
 use super::{DomainState, Slot, whole_years};
 use crate::canonical::LoadedState;
@@ -21,15 +22,16 @@ use crate::ids::{EventId, HouseholdId, MAX_JS_SAFE, SimId};
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::rng::{DrawKey, WorldSeed};
 use crate::social::belief::{
-    Basis, Belief, Statement, choose_speaker, gossip_material, heard_bond_steps, lie_reason,
-    lie_statement, live_material, pick_refutation, refute, said_belief,
+    Basis, Belief, Statement, aimed_doer, choose_speaker, gossip_material, heard_bond_steps,
+    lie_reason, lie_statement, live_material, pick_refutation, refute, said_belief,
 };
 use crate::social::bond::{GRUDGE, TRUST};
-use crate::social::data::{REFUTED, TALK};
+use crate::social::data::{Occasion, REFUTED, TALK};
 use crate::social::memory::Memory;
 use crate::social::talk::{
     GOSSIP, TEASE, TalkFacts, TalkPair, choose_topic, house_day, interests, lie_draw_key,
-    recall_strength, refute_draw_key, talk_conditions, talk_ppm, topic_actor, topic_outcome,
+    recall_strength, refute_draw_key, talk_conditions, talk_ppm, topic_actor, topic_feelings,
+    topic_outcome,
 };
 use crate::time::{SimDuration, SimTime};
 use crate::world::{EventPayload, SimCtx};
@@ -608,12 +610,17 @@ pub(crate) fn run(
             charge(&mut entries_b, 1);
         }
     }
+    // What the talk makes the two feel, row by row; applied once each after `core:talked`.
+    let rows = (topic_feelings(topic, &view, actor).into_iter())
+        .map(|(who, occasion, band)| (who, Pending { occasion, band }))
+        .collect();
     let mut charges = Charges {
         a,
         b,
         day,
         entries_a: &mut entries_a,
         entries_b: &mut entries_b,
+        rows,
     };
     if topic == TEASE {
         let actor = actor.unwrap_or_else(|| panic!("invariant talk.actor"));
@@ -711,6 +718,8 @@ pub(crate) fn run(
         &mut cause,
         ctx,
     );
+    // Last use of the charges: the rows of the feelings leave them.
+    let felt = core::mem::take(&mut charges.rows);
     let recall_topic =
         (social.topics.get(topic)).is_some_and(|row| row.id.as_str() == "core:recall");
     if recall_topic && let Some((left, right)) = shared {
@@ -746,6 +755,17 @@ pub(crate) fn run(
     );
     charge(&mut entries_a, 1);
     charge(&mut entries_b, 1);
+    // One `core:felt` per person after `core:talked`, from all its rows; it is not charged against
+    // the talk's limits (ADR-0032 section 6).
+    for sim in [a, b] {
+        let own: Vec<Pending> = (felt.iter())
+            .filter(|(who, _)| *who == sim)
+            .map(|(_, row)| *row)
+            .collect();
+        if !own.is_empty() {
+            let _ = feeling::feel(domain, data, sim, &own, Cause::Event(talked), ctx);
+        }
+    }
     add_entries(domain, a, day, entries_a);
     add_entries(domain, b, day, entries_b);
     add_talk(domain, a, day);
@@ -780,6 +800,9 @@ struct Charges<'a> {
     day: i64,
     entries_a: &'a mut u16,
     entries_b: &'a mut u16,
+    /// The rows of the feelings the talk has brought so far, by the person who feels them
+    /// (ADR-0032 section 3).
+    rows: Vec<(SimId, Pending)>,
 }
 
 impl Charges<'_> {
@@ -983,6 +1006,13 @@ fn refute_one(
     );
     charges.add(pick.hearer, 1);
     *cause = Cause::Event(id);
+    // The hearer's feeling: the band is read toward the source, none without one (ADR-0032
+    // section 3).
+    let row = Pending {
+        occasion: Occasion::Refuted,
+        band: old.source,
+    };
+    charges.rows.push((pick.hearer, row));
     if let Some((source, steps)) = effect.toward_source
         && holds_bond(domain, pick.hearer, source)
     {
@@ -1075,6 +1105,15 @@ fn pass_on(
         HeardStore::Stored { last, entries } => {
             cause = Cause::Event(last);
             charges.add(hearer, entries);
+            // A deed of gossip or a lie against the hearer angers and saddens it, with the band
+            // read toward the one it is about (ADR-0032 section 3).
+            if let Some(doer) = aimed_doer(hearer, pass.said.statement) {
+                let row = Pending {
+                    occasion: Occasion::Heard,
+                    band: Some(doer),
+                };
+                charges.rows.push((hearer, row));
+            }
             if let Some(steps) = heard_bond_steps(hearer, pass.said.statement, &social.beliefs)
                 && let Some(doer) = pass.said.statement.doer()
                 && holds_bond(domain, hearer, doer)

@@ -14,6 +14,7 @@ pub(crate) mod day;
 pub(crate) mod death;
 pub(crate) mod disease;
 pub(crate) mod emigration;
+pub(crate) mod feeling;
 pub(crate) mod house;
 pub(crate) mod household;
 pub(crate) mod market;

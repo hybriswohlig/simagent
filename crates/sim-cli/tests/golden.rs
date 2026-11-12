@@ -30,7 +30,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the repository's data, the definitions with the pool and its
 /// frequencies, from `tools/data_reference.py` (ADR-0007).
-const DATA_HASH: u64 = 0x01ce_3a4b_0ac5_8e6f;
+const DATA_HASH: u64 = 0xf3cb_25b3_5a27_ab32;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -675,10 +675,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Unbelieved { .. } => "core:unbelieved",
         LogPayload::Told { .. } => "core:told",
         LogPayload::Refuted { .. } => "core:refuted",
+        LogPayload::Felt { .. } => "core:felt",
     }
 }
 
-const LOG_KINDS: [&str; 45] = [
+const LOG_KINDS: [&str; 46] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -724,10 +725,11 @@ const LOG_KINDS: [&str; 45] = [
     "core:unbelieved",
     "core:told",
     "core:refuted",
+    "core:felt",
 ];
 
 /// The entries of the house: no golden scenario moves in yet (ADR-0024).
-const HOUSE_LOGS: [&str; 28] = [
+const HOUSE_LOGS: [&str; 29] = [
     "core:moved_in",
     "core:moved_out",
     "core:day_started",
@@ -756,6 +758,7 @@ const HOUSE_LOGS: [&str; 28] = [
     "core:unbelieved",
     "core:told",
     "core:refuted",
+    "core:felt",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -855,7 +858,8 @@ fn golden_scenarios_cover_every_kind() {
             "log core:believed",
             "log core:unbelieved",
             "log core:told",
-            "log core:refuted"
+            "log core:refuted",
+            "log core:felt"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, no partnership ends by separation, and nobody \
@@ -911,7 +915,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 45);
+    assert_eq!(logs.len(), 46);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -1032,7 +1036,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:believed",
             "log core:unbelieved",
             "log core:told",
-            "log core:refuted"
+            "log core:refuted",
+            "log core:felt"
         ]
     );
 }

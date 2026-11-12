@@ -16,7 +16,7 @@ use common::day::{self, MORNING, Run, places_hold};
 use serde_json::json;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
-use sim_core::house::choice::{Choice, Filler, choose, filler, fillers, mood, score};
+use sim_core::house::choice::{Bonus, Choice, Filler, choose, filler, fillers, mood, score};
 use sim_core::house::data::{House, HouseData};
 use sim_core::house::need::NeedSample;
 use sim_core::house::reserve::Reserve;
@@ -568,7 +568,8 @@ fn hunger_under_comfort_eats_before_the_bed() {
         (9, needs, 7),
         (Some(night), None),
         no_mood,
-        |_| 0,
+        0,
+        |_| Bonus::NONE,
     );
     let points = |object: u16| {
         (scored.iter())
@@ -577,7 +578,15 @@ fn hunger_under_comfort_eats_before_the_bed() {
     };
     assert_eq!(points(0), Some(39_501));
     assert_eq!(points(1), Some(101 * 200 - 1_000));
-    let by_day = score(house, &houses, (9, needs, 7), (None, None), no_mood, |_| 0);
+    let by_day = score(
+        house,
+        &houses,
+        (9, needs, 7),
+        (None, None),
+        no_mood,
+        0,
+        |_| Bonus::NONE,
+    );
     let day_choice = choose((house, &houses), (9, needs), &by_day, &[], None);
     assert_eq!(day_choice, Choice::Idle);
     let beds = [9, 10, 12];
@@ -588,7 +597,8 @@ fn hunger_under_comfort_eats_before_the_bed() {
             (9, values, 7),
             (Some(night), None),
             no_mood,
-            |_| 0,
+            0,
+            |_| Bonus::NONE,
         );
         match choose((house, &houses), (9, values), &scored, busy, Some(&beds)) {
             Choice::Take(chosen) => Some(chosen.object),

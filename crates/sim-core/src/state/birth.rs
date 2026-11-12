@@ -156,6 +156,7 @@ pub(crate) fn on_birth(
             pool.and_then(|key| domain.keys.get(&key).copied())
         });
         super::memory::child_born(domain, data, (mother, father), child, born, ctx);
+        super::feeling::child_born(domain, data, (mother, father), born, ctx);
         super::bond::child_born(domain, data, mother, child, born, ctx);
         children.push((child, born));
     }

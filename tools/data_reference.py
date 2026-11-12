@@ -1422,6 +1422,14 @@ SOCIAL_BELIEFS = [
     "lie_ppm", "lie_grudge", "lie_certainty", "refute_ppm", "refute_trust", "refute_grudge",
     "heard_aimed_trust", "heard_aimed_grudge", "heard_other_trust", "deeds",
 ]
+SOCIAL_CHANNELS = ["joy", "anger", "sadness", "fear"]
+# The occasions of the feelings' table in the order of `Occasion` (ADR-0032 section 3).
+SOCIAL_OCCASIONS = [
+    "talk_everyday", "talk_praise", "talk_tease", "talk_recall", "talk_apology", "heard", "refuted",
+    "birth", "partner_lost", "relative_died", "partnership_began", "separated", "need_empty",
+]
+SOCIAL_FEELING_BAND = ["min_affection", "numerator", "denominator"]
+SOCIAL_FEELING_CONTAGION = ["min_anger", "step", "cap"]
 SOCIAL_BELIEF_DELTAS = ["refute_trust", "refute_grudge", "heard_aimed_trust", "heard_aimed_grudge", "heard_other_trust"]
 SOCIAL_BELIEF_SCALES = ["heard_cap", "confirm_cap", "inferred_certainty", "lie_certainty", "lie_grudge"]
 
@@ -1440,7 +1448,7 @@ def social_checked(doc: dict) -> dict:
     """The checks of ADR-0030 section 6 and ADR-0031 as the core makes them (`SocialData`), in
     the order of its error codes; a failed one names its code. Unknown or missing fields are
     refused as `deny_unknown_fields` and the types refuse them. Returns the document."""
-    assert set(doc) == {"limits", "memory", "bonds", "topics", "choice", "beliefs"}, "social fields"
+    assert set(doc) == {"limits", "memory", "bonds", "topics", "choice", "beliefs", "feelings"}, "social fields"
     limits = doc["limits"]
     assert set(limits) == set(SOCIAL_LIMITS) and all(is_int(limits[name]) for name in SOCIAL_LIMITS), "social fields"
     assert 0 <= limits["min_age"] < 256, "social fields"
@@ -1551,7 +1559,41 @@ def social_checked(doc: dict) -> dict:
         and 1 <= len(beliefs["deeds"]) <= 16
         and len(set(beliefs["deeds"])) == len(beliefs["deeds"])
     ), "social.beliefs"
+    social_feelings_checked(doc["feelings"])
     return doc
+
+
+def social_feelings_checked(feelings: dict) -> None:
+    """ADR-0032 section 6 and the checks of `FeelingRules`: the rates and `mood_return` 0 to 10000
+    (section 1), the rows of the table once each with steps of -1000 to 1000 (an absent row is all 0),
+    the band's threshold up to 1000 with a numerator up to 10000 over a denominator of 1 to 10000, and
+    the contagion's thresholds up to 1000 with its cap below the anger that infects (so a push never
+    infects the one it reaches, section 4)."""
+    assert set(feelings) == {"rates", "mood_return", "table", "band", "contagion"}, "social fields"
+    rates = feelings["rates"]
+    assert set(rates) == set(SOCIAL_CHANNELS) and all(is_int(rates[c]) and 0 <= rates[c] < 2**16 for c in SOCIAL_CHANNELS), "social fields"
+    assert is_int(feelings["mood_return"]) and 0 <= feelings["mood_return"] < 2**16, "social fields"
+    for row in feelings["table"]:
+        assert set(row) <= {"occasion", *SOCIAL_CHANNELS} and "occasion" in row, "social fields"
+        assert row["occasion"] in SOCIAL_OCCASIONS, "social fields"
+        assert all(is_int(row[c]) and -(2**15) <= row[c] < 2**15 for c in SOCIAL_CHANNELS if c in row), "social fields"
+    for name, keys in (("band", SOCIAL_FEELING_BAND), ("contagion", SOCIAL_FEELING_CONTAGION)):
+        part = feelings[name]
+        assert set(part) == set(keys) and all(is_int(part[k]) and 0 <= part[k] < 2**16 for k in keys), "social fields"
+    band, contagion = feelings["band"], feelings["contagion"]
+    occasions = [row["occasion"] for row in feelings["table"]]
+    assert (
+        all(feelings["rates"][c] <= 10_000 for c in SOCIAL_CHANNELS)
+        and feelings["mood_return"] <= 10_000
+        and len(set(occasions)) == len(occasions)
+        and all(-1000 <= row.get(c, 0) <= 1000 for row in feelings["table"] for c in SOCIAL_CHANNELS)
+        and band["min_affection"] <= 1000
+        and band["numerator"] <= 10_000
+        and 1 <= band["denominator"] <= 10_000
+        and contagion["min_anger"] <= 1000
+        and contagion["step"] <= 1000
+        and contagion["cap"] < contagion["min_anger"]
+    ), "social.feelings"
 
 
 def social_furniture(doc: dict, kinds) -> None:
@@ -1582,7 +1624,12 @@ def social_suffix(doc, kinds=None) -> bytes:
         beliefs: BeliefRules { heard_cap, heard_floor, heard_divisor, confirm_step, confirm_cap,
                    inferred_certainty: u16, lie_ppm: u32, lie_grudge: u16, lie_certainty: u16,
                    refute_ppm: u32, refute_trust, refute_grudge, heard_aimed_trust,
-                   heard_aimed_grudge, heard_other_trust: i16, deeds: [id] } }
+                   heard_aimed_grudge, heard_other_trust: i16, deeds: [id] },
+        feelings: FeelingRules { rates: ChannelRates { joy, anger, sadness, fear: u16 },
+                   mood_return: u16, table: [FeelingRow { occasion: Occasion (the index in
+                   SOCIAL_OCCASIONS), joy, anger, sadness, fear: i16 }],
+                   band: Band { min_affection, numerator, denominator: u16 },
+                   contagion: Contagion { min_anger, step, cap: u16 } } }
 
     The kinds of furniture of the topics are checked against `kinds`, the kinds of the houses, if
     given. Empty for data without a social file (None)."""
@@ -1626,6 +1673,13 @@ def social_suffix(doc, kinds=None) -> bytes:
             out += zigzag(beliefs[name])
         else:
             out += varint(beliefs[name])
+    feelings = doc["feelings"]
+    out += b"".join(varint(feelings["rates"][c]) for c in SOCIAL_CHANNELS) + varint(feelings["mood_return"])
+    out += varint(len(feelings["table"]))
+    for row in feelings["table"]:
+        out += varint(SOCIAL_OCCASIONS.index(row["occasion"])) + b"".join(zigzag(row.get(c, 0)) for c in SOCIAL_CHANNELS)
+    out += b"".join(varint(feelings["band"][k]) for k in SOCIAL_FEELING_BAND)
+    out += b"".join(varint(feelings["contagion"][k]) for k in SOCIAL_FEELING_CONTAGION)
     return out
 
 

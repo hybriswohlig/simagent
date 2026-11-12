@@ -611,7 +611,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HouseAnswer",
-            doc: "`GET /api/runs/{run}/house/{household}`, version 10: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler; the departure that ends an action, the object a person waits for and the offers taken for a command since version 8, ADR-0021, addendum of 2026-11-05 on the house page; each person's reserve at hunger 0 since version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0; the bonds, the strongest memories and the beliefs since version 10, ADR-0030 and ADR-0031).",
+            doc: "`GET /api/runs/{run}/house/{household}`, version 11: the household's house at the clock: its drawing, each person with needs and each child without (ADR-0021, addendum of 2026-11-03; away since ADR-0024 section 4; lying on the floor and the smell since ADR-0026, addendum of 2026-11-04 on a need at 0; the offers a command may name since version 5; each need's comfort since version 7, ADR-0026, addendum of 2026-11-04 on comfort and the time-filler; the departure that ends an action, the object a person waits for and the offers taken for a command since version 8, ADR-0021, addendum of 2026-11-05 on the house page; each person's reserve at hunger 0 since version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0; the bonds, the strongest memories and the beliefs since version 10, ADR-0030 and ADR-0031; joy, anger, sadness, fear and the temper of each person with needs at the clock since version 11, ADR-0032 section 7).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.house"])),
                 field("version", Integer),
@@ -672,7 +672,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "HousePerson",
-            doc: "A person with needs: where it is, what it does, the object whose waiting list it stands on, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5), its reserve at hunger 0, its bonds, its five strongest memories and its beliefs (ADR-0030, ADR-0031).",
+            doc: "A person with needs: where it is, what it does, the object whose waiting list it stands on, its five needs at the clock and how much each weighs in a choice now (`max(0, comfort − value)`), whether it lies on the floor, whether it smells (hygiene at most 50), the offers a command may name: open at its age in the second a command acts, sleep only in its night (ADR-0024 section 5), its reserve at hunger 0, its bonds, its five strongest memories and its beliefs (ADR-0030, ADR-0031), and its joy, anger, sadness, fear and temper at the clock (ADR-0032 section 7).",
             fields: vec![
                 field("sim", Integer),
                 field("place", Ref("HousePlace")),
@@ -687,6 +687,11 @@ pub fn descriptor() -> Vec<Named> {
                 field("bonds", list(Ref("HouseBond"))),
                 field("memories", list(Ref("HouseMemory"))),
                 field("beliefs", list(Ref("HouseBelief"))),
+                field("joy", Integer),
+                field("anger", Integer),
+                field("sadness", Integer),
+                field("fear", Integer),
+                field("temper", Integer),
             ],
         },
         Named {
@@ -777,7 +782,7 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyAnswer",
-            doc: "`GET /api/runs/{run}/why/{entry}` (version 10): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05); for the person's latest choice its reserve at the clock (version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0); the company of each sociable piece of furniture and, for an avoided person, the belief that last lowered the trust (version 10, ADR-0030 section 4, ADR-0031 section 5).",
+            doc: "`GET /api/runs/{run}/why/{entry}` (version 11): the points of every offer of a choice with the person's mood for it, recomputed from its entry with the person's night, the most first, then the offers closed: of sleep outside the night, and those that would still run at today's departure; the night the choice lay in or the next, what an idle person waited for, the room it went to from a room one does not stay in, the time-filler it took instead of idling, the time-filler it did not take as it would have ended too soon, the needs of the choice and each need's comfort, and for an idle entry that is still the person's state the same comparison at the clock (ADR-0021, addendum of 2026-11-03; ADR-0026, addenda of 2026-11-04 and 2026-11-05); for the person's latest choice its reserve at the clock (version 9, ADR-0026, addendum of 2026-11-06 on hunger at 0); the company of each sociable piece of furniture and, for an avoided person, the belief that last lowered the trust (version 10, ADR-0030 section 4, ADR-0031 section 5); the temper at the choice and, on each company row, the unscaled company beside the logged one (version 11, ADR-0032 section 7).",
             fields: vec![
                 field("format", Kind::Literal(&["simagent.view.why"])),
                 field("version", Integer),
@@ -797,6 +802,7 @@ pub fn descriptor() -> Vec<Named> {
                 field("offers", list(Ref("WhyOffer"))),
                 field("now", nullable(Ref("WhyNow"))),
                 field("reserve", nullable(Ref("HouseReserve"))),
+                field("temper", Integer),
                 field("company", list(Ref("WhyCompany"))),
             ],
         },
@@ -912,13 +918,14 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "WhyCompany",
-            doc: "One sociable piece of furniture a choice weighed (ADR-0030 section 4, ADR-0031 section 5). The liked person is 0 when there is none, and then affection, familiarity and company are 0. The avoided person is 0 when there is none, and then trust and avoid are 0.",
+            doc: "One sociable piece of furniture a choice weighed (ADR-0030 section 4, ADR-0031 section 5). The liked person is 0 when there is none, and then affection, familiarity and company are 0. The avoided person is 0 when there is none, and then trust and avoid are 0. `company` is the logged value, already scaled by the temper. `plain` is the data's company constant when someone is liked, otherwise 0 (ADR-0032 section 7).",
             fields: vec![
                 field("object", Integer),
                 field("liked", Integer),
                 field("affection", Integer),
                 field("familiarity", Integer),
                 field("company", Integer),
+                field("plain", Integer),
                 field("avoided", Integer),
                 field("trust", Integer),
                 field("avoid", Integer),
@@ -982,10 +989,21 @@ pub fn descriptor() -> Vec<Named> {
         },
         Named {
             name: "EventItem",
-            doc: "An entry of `events.ndjson` and the core's calendar date of its second.",
+            doc: "An entry of `events.ndjson` and the core's calendar date of its second. A `core:felt` also carries `before`, the four channels just before that entry (ADR-0032 section 7).",
             fields: vec![
                 field("entry", Ref("LogEntry")),
                 field("date", Ref("CalendarDate")),
+                optional("before", Ref("FeltBefore")),
+            ],
+        },
+        Named {
+            name: "FeltBefore",
+            doc: "The four channels just before a `core:felt`, so the page can see a channel cross 500 (ADR-0032 section 7). The entry itself stores the values after the occasion.",
+            fields: vec![
+                field("joy", Integer),
+                field("anger", Integer),
+                field("sadness", Integer),
+                field("fear", Integer),
             ],
         },
         Named {

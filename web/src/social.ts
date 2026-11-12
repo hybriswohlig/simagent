@@ -231,14 +231,51 @@ function accusative(layout: HouseLayout, index: number): string {
   return KIND_WORDS[kind]?.[2] ?? kind;
 }
 
+/** A temper with its sign. Negatives use the typographic minus, and zero keeps the plus. */
+export function signedTemper(value: number): string {
+  if (value < 0) {
+    return `\u2212${-value}`;
+  }
+  return `+${value}`;
+}
+
+/** The person card (ADR-0032 section 7): channels above 0, in order, then the temper. The temper
+ * is shown even when every channel is 0. */
+export function feelingWords(person: {
+  readonly joy: number;
+  readonly anger: number;
+  readonly sadness: number;
+  readonly fear: number;
+  readonly temper: number;
+}): string {
+  const channels: readonly (readonly [number, string])[] = [
+    [person.joy, TEXT.feeling_joy],
+    [person.anger, TEXT.feeling_anger],
+    [person.sadness, TEXT.feeling_sadness],
+    [person.fear, TEXT.feeling_fear],
+  ];
+  const shown = channels.filter(([value]) => value > 0).map(([value, word]) => `${word} ${value}`);
+  const temper = `${TEXT.feeling_temper} ${signedTemper(person.temper)}`;
+  return shown.length === 0 ? temper : `${shown.join(", ")}. ${temper}`;
+}
+
 /** "Warum?" for the company of a choice (ADR-0030 section 4, ADR-0031 section 5): who one sits
  * with, whom one avoids, and for an avoided person the belief and whether it is true. The
- * numbers are the server's. Rows stay in the server's order. */
-export function companyWords(rows: readonly WhyCompany[], layout: HouseLayout, name: NameOf): string {
+ * numbers are the server's. Rows stay in the server's order. Beside a liked person, the temper
+ * and the company as logged next to the unscaled constant (ADR-0032 section 7). */
+export function companyWords(
+  rows: readonly WhyCompany[],
+  layout: HouseLayout,
+  name: NameOf,
+  temper = 0,
+): string {
   const lines: string[] = [];
   for (const row of rows) {
     if (row.liked !== 0) {
       lines.push(fill(TEXT.social_sits, { name: name(row.liked), affection: row.affection, familiarity: row.familiarity }));
+      if (typeof row.plain === "number") {
+        lines.push(fill(TEXT.feeling_mood, { temper: signedTemper(temper), company: row.company, plain: row.plain }));
+      }
     }
     if (row.avoided !== 0) {
       lines.push(fill(TEXT.social_avoids, { object: accusative(layout, row.object), name: name(row.avoided), trust: row.trust }));

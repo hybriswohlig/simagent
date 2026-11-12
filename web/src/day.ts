@@ -46,12 +46,89 @@ function ended(layout: HouseLayout, object: number, offer: number, reason: unkno
     : TEXT.house_end_broken.replace("{what}", placedOfferWords(layout, object, offer)).replace("{why}", why);
 }
 
+/** A channel the day list mentions only when it crosses 500 upward (ADR-0032 section 7). */
+const CROSSED = 500;
+
+const FELT_WORDS: readonly (readonly [string, keyof typeof TEXT])[] = [
+  ["joy", "feeling_joyful"],
+  ["anger", "feeling_angry"],
+  ["sadness", "feeling_sad"],
+  ["fear", "feeling_afraid"],
+];
+
+function called(view: DayView | undefined): (id: number) => string {
+  return view === undefined ? (id) => `${TEXT.person} ${id}` : view.name;
+}
+
+/** Persons whose `core:felt` was caused by this entry, in sim order. Contagion writes them so. */
+function infectedIds(item: EventItem, felts: readonly EventItem[]): number[] {
+  const found: number[] = [];
+  for (const felt of felts) {
+    const caused = felt.entry.causes.some((cause) => cause["event"] === item.entry.id);
+    const who = felt.entry.subjects[0]?.sim;
+    if (caused && typeof who === "number") {
+      found.push(who);
+    }
+  }
+  found.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  return found;
+}
+
+function joinNames(names: readonly string[]): string {
+  if (names.length <= 1) {
+    return names[0] ?? "";
+  }
+  const head = names.slice(0, -1).join(", ");
+  return `${head} und ${names[names.length - 1]}`;
+}
+
+function contagion(item: EventItem, felts: readonly EventItem[], name: (id: number) => string): string | null {
+  const ids = infectedIds(item, felts);
+  if (ids.length === 0) {
+    return null;
+  }
+  return TEXT.feeling_infects.replace("{names}", joinNames(ids.map(name)));
+}
+
+function withContagion(text: string, item: EventItem, felts: readonly EventItem[], name: (id: number) => string): string {
+  const extra = contagion(item, felts, name);
+  return extra === null ? text : `${text} und ${extra}`;
+}
+
+/** A `core:felt` line only when a channel crosses 500 upward. The server sends the channels
+ * from before the entry. Several crossings stay in channel order. */
+function feltWords(item: EventItem): string | null {
+  const before = item.before;
+  const payload = item.entry.payload["core:felt"];
+  if (before === undefined || typeof payload !== "object" || payload === null) {
+    return null;
+  }
+  const after = payload as { readonly [key: string]: unknown };
+  const parts: string[] = [];
+  for (const [key, word] of FELT_WORDS) {
+    const was = before[key as keyof typeof before];
+    const now = after[key];
+    if (typeof was === "number" && typeof now === "number" && was < CROSSED && now >= CROSSED) {
+      parts.push(TEXT[word]);
+    }
+  }
+  return parts.length === 0 ? null : parts.join(", ");
+}
+
 /** The line of a house entry of a person's day, or null for one the day leaves out (an
- * arrival): what it chose or was told, what ended, where it idles or what it waits for, a need
- * critical or empty, the day's duty, a collapse and an accident, the reserve at half and at 0;
- * the object told apart from others of its kind, all from the entry and the layout. A talk, a
- * telling, a refutation, a belief, a memory and a bond are `daySocial`, about `view`'s person. */
-export function dayLine(layout: HouseLayout, item: EventItem, view?: DayView): DayLine | null {
+ * arrival that infected nobody): what it chose or was told, what ended, where it idles or what
+ * it waits for, a need critical or empty, the day's duty, a collapse and an accident, the
+ * reserve at half and at 0; the object told apart from others of its kind, all from the entry
+ * and the layout. A talk, a telling, a refutation, a belief, a memory and a bond are
+ * `daySocial`, about `view`'s person. `felts` are the household's `core:felt` lines, so an
+ * arrival can name whom it infected (ADR-0032 section 7). A `core:felt` is said only when a
+ * channel crosses 500 upward. */
+export function dayLine(
+  layout: HouseLayout,
+  item: EventItem,
+  view?: DayView,
+  felts: readonly EventItem[] = [],
+): DayLine | null {
   const social = daySocial(item, view);
   if (social !== null) {
     return social;
@@ -60,6 +137,7 @@ export function dayLine(layout: HouseLayout, item: EventItem, view?: DayView): D
   const fields = body as { [key: string]: unknown };
   const number = (key: string) => (typeof fields[key] === "number" ? (fields[key] as number) : 0);
   const school = fields["place"] === "school";
+  const name = called(view);
   switch (code) {
     case "core:action_started": {
       // A commanded start says so (ADR-0024 section 5); "Warum?" tells the points beside it; a
@@ -71,11 +149,20 @@ export function dayLine(layout: HouseLayout, item: EventItem, view?: DayView): D
       return { text: ended(layout, number("object"), number("offer"), fields["reason"]), choice: false };
     case "core:idle": {
       const waits = fields["waits"];
-      if (typeof waits === "number") {
-        return { text: TEXT.house_waits.replace("{object}", objectName(layout, waits)), choice: true };
-      }
       const room = layout.rooms[number("room")]?.id ?? "";
-      return { text: TEXT.house_idle_day.replace("{room}", ROOM_WORDS[room]?.[2] ?? room), choice: true };
+      const text =
+        typeof waits === "number"
+          ? TEXT.house_waits.replace("{object}", objectName(layout, waits))
+          : TEXT.house_idle_day.replace("{room}", ROOM_WORDS[room]?.[2] ?? room);
+      return { text: withContagion(text, item, felts, name), choice: true };
+    }
+    case "core:reached": {
+      const text = contagion(item, felts, name);
+      return text === null ? null : { text, choice: false };
+    }
+    case "core:felt": {
+      const text = feltWords(item);
+      return text === null ? null : { text, choice: false };
     }
     case "core:need_critical":
       return {
@@ -91,7 +178,7 @@ export function dayLine(layout: HouseLayout, item: EventItem, view?: DayView): D
       return { text: `${school ? TEXT.house_left_school : TEXT.house_left_work}${late}`, choice: false };
     }
     case "core:came_home":
-      return { text: school ? TEXT.house_came_school : TEXT.house_came_work, choice: false };
+      return { text: withContagion(school ? TEXT.house_came_school : TEXT.house_came_work, item, felts, name), choice: false };
     case "core:missed":
       return { text: school ? TEXT.house_missed_school : TEXT.house_missed_work, choice: false };
     // A need at 0 and what it brings (ADR-0026, addendum of 2026-11-04 on a need at 0).
