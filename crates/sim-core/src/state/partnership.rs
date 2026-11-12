@@ -234,6 +234,7 @@ pub(crate) fn pair_up_with(
 ) -> (PartnershipId, EventId) {
     let (id, entry) = ctx.create_partnership(woman, man, causes);
     super::memory::partnership(domain, data, (woman, man), true, entry, ctx);
+    super::feeling::partnership(domain, data, (woman, man), true, entry, ctx);
     domain.open.insert(woman, id);
     domain.open.insert(man, id);
     domain.partnerships.insert(
@@ -370,6 +371,7 @@ fn separate(
         causes,
     );
     super::memory::partnership(domain, data, (woman, man), false, separated, ctx);
+    super::feeling::partnership(domain, data, (woman, man), false, separated, ctx);
     conception::stop_attempts(domain, woman, ctx);
     household::separation_moves(domain, (woman, man), separated, ctx);
 }

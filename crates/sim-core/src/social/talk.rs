@@ -2,6 +2,7 @@
 //! topic they take, who acts and which bond steps the outcome writes. Interests are one draw
 //! per topic. Klatsch is allowed when the pair's `gossip` flag is set (ADR-0031 section 3).
 
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::data_id::DataId;
@@ -10,7 +11,7 @@ use crate::lineage::LineageKey;
 use crate::rng::tags::{TALK_INTEREST, TALK_LIE, TALK_REFUTE};
 use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed};
 use crate::social::bond::{AFFECTION, ATTRACTION, FAMILIARITY, GRUDGE, RESPECT, TRUST};
-use crate::social::data::{BondValue, Condition, Limits, SocialData, Who};
+use crate::social::data::{BondValue, Condition, Limits, Occasion, SocialData, Who};
 use crate::social::memory::MOST;
 use crate::time::{DAY, SimTime};
 
@@ -139,6 +140,10 @@ pub fn talk_ppm(seed: WorldSeed, key: DrawKey) -> u64 {
     Draws::new(seed).uniform_below(key, 1_000_000)
 }
 
+/// Alltag, the topic of the data's first place (ADR-0030 section 3).
+pub const EVERYDAY: usize = 0;
+/// Erinnern.
+pub const RECALL: usize = 4;
 /// The topic numbers with an actor (ADR-0030 section 3: 1 Lob, 2 Necken, 5 Entschuldigung). The
 /// number is the topic's place in the data and the occasion of its interest draw.
 pub const PRAISE: usize = 1;
@@ -148,6 +153,34 @@ pub const TEASE: usize = 2;
 pub const GOSSIP: usize = 3;
 /// Entschuldigung.
 pub const APOLOGY: usize = 5;
+
+/// The feelings a topic's outcome brings (ADR-0032 section 3): who feels it, which row of the
+/// table, and the person its band reads the affection toward. Alltag and Erinnern both, each toward
+/// the other; Lob the praised toward the praiser, Necken the teased toward the teaser,
+/// Entschuldigung the one grudged, toward the one who apologises (the addressed person of the
+/// outcome, as `topic_outcome` has it). Klatsch has no row of its own: it acts through the heard
+/// deed and the refutation.
+pub fn topic_feelings(
+    topic: usize,
+    pair: &TalkPair<'_>,
+    actor: Option<SimId>,
+) -> Vec<(SimId, Occasion, Option<SimId>)> {
+    let (a, b) = (pair.a, pair.b);
+    let both = |occasion| vec![(a, occasion, Some(b)), (b, occasion, Some(a))];
+    let addressed = |occasion| {
+        let actor = actor.unwrap_or_else(|| panic!("invariant talk.actor"));
+        let other = if actor == a { b } else { a };
+        vec![(other, occasion, Some(actor))]
+    };
+    match topic {
+        EVERYDAY => both(Occasion::TalkEveryday),
+        PRAISE => addressed(Occasion::TalkPraise),
+        TEASE => addressed(Occasion::TalkTease),
+        RECALL => both(Occasion::TalkRecall),
+        APOLOGY => addressed(Occasion::TalkApology),
+        _ => Vec::new(),
+    }
+}
 
 /// What a recall writes: the strength at now plus the recall step, at most 1000.
 pub fn recall_strength(strength: u16, step: u16) -> u16 {

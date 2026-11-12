@@ -1,5 +1,5 @@
-//! The social part of the state (ADR-0030 section 5, ADR-0031 section 7): the memories, the
-//! bonds, the beliefs and the deeds of the persons, by person. It lives in the house part of
+//! The social part of the state (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6): the
+//! memories, the bonds, the beliefs, the deeds and the feelings of the persons, by person. It lives in the house part of
 //! the projection (`house::state::HouseState`) and is empty in a run without `MoveIn`.
 
 use alloc::collections::BTreeMap;
@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::SimId;
 use crate::social::belief::{Belief, Deeds};
 use crate::social::bond::Bond;
+use crate::social::feeling::Feel;
 use crate::social::memory::Memory;
 
 /// What the persons remember, the bonds they hold, and the beliefs and deeds they carry. A
@@ -30,6 +31,10 @@ pub struct Social {
     pub beliefs: BTreeMap<SimId, Vec<Belief>>,
     /// In the order the deeds came about (ADR-0031 section 7). Empty on a person who has none.
     pub deeds: BTreeMap<SimId, Deeds>,
+    /// The four channels and the temper of a person from 6 in a moved-in household, or frozen
+    /// after moving out (ADR-0032 sections 1 and 2). A person with all five values at 0 has no
+    /// entry. No event: the values are read analytically.
+    pub feelings: BTreeMap<SimId, Feel>,
 }
 
 impl Social {
@@ -39,6 +44,7 @@ impl Social {
             bonds: BTreeMap::new(),
             beliefs: BTreeMap::new(),
             deeds: BTreeMap::new(),
+            feelings: BTreeMap::new(),
         }
     }
 
@@ -47,5 +53,6 @@ impl Social {
             && self.bonds.is_empty()
             && self.beliefs.is_empty()
             && self.deeds.is_empty()
+            && self.feelings.is_empty()
     }
 }

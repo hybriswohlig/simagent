@@ -1208,6 +1208,13 @@ fn all_payloads() -> Vec<LogPayload> {
             },
             source: Some(sim(9)),
         },
+        LogPayload::Felt {
+            joy: 225,
+            anger: 0,
+            sadness: 1000,
+            fear: 300,
+            temper: -325,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1256,7 +1263,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Believed { .. }
             | LogPayload::Unbelieved { .. }
             | LogPayload::Told { .. }
-            | LogPayload::Refuted { .. } => {}
+            | LogPayload::Refuted { .. }
+            | LogPayload::Felt { .. } => {}
         }
     }
     payloads

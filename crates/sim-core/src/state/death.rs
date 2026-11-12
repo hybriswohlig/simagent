@@ -273,12 +273,14 @@ pub(crate) fn on_death(
         super::memory::partner_lost(domain, data, (sim, partner), entry, ctx);
     }
     super::memory::relative_died(domain, data, sim, entry, ctx);
+    super::feeling::death(domain, data, sim, partner, entry, ctx);
     household::death_moves(domain, data, sim, household, partner, entry, ctx);
 }
 
 /// `sim` leaves the active population for the archive now, by `left_by`: what was planned
 /// for it is cancelled, it loses every memory (`memory::left_world`), every bond of its
-/// own (`bond::left_world`) and every belief and deed (`belief::left_world`), wherever
+/// own (`bond::left_world`), its channels and temper (`feeling::left_world`) and every belief and
+/// deed (`belief::left_world`), wherever
 /// those lists lived, and her running pregnancy ends
 /// with her, with all its children (her conception stays counted). Returns the household it
 /// lived in, which it has not left yet.
@@ -329,6 +331,7 @@ pub(crate) fn archive(
     }
     super::memory::left_world(domain, sim, ctx);
     super::bond::left_world(domain, sim);
+    super::feeling::left_world(domain, sim);
     super::belief::left_world(domain, sim);
     person.household
 }

@@ -1195,21 +1195,37 @@ def rows_for(sim: int, effects: List[Effect], affection_to: Callable[[int, int],
     return [(steps, None if band is None else affection_to(sim, band)) for who, steps, band in effects if who == sim]
 
 
-def contagion(arriver: int, arriver_anger: int, room: List[Tuple[int, int, int]]) -> List[Tuple[int, int, int]]:
-    """ADR-0032 4: on entering a room with anger >= 700 (at the arrival second), every other
-    person from 6 in that room (`room` = (sim, age, anger at now) of everyone whose place is
-    the room) in SimId order gets min(anger + 150, 699) if below 700; at 700 or above the
-    anger stays; the arriver is not touched. Returns (sim, new anger, delta) for every
-    eligible person (delta 0 for those unchanged), so the temper can follow by section 2
+def enters(previous: Optional[int], arrival: int) -> bool:
+    """ADR-0032 4, addendum 2026-11-12: contagion only when the arrival's room differs from
+    the room before the walk. `previous is None` is from outside (came home) and counts as
+    entering. A walk to another object in the same room does not."""
+    return previous != arrival
+
+
+def contagion(
+    arriver: int,
+    arriver_anger: int,
+    room: List[Tuple[int, int, int]],
+    min_anger: int = CONTAGION_MIN_ANGER,
+    step: int = CONTAGION_STEP,
+    cap: int = CONTAGION_CAP,
+) -> List[Tuple[int, int, int]]:
+    """ADR-0032 4: on entering a room with anger >= min_anger (at the arrival second; the start
+    values are 700, 150 and 699), every other person from 6 in that room (`room` = (sim, age,
+    anger at now) of everyone whose place is the room) in SimId order gets
+    max(anger, min(anger + step, cap)) if below min_anger; at min_anger or above the anger
+    stays; the arriver is not touched. Call this only when `enters` is true: the room is
+    given, not whether the arriver was already in it. Returns (sim, new anger, delta) for
+    every eligible person (delta 0 for those unchanged), so the temper can follow by section 2
     (apply the delta through apply_occasion with the row (0, delta, 0, 0), no band). Nobody
-    is infected twice by one push and nobody's anger falls."""
-    if arriver_anger < CONTAGION_MIN_ANGER:
+    is infected twice by one push and nobody's anger falls, even when cap is below that anger."""
+    if arriver_anger < min_anger:
         return []
     out = []
     for sim, age, anger in sorted(room):
         if sim == arriver or age < FEEL_MIN_AGE:
             continue
-        new = min(anger + CONTAGION_STEP, CONTAGION_CAP) if anger < CONTAGION_MIN_ANGER else anger
+        new = max(anger, min(anger + step, cap)) if anger < min_anger else anger
         out.append((sim, new, new - anger))
     return out
 
@@ -1857,7 +1873,10 @@ def check_feelings() -> None:
     _, _, d = apply_occasion(Feel(), 0, [((1, 0, 0, 0), 700), ((1, 0, 0, 0), 700)])
     expect("band: truncation per row (1 stays 1, not 3/2 of the sum 2 = 3)", d[JOY], 2)
 
-    # Acceptance 4: contagion
+    # Acceptance 4: contagion. The push itself takes the room; whether the walk entered it is separate.
+    expect("4: sofa to television in the same room is not an entering", enters(1, 1), False)
+    expect("4: living to kitchen is an entering", enters(1, 2), True)
+    expect("4: coming home from outside is an entering", enters(None, 0), True)
     room = [(7, 30, 650), (5, 30, 0), (9, 30, 800), (3, 30, 720)]
     out = contagion(3, 720, room)
     expect("4: A 150, B 699, C 800 in SimId order, the arriver is not in it", out, [(5, 150, 150), (7, 699, 49), (9, 800, 0)])
@@ -1866,6 +1885,11 @@ def check_feelings() -> None:
     expect("4: threshold 700 infects", contagion(3, 700, [(5, 30, 0)]), [(5, 150, 150)])
     expect("4: 699 below 700 stays 699 (cap)", contagion(3, 900, [(5, 30, 699)]), [(5, 699, 0)])
     expect("4: 550 + 150 = 700 is capped at 699", contagion(3, 900, [(5, 30, 550)]), [(5, 699, 149)])
+    expect(
+        "4: cap 600 does not lower 650",
+        contagion(3, 900, [(5, 30, 650)], min_anger=700, step=150, cap=600),
+        [(5, 650, 0)],
+    )
     expect("4: at 700 or above unchanged, never lowered", contagion(3, 900, [(5, 30, 700), (6, 30, 1000)]), [(5, 700, 0), (6, 1000, 0)])
     expect("4: a child under 6 is not infected", contagion(3, 900, [(4, 5, 0), (5, 6, 0)]), [(5, 150, 150)])
     expect("4: the temper follows the delta (150 -> -37, 49 -> -12)", [apply_occasion(Feel((0, a, 0, 0), 0, 0), 0, [((0, dl, 0, 0), None)])[0].temper for _, a, dl in [(5, 0, 150), (7, 650, 49)]], [-37, -12])

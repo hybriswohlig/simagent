@@ -803,17 +803,12 @@ fn a_run_without_move_in_does_not_change() {
         social.world.canonical_bytes()
     );
     assert_eq!(plain.world.state_hash(), social.world.state_hash());
-    // Projection 23 keeps these eight empty maps: the talk counters and last-talk seconds
+    // Projection 24 keeps these nine empty maps: the talk counters and last-talk seconds
     // live in the person and the household, and an open Talk lives in the queue.
-    assert!(
-        social
-            .world
-            .canonical_bytes()
-            .ends_with(&[0, 0, 0, 0, 0, 0, 0, 0])
-    );
+    assert!(social.world.canonical_bytes().ends_with(&[0; 9]));
     assert!(social.log.iter().all(|e| !matches!(
         e.payload,
-        LogPayload::Remembered { .. } | LogPayload::Forgot { .. }
+        LogPayload::Remembered { .. } | LogPayload::Forgot { .. } | LogPayload::Felt { .. }
     )));
 }
 
