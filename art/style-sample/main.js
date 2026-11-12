@@ -264,9 +264,11 @@ function morphWeights(body, sex, emphasise) {
     weights[`age_male_${name}`] = slices[index] * male;
     weights[`age_female_${name}`] = slices[index] * female;
   });
-  // The universal weight files are small deltas on the base, about half a
-  // centimetre of girth at weight 1. They are added on top of the age blend.
-  // z = ±2 is the end of this clamp, so the weight is several times the sculpt.
+  // The universal weight file moves its largest waist vertices about 2.9 cm
+  // at weight 1, and much less on the shoulders. Weight 6 folded that waist
+  // through the clothes. 1.5 keeps the peak near 4 cm. The muscle file drops
+  // the shoulder about 4 cm at weight 1, so it stays under one half and the visible
+  // bulk is the arm, shoulder and chest targets. Both are added on the age blend.
   const fat = clamp(body.body_fat_z / 2, -1, 1);
   const muscle = clamp(body.muscle_z / 2, -1, 1);
   const dist = clamp(body.fat_distribution_z / 2, -1, 1);
@@ -278,10 +280,10 @@ function morphWeights(body, sex, emphasise) {
   const hips = Math.max(-dist, 0);
   for (const branch of ["male", "female"]) {
     const branchShare = branch === "male" ? male : female;
-    weights[`fat_${branch}_max`] = branchShare * heavy * 6;
-    weights[`fat_${branch}_min`] = branchShare * thin * 6;
-    weights[`muscle_${branch}_max`] = branchShare * bulk * 2.4;
-    weights[`muscle_${branch}_min`] = branchShare * soft * 2.4;
+    weights[`fat_${branch}_max`] = branchShare * heavy * 1.5;
+    weights[`fat_${branch}_min`] = branchShare * thin * 1.5;
+    weights[`muscle_${branch}_max`] = branchShare * bulk * 0.45;
+    weights[`muscle_${branch}_min`] = branchShare * soft * 0.45;
   }
   const quarter = (value) => value / 4;
   weights.leg_upper = quarter(body.leg_ratio_z);
@@ -290,17 +292,17 @@ function morphWeights(body, sex, emphasise) {
   weights.shoulder_width = quarter(body.shoulder_width_z);
   weights.chest_depth = quarter(body.chest_depth_z);
   weights.pelvis_width = quarter(body.hip_width_z);
-  // Distribution shifts where the mass sits. Positive is belly and waist,
-  // negative is thighs and a little more arm. A thin body pulls those
-  // regions back. The belly file is a pregnancy sculpt, so it only adds a
-  // fraction, and only where the fat is central.
-  weights.fat_central = heavy * (0.8 + 1.8 * belly) - thin * (0.6 + 0.8 * belly);
-  weights.fat_belly = heavy * belly * 0.35;
-  weights.fat_peripheral = heavy * (0.7 + 1.6 * hips) - thin * (0.5 + 0.8 * hips);
-  weights.fat_upperarm = heavy * (1.6 + hips) - thin * (1.2 + 0.6 * hips);
-  weights.muscle_arm = bulk * 3.4 - soft * 1.8;
-  weights.muscle_shoulder = bulk * 2.8 - soft * 1.2;
-  weights.muscle_chest = bulk * 2.2 - soft * 0.9;
+  // Waist, thigh and upper-arm files carry the mass (peaks about 2.8, 3.3
+  // and 1.6 cm at weight 1). Positive distribution adds waist, negative adds
+  // thigh and a little arm. The belly file is a pregnancy sculpt, about
+  // 10 cm forward at weight 1, so it only adds a small gut when fat is central.
+  weights.fat_central = heavy * (1.6 + 0.8 * belly) - thin * (1.15 + 0.4 * belly);
+  weights.fat_belly = heavy * belly * 0.25;
+  weights.fat_peripheral = heavy * (1.15 + 0.85 * hips) - thin * (0.85 + 0.45 * hips);
+  weights.fat_upperarm = heavy * (2.1 + 0.6 * hips) - thin * (1.5 + 0.4 * hips);
+  weights.muscle_arm = bulk * 1.8 - soft * 1.1;
+  weights.muscle_shoulder = bulk * 0.55 - soft * 0.35;
+  weights.muscle_chest = bulk * 1.6 - soft * 0.5;
   // Young and old female corners include MakeHuman's average cup. breast_min
   // cancels that cup, so the chest under it is flat. The bust is then only
   // breast_max, the localized max-cup delta: nothing at 0, a bud by about

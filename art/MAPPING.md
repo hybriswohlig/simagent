@@ -71,11 +71,12 @@ average of the male and female keys at that age).
 ## Fat and muscle
 
 The universal weight and muscle files are small deltas on the base mesh,
-not a second copy of the young body. Measured on this commit, weight 1
-moves the skin by about half a centimetre of girth (the largest hip
-vertex on the male max-weight file moves 2.9 cm). They are added on top
-of the age blend, on both sexes in proportion to the male and female
-shares. Child and old use the same deltas. The age key is not reduced.
+not a second copy of the young body. Measured on this mesh, weight 1
+moves the largest male waist vertices 2.9 cm sideways, and much less on
+the shoulders. The muscle file's largest vertices drop the shoulder
+about 4 cm. They are added on top of the age blend, on both sexes in
+proportion to the male and female shares. Child and old use the same
+deltas. The age key is not reduced.
 
 `fu = clamp(body_fat_z / 2, -1, 1)`, `mu = clamp(muscle_z / 2, -1, 1)`,
 `du = clamp(fat_distribution_z / 2, -1, 1)`.
@@ -86,32 +87,35 @@ shares. Child and old use the same deltas. The age key is not reduced.
 Let `s` be the male or female share from the age section.
 
 ```
-fat_*_max   = s * heavy * 6
-fat_*_min   = s * thin * 6
-muscle_*_max = s * bulk * 2.4
-muscle_*_min = s * soft * 2.4
+fat_*_max    = s * heavy * 1.5
+fat_*_min    = s * thin * 1.5
+muscle_*_max = s * bulk * 0.45
+muscle_*_min = s * soft * 0.45
 ```
 
-At `body_fat_z = +2` the full-body weight target is at 6, about 17 cm
-on the outer hip. At `-2` the min-weight target pulls that hip in.
-`muscle_z = +2` keeps the full-body muscle target at 2.4, because its
-largest vertices drop the shoulder, and puts the visible bulk on the
-arm, shoulder and chest targets below.
+At `body_fat_z = +2` the full-body weight target stays near 1.5, about
+4 cm on that waist vertex. A higher weight folded the waist through the
+clothes and left a shelf under the arms. The waist, thigh and upper-arm
+targets carry the visible mass. `muscle_z = +2` keeps the full-body
+muscle target near 0.45. Its largest vertices drop the shoulder about
+4 cm at weight 1, and a higher weight left that drop as a shelf over
+the sleeve. The arm, shoulder and chest targets carry the bulk.
 
-Distribution decides where extra fat sits. Positive is waist and a
-modest belly. Negative is thighs, with a little more on the upper arm.
-A thin value pulls the same regions back. The belly file is a pregnancy
-sculpt (about 10 cm forward at weight 1), so its weight stays under one
-half and it is zero unless the fat is both heavy and central.
+Distribution shifts where the extra sits. Positive adds waist and a
+small belly. Negative adds thigh and a little more upper arm. Every
+heavy body still gains some of each, and a thin body pulls the same
+regions back. The belly file is a pregnancy sculpt (about 10 cm forward
+at weight 1), so its weight stays a small fraction and it is zero unless
+the fat is both heavy and central.
 
 ```
-fat_central    = heavy * (0.8 + 1.8 * belly) - thin * (0.6 + 0.8 * belly)
-fat_belly      = heavy * belly * 0.35
-fat_peripheral = heavy * (0.7 + 1.6 * hips) - thin * (0.5 + 0.8 * hips)
-fat_upperarm   = heavy * (1.6 + hips) - thin * (1.2 + 0.6 * hips)
-muscle_arm     = bulk * 3.4 - soft * 1.8
-muscle_shoulder = bulk * 2.8 - soft * 1.2
-muscle_chest   = bulk * 2.2 - soft * 0.9
+fat_central     = heavy * (1.6 + 0.8 * belly) - thin * (1.15 + 0.4 * belly)
+fat_belly       = heavy * belly * 0.25
+fat_peripheral  = heavy * (1.15 + 0.85 * hips) - thin * (0.85 + 0.45 * hips)
+fat_upperarm    = heavy * (2.1 + 0.6 * hips) - thin * (1.5 + 0.4 * hips)
+muscle_arm      = bulk * 1.8 - soft * 1.1
+muscle_shoulder = bulk * 0.55 - soft * 0.35
+muscle_chest    = bulk * 1.6 - soft * 0.5
 ```
 
 ## Direct shape keys
@@ -131,7 +135,7 @@ approximation.
 | `pelvis_width` | `hip_width_z` | `hip/hip-scale-horiz-incr` | `z / 4` |
 | `fat_central` | `body_fat_z`, `fat_distribution_z` | `torso/measure-waist-circ-incr` | See fat section. Positive distribution adds waist. |
 | `fat_peripheral` | `body_fat_z`, `fat_distribution_z` | `legs/l-upperleg-fat-incr` + `r-upperleg-fat-incr` | See fat section. Negative distribution adds thigh. |
-| `fat_belly` | `body_fat_z`, `fat_distribution_z` | `stomach/stomach-pregnant-incr` | `heavy * belly * 0.35`. Central fat only. |
+| `fat_belly` | `body_fat_z`, `fat_distribution_z` | `stomach/stomach-pregnant-incr` | `heavy * belly * 0.25`. Central fat only. |
 | `fat_upperarm` | `body_fat_z`, `fat_distribution_z` | `arms/l-upperarm-fat-incr` + `r-upperarm-fat-incr` | See fat section. |
 | `muscle_arm` | `muscle_z` | `arms/l-upperarm-muscle-incr` + `r-upperarm-muscle-incr` | See fat section. |
 | `muscle_shoulder` | `muscle_z` | `arms/l-upperarm-shoulder-muscle-incr` + `r-upperarm-shoulder-muscle-incr` | See fat section. |
