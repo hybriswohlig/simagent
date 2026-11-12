@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Reference for the social rules of phase 3 (memory, bonds, talks, beliefs), written
-from ADR-0030 (sections 1 to 4) and ADR-0031 (sections 1 to 6) alone, without a look at
-the Rust code. The shared code is the independent draw reference tools/rng_reference.py
+"""Reference for the social rules of phase 3 (memory, bonds, talks, beliefs, feelings), written
+from ADR-0030 (sections 1 to 4), ADR-0031 (sections 1 to 6) and ADR-0032 (sections 1 to 5)
+alone, without a look at the Rust code. The shared code is the independent draw reference tools/rng_reference.py
 (chacha_key, words, uniform_below); everything else is plain integers, no float.
 
 What it implements (section numbers refer to the ADRs):
@@ -19,6 +19,10 @@ What it implements (section numbers refer to the ADRs):
   deeds, the lie decision (TALK_LIE = 36), the refutation decision (TALK_REFUTE = 37) and
   its effects.
 - Paternity at birth (ADR-0031 6): the four rules.
+- Feelings and temper (ADR-0032 1 to 5): analytic channel fade and temper return,
+  applying an occasion (band factor per row, rows summed, one clamp, temper from the
+  clamped deltas, no write when nothing changes), the occasion table, contagion on
+  entering a room, the temper-scaled company.
 
 Times are whole seconds, SimIds and keys plain integers. Where the ADR text is open the
 literal reading is taken and marked `READING` with the section in a comment.
@@ -27,7 +31,7 @@ This script is independent of the Rust code (ADR-0030 acceptance test): the core
 take their expected values from here.
 
 Usage: ~/.cache/simagent-tools-venv/bin/python tools/social_reference.py --check
-         (assert every worked value of the two ADRs and print the pinned values)
+         (assert every worked value of the three ADRs and print the pinned values)
        ~/.cache/simagent-tools-venv/bin/python tools/social_reference.py
          (print the pinned values only)
 """
@@ -970,6 +974,217 @@ def paternity_beliefs(
 
 
 # ---------------------------------------------------------------------------------------
+# Feelings and temper (ADR-0032 sections 1 to 5)
+#
+# Four channels (joy, anger, sadness, fear), each 0..1000, with one shared `since`, and a
+# temper -1000..1000. Everything is analytic: no event, i64 semantics. Division truncates
+# toward zero, so `div0` is used wherever the dividend can be negative.
+
+JOY, ANGER, SADNESS, FEAR = range(4)
+CHANNEL_NAMES = ("joy", "anger", "sadness", "fear")
+FEEL_RATES = (300, 300, 150, 400)  # per day, ADR-0032 1 (start values)
+MOOD_RETURN = 100  # per day, ADR-0032 2 (start value)
+FEEL_MIN_AGE = 6  # ADR-0032 1: channels from 6 years, in a moved-in household
+TEMPER_MAX = 1000
+BAND_MIN_AFFECTION = 600  # ADR-0032 3
+BAND_NUM, BAND_DEN = 3, 2
+CONTAGION_MIN_ANGER = 700  # ADR-0032 4
+CONTAGION_STEP = 150
+CONTAGION_CAP = 699
+
+
+def div0(a: int, b: int) -> int:
+    """i64 division as Rust does it: truncating toward zero (Python's // floors)."""
+    assert b != 0
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b > 0) else -q
+
+
+def channel_at(w: int, rate: int, since: int, t: int) -> int:
+    """ADR-0032 1: max(0, w - (rate * max(0, t - since)) / 86400); the product is not
+    negative, so the truncation is a floor."""
+    return max(0, w - div0(rate * max(0, t - since), DAY))
+
+
+def temper_at(s: int, since: int, t: int, mood_return: int = MOOD_RETURN) -> int:
+    """ADR-0032 2: |s(t)| = max(0, |s| - (mood_return * max(0, t - since)) / 86400), with the
+    sign of s. READING (ADR-0032 2): at magnitude 0 the sign is moot, the result is 0."""
+    mag = max(0, abs(s) - div0(mood_return * max(0, t - since), DAY))
+    return mag if s >= 0 else -mag
+
+
+@dataclass(frozen=True)
+class Feel:
+    """Stored state of one person: the four channel values, the temper and the shared
+    `since`. READING (ADR-0032 1 and 2): the ADR gives the channels a shared `since` and the
+    temper its own, but every write sets both to `now` (section 1: 'schreibt die Werte mit
+    since = now'), and the move-in sets both to the move-in second, so one `since` carries
+    both."""
+
+    values: Tuple[int, int, int, int] = (0, 0, 0, 0)
+    temper: int = 0
+    since: int = 0
+
+
+def feel_at(f: Feel, t: int, rates: Tuple[int, ...] = FEEL_RATES, mood_return: int = MOOD_RETURN) -> Tuple[Tuple[int, ...], int]:
+    """The four channels and the temper read analytically at second t >= since."""
+    assert t >= f.since
+    vals = tuple(channel_at(f.values[c], rates[c], f.since, t) for c in range(4))
+    return vals, temper_at(f.temper, f.since, t, mood_return)
+
+
+def band_step(step: int, affection: Optional[int]) -> int:
+    """ADR-0032 3: (step * 3) / 2 toward 0 when the evaluating person's affection to the
+    band person is >= 600 at `now` (negative steps too: -200 becomes -300); factor 1
+    otherwise and when the row has no band (affection None)."""
+    if affection is not None and affection >= BAND_MIN_AFFECTION:
+        return div0(step * BAND_NUM, BAND_DEN)
+    return step
+
+
+Row = Tuple[Tuple[int, int, int, int], Optional[int]]  # (steps joy/anger/sadness/fear, affection to band person or None)
+
+
+def apply_occasion(
+    f: Feel, now: int, rows: List[Row], rates: Tuple[int, ...] = FEEL_RATES, mood_return: int = MOOD_RETURN
+) -> Tuple[Feel, bool, Tuple[int, int, int, int]]:
+    """One occasion for one person (ADR-0032 1 to 3): read channels and temper at `now`,
+    band-factor each step of each row, sum all rows (a Talk has several), clamp each channel
+    once to 0..1000, take the clamped deltas, temper step (dJoy - dAnger - dSadness - dFear)
+    / 4 toward 0, clamp the temper to -1000..1000. Returns (new state, changed, deltas).
+    If neither a clamped channel nor the temper changes, the state is returned untouched
+    (no write, `since` unchanged) and `changed` is False."""
+    vals, temper = feel_at(f, now, rates, mood_return)
+    total = [0, 0, 0, 0]
+    for steps, affection in rows:
+        for c in range(4):
+            total[c] += band_step(steps[c], affection)
+    new = tuple(clamp(vals[c] + total[c]) for c in range(4))
+    delta = tuple(new[c] - vals[c] for c in range(4))
+    step = div0(delta[JOY] - delta[ANGER] - delta[SADNESS] - delta[FEAR], 4)
+    new_temper = clamp(temper + step, -TEMPER_MAX, TEMPER_MAX)
+    if new == vals and new_temper == temper:
+        return f, False, delta
+    return Feel(new, new_temper, now), True, delta
+
+
+# The occasion table (ADR-0032 3, start values): steps (joy, anger, sadness, fear).
+# An absent row means all 0.
+STEPS_TALK_ALLTAG = (40, 0, 0, 0)
+STEPS_TALK_LOB = (150, 0, 0, 0)
+STEPS_TALK_NECKEN = (0, 100, 0, 0)
+STEPS_TALK_ERINNERN = (100, 0, 0, 0)
+STEPS_TALK_ENTSCHULDIGUNG = (50, -200, 0, 0)
+STEPS_HEARD = (0, 200, 100, 0)  # gehoert: laestert / luegt against the hearer
+STEPS_REFUTED = (0, 150, 0, 0)
+STEPS_BIRTH = (800, 0, 0, 0)
+STEPS_PARTNER_DEATH = (0, 0, 1000, 200)
+STEPS_KIN_DEATH = (0, 0, 800, 100)
+STEPS_PARTNERSHIP = (600, 0, 0, 0)
+STEPS_SEPARATION = (0, 300, 600, 0)
+STEPS_NEED_EMPTY = (0, 150, 0, 100)
+
+# An effect: (the person who feels, the steps, the person the band is read toward or None).
+Effect = Tuple[int, Tuple[int, int, int, int], Optional[int]]
+
+
+def effect_talk_alltag(a: int, b: int) -> List[Effect]:
+    return [(a, STEPS_TALK_ALLTAG, b), (b, STEPS_TALK_ALLTAG, a)]
+
+
+def effect_talk_lob(praised: int, praiser: int) -> List[Effect]:
+    return [(praised, STEPS_TALK_LOB, praiser)]
+
+
+def effect_talk_necken(teased: int, teaser: int) -> List[Effect]:
+    return [(teased, STEPS_TALK_NECKEN, teaser)]
+
+
+def effect_talk_erinnern(a: int, b: int) -> List[Effect]:
+    return [(a, STEPS_TALK_ERINNERN, b), (b, STEPS_TALK_ERINNERN, a)]
+
+
+def effect_talk_entschuldigung(grudger: int, other: int) -> List[Effect]:
+    return [(grudger, STEPS_TALK_ENTSCHULDIGUNG, other)]
+
+
+def effect_heard(hearer: int, about: int) -> List[Effect]:
+    """A heard deed (laestert / luegt) against the hearer; the band is read toward W, the
+    person the sentence is about. The mild heard deed (trust -20, also neckt) has no row."""
+    return [(hearer, STEPS_HEARD, about)]
+
+
+def effect_refutation(hearer: int, source: Optional[int]) -> List[Effect]:
+    """The band is read toward the source; without a source, no band (factor 1). READING
+    (ADR-0032 3): 'ohne Quelle Band 1' is factor 1, i.e. the row is not banded."""
+    return [(hearer, STEPS_REFUTED, source)]
+
+
+def effect_birth(eligible_parents: List[int]) -> List[Effect]:
+    """Mother and father, whoever may receive the memory (the caller passes them); no band.
+    READING (ADR-0032 3): 'wer die Erinnerung bekommen darf' is the caller's list, the same
+    entitlement as the memory (ADR-0030 1), not whether the entry made it into the list."""
+    return [(p, STEPS_BIRTH, None) for p in eligible_parents]
+
+
+def effect_death(dead: int, partner: Optional[int], kin_eligible: List[int]) -> List[Effect]:
+    """The partner's death replaces the kin row for the survivor: one row even if the dead
+    was also kin. Everyone else who may receive the memory gets the kin row. The band is
+    read toward the dead."""
+    out: List[Effect] = []
+    if partner is not None:
+        out.append((partner, STEPS_PARTNER_DEATH, dead))
+    out += [(k, STEPS_KIN_DEATH, dead) for k in kin_eligible if k != partner]
+    return out
+
+
+def effect_partnership(a: int, b: int) -> List[Effect]:
+    return [(a, STEPS_PARTNERSHIP, None), (b, STEPS_PARTNERSHIP, None)]
+
+
+def effect_separation(a: int, b: int) -> List[Effect]:
+    return [(a, STEPS_SEPARATION, None), (b, STEPS_SEPARATION, None)]
+
+
+def effect_need_empty(sim: int, needs_reaching_zero: List[int]) -> List[Effect]:
+    """Once per settle, however many needs reach 0 in the same second; none if none do.
+    READING (ADR-0032 3): 'einmal je settle' means one row per person and call."""
+    return [(sim, STEPS_NEED_EMPTY, None)] if needs_reaching_zero else []
+
+
+def rows_for(sim: int, effects: List[Effect], affection_to: Callable[[int, int], Optional[int]]) -> List[Row]:
+    """The rows one person gets from a list of effects (a Talk bundles several into one
+    occasion); `affection_to(sim, other)` is the affection of sim's edge to other at `now`,
+    None without an edge (then no band)."""
+    return [(steps, None if band is None else affection_to(sim, band)) for who, steps, band in effects if who == sim]
+
+
+def contagion(arriver: int, arriver_anger: int, room: List[Tuple[int, int, int]]) -> List[Tuple[int, int, int]]:
+    """ADR-0032 4: on entering a room with anger >= 700 (at the arrival second), every other
+    person from 6 in that room (`room` = (sim, age, anger at now) of everyone whose place is
+    the room) in SimId order gets min(anger + 150, 699) if below 700; at 700 or above the
+    anger stays; the arriver is not touched. Returns (sim, new anger, delta) for every
+    eligible person (delta 0 for those unchanged), so the temper can follow by section 2
+    (apply the delta through apply_occasion with the row (0, delta, 0, 0), no band). Nobody
+    is infected twice by one push and nobody's anger falls."""
+    if arriver_anger < CONTAGION_MIN_ANGER:
+        return []
+    out = []
+    for sim, age, anger in sorted(room):
+        if sim == arriver or age < FEEL_MIN_AGE:
+            continue
+        new = min(anger + CONTAGION_STEP, CONTAGION_CAP) if anger < CONTAGION_MIN_ANGER else anger
+        out.append((sim, new, new - anger))
+    return out
+
+
+def scaled_company(company: int, temper: int) -> int:
+    """ADR-0032 5: company * (1000 + s) / 1000 in i64 toward 0; at -1000 it vanishes, at
+    +1000 it doubles. `avoid` stays unscaled."""
+    return div0(company * (1000 + temper), 1000)
+
+
+# ---------------------------------------------------------------------------------------
 # --check: every worked value of the two ADRs that the text fixes
 
 CHECKS = 0
@@ -1490,6 +1705,147 @@ def check_paternity() -> None:
     expect("paternity: the child itself gets nothing", [h for h, _ in out if h == 99], [])
 
 
+def check_feelings() -> None:
+    # div0 truncates toward zero (Rust), unlike Python's //
+    expect("div0: toward zero", (div0(-37, 4), div0(-150, 4), div0(150, 4), div0(-3, 2), div0(3, 2), div0(-1, 2), div0(7, -2)), (-9, -37, 37, -1, 1, 0, -3))
+
+    # Acceptance 1: joy 800 at 300 per day is 0 at 800 * 86400 / 300 = 230400, 1 one second before.
+    expect("1: joy 800 at 230400", channel_at(800, 300, 0, 230_400), 0)
+    expect("1: joy 800 one second before", channel_at(800, 300, 0, 230_399), 1)
+    expect("1: 230400 is 800 * 86400 / 300", 800 * DAY // 300, 230_400)
+    expect("channel: no fade before since (max(0, t - since))", channel_at(800, 300, 500, 100), 800)
+    expect("channel: shifted since", channel_at(800, 300, 1000, 1000 + 230_400), 0)
+    expect("channel: never below 0 long after", channel_at(800, 300, 0, 400 * DAY), 0)
+    expect("channel: rates sadness 150 and fear 400 (day 1)", (channel_at(500, 150, 0, DAY), channel_at(500, 400, 0, DAY)), (350, 100))
+    expect("channel: truncation (rate 400, 100 s)", channel_at(500, 400, 0, 100), 500 - 0)  # 40000 / 86400 = 0
+    expect("channel: truncation (rate 400, 216 s)", channel_at(500, 400, 0, 216), 500 - 1)  # 86400 / 86400 = 1
+
+    # Acceptance 2: birth, joy +800 and temper +200; temper 1 one second before 2 days, 0 after.
+    mother = Feel()
+    mother2, changed, delta = apply_occasion(mother, 0, rows_for(10, effect_birth([10, 11]), lambda s, o: None))
+    expect("2: birth joy and temper", (mother2.values, mother2.temper, mother2.since, changed, delta), ((800, 0, 0, 0), 200, 0, True, (800, 0, 0, 0)))
+    expect("2: temper one second before two days", temper_at(200, 0, 2 * DAY - 1), 1)
+    expect("2: temper at two days", temper_at(200, 0, 2 * DAY), 0)
+    expect("2: temper after two days", temper_at(200, 0, 2 * DAY + 5000), 0)
+    expect("2: through feel_at", feel_at(mother2, 2 * DAY - 1)[1], 1)
+    expect("2: birth has no band", [e[2] for e in effect_birth([10, 11])], [None, None])
+
+    # Acceptance 3
+    lob, _, d = apply_occasion(Feel(), 100, rows_for(1, effect_talk_lob(1, 2), lambda s, o: 640))
+    expect("3: praise with affection 640: joy +225", (lob.values[JOY], d[JOY]), (225, 225))
+    expect("3: praise temper (225 / 4 = 56)", lob.temper, 56)
+    stored = Feel((0, 500, 0, 0), 0, 0)
+    ap, _, d = apply_occasion(stored, 0, rows_for(1, effect_talk_entschuldigung(1, 2), lambda s, o: 600))
+    expect("3: apology in the band: anger -300, joy +75", (d[ANGER], d[JOY], ap.values), (-300, 75, (75, 200, 0, 0)))
+    expect("3: apology temper (75 + 300) / 4 = 93", ap.temper, 93)
+    ap, _, d = apply_occasion(stored, 0, rows_for(1, effect_talk_entschuldigung(1, 2), lambda s, o: 599))
+    expect("3: apology just outside the band: -200, +50", (d[ANGER], d[JOY]), (-200, 50))
+    ang, _, d = apply_occasion(Feel(), 5, [((0, 150, 0, 0), None)])
+    expect("3: anger +150 alone: temper -37", (ang.values, ang.temper), ((0, 150, 0, 0), -37))
+    talk, _, d = apply_occasion(Feel(), 5, [((50, 0, 0, 0), None), ((0, 0, 100, 0), None)])
+    expect("3: Talk with joy +50 and sadness +100: temper -12 (summed, divided once)", (talk.values, talk.temper), ((50, 0, 100, 0), -12))
+    t1, _, _ = apply_occasion(Feel(), 5, [((50, 0, 0, 0), None)])
+    t2, _, _ = apply_occasion(t1, 5, [((0, 0, 100, 0), None)])
+    expect("3: the same rows one by one would give -13 (12 and -25)", t2.temper, 12 - 25)
+
+    # Band edges: threshold, negative steps toward 0, per row before the sum
+    expect("band: 600 yes, 599 no", (band_step(150, 600), band_step(150, 599)), (225, 150))
+    expect("band: no band person", band_step(150, None), 150)
+    expect("band: negative toward 0 (-200 -> -300, -1 -> -1, 1 -> 1)", (band_step(-200, 700), band_step(-1, 700), band_step(1, 700)), (-300, -1, 1))
+    _, _, d = apply_occasion(Feel(), 0, [((150, 0, 0, 0), 700), ((40, 0, 0, 0), None)])
+    expect("band: applied per row before the sum (225 + 40)", d[JOY], 265)
+    _, _, d = apply_occasion(Feel(), 0, [((1, 0, 0, 0), 700), ((1, 0, 0, 0), 700)])
+    expect("band: truncation per row (1 stays 1, not 3/2 of the sum 2 = 3)", d[JOY], 2)
+
+    # Acceptance 4: contagion
+    room = [(7, 30, 650), (5, 30, 0), (9, 30, 800), (3, 30, 720)]
+    out = contagion(3, 720, room)
+    expect("4: A 150, B 699, C 800 in SimId order, the arriver is not in it", out, [(5, 150, 150), (7, 699, 49), (9, 800, 0)])
+    expect("4: the arriver stays 720 (not touched)", [o for o in out if o[0] == 3], [])
+    expect("4: B (now 699) does not infect anyone on arrival", contagion(7, 699, [(5, 30, 150), (9, 30, 800)]), [])
+    expect("4: threshold 700 infects", contagion(3, 700, [(5, 30, 0)]), [(5, 150, 150)])
+    expect("4: 699 below 700 stays 699 (cap)", contagion(3, 900, [(5, 30, 699)]), [(5, 699, 0)])
+    expect("4: 550 + 150 = 700 is capped at 699", contagion(3, 900, [(5, 30, 550)]), [(5, 699, 149)])
+    expect("4: at 700 or above unchanged, never lowered", contagion(3, 900, [(5, 30, 700), (6, 30, 1000)]), [(5, 700, 0), (6, 1000, 0)])
+    expect("4: a child under 6 is not infected", contagion(3, 900, [(4, 5, 0), (5, 6, 0)]), [(5, 150, 150)])
+    expect("4: the temper follows the delta (150 -> -37, 49 -> -12)", [apply_occasion(Feel((0, a, 0, 0), 0, 0), 0, [((0, dl, 0, 0), None)])[0].temper for _, a, dl in [(5, 0, 150), (7, 650, 49)]], [-37, -12])
+    # Unchanged person: no write, since stays
+    c_state = Feel((0, 800, 0, 0), -300, 40)
+    same, changed, _ = apply_occasion(c_state, 40, [((0, 0, 0, 0), None)])
+    expect("4: a delta 0 writes nothing", (same is c_state, changed), (True, False))
+
+    # Acceptance 5: scaled company
+    expect("5: temper -500 halves company", scaled_company(8000, -500), 4000)
+    expect("5: temper -1 gives 7992 (toward 0)", scaled_company(8000, -1), 7992)
+    expect("5: temper 0 unchanged", scaled_company(8000, 0), 8000)
+    expect("5: temper -1000 removes it, +1000 doubles it", (scaled_company(8000, -1000), scaled_company(8000, 1000)), (0, 16000))
+    expect("5: truncation toward 0 (company 1, temper 500)", scaled_company(1, 500), 1)
+    expect("5: truncation toward 0 (company -1, temper -500)", scaled_company(-1, -500), 0)
+    expect("5: company 0 stays 0", scaled_company(0, 700), 0)
+
+    # Acceptance 6: partner death with affection 700
+    eff = effect_death(dead=20, partner=10, kin_eligible=[10, 11])
+    expect("6: one row for the survivor even if kin, the kin row for the other", [(e[0], e[1]) for e in eff], [(10, STEPS_PARTNER_DEATH), (11, STEPS_KIN_DEATH)])
+    survivor, _, d = apply_occasion(Feel(), 3000, rows_for(10, eff, lambda s, o: 700 if (s, o) == (10, 20) else None))
+    expect("6: sadness 1000 (clamped from 1500), fear +300", (survivor.values, d), ((0, 0, 1000, 300), (0, 0, 1000, 300)))
+    expect("6: temper (0 - 0 - 1000 - 300) / 4 = -325", survivor.temper, -325)
+    kin, _, d = apply_occasion(Feel(), 3000, rows_for(11, eff, lambda s, o: 500))
+    expect("6: kin row without band", d, (0, 0, 800, 100))
+    kin, _, d = apply_occasion(Feel(), 3000, rows_for(11, eff, lambda s, o: 600))
+    expect("6: kin row in the band: 1200 clamped to 1000, fear 150", d, (0, 0, 1000, 150))
+    expect("6: no partner: only kin rows", [e[0] for e in effect_death(20, None, [10, 11])], [10, 11])
+
+    # The table
+    expect("table: Alltag both, band to the other", effect_talk_alltag(1, 2), [(1, (40, 0, 0, 0), 2), (2, (40, 0, 0, 0), 1)])
+    expect("table: Lob, the praised, band to the praiser", effect_talk_lob(1, 2), [(1, (150, 0, 0, 0), 2)])
+    expect("table: Necken, the teased, band to the teaser", effect_talk_necken(1, 2), [(1, (0, 100, 0, 0), 2)])
+    expect("table: Erinnern both", effect_talk_erinnern(1, 2), [(1, (100, 0, 0, 0), 2), (2, (100, 0, 0, 0), 1)])
+    expect("table: Entschuldigung, the grudger only", effect_talk_entschuldigung(1, 2), [(1, (50, -200, 0, 0), 2)])
+    expect("table: heard deed, the hearer, band to W", effect_heard(1, 9), [(1, (0, 200, 100, 0), 9)])
+    expect("table: refutation with and without a source", (effect_refutation(1, 4), effect_refutation(1, None)), ([(1, (0, 150, 0, 0), 4)], [(1, (0, 150, 0, 0), None)]))
+    expect("table: partnership and separation, no band", (effect_partnership(1, 2), effect_separation(1, 2)), ([(1, (600, 0, 0, 0), None), (2, (600, 0, 0, 0), None)], [(1, (0, 300, 600, 0), None), (2, (0, 300, 600, 0), None)]))
+    expect("table: need_empty once per settle however many needs", (effect_need_empty(1, [0, 2, 3]), effect_need_empty(1, [2]), effect_need_empty(1, [])), ([(1, (0, 150, 0, 100), None)], [(1, (0, 150, 0, 100), None)], []))
+    expect("table: need_empty temper (-150 - 100) / 4 = -62", apply_occasion(Feel(), 0, rows_for(1, effect_need_empty(1, [0, 2]), lambda s, o: None))[0].temper, -62)
+    expect("table: separation temper (-300 - 600) / 4 = -225", apply_occasion(Feel(), 0, rows_for(1, effect_separation(1, 2), lambda s, o: None))[0].temper, -225)
+    expect("table: partnership temper 600 / 4 = 150", apply_occasion(Feel(), 0, rows_for(1, effect_partnership(1, 2), lambda s, o: None))[0].temper, 150)
+    expect("rows_for: only the person's own effects", rows_for(2, effect_talk_alltag(1, 2), lambda s, o: 700), [((40, 0, 0, 0), 700)])
+
+    # Edge cases: temper return keeps the sign
+    expect("temper: negative returns toward 0 keeping the sign", (temper_at(-500, 0, DAY), temper_at(-500, 0, 4 * DAY), temper_at(-500, 0, 5 * DAY), temper_at(-500, 0, 400 * DAY)), (-400, -100, 0, 0))
+    expect("temper: positive returns", (temper_at(500, 0, DAY), temper_at(500, 0, 5 * DAY)), (400, 0))
+    expect("temper: -37 truncated at 21600 s (25 per quarter day)", (temper_at(-37, 0, 21_600), temper_at(-37, 0, 43_200)), (-12, 0))
+    expect("temper: custom mood_return 10000 per day", temper_at(1000, 0, 8640, 10_000), 0)
+    expect("temper: no change before since", temper_at(-200, 100, 50), -200)
+
+    # Clamping
+    full = Feel((1000, 0, 0, 0), 0, 0)
+    same, changed, d = apply_occasion(full, 0, [((800, 0, 0, 0), None)])
+    expect("clamp: joy at 1000 plus 800 is no change, no write", (same is full, changed, d), (True, False, (0, 0, 0, 0)))
+    nine, changed, d = apply_occasion(Feel((900, 0, 0, 0), 0, 0), 0, [((800, 0, 0, 0), None)])
+    expect("clamp: joy 900 + 800 clamps to 1000, delta 100, temper 25", (nine.values[JOY], d[JOY], nine.temper), (1000, 100, 25))
+    ap, changed, d = apply_occasion(Feel((0, 500, 0, 0), 0, 0), DAY, rows_for(1, effect_talk_entschuldigung(1, 2), lambda s, o: 700))
+    expect("clamp: anger 500 decays to 200 in a day, -300 clamps to 0, delta -200 (not the step), temper (75 + 200) / 4 = 68",
+           (ap.values, d, ap.temper, ap.since), ((75, 0, 0, 0), (75, -200, 0, 0), 68, DAY))
+    hot, _, _ = apply_occasion(Feel((0, 0, 0, 0), 900, 0), 0, [((800, 0, 0, 0), None)])
+    expect("clamp: temper 900 + 200 clamps to 1000", hot.temper, 1000)
+    cold, _, _ = apply_occasion(Feel((0, 0, 0, 0), -900, 0), 0, [((0, 1000, 0, 0), None)])
+    expect("clamp: temper -900 - 250 clamps to -1000", cold.temper, -1000)
+    low, changed, _ = apply_occasion(Feel(), 0, [((0, -200, 0, 0), None)])
+    expect("clamp: anger at 0 minus 200 is no change", (low, changed), (Feel(), False))
+
+    # Reads use the analytic value at `now`; a write resets since
+    aged = Feel((800, 0, 0, 0), 100, 1000)
+    new, changed, d = apply_occasion(aged, 1000 + 86_400, [((0, 0, 200, 0), None)])
+    expect("analytic read at now: joy 800 -> 500 after a day, sadness +200, temper 100 -> 0 after a day, then sadness -50",
+           (new.values, new.temper, new.since, d), ((500, 0, 200, 0), -50, 1000 + 86_400, (0, 0, 200, 0)))
+    nochange, changed, _ = apply_occasion(aged, 1000 + 86_400, [((0, 0, 0, 0), None)])
+    expect("no-change occasion keeps the old values and since (even after a day of decay)", (nochange, changed), (aged, False))
+    chan, changed, d = apply_occasion(Feel((4, 4, 0, 0), 0, 0), 0, [((4, 4, 0, 0), None)])
+    expect("channels change but the temper step is 0: still a write with since = now", (chan.values, chan.temper, changed), ((8, 8, 0, 0), 0, True))
+    nowrite, changed, _ = apply_occasion(Feel((0, 0, 3, 0), 0, 7), 99, [((0, 0, 0, 0), None)])
+    expect("empty rows: nothing changes, since stays 7", (nowrite.since, changed), (7, False))
+
+
 def check_all() -> None:
     check_memory()
     check_bonds()
@@ -1497,6 +1853,7 @@ def check_all() -> None:
     check_choice_bonus()
     check_beliefs()
     check_paternity()
+    check_feelings()
     print(f"{CHECKS} checks passed")
 
 
