@@ -285,7 +285,6 @@ name = "sim-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
- "postcard",
  "proptest",
  "serde",
  "serde_json",

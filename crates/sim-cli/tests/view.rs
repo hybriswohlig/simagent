@@ -4801,8 +4801,6 @@ fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
 /// and temper −400 at 100 a day is −300.
 #[test]
 fn the_house_answer_names_the_feelings_at_its_second() {
-    use std::collections::BTreeMap;
-
     use sim_core::social::feeling::Feel;
     use sim_core::world::{World, YearOut};
     // Before the first morning the house answer lists no person (they are still moving in).
@@ -4812,6 +4810,24 @@ fn the_house_answer_names_the_feelings_at_its_second() {
     world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
     world.take_log();
     let at = world.closed_through().as_secs();
+    // Postcard of the feelings map, by hand (ADR-0003: only sim-core may depend on postcard).
+    // A map is its length, then each key and value. A sim is its number. A channel is a varint,
+    // a time and the temper are zigzag, and the four channels have no length in front.
+    let push_varint = |out: &mut Vec<u8>, mut value: u64| {
+        loop {
+            let low = u8::try_from(value & 0x7f).expect("seven bits");
+            value >>= 7;
+            if value == 0 {
+                out.push(low);
+                return;
+            }
+            out.push(low | 0x80);
+        }
+    };
+    let zigzag = |n: i64| {
+        let bits = u64::from_le_bytes(n.to_le_bytes());
+        (bits << 1) ^ bits.wrapping_shr(63).wrapping_neg()
+    };
     let forge = |world: &World, feelings: &[(u64, Feel)]| {
         let bytes = world.save(&[]).expect("saved");
         let projection = world.canonical_bytes();
@@ -4819,13 +4835,20 @@ fn the_house_answer_names_the_feelings_at_its_second() {
             .position(|window| window == projection)
             .expect("the projection");
         assert_eq!(projection.last(), Some(&0), "the feelings map is empty");
-        let map: BTreeMap<_, Feel> = feelings
-            .iter()
-            .map(|(who, feel)| (sim_core::ids::SimId::try_from(*who).expect("a sim"), *feel))
-            .collect();
+        let mut map = Vec::new();
+        push_varint(&mut map, u64::try_from(feelings.len()).expect("a map"));
+        for (who, feel) in feelings {
+            push_varint(&mut map, *who);
+            for channel in feel.channels {
+                push_varint(&mut map, u64::from(channel));
+            }
+            push_varint(&mut map, zigzag(feel.since.as_secs()));
+            push_varint(&mut map, zigzag(i64::from(feel.temper)));
+            push_varint(&mut map, zigzag(feel.temper_since.as_secs()));
+        }
         let end = start + projection.len();
         let mut forged = bytes[..end - 1].to_vec();
-        forged.extend(postcard::to_allocvec(&map).expect("the map"));
+        forged.extend(map);
         forged.extend(&bytes[end..]);
         let (loaded, hashes) = World::load(&forged, world.data().clone()).expect("loads");
         assert!(hashes.is_empty());
