@@ -70,6 +70,20 @@ MORPHS = [
         "legs/l-upperleg-fat-incr.target.gz",
         "legs/r-upperleg-fat-incr.target.gz",
     ], False),
+    ("fat_belly", ["stomach/stomach-pregnant-incr.target.gz"], False),
+    ("fat_upperarm", [
+        "arms/l-upperarm-fat-incr.target.gz",
+        "arms/r-upperarm-fat-incr.target.gz",
+    ], False),
+    ("muscle_arm", [
+        "arms/l-upperarm-muscle-incr.target.gz",
+        "arms/r-upperarm-muscle-incr.target.gz",
+    ], False),
+    ("muscle_shoulder", [
+        "arms/l-upperarm-shoulder-muscle-incr.target.gz",
+        "arms/r-upperarm-shoulder-muscle-incr.target.gz",
+    ], False),
+    ("muscle_chest", ["torso/torso-muscle-pectoral-incr.target.gz"], False),
     ("breast_max", ["breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness.target.gz"], False),
     ("breast_min", ["breast/female-young-averagemuscle-averageweight-mincup-averagefirmness.target.gz"], False),
     ("face_age_decr", ["head/head-age-decr.target.gz"], False),
@@ -96,8 +110,10 @@ PROXIES = [
     ("brows", "eyebrows/eyebrow001/eyebrow001.mhclo", "eyebrows/eyebrow001/eyebrow001.png"),
     ("lashes", "eyelashes/eyelashes01/eyelashes01.mhclo", "eyelashes/eyelashes01/eyelashes01.png"),
     ("hair_short", "hair/short04/short04.mhclo", "hair/short04/short04_diffuse.png"),
-    ("hair_child", "hair/short02/short02.mhclo", "hair/short02/short02_diffuse.png"),
+    ("hair_medium", "hair/bob01/bob01.mhclo", "hair/bob01/bob01_diffuse.png"),
     ("hair_long", "hair/long01/long01.mhclo", "hair/long01/long01_diffuse.png"),
+    ("hair_tied", "hair/ponytail01/ponytail01.mhclo", "hair/ponytail01/ponytail01_diffuse.png"),
+    ("hair_braid", "hair/braid01/braid01.mhclo", "hair/braid01/braid01_diffuse.png"),
 ]
 
 
