@@ -54,14 +54,27 @@ const HAIR_STYLES = [
 ];
 
 const params = new URLSearchParams(location.search);
+const editParam = params.get("edit");
+const editMode = editParam === "2" ? 2 : editParam === "1" ? 1 : 0;
 const state = {
   style: ["A", "B", "C"].includes(params.get("style")) ? params.get("style") : "A",
   close: params.get("close") === "1",
   focus: params.get("focus") || "",
-  edit: params.get("edit") === "1",
+  edit: editMode > 0,
+  editMode,
   editIndex: 0,
   editBody: null,
   editBase: null,
+  provisional: null,
+  editYaw: 0,
+  directRegion: "",
+  directSide: 1,
+  hoverRegion: "",
+  cursorPinned: false,
+  category: "",
+  past: [],
+  future: [],
+  pickDirty: true,
   hairStyle: "",
   hairDye: "",
   compare: ["fat", "muscle"].includes(params.get("compare")) ? params.get("compare") : "",
@@ -386,7 +399,7 @@ function branchShares(body) {
   return { androgen, estrogen, male, female, gender: male };
 }
 
-function morphWeights(body, sex, emphasise) {
+function morphWeights(body, sex, emphasise, extra) {
   const age = body.body_form_age;
   const [child, young, old] = ageSlices(age);
   const share = branchShares(body);
@@ -455,6 +468,26 @@ function morphWeights(body, sex, emphasise) {
     const key = `face_axis_${String(axis).padStart(2, "0")}`;
     weights[key] = quarter(body[key]);
   }
+  // Provisional axes live in the direct editor only. Zero keeps the contract figure.
+  const local = extra || {};
+  const qz = (key) => quarter(local[key] || 0);
+  weights.neck_length = qz("neck_length_z");
+  weights.hand_size = qz("hand_size_z");
+  weights.foot_size = qz("foot_size_z");
+  weights.ear_size = qz("ear_size_z");
+  weights.ear_projection = qz("ear_projection_z");
+  weights.eye_roundness = qz("eye_roundness_z");
+  weights.forehead_height = qz("forehead_height_z");
+  weights.buttock_volume = qz("buttock_volume_z");
+  weights.buttock_lift = qz("buttock_lift_z");
+  weights.waist_width = qz("waist_width_z");
+  weights.nose_bridge = qz("nose_bridge_z");
+  weights.nose_tip = qz("nose_tip_z");
+  weights.brow_arch = qz("brow_arch_z");
+  weights.lip_ratio = qz("lip_ratio_z");
+  const breastOn = sex === "female" && body.body_form_age > 12 && breast >= 0.12;
+  weights.breast_volume = breastOn ? qz("breast_volume_z") * breast : 0;
+  weights.breast_height = breastOn ? qz("breast_height_z") * clamp(breast / 0.5, 0, 1) : 0;
   // Style A draws the same genes a little softer. These are constant offsets,
   // not a scale of the z-score: a gene of 0 stays a gene of 0 in the contract.
   // Eye weight 1 is about +17% radius, so 0.58 is about +10%.
@@ -1782,7 +1815,8 @@ function buildPerson(template, member, x) {
   const root = cloneSkeleton(template);
   const mesh = findMesh(root);
   const emphasise = state.style === "A" && !member.palette;
-  const shaped = morphWeights(member.body, member.sex, emphasise);
+  const extra = state.editMode === 2 ? state.provisional : null;
+  const shaped = morphWeights(member.body, member.sex, emphasise, extra);
   const weights = shaped.weights;
   applyWeights(mesh, weights);
   smoothSkinNormals(mesh);
@@ -1800,6 +1834,7 @@ function buildPerson(template, member, x) {
   // Root scale lifts the feet by pivot * (scale - 1). Drop the wrapper so they stay on Y=0.
   wrapper.position.y = -pivot * (1 - scale);
   wrapper.position.x = x;
+  if (state.editMode === 2) wrapper.rotation.y = state.editYaw || 0;
   const cloud = morphedCloud(mesh, weights);
   const marks = landmarks(cloud);
   const skin = gridColor(SKIN, member.body.skin_eumelanin, member.body.skin_pheomelanin);
@@ -1860,7 +1895,7 @@ function buildPerson(template, member, x) {
     wrapper, mesh, head, outline, spines, rest, scale, tag, marks,
     anchor: new THREE.Vector3(), member, shaped, skin, hair, geneticHair, iris,
     hairName: groom.hairName, beardTris: 0, arms: root.userData.arms,
-    outfit, covered: covered ? covered.dropped : 0,
+    outfit, covered: covered ? covered.dropped : 0, clothes,
   };
 }
 
@@ -1923,6 +1958,7 @@ function restyle() {
   applyStyleLights(state.style);
   publishReport();
   updateFaceButtons();
+  state.pickDirty = true;
 }
 
 function landmarkWorld(person, point) {
@@ -1979,6 +2015,29 @@ function frame() {
     const faceZ = sumZ / people.length;
     camera.position.set(midX, midY, faceZ + distance);
     camera.lookAt(midX, midY, faceZ);
+  } else if (state.editMode === 2) {
+    const person = people[0];
+    const spec = regionSpec(state.directRegion);
+    if (spec && spec.band === "face") {
+      scene.updateMatrixWorld(true);
+      const crown = landmarkWorld(person, person.marks.crown);
+      const chin = landmarkWorld(person, person.marks.chin);
+      const faceH = Math.max(crown.y - chin.y, 0.16) * 1.55;
+      const midY = (crown.y + chin.y) / 2;
+      const midX = crown.x - 0.02;
+      const dist = (faceH / 0.78) / (2 * Math.tan(v / 2));
+      camera.position.set(midX, midY, chin.z + dist);
+      camera.lookAt(midX, midY, chin.z);
+    } else {
+      const maxH = person.member.body.height_cm / 100;
+      const midX = person.wrapper.position.x;
+      const lookY = maxH * 0.48;
+      const bias = maxH * 0.16;
+      const distH = (maxH / 0.82) / (2 * Math.tan(v / 2));
+      const distW = (maxH * 0.7) / (2 * Math.tan(h / 2));
+      camera.position.set(midX + bias, lookY, Math.max(distH, distW));
+      camera.lookAt(midX + bias * 0.2, lookY, 0);
+    }
   } else if (state.focus) {
     const xs = people.map((person) => person.wrapper.position.x);
     const heights = people.map((person) => person.member.body.height_cm / 100);
@@ -2051,6 +2110,7 @@ function animate() {
     person.tag.style.top = `${y}px`;
   }
   updateKeyDir();
+  if (state.editMode === 2) placeDirectChrome();
   if (state.style === "A") composer.render();
   else renderer.render(scene, camera);
   if (!state.ready) {
@@ -2077,7 +2137,8 @@ function setStyle(style) {
 function syncUrl() {
   const url = new URL(location.href);
   url.searchParams.set("style", state.style);
-  if (state.edit) url.searchParams.set("edit", "1");
+  if (state.editMode === 2) url.searchParams.set("edit", "2");
+  else if (state.editMode === 1) url.searchParams.set("edit", "1");
   else url.searchParams.delete("edit");
   if (state.close) url.searchParams.set("close", "1");
   else url.searchParams.delete("close");
@@ -2556,33 +2617,84 @@ function loadEditPerson(index) {
   state.editBody = { ...member.body };
   state.hairStyle = "";
   state.hairDye = "";
+  state.provisional = emptyProvisional();
+  state.directRegion = "";
+  state.hoverRegion = "";
+  state.past = [];
+  state.future = [];
+  const quick = document.querySelector("#quick-person");
+  if (quick) quick.value = String(index);
+  if (state.editMode === 2) {
+    syncDirect();
+    return;
+  }
   buildEditSliders();
   writeContract();
+}
+
+function defaultAdultIndex() {
+  const members = state.family.members;
+  let best = -1;
+  members.forEach((member, index) => {
+    if (!(member.age_years >= 18)) return;
+    if (best < 0) {
+      best = index;
+      return;
+    }
+    const current = members[best];
+    const preferFemale = member.sex === "female" && current.sex !== "female";
+    const youngerSame = member.sex === current.sex && member.age_years < current.age_years;
+    if (preferFemale || youngerSame) best = index;
+  });
+  return best >= 0 ? best : 0;
 }
 
 function setupEditor() {
   if (!state.edit) return;
   document.body.classList.add("editing");
+  if (state.editMode === 2) {
+    document.body.classList.add("editing-direct");
+    const note = document.querySelector(".editor-note");
+    if (note) note.textContent = "Vorschau. Nichts wird zurückgeschrieben.";
+    document.querySelector("#edit-direct").hidden = false;
+  }
   const aside = document.querySelector("#editor");
   aside.hidden = false;
   const select = document.querySelector("#edit-person");
+  const quick = document.querySelector("#quick-person");
   state.family.members.forEach((member, index) => {
     const option = document.createElement("option");
     option.value = String(index);
     option.textContent = `${member.first_name} ${member.age_years}`;
     select.append(option);
+    if (quick) quick.append(option.cloneNode(true));
   });
+  if (quick) {
+    quick.addEventListener("change", () => {
+      select.value = quick.value;
+      select.dispatchEvent(new Event("change"));
+    });
+  }
   select.addEventListener("change", () => {
     loadEditPerson(Number(select.value));
     restyle();
     frame();
   });
   document.querySelector("#edit-reset").addEventListener("click", () => {
+    if (state.editMode === 2) beginChange();
     state.editBody = { ...state.editBase };
     state.hairStyle = "";
     state.hairDye = "";
-    syncEditSliders();
-    writeContract();
+    state.provisional = emptyProvisional();
+    state.directRegion = "";
+    state.hoverRegion = "";
+    if (state.editMode === 2) {
+      commitChange();
+      syncDirect();
+    } else {
+      syncEditSliders();
+      writeContract();
+    }
     restyle();
     frame();
   });
@@ -2593,10 +2705,1083 @@ function setupEditor() {
       (member.first_name || "").toLowerCase() === name
     ));
     if (found >= 0) start = found;
+  } else if (state.editMode === 2) {
+    start = defaultAdultIndex();
   }
   select.value = String(start);
   loadEditPerson(start);
+  if (state.editMode === 2) bindDirectEditor();
 }
+
+const PROVISIONAL_KEYS = [
+  "neck_length_z", "hand_size_z", "foot_size_z", "ear_size_z", "ear_projection_z",
+  "eye_roundness_z", "forehead_height_z", "buttock_volume_z", "buttock_lift_z",
+  "waist_width_z", "breast_volume_z", "breast_height_z", "nose_bridge_z",
+  "nose_tip_z", "brow_arch_z", "lip_ratio_z",
+];
+
+function emptyProvisional() {
+  const out = {};
+  for (const key of PROVISIONAL_KEYS) out[key] = 0;
+  return out;
+}
+
+function axisOf(key, store, less, more) {
+  return { key, store, less, more };
+}
+
+// Front view edits widths. A side view edits front-back projection.
+// There is no on-screen handle: the cursor shows the allowed directions.
+const hipWidth = axisOf("hip_width_z", "body", "schmaler", "breiter");
+const shoulderWidth = axisOf("shoulder_width_z", "body", "schmaler", "breiter");
+const waistWidth = axisOf("waist_width_z", "provisional", "schmaler", "breiter");
+const buttockVolume = axisOf("buttock_volume_z", "provisional", "flacher", "voller");
+const buttockLift = axisOf("buttock_lift_z", "provisional", "tiefer", "höher");
+const breastVolume = axisOf("breast_volume_z", "provisional", "flacher", "voller");
+const breastHeight = axisOf("breast_height_z", "provisional", "tiefer", "höher");
+const breastProjection = axisOf("breast_volume_z", "provisional", "flacher", "vorspringender");
+const bellySpread = axisOf("fat_distribution_z", "body", "mehr an der Hüfte", "mehr am Bauch");
+const bellyDepth = axisOf("fat_distribution_z", "body", "flacher", "vortretender");
+const DIRECT_REGIONS = {
+  hips: { label: "Hüfte", band: "body", radius: 0.1, frontX: hipWidth },
+  thighs: { label: "Oberschenkel", band: "body", radius: 0.11, frontX: hipWidth },
+  buttocks: { label: "Gesäß", band: "body", radius: 0.12, sideX: buttockVolume, sideY: buttockLift, backX: buttockVolume, backY: buttockLift },
+  waist: { label: "Taille", band: "body", radius: 0.09, frontX: waistWidth },
+  chest: { label: "Brust", band: "body", radius: 0.12, breast: true, frontX: breastVolume, frontY: breastHeight, sideX: breastProjection, sideY: breastHeight },
+  shoulders: { label: "Schultern", band: "body", radius: 0.14, frontX: shoulderWidth },
+  belly: { label: "Bauch", band: "body", radius: 0.1, frontX: bellySpread, sideX: bellyDepth },
+  cheeks: {
+    label: "Wangen", band: "face", radius: 0.05,
+    frontX: axisOf("face_axis_07", "body", "flacher", "voller"),
+    frontY: axisOf("face_axis_08", "body", "weicher", "markanter"),
+    sideX: axisOf("face_axis_07", "body", "flacher", "voller"),
+  },
+  nose_bridge: {
+    label: "Nasenrücken", band: "face", radius: 0.024,
+    frontX: axisOf("face_axis_01", "body", "schmaler", "breiter"),
+    frontY: axisOf("nose_bridge_z", "provisional", "flacher", "höher"),
+    sideX: axisOf("face_axis_02", "body", "flacher", "vorspringender"),
+    sideY: axisOf("nose_bridge_z", "provisional", "flacher", "höher"),
+  },
+  nose_tip: {
+    label: "Nasenspitze", band: "face", radius: 0.03,
+    frontY: axisOf("nose_tip_z", "provisional", "tiefer", "höher"),
+    sideX: axisOf("face_axis_02", "body", "flacher", "vorspringender"),
+    sideY: axisOf("nose_tip_z", "provisional", "tiefer", "höher"),
+  },
+  chin: {
+    label: "Kinn", band: "face", radius: 0.045,
+    frontX: axisOf("face_axis_04", "body", "schmaler", "breiter"),
+    frontY: axisOf("face_axis_05", "body", "niedriger", "höher"),
+    sideX: axisOf("face_axis_06", "body", "flacher", "vorspringender"),
+    sideY: axisOf("face_axis_05", "body", "niedriger", "höher"),
+  },
+  eyes: {
+    label: "Augen", band: "face", radius: 0.04,
+    frontX: axisOf("face_axis_09", "body", "kleiner", "größer"),
+    frontY: axisOf("eye_roundness_z", "provisional", "schmaler", "runder"),
+    sideX: axisOf("face_axis_09", "body", "kleiner", "größer"),
+    sideY: axisOf("eye_roundness_z", "provisional", "schmaler", "runder"),
+  },
+  brow: {
+    label: "Brauen", band: "face", radius: 0.04,
+    frontY: axisOf("brow_arch_z", "provisional", "gerader", "geschwungener"),
+    sideY: axisOf("brow_arch_z", "provisional", "gerader", "geschwungener"),
+  },
+  lips: {
+    label: "Lippen", band: "face", radius: 0.035,
+    frontX: axisOf("face_axis_11", "body", "schmaler", "voller"),
+    frontY: axisOf("lip_ratio_z", "provisional", "mehr Unterlippe", "mehr Oberlippe"),
+    sideX: axisOf("face_axis_11", "body", "schmaler", "voller"),
+    sideY: axisOf("lip_ratio_z", "provisional", "mehr Unterlippe", "mehr Oberlippe"),
+  },
+  ears: {
+    label: "Ohren", band: "face", radius: 0.04,
+    frontX: axisOf("ear_size_z", "provisional", "kleiner", "größer"),
+    sideX: axisOf("ear_projection_z", "provisional", "anliegender", "abstehender"),
+    sideY: axisOf("ear_size_z", "provisional", "kleiner", "größer"),
+  },
+  neck: {
+    label: "Hals", band: "body", radius: 0.06,
+    frontY: axisOf("neck_length_z", "provisional", "kürzer", "länger"),
+    sideY: axisOf("neck_length_z", "provisional", "kürzer", "länger"),
+  },
+  hands: {
+    label: "Hände", band: "body", radius: 0.07,
+    frontX: axisOf("hand_size_z", "provisional", "kleiner", "größer"),
+    sideX: axisOf("hand_size_z", "provisional", "kleiner", "größer"),
+  },
+  feet: {
+    label: "Füße", band: "body", radius: 0.07,
+    frontX: axisOf("foot_size_z", "provisional", "kleiner", "größer"),
+    sideX: axisOf("foot_size_z", "provisional", "kleiner", "größer"),
+  },
+  forehead: {
+    label: "Stirn", band: "face", radius: 0.05,
+    frontY: axisOf("forehead_height_z", "provisional", "niedriger", "höher"),
+    sideY: axisOf("forehead_height_z", "provisional", "niedriger", "höher"),
+  },
+};
+
+function quantizeZ(value) {
+  return Math.round(clamp(value, -3, 3) * 10) / 10;
+}
+
+function zPhrase(z, less, more) {
+  const mag = Math.abs(z);
+  const pct = clamp(Math.round(normalCdf(z) * 100), 1, 99);
+  if (mag < 0.5) return { degree: "durchschnittlich", rank: "" };
+  const word = z > 0 ? more : less;
+  const tail = z > 0 ? pct : 100 - pct;
+  let degree = "etwas";
+  if (mag >= 2) degree = "sehr";
+  else if (mag >= 1) degree = "deutlich";
+  return { degree: `${degree} ${word}`, rank: `${word} als ${tail} %` };
+}
+
+function editSex() {
+  const member = state.family && state.family.members[state.editIndex];
+  return member ? member.sex : "female";
+}
+
+function breastDragOn(body, sex) {
+  return Boolean(body) && sex === "female" && body.body_form_age > 12 && body.breast_development >= 0.12;
+}
+
+function regionSpec(id) {
+  const spec = DIRECT_REGIONS[id];
+  if (!spec) return null;
+  if (!spec.breast || breastDragOn(state.editBody, editSex())) return spec;
+  return {
+    label: "Brustkorb",
+    band: "body",
+    radius: spec.radius,
+    sideX: axisOf("chest_depth_z", "body", "flacher", "tiefer"),
+    blocked: "Brust erst im weiblichen Zweig, nach der Pubertät.",
+  };
+}
+
+function facing() {
+  const yaw = state.editYaw || 0;
+  const s = Math.sin(yaw);
+  const c = Math.cos(yaw);
+  if (Math.abs(s) >= Math.abs(c)) return "side";
+  return c >= 0 ? "front" : "back";
+}
+
+function axesFor(id) {
+  const spec = regionSpec(id);
+  if (!spec) return { x: null, y: null };
+  const face = facing();
+  if (face === "side") return { x: spec.sideX || null, y: spec.sideY || null };
+  if (face === "back") return { x: spec.backX || spec.frontX || null, y: spec.backY || spec.frontY || null };
+  return { x: spec.frontX || null, y: spec.frontY || null };
+}
+
+function cursorDir(id) {
+  const axes = axesFor(id);
+  if (axes.x && axes.y) return "move";
+  if (axes.x) return "ew";
+  if (axes.y) return "ns";
+  return "";
+}
+
+function cssCursor(id) {
+  const dir = cursorDir(id);
+  if (dir === "move") return "move";
+  if (dir === "ew") return "ew-resize";
+  if (dir === "ns") return "ns-resize";
+  return "default";
+}
+
+function regionHint(id) {
+  const spec = regionSpec(id);
+  if (!spec) return "Waagerecht zieht die Breite. Leere Fläche dreht die Figur.";
+  const axes = axesFor(id);
+  if (spec.blocked && !axes.x && !axes.y) return spec.blocked;
+  if (!axes.x && !axes.y) {
+    return facing() === "front"
+      ? "Diese Stelle von der Seite ziehen."
+      : "Diese Stelle von vorn ziehen.";
+  }
+  const bits = [];
+  if (axes.x) bits.push(`Waagerecht: ${axes.x.less} oder ${axes.x.more}`);
+  if (axes.y) bits.push(`senkrecht: ${axes.y.less} oder ${axes.y.more}`);
+  return `${bits.join(", ")}.`;
+}
+
+function axisBag(axis) {
+  return axis.store === "provisional" ? state.provisional : state.editBody;
+}
+
+function axisValue(axis) {
+  if (!axis) return 0;
+  const bag = axisBag(axis);
+  return bag && Number.isFinite(bag[axis.key]) ? bag[axis.key] : 0;
+}
+
+function setAxis(axis, value) {
+  if (!axis) return false;
+  const bag = axisBag(axis);
+  if (!bag) return false;
+  const next = quantizeZ(value);
+  if (bag[axis.key] === next) return false;
+  bag[axis.key] = next;
+  return true;
+}
+
+function syncDirect() {
+  if (state.editMode !== 2 || !state.editBody) return;
+  const id = state.hoverRegion || state.directRegion;
+  const spec = regionSpec(id);
+  const name = document.querySelector("#region-name");
+  const degree = document.querySelector("#region-degree");
+  const rank = document.querySelector("#region-rank");
+  const note = document.querySelector("#region-note");
+  if (!spec) {
+    name.textContent = "Keine Stelle";
+    degree.textContent = "Eine Stelle an der Figur wählen.";
+    rank.textContent = "";
+    note.textContent = "Waagerecht zieht die Breite. Leere Fläche dreht die Figur.";
+  } else {
+    const axes = axesFor(id);
+    const parts = [axes.x, axes.y].filter(Boolean).map((axis) => ({
+      axis,
+      value: axisValue(axis),
+      phrase: zPhrase(axisValue(axis), axis.less, axis.more),
+    }));
+    name.textContent = spec.label;
+    const spoken = parts.filter((part) => part.phrase.degree !== "durchschnittlich");
+    const shown = spoken.length ? spoken : parts;
+    degree.textContent = shown.length
+      ? shown.map((part) => part.phrase.degree).join(" · ")
+      : "in dieser Ansicht ohne Zug";
+    rank.textContent = shown.map((part) => part.phrase.rank).filter(Boolean).join(" · ");
+    note.textContent = regionHint(id);
+    document.querySelector("#direct-readout").title = parts
+      .map((part) => `${part.axis.key} ${part.value.toFixed(1)}`)
+      .join(", ");
+  }
+  const fat = zPhrase(state.editBody.body_fat_z, "dünner", "schwerer");
+  const muscle = zPhrase(state.editBody.muscle_z, "schwächer", "muskulöser");
+  const fatLine = fat.rank || fat.degree;
+  const muscleLine = muscle.rank || muscle.degree;
+  const pad = document.querySelector("#pad-readout");
+  if (pad) pad.textContent = `Fett ${fatLine}. Muskeln ${muscleLine}.`;
+  const handle = document.querySelector("#shape-handle");
+  const u = (clamp(state.editBody.body_fat_z, -3, 3) + 3) / 6;
+  const v = (clamp(state.editBody.muscle_z, -3, 3) + 3) / 6;
+  if (handle) {
+    handle.style.left = `${u * 100}%`;
+    handle.style.bottom = `${v * 100}%`;
+  }
+  const dist = document.querySelector("#edit-dist");
+  if (dist) dist.value = String(state.editBody.fat_distribution_z);
+  const distPhrase = zPhrase(state.editBody.fat_distribution_z, "mehr an der Hüfte", "mehr am Bauch");
+  const distRead = document.querySelector("#dist-readout");
+  if (distRead) distRead.textContent = distPhrase.rank || distPhrase.degree;
+  const fatSlider = document.querySelector("#fat-slider");
+  const muscleSlider = document.querySelector("#muscle-slider");
+  if (fatSlider) fatSlider.value = String(state.editBody.body_fat_z);
+  if (muscleSlider) muscleSlider.value = String(state.editBody.muscle_z);
+  placeMarker("#skin-marker", state.editBody.skin_pheomelanin, state.editBody.skin_eumelanin);
+  placeMarker("#hair-marker", state.editBody.hair_pheomelanin, state.editBody.hair_eumelanin);
+  placeMarker("#iris-marker", state.editBody.iris_melanin, 0.5);
+  const skinRead = document.querySelector("#skin-readout");
+  if (skinRead) {
+    skinRead.textContent = `Eumelanin ${state.editBody.skin_eumelanin.toFixed(2)}, Phäomelanin ${state.editBody.skin_pheomelanin.toFixed(2)}`;
+  }
+  const hairRead = document.querySelector("#hair-readout");
+  if (hairRead) {
+    const grey = state.editBody.hair_grey_fraction;
+    hairRead.textContent = grey > 0.05
+      ? `Eumelanin ${state.editBody.hair_eumelanin.toFixed(2)}, Phäomelanin ${state.editBody.hair_pheomelanin.toFixed(2)}. Grau mischt sich darüber.`
+      : `Eumelanin ${state.editBody.hair_eumelanin.toFixed(2)}, Phäomelanin ${state.editBody.hair_pheomelanin.toFixed(2)}`;
+  }
+  const hair = document.querySelector("#direct-hair");
+  if (hair && hair.value !== state.hairStyle) hair.value = state.hairStyle;
+  const dye = document.querySelector("#direct-dye");
+  const dyeColor = document.querySelector("#direct-dye-color");
+  if (dye) dye.checked = Boolean(state.hairDye);
+  if (dyeColor) {
+    dyeColor.disabled = !state.hairDye;
+    if (state.hairDye) dyeColor.value = state.hairDye;
+  }
+  const cloth = document.querySelector("#cloth-line");
+  if (cloth && state.family) {
+    const outfit = outfitOf(state.family.members[state.editIndex]);
+    cloth.textContent = `${CLOTH_NAMES[outfit.suit] || outfit.suit}, ${CLOTH_NAMES[outfit.shoes] || outfit.shoes}`;
+  }
+  syncHistory();
+  document.body.dataset.region = state.directRegion || "";
+  document.body.dataset.hover = state.hoverRegion || "";
+  document.body.dataset.facing = facing();
+}
+
+const _skinM = new THREE.Matrix4();
+const _skinBase = new THREE.Vector3();
+const _skinTmp = new THREE.Vector3();
+const _skinOut = new THREE.Vector3();
+const _skinAcc = new THREE.Vector3();
+const directRay = new THREE.Raycaster();
+
+function appendPosed(mesh, positions, indices) {
+  const geom = mesh.geometry;
+  const pos = geom.attributes.position;
+  const index = geom.index;
+  const skinIndex = geom.attributes.skinIndex;
+  const skinWeight = geom.attributes.skinWeight;
+  if (!pos || !index || !skinIndex || !mesh.skeleton) return;
+  mesh.skeleton.update();
+  const morphs = geom.morphAttributes.position || [];
+  const influences = mesh.morphTargetInfluences;
+  const base = positions.length / 3;
+  for (let i = 0; i < pos.count; i += 1) {
+    _skinOut.fromBufferAttribute(pos, i);
+    if (influences) {
+      for (let m = 0; m < influences.length; m += 1) {
+        const weight = influences[m];
+        const morph = morphs[m];
+        if (!weight || !morph) continue;
+        _skinOut.x += weight * morph.getX(i);
+        _skinOut.y += weight * morph.getY(i);
+        _skinOut.z += weight * morph.getZ(i);
+      }
+    }
+    _skinBase.copy(_skinOut).applyMatrix4(mesh.bindMatrix);
+    _skinAcc.set(0, 0, 0);
+    for (let k = 0; k < 4; k += 1) {
+      const bone = skinIndex.getComponent(i, k);
+      const weight = skinWeight.getComponent(i, k);
+      if (!weight) continue;
+      _skinM.fromArray(mesh.skeleton.boneMatrices, bone * 16);
+      _skinTmp.copy(_skinBase).applyMatrix4(_skinM);
+      _skinAcc.addScaledVector(_skinTmp, weight);
+    }
+    _skinAcc.applyMatrix4(mesh.bindMatrixInverse).applyMatrix4(mesh.matrixWorld);
+    positions.push(_skinAcc.x, _skinAcc.y, _skinAcc.z);
+  }
+  for (let i = 0; i < index.count; i += 1) indices.push(index.getX(i) + base);
+}
+
+function rebuildPick(person) {
+  person.wrapper.updateWorldMatrix(true, true);
+  const positions = [];
+  const indices = [];
+  appendPosed(person.mesh, positions, indices);
+  for (const cloth of person.clothes || []) appendPosed(cloth, positions, indices);
+  if (positions.length < 9) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+  if (!state.directPick) {
+    state.directPick = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+    state.directPick.frustumCulled = false;
+    state.directPick.matrixAutoUpdate = false;
+  } else {
+    state.directPick.geometry.dispose();
+    state.directPick.geometry = geometry;
+  }
+  state.directPick.matrix.identity();
+  state.directPick.updateMatrixWorld(true);
+}
+
+function boneLocal(person, name) {
+  const bone = findBone(person.wrapper, name);
+  const point = new THREE.Vector3();
+  if (!bone) return point;
+  bone.getWorldPosition(point);
+  return person.wrapper.worldToLocal(point);
+}
+
+function markLocal(person, tuple) {
+  return person.wrapper.worldToLocal(landmarkWorld(person, tuple));
+}
+
+function classifyRegion(person, worldPoint) {
+  const p = person.wrapper.worldToLocal(worldPoint.clone());
+  if (nearBone(p, person, "hand_l", 0.1) || nearBone(p, person, "hand_r", 0.1)) return "hands";
+  if (nearBone(p, person, "foot_l", 0.11) || nearBone(p, person, "foot_r", 0.11)) return "feet";
+  const head = boneLocal(person, "head");
+  const neck = boneLocal(person, "neck_01");
+  const pelvis = boneLocal(person, "pelvis");
+  const spine2 = boneLocal(person, "spine_02");
+  const spine3 = boneLocal(person, "spine_03");
+  const crown = markLocal(person, person.marks.crown);
+  const chin = markLocal(person, person.marks.chin);
+  const jaw = person.marks.jaw;
+  const nose = markLocal(person, [0, person.marks.maxY + jaw.noseDy, jaw.noseZ]);
+  const side = Math.abs(p.x - head.x);
+  const span = Math.max(crown.y - chin.y, 0.08);
+  const t = (p.y - chin.y) / span;
+  if (p.y >= chin.y - 0.012 && p.y <= crown.y + 0.02 && side < 0.11) {
+    if (side > 0.055 && t > 0.18 && t < 0.78) return "ears";
+    if (t > 0.82) return "forehead";
+    if (t > 0.66 && t <= 0.84 && side < 0.055) return "brow";
+    if (t > 0.48 && t <= 0.7 && side < 0.02) return p.y >= nose.y ? "nose_bridge" : "nose_tip";
+    if (t > 0.52 && t <= 0.74 && side < 0.055) return "eyes";
+    if (t > 0.3 && t < 0.58 && side < 0.022) return p.y >= nose.y ? "nose_bridge" : "nose_tip";
+    if (t > 0.12 && t <= 0.34 && side < 0.032) return "lips";
+    if (t <= 0.18) return "chin";
+    return "cheeks";
+  }
+  if (p.y < chin.y - 0.008 && p.y > spine3.y - 0.01 && Math.abs(p.x) < 0.05 && Math.abs(p.z - neck.z) < 0.07) {
+    return "neck";
+  }
+  if (p.y > spine3.y - 0.04 && p.y < chin.y && Math.abs(p.x) > 0.08 && Math.abs(p.x) < 0.26) return "shoulders";
+  // The hanging arm is not the waist. A missing bone must not count.
+  if (nearBone(p, person, "upperarm_l", 0.09) || nearBone(p, person, "upperarm_r", 0.09)) return "";
+  if (nearBone(p, person, "lowerarm_l", 0.075) || nearBone(p, person, "lowerarm_r", 0.075)) return "";
+  const front = p.z > pelvis.z + 0.02;
+  const back = p.z < pelvis.z - 0.025;
+  const sideView = facing() === "side";
+  const waistY = pelvis.y + (spine2.y - pelvis.y) * 0.62;
+  if (p.y > spine2.y - 0.02 && p.y < spine3.y + 0.02 && Math.abs(p.x) < 0.12 && (front || (sideView && p.z > pelvis.z - 0.01))) {
+    return "chest";
+  }
+  if (Math.abs(p.y - waistY) < 0.045 && Math.abs(p.x) < 0.11 && Math.abs(p.z - pelvis.z) < 0.11) return "waist";
+  if (p.y < waistY - 0.03 && p.y > pelvis.y - 0.02 && Math.abs(p.x) < 0.09 && (front || (sideView && p.z > pelvis.z))) {
+    return "belly";
+  }
+  if ((back || (sideView && p.z < pelvis.z - 0.01)) && p.y > pelvis.y - 0.1 && p.y < pelvis.y + 0.045 && Math.abs(p.x) < 0.16) {
+    return "buttocks";
+  }
+  // The pelvis bone sits at the waistband. The hip is the skirt flare below the hands.
+  const hipY = pelvis.y - 0.12;
+  if (Math.abs(p.y - hipY) < 0.05 && Math.abs(p.x) > 0.035 && Math.abs(p.x) < 0.16 && !back) return "hips";
+  const kneeY = pelvis.y * 0.55;
+  if (p.y < hipY - 0.05 && p.y > kneeY && Math.abs(p.x) > 0.04 && Math.abs(p.x) < 0.18) return "thighs";
+  return "";
+}
+
+function nearBone(point, person, name, radius) {
+  const bone = findBone(person.wrapper, name);
+  if (!bone) return false;
+  const at = new THREE.Vector3();
+  bone.getWorldPosition(at);
+  return point.distanceTo(person.wrapper.worldToLocal(at)) < radius;
+}
+
+function regionLocal(person, id) {
+  const pelvis = boneLocal(person, "pelvis");
+  const spine2 = boneLocal(person, "spine_02");
+  const spine3 = boneLocal(person, "spine_03");
+  const neck = boneLocal(person, "neck_01");
+  const side = state.directSide < 0 ? -1 : 1;
+  if (id === "hands") return boneLocal(person, side < 0 ? "hand_r" : "hand_l");
+  if (id === "feet") {
+    const foot = boneLocal(person, side < 0 ? "foot_r" : "foot_l");
+    return foot.clone().setY(foot.y - 0.02);
+  }
+  if (id === "neck") return neck;
+  if (id === "shoulders") return new THREE.Vector3(side * 0.12, spine3.y + 0.01, spine3.z);
+  if (id === "chest") return new THREE.Vector3(0, (spine2.y + spine3.y) * 0.5, spine3.z + 0.05);
+  if (id === "belly") return new THREE.Vector3(0, (pelvis.y + spine2.y) * 0.48, pelvis.z + 0.06);
+  if (id === "waist") return new THREE.Vector3(0, pelvis.y + (spine2.y - pelvis.y) * 0.62, pelvis.z);
+  if (id === "hips") return new THREE.Vector3(side * 0.06, pelvis.y - 0.12, pelvis.z + 0.03);
+  if (id === "thighs") return new THREE.Vector3(side * 0.09, pelvis.y - 0.16, pelvis.z);
+  if (id === "buttocks") return new THREE.Vector3(0, pelvis.y - 0.02, pelvis.z - 0.07);
+  const jaw = person.marks.jaw;
+  const point = {
+    forehead: person.marks.crown,
+    brow: [0, person.marks.maxY + jaw.noseDy + 0.035, jaw.noseZ - 0.01],
+    eyes: [side * 0.03, person.marks.maxY + jaw.noseDy + 0.02, jaw.noseZ],
+    nose_bridge: [0, person.marks.maxY + jaw.noseDy + 0.004, jaw.noseZ],
+    nose_tip: [0, person.marks.maxY + jaw.noseDy, jaw.noseZ],
+    cheeks: [side * 0.045, person.marks.maxY + jaw.noseDy - 0.005, jaw.noseZ - 0.02],
+    lips: [0, person.marks.maxY + jaw.lipLo, jaw.noseZ],
+    chin: person.marks.chin,
+    ears: [side * 0.075, person.marks.maxY + jaw.noseDy + 0.01, 0.02],
+  }[id];
+  if (!point) return boneLocal(person, "head");
+  return markLocal(person, point);
+}
+
+function ensurePick(person) {
+  if (!state.pickDirty && state.directPick && state.pickFor === person) return;
+  rebuildPick(person);
+  state.pickFor = person;
+  state.pickDirty = false;
+}
+
+function projectPoint(world) {
+  const screen = world.clone().project(camera);
+  const view = document.querySelector("#view");
+  return {
+    x: (screen.x * 0.5 + 0.5) * view.clientWidth,
+    y: (-screen.y * 0.5 + 0.5) * view.clientHeight,
+    behind: screen.z > 1,
+  };
+}
+
+function placeDirectChrome() {
+  const person = state.people[0];
+  const glow = document.querySelector("#region-glow");
+  const cursor = document.querySelector("#hover-cursor");
+  if (!glow || !cursor) return;
+  const showId = state.hoverRegion || state.directRegion;
+  const spec = person && regionSpec(showId);
+  if (!person || !spec) {
+    glow.hidden = true;
+    cursor.hidden = true;
+    return;
+  }
+  person.wrapper.updateWorldMatrix(true, true);
+  const world = person.wrapper.localToWorld(regionLocal(person, showId).clone());
+  const center = projectPoint(world);
+  const radius = (spec.radius || 0.1) * (person.scale || 1);
+  const edge = projectPoint(world.clone().setX(world.x + radius));
+  const size = Math.max(22, Math.abs(edge.x - center.x) * 2);
+  glow.hidden = center.behind;
+  glow.style.left = `${center.x}px`;
+  glow.style.top = `${center.y}px`;
+  glow.style.width = `${size}px`;
+  glow.style.height = `${size * 0.7}px`;
+  const dir = cursorDir(showId);
+  const showCursor = Boolean(dir) && (Boolean(state.hoverRegion) || state.cursorPinned);
+  cursor.hidden = !showCursor;
+  if (!showCursor) return;
+  cursor.dataset.dir = dir;
+  const at = projectPoint(world);
+  cursor.style.left = `${at.x}px`;
+  cursor.style.top = `${at.y}px`;
+}
+
+function pickHit(event) {
+  const person = state.people[0];
+  if (!person) return null;
+  ensurePick(person);
+  const rect = canvas.getBoundingClientRect();
+  const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  directRay.setFromCamera(new THREE.Vector2(x, y), camera);
+  const hits = state.directPick ? directRay.intersectObject(state.directPick, false) : [];
+  const extras = [];
+  person.wrapper.traverse((node) => {
+    if (node.isMesh && !node.isSkinnedMesh) extras.push(node);
+  });
+  hits.push(...directRay.intersectObjects(extras, false));
+  hits.sort((a, b) => a.distance - b.distance);
+  return hits[0] || null;
+}
+
+const DRAG_SLOP = 5;
+let directDrag = null;
+let changeBase = null;
+
+function snapshot() {
+  return {
+    body: { ...state.editBody },
+    provisional: { ...state.provisional },
+    hairStyle: state.hairStyle,
+    hairDye: state.hairDye,
+    region: state.directRegion,
+  };
+}
+
+function beginChange() {
+  if (changeBase || !state.editBody) return;
+  changeBase = snapshot();
+}
+
+function commitChange() {
+  if (!changeBase) return;
+  const next = snapshot();
+  if (JSON.stringify(next) !== JSON.stringify(changeBase)) {
+    state.past.push(changeBase);
+    state.future = [];
+  }
+  changeBase = null;
+  syncHistory();
+}
+
+function restoreShot(shot) {
+  state.editBody = { ...shot.body };
+  state.provisional = { ...shot.provisional };
+  state.hairStyle = shot.hairStyle;
+  state.hairDye = shot.hairDye;
+  state.directRegion = shot.region;
+  state.hoverRegion = "";
+  syncDirect();
+  drawEdit();
+  frame();
+}
+
+function undoEdit() {
+  if (!state.past.length || changeBase) return;
+  state.future.push(snapshot());
+  restoreShot(state.past.pop());
+}
+
+function redoEdit() {
+  if (!state.future.length || changeBase) return;
+  state.past.push(snapshot());
+  restoreShot(state.future.pop());
+}
+
+function syncHistory() {
+  const undo = document.querySelector("#edit-undo");
+  const redo = document.querySelector("#edit-redo");
+  if (undo) undo.disabled = state.past.length === 0;
+  if (redo) redo.disabled = state.future.length === 0;
+}
+
+function turnBy(delta) {
+  state.editYaw += delta;
+  const person = state.people[0];
+  if (person) person.wrapper.rotation.y = state.editYaw;
+  syncDirect();
+  if (regionSpec(state.directRegion) && regionSpec(state.directRegion).band === "face") frame();
+}
+
+function applyDirectDrag(dx, dy) {
+  if (directDrag.mode === "orbit") {
+    state.editYaw = directDrag.yaw + dx * 0.01;
+    const person = state.people[0];
+    if (person) person.wrapper.rotation.y = state.editYaw;
+    if (regionSpec(state.directRegion) && regionSpec(state.directRegion).band === "face") frame();
+    syncDirect();
+    return;
+  }
+  const axes = axesFor(state.directRegion);
+  let changed = false;
+  if (axes.x) changed = setAxis(axes.x, directDrag.originX + dx / 72) || changed;
+  if (axes.y) changed = setAxis(axes.y, directDrag.originY - dy / 72) || changed;
+  if (state.directRegion === "belly" && facing() === "side") {
+    const nextFat = quantizeZ(directDrag.fat + (dx / 72) * 0.5);
+    if (state.editBody.body_fat_z !== nextFat) {
+      state.editBody.body_fat_z = nextFat;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  syncDirect();
+  drawEdit();
+}
+
+function updateHover(event) {
+  const hit = pickHit(event);
+  const person = state.people[0];
+  let next = "";
+  if (hit && person) {
+    state.directSide = person.wrapper.worldToLocal(hit.point.clone()).x;
+    next = classifyRegion(person, hit.point);
+  }
+  state.cursorPinned = false;
+  const changed = next !== state.hoverRegion;
+  state.hoverRegion = next;
+  canvas.style.cursor = next ? cssCursor(next) : "grab";
+  if (changed) syncDirect();
+}
+
+function onCanvasDown(event) {
+  if (state.editMode !== 2 || event.button !== 0) return;
+  const hit = pickHit(event);
+  const person = state.people[0];
+  if (!hit || !person) {
+    directDrag = {
+      mode: "orbit",
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      yaw: state.editYaw,
+      moved: false,
+    };
+    canvas.style.cursor = "grabbing";
+    return;
+  }
+  state.directSide = person.wrapper.worldToLocal(hit.point.clone()).x;
+  const id = classifyRegion(person, hit.point);
+  if (!id) return;
+  const prevBand = regionSpec(state.directRegion) && regionSpec(state.directRegion).band;
+  state.directRegion = id;
+  state.hoverRegion = id;
+  state.cursorPinned = false;
+  const axes = axesFor(id);
+  directDrag = {
+    mode: "region",
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    originX: axes.x ? axisValue(axes.x) : 0,
+    originY: axes.y ? axisValue(axes.y) : 0,
+    fat: state.editBody.body_fat_z,
+    moved: false,
+  };
+  canvas.style.cursor = cssCursor(id);
+  syncDirect();
+  const nextBand = regionSpec(id) && regionSpec(id).band;
+  if (prevBand !== nextBand) frame();
+}
+
+function onPointerMove(event) {
+  if (directDrag && directDrag.pointerId === event.pointerId) {
+    const dx = event.clientX - directDrag.x;
+    const dy = event.clientY - directDrag.y;
+    if (!directDrag.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
+    if (!directDrag.moved && directDrag.mode === "region") beginChange();
+    directDrag.moved = true;
+    applyDirectDrag(dx, dy);
+    return;
+  }
+  if (!directDrag && event.target === canvas) updateHover(event);
+}
+
+function endDrag(event) {
+  if (!directDrag) return;
+  if (event && directDrag.pointerId !== event.pointerId) return;
+  directDrag = null;
+  commitChange();
+  canvas.style.cursor = state.hoverRegion ? cssCursor(state.hoverRegion) : "grab";
+}
+
+const CLOTH_NAMES = {
+  cloth_f_tee: "T-Shirt",
+  cloth_skirt: "Rock",
+  cloth_shirt: "Hemd",
+  cloth_jacket: "Jacke",
+  cloth_shorts: "kurze Hose",
+  shoes_sneaker: "Turnschuhe",
+  shoes_black: "schwarze Schuhe",
+  shoes_brown: "braune Schuhe",
+};
+
+function placeMarker(selector, x, y) {
+  const marker = document.querySelector(selector);
+  if (!marker) return;
+  marker.style.left = `${clamp(x, 0, 1) * 100}%`;
+  marker.style.top = `${clamp(y, 0, 1) * 100}%`;
+}
+
+function paintGrid(target, sample) {
+  const w = target.width;
+  const h = target.height;
+  const ctx = target.getContext("2d");
+  const image = ctx.createImageData(w, h);
+  const data = image.data;
+  for (let y = 0; y < h; y += 1) {
+    const down = h === 1 ? 0 : y / (h - 1);
+    for (let x = 0; x < w; x += 1) {
+      const across = w === 1 ? 0 : x / (w - 1);
+      const hex = sample(across, down);
+      const i = (y * w + x) * 4;
+      data[i] = Number.parseInt(hex.slice(1, 3), 16);
+      data[i + 1] = Number.parseInt(hex.slice(3, 5), 16);
+      data[i + 2] = Number.parseInt(hex.slice(5, 7), 16);
+      data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+let skinPainted = false;
+let hairPainted = false;
+let irisPainted = false;
+
+function paintSkinField() {
+  if (skinPainted) return;
+  skinPainted = true;
+  paintGrid(document.querySelector("#skin-field"), (_x, down) => gridColor(SKIN, down, _x));
+}
+
+function paintHairField() {
+  if (hairPainted) return;
+  hairPainted = true;
+  paintGrid(document.querySelector("#hair-field"), (_x, down) => gridColor(HAIR, down, _x));
+}
+
+function paintIrisField() {
+  if (irisPainted) return;
+  irisPainted = true;
+  paintGrid(document.querySelector("#iris-field"), (across) => rampColor(IRIS, across));
+}
+
+function fieldPoint(event) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return {
+    x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+    y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+  };
+}
+
+function bindField(target, pick) {
+  let active = 0;
+  target.addEventListener("pointerdown", (event) => {
+    active = event.pointerId;
+    beginChange();
+    pick(event);
+  });
+  target.addEventListener("pointermove", (event) => {
+    if (active === event.pointerId) pick(event);
+  });
+  const stop = (event) => {
+    if (active !== event.pointerId) return;
+    active = 0;
+    commitChange();
+  };
+  target.addEventListener("pointerup", stop);
+  target.addEventListener("pointercancel", stop);
+}
+
+function setCategory(id, force) {
+  let next = id || "";
+  if (!force && state.category === next) next = "";
+  state.category = next;
+  document.body.classList.toggle("panel-open", Boolean(next));
+  for (const name of ["koerper", "gesicht", "haare", "kleidung", "haut"]) {
+    document.querySelector(`#panel-${name}`).hidden = name !== next;
+  }
+  for (const button of document.querySelectorAll("#categories button")) {
+    button.setAttribute("aria-pressed", button.dataset.cat === next ? "true" : "false");
+  }
+  if (next === "haut") paintSkinField();
+  if (next === "haare") {
+    paintHairField();
+    paintIrisField();
+  }
+  requestAnimationFrame(() => {
+    resize();
+    if (state.template && state.people.length) frame();
+  });
+}
+
+function logistic(unit) {
+  return 1 / (1 + Math.exp(-unit));
+}
+
+function gaussian() {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(Math.PI * 2 * v);
+}
+
+function round01(value) {
+  return Math.round(clamp(value, 0, 1) * 100) / 100;
+}
+
+// Editor-only stand-in for a founder. Z-scores are the population normal.
+// Pigment uses the northern-European logits in data/calibration/genetics.json
+// (10.4), not a second genome. Adult height uses the European mean and sd.
+function drawFounder() {
+  const sex = editSex();
+  const age = state.editBody.body_form_age;
+  const body = state.editBody;
+  for (const key of BODY_KEYS) {
+    if (key.endsWith("_z") || key.startsWith("face_axis_")) body[key] = quantizeZ(gaussian());
+  }
+  if (age >= 18) {
+    const mean = sex === "male" ? 180.7 : 167.3;
+    const sd = sex === "male" ? 7.01 : 6.67;
+    body.height_cm = Math.round(clamp(mean + sd * gaussian(), 145, 210));
+  }
+  const pigment = gaussian();
+  const hairDark = gaussian();
+  const red = Math.random() < 0.04;
+  const blueEyes = Math.random() < 0.5;
+  let skinEu = logistic(-2.7 + 0.6 * pigment);
+  let skinPheo = logistic(-1.5 - 0.25 * pigment);
+  let hairEu = logistic(-0.8 + 0.55 * pigment + 0.9 * hairDark);
+  let hairPheo = logistic(-1.1 - 0.25 * pigment);
+  let iris = logistic(-0.35 + 0.9 * pigment);
+  if (red) {
+    skinEu *= 0.55;
+    skinPheo = 0.45;
+    hairEu *= 0.08;
+    hairPheo = 1;
+  }
+  if (blueEyes) iris *= 0.15;
+  body.skin_eumelanin = round01(skinEu);
+  body.skin_pheomelanin = round01(skinPheo);
+  body.hair_eumelanin = round01(hairEu);
+  body.hair_pheomelanin = round01(hairPheo);
+  body.iris_melanin = round01(iris);
+  const share = logistic((age - 13) / 1.15);
+  const ampA = logistic(1.5 + gaussian());
+  const ampE = logistic(1.5 + gaussian());
+  if (sex === "male") {
+    body.androgenic_development = round01(share * ampA);
+    body.estrogenic_development = round01(share * 0.1 * ampE);
+    body.breast_development = 0;
+  } else {
+    body.androgenic_development = round01(share * 0.15 * ampA);
+    body.estrogenic_development = round01(share * ampE);
+    body.breast_development = round01(share * logistic(gaussian()));
+  }
+  for (const key of PROVISIONAL_KEYS) state.provisional[key] = quantizeZ(gaussian());
+  if (!breastDragOn(body, sex)) {
+    state.provisional.breast_volume_z = 0;
+    state.provisional.breast_height_z = 0;
+  }
+}
+
+function bindZSlider(input, key) {
+  input.addEventListener("pointerdown", () => beginChange());
+  input.addEventListener("input", () => {
+    state.editBody[key] = quantizeZ(Number(input.value));
+    syncDirect();
+    drawEdit();
+  });
+  input.addEventListener("pointerup", () => commitChange());
+  input.addEventListener("change", () => commitChange());
+}
+
+function bindDirectEditor() {
+  if (state.directBound) return;
+  state.directBound = true;
+  canvas.style.cursor = "grab";
+  const hair = document.querySelector("#direct-hair");
+  const auto = document.createElement("option");
+  auto.value = "";
+  auto.textContent = "aus der Person";
+  hair.append(auto);
+  for (const style of HAIR_STYLES) {
+    const option = document.createElement("option");
+    option.value = style.id;
+    option.textContent = style.label;
+    hair.append(option);
+  }
+  hair.addEventListener("change", () => {
+    beginChange();
+    state.hairStyle = hair.value;
+    commitChange();
+    drawEdit();
+  });
+  const dye = document.querySelector("#direct-dye");
+  const dyeColor = document.querySelector("#direct-dye-color");
+  dye.addEventListener("change", () => {
+    beginChange();
+    state.hairDye = dye.checked ? dyeColor.value : "";
+    commitChange();
+    syncDirect();
+    drawEdit();
+  });
+  dyeColor.addEventListener("pointerdown", () => beginChange());
+  dyeColor.addEventListener("input", () => {
+    if (!dye.checked) return;
+    state.hairDye = dyeColor.value;
+    drawEdit();
+  });
+  dyeColor.addEventListener("change", () => commitChange());
+  document.querySelector("#categories").addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (button) setCategory(button.dataset.cat);
+  });
+  document.querySelector("#turn-left").addEventListener("click", () => turnBy(-Math.PI / 4));
+  document.querySelector("#turn-right").addEventListener("click", () => turnBy(Math.PI / 4));
+  document.querySelector("#edit-back").addEventListener("click", () => {
+    document.querySelector("#edit-reset").click();
+  });
+  document.querySelector("#edit-random").addEventListener("click", () => {
+    beginChange();
+    drawFounder();
+    commitChange();
+    syncDirect();
+    drawEdit();
+  });
+  document.querySelector("#edit-undo").addEventListener("click", undoEdit);
+  document.querySelector("#edit-redo").addEventListener("click", redoEdit);
+  bindZSlider(document.querySelector("#fat-slider"), "body_fat_z");
+  bindZSlider(document.querySelector("#muscle-slider"), "muscle_z");
+  bindZSlider(document.querySelector("#edit-dist"), "fat_distribution_z");
+  const pad = document.querySelector("#shape-pad");
+  const movePad = (event) => {
+    const rect = pad.getBoundingClientRect();
+    const u = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+    const v = clamp(1 - (event.clientY - rect.top) / rect.height, 0, 1);
+    state.editBody.body_fat_z = quantizeZ(u * 6 - 3);
+    state.editBody.muscle_z = quantizeZ(v * 6 - 3);
+    syncDirect();
+    drawEdit();
+  };
+  let padDrag = 0;
+  pad.addEventListener("pointerdown", (event) => {
+    padDrag = event.pointerId;
+    beginChange();
+    movePad(event);
+  });
+  pad.addEventListener("pointermove", (event) => {
+    if (padDrag === event.pointerId) movePad(event);
+  });
+  pad.addEventListener("pointerup", (event) => {
+    if (padDrag !== event.pointerId) return;
+    padDrag = 0;
+    commitChange();
+  });
+  bindField(document.querySelector("#skin-field"), (event) => {
+    const point = fieldPoint(event);
+    state.editBody.skin_pheomelanin = round01(point.x);
+    state.editBody.skin_eumelanin = round01(point.y);
+    syncDirect();
+    drawEdit();
+  });
+  bindField(document.querySelector("#hair-field"), (event) => {
+    const point = fieldPoint(event);
+    state.editBody.hair_pheomelanin = round01(point.x);
+    state.editBody.hair_eumelanin = round01(point.y);
+    syncDirect();
+    drawEdit();
+  });
+  bindField(document.querySelector("#iris-field"), (event) => {
+    state.editBody.iris_melanin = round01(fieldPoint(event).x);
+    syncDirect();
+    drawEdit();
+  });
+  canvas.addEventListener("pointerdown", onCanvasDown);
+  canvas.addEventListener("pointerleave", () => {
+    if (directDrag || state.cursorPinned) return;
+    if (!state.hoverRegion) return;
+    state.hoverRegion = "";
+    canvas.style.cursor = "grab";
+    syncDirect();
+  });
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", endDrag);
+  window.addEventListener("pointercancel", endDrag);
+  syncDirect();
+}
+
+function applySimulate() {
+  const raw = params.get("simulate");
+  if (!raw || state.editMode !== 2 || !state.editBody) return;
+  for (const part of raw.split(",")) {
+    const cut = part.indexOf(":");
+    if (cut < 0) continue;
+    const op = part.slice(0, cut);
+    const arg = part.slice(cut + 1);
+    if (op === "yaw") state.editYaw = Number(arg);
+    else if (op === "hover") {
+      state.hoverRegion = arg;
+      state.cursorPinned = true;
+    } else if (op === "panel") setCategory(arg, true);
+    else if (DIRECT_REGIONS[op]) {
+      state.directRegion = op;
+      const value = Number(arg);
+      const axes = axesFor(op);
+      if (axes.x) setAxis(axes.x, value);
+      if (op === "nose_bridge" && axes.y) setAxis(axes.y, value);
+      else if (!axes.x && axes.y) setAxis(axes.y, value);
+    }
+  }
+  syncDirect();
+  restyle();
+  frame();
+}
+
+window.__directState = () => ({
+  region: state.directRegion,
+  hover: state.hoverRegion,
+  yaw: state.editYaw,
+  facing: facing(),
+  hip: state.editBody && state.editBody.hip_width_z,
+  butt: state.provisional && state.provisional.buttock_volume_z,
+  nose: state.editBody && state.editBody.face_axis_01,
+  bridge: state.provisional && state.provisional.nose_bridge_z,
+  skin: state.editBody && [state.editBody.skin_eumelanin, state.editBody.skin_pheomelanin],
+  category: state.category,
+});
 
 async function boot() {
   status.textContent = "Loading the body…";
@@ -2629,6 +3814,7 @@ async function boot() {
   resize();
   restyle();
   frame();
+  applySimulate();
   animate();
 }
 
