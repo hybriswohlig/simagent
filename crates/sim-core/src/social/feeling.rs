@@ -143,9 +143,9 @@ pub fn apply(
 
 /// The anger a person gets from the push of someone who arrives with `arriver_anger` (ADR-0032
 /// section 4): with the arriver's anger at least `min_anger`, a person whose anger is below it
-/// gets `min(anger + step, cap)`; one at `min_anger` or above, and everyone for a calmer arriver,
-/// keeps theirs. `None` for no push at all. The cap is below `min_anger`, so nobody a push reaches
-/// can push on, and no anger falls.
+/// gets `max(anger, min(anger + step, cap))`; one at `min_anger` or above, and everyone for a
+/// calmer arriver, keeps theirs. `None` for no push at all. The cap is below `min_anger`, so
+/// nobody a push reaches can push on. Anger never falls, even when `cap` is below it.
 pub fn infected(arriver_anger: u16, anger: u16, rules: &Contagion) -> Option<u16> {
     if arriver_anger < rules.min_anger {
         return None;
@@ -153,7 +153,7 @@ pub fn infected(arriver_anger: u16, anger: u16, rules: &Contagion) -> Option<u16
     if anger >= rules.min_anger {
         return Some(anger);
     }
-    Some(anger.saturating_add(rules.step).min(rules.cap))
+    Some(anger.max(anger.saturating_add(rules.step).min(rules.cap)))
 }
 
 /// `company · (1000 + temper) / 1000` in `i64` toward 0 (ADR-0032 section 5): at -1000 the
@@ -500,6 +500,18 @@ mod tests {
                 .temper
         };
         assert_eq!((temper(0, 150), temper(650, 699)), (-37, -12));
+    }
+
+    /// Accepted data may set `cap` under the anger a push reaches (`min_anger` 700, `step` 150,
+    /// `cap` 600). ADR-0032 section 4: that push does not lower 650 to 600.
+    #[test]
+    fn contagion_never_lowers_anger_when_the_cap_is_below_it() {
+        let rules = Contagion {
+            min_anger: 700,
+            step: 150,
+            cap: 600,
+        };
+        assert_eq!(infected(900, 650, &rules), Some(650));
     }
 
     /// Acceptance 5: a temper of -500 halves the company, -1000 removes it, +1000 doubles it; the

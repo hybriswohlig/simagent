@@ -299,7 +299,7 @@ pub struct Band {
 }
 
 /// The contagion (ADR-0032 section 4): whoever arrives in a room with an anger of at least
-/// `min_anger` gives everyone there who is below it `step` more anger, at most `cap`.
+/// `min_anger` gives everyone there who is below it `max(anger, min(anger + step, cap))`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Contagion {
