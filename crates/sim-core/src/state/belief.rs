@@ -280,33 +280,22 @@ pub(super) fn record_deed(
     }
 }
 
-/// Cuts deeds the new house day leaves outside the window (ADR-0031 section 1, addendum
-/// 2026-11-11). A move-in touches the lists: each member's frozen deeds are judged against
-/// the house day counted from the new `since`, which is `now`, so that day is 0. No entry.
-/// Days are not renumbered. While the household is outside there is no house day, and the
-/// clock never cuts the list. `dropped_day` stays: only the cap closes a day inside the window.
+/// Drops every deed of each member (ADR-0031 section 1, addendum 2026-11-11). A move-in
+/// touches the lists. Deeds of an earlier stay have no meaning in the new calendar: that
+/// stay's day 0 is also this stay's day 0, so judging them against today would keep them.
+/// No entry. Beliefs stay. While the household is outside there is no house day, and the
+/// clock never cuts the list.
 pub(super) fn judge_move_in(
     domain: &mut DomainState,
     data: &Data,
     members: &[SimId],
-    now: SimTime,
+    _now: SimTime,
 ) {
-    let Some(social) = data.social() else {
+    if data.social().is_none() {
         return;
-    };
-    let window = social.limits.deed_window_days;
-    let today = house_day(now, now);
+    }
     for &sim in members {
-        let empty = {
-            let Some(deeds) = domain.house.social.deeds.get_mut(&sim) else {
-                continue;
-            };
-            deeds.prune_calendar(today, window);
-            deeds.items.is_empty() && deeds.dropped_day.is_none()
-        };
-        if empty {
-            domain.house.social.deeds.remove(&sim);
-        }
+        domain.house.social.deeds.remove(&sim);
     }
 }
 
