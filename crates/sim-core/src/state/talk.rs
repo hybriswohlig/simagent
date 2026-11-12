@@ -24,8 +24,9 @@ use crate::ids::{EventId, HouseholdId, MAX_JS_SAFE, SimId};
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::rng::{DrawKey, WorldSeed};
 use crate::social::belief::{
-    Basis, Belief, Statement, aimed_doer, audience, choose_speaker, gossip_material, heard_bond_steps,
-    lie_reason, lie_statement, live_material, pick_refutation, refute, said_belief,
+    Basis, Belief, Statement, aimed_doer, audience, choose_speaker, gossip_material,
+    heard_bond_steps, lie_reason, lie_statement, live_material, pick_refutation, refute,
+    said_belief,
 };
 use crate::social::bond::{GRUDGE, TRUST};
 use crate::social::data::{Occasion, REFUTED, TALK};

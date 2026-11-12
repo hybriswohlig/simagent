@@ -2079,8 +2079,8 @@ fn refuted_memory(run: &Run, owner: u64, other: u64, at: i64) -> bool {
     })
 }
 
-/// After the lie at 23 400, W and the hearer talk at 27 000. The reference's refutation
-/// draw of founder 2 toward founder 1 hits (u = 218 846). One refutation, then the edge
+/// After the lie at 23 400, W and the hearer talk at 27 012. The reference's refutation
+/// draw of founder 2 toward founder 1 hits (u = 22 449). One refutation, then the edge
 /// to the liar.
 #[test]
 fn the_doer_refutes_the_lie() {
@@ -2097,7 +2097,7 @@ fn the_doer_refutes_the_lie() {
     let said = laestert(3, 2, day);
     assert_eq!(belief(&run, 2, said).certainty, 660);
     to_toilet(&mut run, lie_at, &[1, 2]);
-    let at = 27_000;
+    let at = 27_012;
     let arrival = arrive(
         &mut run,
         at - TALK_DELAY - WITHIN_ROOM - 1,
@@ -2117,7 +2117,9 @@ fn the_doer_refutes_the_lie() {
             source: Some(sim(1)),
         }
     );
-    let draw = DrawRef::from(refute_draw_key(founder(2), t(at), founder(1)));
+    let key = refute_draw_key(founder(2), t(at), founder(1));
+    assert_eq!(talk_ppm(WorldSeed::new(0x5EED), key), 22_449);
+    let draw = DrawRef::from(key);
     assert!(caused_by(refuted, draw));
     let held = belief(&run, 2, said);
     assert_eq!(held.certainty, 0);
@@ -2267,12 +2269,13 @@ fn talked_at(run: &Run, at: i64) -> LogPayload {
 /// Seconds are the reference's, seed `0x5EED`. 23 400 lies (founder 0 toward 1, u = 22 823).
 /// 27 000 passes it on (founder 1 toward 0 misses, u = 883 351). The fourth person sits
 /// through that talk and holds the seen `lästert`; the speaker and the sentence hearer do
-/// not. 27 800 refutes the hearer's copy (founder 2 toward 1 hits, u = 289 620). 28 600 the
+/// not. 27 616 refutes the hearer's copy (founder 2 toward 1 hits, u = 189 792). 28 600 the
 /// witness tells the girl (founder 3 toward 2 misses, u = 215 629), so the girl holds what
 /// the man did at 733. 29 400 the girl tells the woman (founder 2 toward 0 misses,
 /// u = 664 883). That records the girl's gossip about him, and the statement is true. Her
-/// trust in him falls by 20, to 580. 30 600 would refute (founder 1 toward 0, u = 482 675)
-/// and writes nothing. The lie draw of founder 0 toward 1 misses (u = 210 480).
+/// trust in him falls by 20, to 580. 30 605 would refute (founder 1 toward 0, u = 91 195)
+/// and writes nothing. The lie draw of founder 0 toward 1 misses (u = 962 713), and founder
+/// 1 toward 0 misses (u = 957 388).
 #[test]
 fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     let (mut run, home) = lie_early_four();
@@ -2350,7 +2353,7 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     to_toilet(&mut run, pass_at, &[1, 2, 4]);
 
     // The girl refutes the hearer's copy. The woman's copy stays.
-    let refute_at = 27_800;
+    let refute_at = 27_616;
     let arrival = arrive(
         &mut run,
         refute_at - TALK_DELAY - WITHIN_ROOM - 1,
@@ -2358,6 +2361,8 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
     );
     assert_eq!(arrival + TALK_DELAY, refute_at);
     run.advance(refute_at);
+    let refute_key = refute_draw_key(founder(2), t(refute_at), founder(1));
+    assert_eq!(talk_ppm(WorldSeed::new(0x5EED), refute_key), 189_792);
     assert_eq!(refutations(&run).len(), 1);
     assert_eq!(refutations(&run)[0].t, t(refute_at));
     let refuted = belief(&run, 2, said);
@@ -2517,11 +2522,16 @@ fn a_holder_cannot_refute_a_statement_that_is_true_now() {
 
     // X with Y. He holds the statement widerlegt and she still holds it, and it is true.
     // The draw would hit. Nothing is refuted and neither bond moves.
-    let again = 30_600;
+    let again = 30_605;
     stage(&mut run, again, false);
     let key = refute_draw_key(founder(1), t(again), founder(0));
     let u = talk_ppm(WorldSeed::new(0x5EED), key);
-    assert!(u < 500_000, "the refutation draw would hit, u = {u}");
+    assert_eq!(u, 91_195);
+    assert!(u < 200_000, "the refutation draw would hit, u = {u}");
+    let lie_0 = lie_draw_key(founder(0), t(again), founder(1));
+    assert_eq!(talk_ppm(WorldSeed::new(0x5EED), lie_0), 962_713);
+    let lie_1 = lie_draw_key(founder(1), t(again), founder(0));
+    assert_eq!(talk_ppm(WorldSeed::new(0x5EED), lie_1), 957_388);
     let draw = DrawRef::from(key);
     assert!(run.log.iter().all(|entry| !caused_by(entry, draw)));
     assert_eq!(refutations(&run).len(), 1);

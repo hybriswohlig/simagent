@@ -147,7 +147,7 @@ fn the_repository_social_data_loads_with_the_numbers_of_the_adrs() {
         (600, 400)
     );
     let beliefs = &social.beliefs;
-    assert_eq!((beliefs.lie_ppm, beliefs.refute_ppm), (50_000, 500_000));
+    assert_eq!((beliefs.lie_ppm, beliefs.refute_ppm), (50_000, 200_000));
     assert_eq!(
         (
             beliefs.heard_cap,
