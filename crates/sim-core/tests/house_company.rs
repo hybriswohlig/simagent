@@ -540,7 +540,6 @@ fn partners_in_the_evening_sit_together() {
 fn both_components_are_logged_when_they_cancel() {
     assert_eq!(familiarity_at(EVENING), 597);
     assert!(700 + familiarity_at(EVENING) >= 600);
-    assert!(320 < 400);
     let later = EVENING + 5 + 3_600;
     assert!(EVENING + 3 < later && later < EVENING + 3 + 7_200);
     assert_eq!(familiarity_at(later), 597);
@@ -626,7 +625,6 @@ fn a_walker_is_company_and_only_a_seated_person_is_avoided() {
     // Affection stays 700. At 18:00 familiarity is 597, so the sum is 1 297.
     assert_eq!(familiarity_at(EVENING), 597);
     assert!(700 + familiarity_at(EVENING) >= 600);
-    assert!(300 < 400);
     // She reaches the television after 5 s and watches for 3 600 s. He reaches the hall
     // table after 3 s. The eat of 7 200 s still runs at her next choice, and familiarity
     // has not fallen another step.
