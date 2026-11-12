@@ -109,9 +109,20 @@ The page fits each proxy with its `.mhclo` bindings. Textures use alpha test.
 | Brown eye texture | `eyes/materials/brown_eye.png`, `brown.mhmat` | Iris fibre luminance and the pupil position. The page tints that neutral field with the contract iris colour. The sclera is drawn off-white, darker toward the corners. The grey field outside the sclera disc is replaced with the contract skin colour, because that field was showing as a grey socket. |
 | eyebrow001 | `eyebrows/eyebrow001/` | Brow cards. Tinted with the hair colour. Opacity follows `eyebrow_density`. |
 | eyelashes01 | `eyelashes/eyelashes01/` | Lash cards on the same eye helpers. |
-| short04 | `hair/short04/` | Short male cut. `balding_stage` opens the crown and the temples. |
-| short02 | `hair/short02/` | Child cut, under 16. |
-| long01 | `hair/long01/` | Longer female cut. |
+| short04 | `hair/short04/` | Short cut. A man with `balding_stage` of 1 or more is given this cut, so the crown and the temples can open. |
+| bob01 | `hair/bob01/` | Medium bob. |
+| long01 | `hair/long01/` | Long hair. |
+| ponytail01 | `hair/ponytail01/` | Hair tied back. |
+| braid01 | `hair/braid01/` | A braid, also tied. |
+
+Length is not a gene and not an age. The page hashes the sim id (FNV-1a)
+and picks one of these five. The same person keeps the same cut at every
+age. Colour, curl, density, grey and balding still come from the contract.
+Curl is stored and is not a strand shape. The editor's Frisur menu and
+gefärbt colour replace the view only.
+
+These five were already in the CC0 system-assets zip above. Nothing else
+was downloaded. `hair/short02/` was the old child cut and is not used.
 
 Hair colour is the contract hair melanin mixed with `hair_grey_fraction`.
 `hair_density` lowers the alpha-test coverage. There is no beard proxy in
@@ -128,7 +139,7 @@ downloaded asset.
 
 - `rigs/standard/rig.mixamo.json` and `weights.mixamo.json` are in the same directory. This sample does not use Mixamo, and it does not use assets from any game.
 - The system-assets zip also contains clothes, skins, teeth and other hair.
-  This sample uses only the eye, brow, lash and three hair proxies in the
+  This sample uses only the eye, brow, lash and five hair proxies in the
   table above, plus the young caucasian female skin in the skin section.
   It does not use clothes from that zip.
 - The zip does not contain this base mesh or these morph targets. Those stay

@@ -54,7 +54,9 @@ eyes and brows in that texture are lifted. Hair and iris colours are the contrac
 material as sRGB. A shader band colours the torso and hips navy, with a
 straight cut at the base of the neck. Eyes, brows, lashes and hair are
 MakeHuman proxies fitted to the morphed body (see `../ASSETS.md`). Hair
-uses a short male cut, a longer female cut, or a child cut under 16.
+length is not a gene and not an age. Each person gets one of five CC0
+cuts from a hash of the sim id. A balding man is put on the short cut.
+The editor can override the cut and the colour for the view only.
 `balding_stage` opens the crown and temples of the short cut. `hair_density`
 and `eyebrow_density` raise the alpha-test threshold. A beard is a soft
 mask on the upper lip, chin and jaw, spreading onto the cheeks as

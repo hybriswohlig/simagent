@@ -5,7 +5,7 @@ the face axes get a meaning, and the only place a contract value becomes a
 shape-key weight. The glb stores every key at 0. `build_body.py` writes it to
 the cache, not the repository.
 
-38 shape keys. The skeleton is the MakeHuman game-engine rig (53 bones).
+43 shape keys. The skeleton is the MakeHuman game-engine rig (53 bones).
 `height_cm` is not a shape key.
 
 ## What was measured
@@ -70,26 +70,49 @@ average of the male and female keys at that age).
 
 ## Fat and muscle
 
-The max and min files are full-body sculpts from the base mesh, young only.
-They replace part of the young age key. They are not added on top of it.
-Child and old stay at average fat and average muscle. The four diagonal
-corners (max fat with max muscle, and the other three) are not in the glb.
-When both axes leave 0, the leftover weight stays on the young age key.
+The universal weight and muscle files are small deltas on the base mesh,
+not a second copy of the young body. Measured on this commit, weight 1
+moves the skin by about half a centimetre of girth (the largest hip
+vertex on the male max-weight file moves 2.9 cm). They are added on top
+of the age blend, on both sexes in proportion to the male and female
+shares. Child and old use the same deltas. The age key is not reduced.
 
-Let `w` be the young sex weight from the formula above (one sex at a time).
-`fu = clamp(body_fat_z / 4, -1, 1)`, `mu = clamp(muscle_z / 4, -1, 1)`.
+`fu = clamp(body_fat_z / 2, -1, 1)`, `mu = clamp(muscle_z / 2, -1, 1)`,
+`du = clamp(fat_distribution_z / 2, -1, 1)`.
+`heavy = max(fu, 0)`, `thin = max(-fu, 0)`,
+`bulk = max(mu, 0)`, `soft = max(-mu, 0)`,
+`belly = max(du, 0)`, `hips = max(-du, 0)`.
+
+Let `s` be the male or female share from the age section.
 
 ```
-keep     = (1 - |fu|) * (1 - |mu|) + |fu| * |mu|
-fat_pos  = max(fu, 0) * (1 - |mu|)
-fat_neg  = max(-fu, 0) * (1 - |mu|)
-mus_pos  = max(mu, 0) * (1 - |fu|)
-mus_neg  = max(-mu, 0) * (1 - |fu|)
+fat_*_max   = s * heavy * 6
+fat_*_min   = s * thin * 6
+muscle_*_max = s * bulk * 2.4
+muscle_*_min = s * soft * 2.4
 ```
 
-Those five coefficients sum to 1. Multiply by `w`, leave `w * keep` on
-`age_*_young`, and put the rest on `fat_*_max`, `fat_*_min`, `muscle_*_max`,
-`muscle_*_min` for that sex.
+At `body_fat_z = +2` the full-body weight target is at 6, about 17 cm
+on the outer hip. At `-2` the min-weight target pulls that hip in.
+`muscle_z = +2` keeps the full-body muscle target at 2.4, because its
+largest vertices drop the shoulder, and puts the visible bulk on the
+arm, shoulder and chest targets below.
+
+Distribution decides where extra fat sits. Positive is waist and a
+modest belly. Negative is thighs, with a little more on the upper arm.
+A thin value pulls the same regions back. The belly file is a pregnancy
+sculpt (about 10 cm forward at weight 1), so its weight stays under one
+half and it is zero unless the fat is both heavy and central.
+
+```
+fat_central    = heavy * (0.8 + 1.8 * belly) - thin * (0.6 + 0.8 * belly)
+fat_belly      = heavy * belly * 0.35
+fat_peripheral = heavy * (0.7 + 1.6 * hips) - thin * (0.5 + 0.8 * hips)
+fat_upperarm   = heavy * (1.6 + hips) - thin * (1.2 + 0.6 * hips)
+muscle_arm     = bulk * 3.4 - soft * 1.8
+muscle_shoulder = bulk * 2.8 - soft * 1.2
+muscle_chest   = bulk * 2.2 - soft * 0.9
+```
 
 ## Direct shape keys
 
@@ -106,8 +129,13 @@ approximation.
 | `shoulder_width` | `shoulder_width_z` | `torso/measure-shoulder-dist-incr` | `z / 4`. `torso-vshape-incr` is not used. |
 | `chest_depth` | `chest_depth_z` | `torso/torso-scale-depth-incr` | `z / 4` |
 | `pelvis_width` | `hip_width_z` | `hip/hip-scale-horiz-incr` | `z / 4` |
-| `fat_central` | `fat_distribution_z` > 0 | `torso/measure-waist-circ-incr` | `max(z, 0) / 4` |
-| `fat_peripheral` | `fat_distribution_z` < 0 | `legs/l-upperleg-fat-incr` + `r-upperleg-fat-incr` | `max(-z, 0) / 4` |
+| `fat_central` | `body_fat_z`, `fat_distribution_z` | `torso/measure-waist-circ-incr` | See fat section. Positive distribution adds waist. |
+| `fat_peripheral` | `body_fat_z`, `fat_distribution_z` | `legs/l-upperleg-fat-incr` + `r-upperleg-fat-incr` | See fat section. Negative distribution adds thigh. |
+| `fat_belly` | `body_fat_z`, `fat_distribution_z` | `stomach/stomach-pregnant-incr` | `heavy * belly * 0.35`. Central fat only. |
+| `fat_upperarm` | `body_fat_z`, `fat_distribution_z` | `arms/l-upperarm-fat-incr` + `r-upperarm-fat-incr` | See fat section. |
+| `muscle_arm` | `muscle_z` | `arms/l-upperarm-muscle-incr` + `r-upperarm-muscle-incr` | See fat section. |
+| `muscle_shoulder` | `muscle_z` | `arms/l-upperarm-shoulder-muscle-incr` + `r-upperarm-shoulder-muscle-incr` | See fat section. |
+| `muscle_chest` | `muscle_z` | `torso/torso-muscle-pectoral-incr` | See fat section. |
 
 `hip-scale-horiz-incr` is pelvis width only. It is not reused for fat
 distribution. `torso/measure-hips-circ-incr` is unused.
@@ -143,9 +171,10 @@ the flat base, about `0.17` is a bud, `0.5` is one average cup (0.34 of
 the max-cup target), and `1` is the full max-cup target. A male keeps
 both weights at 0.
 
-`youngFemale` is `age_female_young` plus the four female fat and muscle
-keys. `oldFemale` is `age_female_old`. The child key is not in that sum,
-because that corner is already flat.
+`youngFemale` is `age_female_young`. `oldFemale` is `age_female_old`.
+Fat and muscle are added on top of the age blend, so they are not part
+of that sum. The child key is not in it, because that corner is already
+flat.
 
 ```
 cup = clamp(breast_development / 0.5, 0, 1)
