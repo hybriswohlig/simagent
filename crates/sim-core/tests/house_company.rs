@@ -1,8 +1,9 @@
 //! Company and avoid in a choice (ADR-0030 section 4). The bonus is outside the mood, after the
 //! scaled needs, like the walk, and a fallback offer is scored so it gets it too. `+company` once
 //! if affection + familiarity toward someone at that sociable furniture is at least 600, `−avoid`
-//! once if trust in someone there is under 400; both can count. Someone there is sitting or on
-//! the way. A person with no bond is skipped.
+//! once if trust in someone who sits there is under 400; both can count. Company counts a
+//! household member who sits or is on the way (a reserved place). Avoid counts only someone who
+//! has arrived. A person with no bond is skipped.
 //!
 //! The points below are by hand, from ADR-0026 and `tools/social_reference.py`
 //! (`check_choice_bonus`), not from a run of this crate. In the repository flat an adult in the
@@ -25,7 +26,7 @@ use sim_core::log::{LogEntry, LogPayload, Subject};
 use sim_core::social::bond::{self, choice_bonus};
 use sim_core::social::data::SocialData;
 use sim_core::social::feeling::Feel;
-use sim_core::time::HOUR;
+use sim_core::time::{DAY, HOUR};
 
 /// Hunger 600, energy 900, bladder 500, hygiene 700, fun 800.
 const MORNING_VALUES: [u16; 5] = [600, 900, 500, 700, 800];
@@ -328,17 +329,28 @@ fn offer(id: &str, need: &str, rate: i32, seconds: u32) -> Value {
 }
 
 fn kinds() -> Value {
-    kinds_with_tv(126)
+    kinds_with(126, 60)
 }
 
 /// The kinds with the television's fun `tv` an hour (the repository test house: 126).
 fn kinds_with_tv(tv: i32) -> Value {
+    kinds_with(tv, 60)
+}
+
+/// As [`kinds`], with the table's eat lasting `table_seconds`. A long eat keeps him seated
+/// at her next choice; the gain stays a few points, under the television.
+fn kinds_with_table(table_seconds: u32) -> Value {
+    kinds_with(126, table_seconds)
+}
+
+/// The kinds with the television's fun `tv` and the table's eat lasting `table_seconds`.
+fn kinds_with(tv: i32, table_seconds: u32) -> Value {
     json!([
         {"id": "core:sofa", "slots": 2, "offers": [offer("sit", "fun", 125, 3_600)]},
         {"id": "core:tv", "slots": 1, "offers": [offer("watch", "fun", tv, 3_600)]},
         {"id": "test:bed", "slots": 2, "bed_for": "couples", "offers": [
             {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]},
-        {"id": "core:dining_table", "slots": 1, "offers": [offer("eat", "hunger", 1, 60)]},
+        {"id": "core:dining_table", "slots": 1, "offers": [offer("eat", "hunger", 1, table_seconds)]},
         {"id": "core:fridge", "slots": 1, "offers": [offer("snack", "hunger", 1, 60)]},
         {"id": "core:toilet", "slots": 1, "offers": [offer("use", "bladder", 1, 60)]},
         {"id": "core:shower", "slots": 1, "offers": [offer("shower", "hygiene", 1, 60)]}
@@ -392,6 +404,19 @@ fn houses_with_kinds(kinds: &Value) -> HouseData {
 fn company_data(social: SocialData) -> Data {
     common::death_data(1e-9, None, json!([]))
         .with_houses(company_houses())
+        .with_social(social)
+}
+
+/// The evening house with the table's eat lasting `table_seconds`.
+fn company_data_table(social: SocialData, table_seconds: u32) -> Data {
+    let houses = common::houses_from(
+        &common::day::rates(0, 0, -10),
+        &day(),
+        &kinds_with_table(table_seconds).to_string(),
+        &[&house()],
+    );
+    common::death_data(1e-9, None, json!([]))
+        .with_houses(houses)
         .with_social(social)
 }
 
@@ -560,14 +585,31 @@ fn partners_in_the_evening_sit_together() {
     }));
 }
 
-/// Trust 320 is avoid and the partner sum is still company, so the two cancel. She takes the
-/// television, and the row is written all the same, before that choice.
+/// Trust 320 is avoid once he sits, and the partner sum is still company, so the two cancel.
+/// On the way only company counts, and the table stays under the television, so she takes it.
+/// An hour of it leaves fun at 806, weight 194, and the television at 24 194, under 40 000, so
+/// the next choice is idle. He still sits, and the row is written with both components, net 0.
 #[test]
 fn both_components_are_logged_when_they_cancel() {
+    assert_eq!(familiarity_at(EVENING), 597);
+    assert!(700 + familiarity_at(EVENING) >= 600);
+    let later = EVENING + 5 + 3_600;
+    assert!(EVENING + 3 < later && later < EVENING + 3 + 7_200);
+    assert_eq!(familiarity_at(later), 597);
+
     let social = common::repository_social_with(|social| {
         social["bonds"]["start"]["partner"][1] = json!(320);
     });
-    let run = evening(social);
+    let (mut run, _) = Run::moved_in(company_data_table(social, 7_200));
+    run.advance(EVENING - 1);
+    run.submit(command(2, 3));
+    run.advance(EVENING);
+
+    let him = run.world.state().house().sims.get(&sim(2)).expect("him");
+    assert!(
+        matches!(him.place, Place::Walking { .. }),
+        "he is on the way, so avoid does not apply yet"
+    );
     let (at, started) = her_choice(&run);
     match &started.payload {
         LogPayload::ActionStarted {
@@ -586,12 +628,130 @@ fn both_components_are_logged_when_they_cancel() {
             let row = &objects[0];
             assert_eq!(
                 (row.object, row.liked, row.company, row.avoided, row.avoid),
-                (0, Some(sim(2)), 8_000, Some(sim(2)), 8_000)
+                (3, Some(sim(2)), 8_000, None, 0)
             );
         }
-        other => panic!("core:company, got {other:?}"),
+        other => panic!("core:company while he walks, got {other:?}"),
     }
-    assert_eq!(run.log[at - 1].t, started.t);
+
+    // Five seconds of walking at −10 an hour do not move fun. The hour of television adds its
+    // rate, 126. Weight is 1 000 − 806.
+    let tv_later = (1_000 - (680 + 126)) * 126 - 250;
+    assert_eq!(tv_later, 24_194);
+    const { assert!(24_194 < ENOUGH) };
+    run.advance(later);
+    let him = run.world.state().house().sims.get(&sim(2)).expect("him");
+    assert!(matches!(him.place, Place::Room(_)));
+    assert_eq!(him.action.map(|action| action.object), Some(3));
+    let at = (run.log.iter().rposition(|entry| {
+        about(entry, 1)
+            && entry.t.as_secs() == later
+            && matches!(entry.payload, LogPayload::Company { .. })
+    }))
+    .expect("her choice once he sits");
+    match &run.log[at].payload {
+        LogPayload::Company { objects } => {
+            assert_eq!(objects.len(), 1);
+            let row = &objects[0];
+            assert_eq!(
+                (row.object, row.liked, row.company, row.avoided, row.avoid),
+                (3, Some(sim(2)), 8_000, Some(sim(2)), 8_000)
+            );
+            assert_eq!(row.company - row.avoid, 0);
+        }
+        other => panic!("core:company once he sits, got {other:?}"),
+    }
+    assert!(matches!(run.log[at + 1].payload, LogPayload::Idle { .. }));
+}
+
+/// The partners' bond starts at the move-in, 23:59:59 of day 0. Familiarity falls by 5 a day.
+fn familiarity_at(t: i64) -> i64 {
+    const MOVE_IN: i64 = DAY.as_secs() - 1;
+    600 - 5 * (t - MOVE_IN) / 86_400
+}
+
+/// Tom is told to the table. While he walks, trust 300 is company and not avoid; once he
+/// has arrived, avoid applies too. The table's eat is long enough that he still sits at
+/// her next choice, and they are not at the same furniture, so no talk moves the bond.
+#[test]
+fn a_walker_is_company_and_only_a_seated_person_is_avoided() {
+    // Affection stays 700. At 18:00 familiarity is 597, so the sum is 1 297.
+    assert_eq!(familiarity_at(EVENING), 597);
+    assert!(700 + familiarity_at(EVENING) >= 600);
+    // She reaches the television after 5 s and watches for 3 600 s. He reaches the hall
+    // table after 3 s. The eat of 7 200 s still runs at her next choice, and familiarity
+    // has not fallen another step.
+    let later = EVENING + 5 + 3_600;
+    assert!(EVENING + 3 < later && later < EVENING + 3 + 7_200);
+    assert_eq!(familiarity_at(later), 597);
+
+    let social = common::repository_social_with(|social| {
+        social["bonds"]["start"]["partner"][1] = json!(300);
+    });
+    let (mut run, _) = Run::moved_in(company_data_table(social, 7_200));
+    run.advance(EVENING - 1);
+    run.submit(command(2, 3));
+    run.advance(EVENING);
+
+    let him = run.world.state().house().sims.get(&sim(2)).expect("him");
+    assert!(
+        matches!(him.place, Place::Walking { arrive, .. } if arrive.as_secs() == EVENING + 3),
+        "he is on the way to the table"
+    );
+    assert_eq!(him.action.map(|action| action.object), Some(3));
+    let (at, started) = her_choice(&run);
+    match &started.payload {
+        LogPayload::ActionStarted {
+            object: 1,
+            commanded: false,
+            ..
+        } => {}
+        other => panic!("the television still wins while he walks, got {other:?}"),
+    }
+    match &run.log[at - 1].payload {
+        LogPayload::Company { objects } => {
+            assert_eq!(objects.len(), 1);
+            let row = &objects[0];
+            assert_eq!(
+                (row.object, row.liked, row.company, row.avoided, row.avoid),
+                (3, Some(sim(2)), 8_000, None, 0),
+                "on the way he is company and not avoid"
+            );
+        }
+        other => panic!("core:company while he walks, got {other:?}"),
+    }
+
+    // Five seconds of walking at −10 an hour do not move fun. The hour of television adds its
+    // rate, 126, so fun is 806 and the television is 24 194, under 40 000. The choice is idle.
+    let tv_later = (1_000 - (680 + 126)) * 126 - 250;
+    assert_eq!(tv_later, 24_194);
+    const { assert!(24_194 < ENOUGH) };
+    run.advance(later);
+    let him = run.world.state().house().sims.get(&sim(2)).expect("him");
+    assert!(
+        matches!(him.place, Place::Room(_)),
+        "he has arrived and still sits"
+    );
+    assert_eq!(him.action.map(|action| action.object), Some(3));
+    let at = (run.log.iter().rposition(|entry| {
+        about(entry, 1)
+            && entry.t.as_secs() == later
+            && matches!(entry.payload, LogPayload::Company { .. })
+    }))
+    .expect("her choice once he sits");
+    match &run.log[at].payload {
+        LogPayload::Company { objects } => {
+            assert_eq!(objects.len(), 1);
+            let row = &objects[0];
+            assert_eq!(
+                (row.object, row.liked, row.company, row.avoided, row.avoid),
+                (3, Some(sim(2)), 8_000, Some(sim(2)), 8_000),
+                "once he sits, avoid applies and company stays"
+            );
+        }
+        other => panic!("core:company once he sits, got {other:?}"),
+    }
+    assert!(matches!(run.log[at + 1].payload, LogPayload::Idle { .. }));
 }
 
 /// The evening of `evening` on `data`, with the woman's temper at `temper` (from a save with it

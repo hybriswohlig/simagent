@@ -458,6 +458,9 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
             super::bond::resume(domain, change.sim, ctx.now());
             super::feeling::resume(domain, change.sim, ctx.now());
             super::bond::on_join(domain, data, to, change.sim, entry, ctx);
+            // This stay's calendar is not the one the deeds were counted in. A join
+            // touches that person's list (ADR-0031 section 1, addendum 2026-11-11).
+            super::belief::judge_move_in(domain, data, &[change.sim], ctx.now());
             if morning {
                 let causes = Causes::new(Cause::Event(entry));
                 start_day(domain, data, change.sim, to, causes, ctx);
