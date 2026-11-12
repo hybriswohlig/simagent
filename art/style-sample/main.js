@@ -399,7 +399,7 @@ function branchShares(body) {
   return { androgen, estrogen, male, female, gender: male };
 }
 
-function morphWeights(body, sex, emphasise, extra) {
+function morphWeights(body, sex, emphasise, extra, editor) {
   const age = body.body_form_age;
   const [child, young, old] = ageSlices(age);
   const share = branchShares(body);
@@ -432,12 +432,19 @@ function morphWeights(body, sex, emphasise, extra) {
     weights[`muscle_${branch}_min`] = branchShare * soft * 0.45;
   }
   const quarter = (value) => value / 4;
+  // The lineup stays at a quarter, so the family page does not jump.
+  // ?edit=2 raises the axes that were unreadable at z/4. ±2 is the readable
+  // step. ±3 is one and a half of that and still a human proportion.
+  const hipW = editor ? (value) => value / 2 : quarter;
+  const shoulderW = editor ? (value) => value : quarter;
+  const cheekW = editor ? (value) => value / 2 : quarter;
+  const noseW = editor ? (value) => value : quarter;
   weights.leg_upper = quarter(body.leg_ratio_z);
   weights.leg_lower = quarter(body.leg_ratio_z);
   weights.head_size = quarter(body.head_size_z);
-  weights.shoulder_width = quarter(body.shoulder_width_z);
+  weights.shoulder_width = shoulderW(body.shoulder_width_z);
   weights.chest_depth = quarter(body.chest_depth_z);
-  weights.pelvis_width = quarter(body.hip_width_z);
+  weights.pelvis_width = hipW(body.hip_width_z);
   // Waist, thigh and upper-arm files carry the mass (peaks about 2.8, 3.3
   // and 1.6 cm at weight 1). Positive distribution adds waist, negative adds
   // thigh and a little arm. The belly file is a pregnancy sculpt, about
@@ -466,11 +473,13 @@ function morphWeights(body, sex, emphasise, extra) {
   weights.face_age_incr = clamp((body.face_form_age - body.body_form_age) / 45, 0, 1);
   for (let axis = 1; axis <= 12; axis += 1) {
     const key = `face_axis_${String(axis).padStart(2, "0")}`;
-    weights[key] = quarter(body[key]);
+    const scale = axis === 1 ? noseW : axis === 7 ? cheekW : quarter;
+    weights[key] = scale(body[key]);
   }
   // Provisional axes live in the direct editor only. Zero keeps the contract figure.
   const local = extra || {};
   const qz = (key) => quarter(local[key] || 0);
+  const ez = (key) => (editor ? (local[key] || 0) : 0);
   weights.neck_length = qz("neck_length_z");
   weights.hand_size = qz("hand_size_z");
   weights.foot_size = qz("foot_size_z");
@@ -478,16 +487,20 @@ function morphWeights(body, sex, emphasise, extra) {
   weights.ear_projection = qz("ear_projection_z");
   weights.eye_roundness = qz("eye_roundness_z");
   weights.forehead_height = qz("forehead_height_z");
-  weights.buttock_volume = qz("buttock_volume_z");
+  // Buttock volume at weight 1 is about 3 cm. z = ±2 needs about twice that
+  // before the seat reads under a skirt at full-body distance.
+  weights.buttock_volume = ez("buttock_volume_z");
   weights.buttock_lift = qz("buttock_lift_z");
-  weights.waist_width = qz("waist_width_z");
-  weights.nose_bridge = qz("nose_bridge_z");
-  weights.nose_tip = qz("nose_tip_z");
+  // Depth stays at half. Width is multiplied later, in the cloth fit only.
+  weights.waist_width = ez("waist_width_z") / 2;
+  // Bridge and tip peak near 0.5 cm. 1.35 puts ±2 near 1.2 cm at face zoom.
+  weights.nose_bridge = ez("nose_bridge_z") * 1.35;
+  weights.nose_tip = ez("nose_tip_z") * 1.35;
   weights.brow_arch = qz("brow_arch_z");
   weights.lip_ratio = qz("lip_ratio_z");
   const breastOn = sex === "female" && body.body_form_age > 12 && breast >= 0.12;
-  weights.breast_volume = breastOn ? qz("breast_volume_z") * breast : 0;
-  weights.breast_height = breastOn ? qz("breast_height_z") * clamp(breast / 0.5, 0, 1) : 0;
+  weights.breast_volume = breastOn ? ez("breast_volume_z") * 0.75 * breast : 0;
+  weights.breast_height = breastOn ? ez("breast_height_z") * 1.5 * clamp(breast / 0.5, 0, 1) : 0;
   // Style A draws the same genes a little softer. These are constant offsets,
   // not a scale of the z-score: a gene of 0 stays a gene of 0 in the contract.
   // Eye weight 1 is about +17% radius, so 0.58 is about +10%.
@@ -729,6 +742,26 @@ const SKIN_DETAIL = `
     vec3 beardCol = uBeardCol * vec3(0.28, 0.24, 0.22);
     float ink = clamp(grow * uBeardDensity * 1.4, 0.0, 0.8);
     diffuseColor.rgb = mix(diffuseColor.rgb, beardCol, ink);
+    // The hairline tear is scalp showing through alpha holes. The hair crown
+    // sits behind this crown, so the forehead edge is 6–11 cm forward, not 5.
+    // Darken that band to the hair colour. Leave the brow and the bald dome.
+    float scalpBelow = uCrown.y - vBind.y;
+    float scalpSide = abs(vBind.x - uCrown.x);
+    float scalpFwd = vBind.z - uCrown.z;
+    float down = smoothstep(0.015, 0.032, scalpBelow) * (1.0 - smoothstep(0.095, 0.118, scalpBelow));
+    float sideOk = 1.0 - smoothstep(0.088, 0.108, scalpSide);
+    float frontOk = 1.0 - smoothstep(0.095, 0.125, scalpFwd);
+    float temple = smoothstep(0.04, 0.065, scalpBelow) * (1.0 - smoothstep(0.105, 0.128, scalpBelow));
+    temple *= smoothstep(0.025, 0.05, scalpSide) * (1.0 - smoothstep(0.092, 0.112, scalpSide));
+    temple *= 1.0 - smoothstep(0.09, 0.12, scalpFwd);
+    float scalp = max(down * sideOk * frontOk, temple);
+    float baldHole = smoothstep(0.012, 0.065, scalpSide);
+    float dome = 1.0 - smoothstep(0.012, 0.038, scalpBelow);
+    scalp *= mix(1.0, baldHole, smoothstep(0.12, 0.7, uBald));
+    scalp *= mix(1.0, 1.0 - dome, smoothstep(0.25, 0.8, uBald));
+    float hairGate = smoothstep(0.02, 0.22, uHairDensity);
+    vec3 scalpCol = uBeardCol * vec3(0.55, 0.50, 0.46);
+    diffuseColor.rgb = mix(diffuseColor.rgb, scalpCol, clamp(scalp, 0.0, 1.0) * 0.96 * hairGate);
   #endif
 `;
 
@@ -761,8 +794,9 @@ const SKIN_WRAP = `
   totalDiffuse += uSkin * vec3(0.62, 0.24, 0.12) * (wrap - direct) * skinMask * 0.7;
 `;
 
-function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
+function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks, scalp) {
   const warm = style === "A";
+  const crown = marks.crown || [0, marks.maxY, 0];
   const uniforms = {
     uSkin: { value: new THREE.Color(skinHex) },
     uSkinMean: { value: SKIN_MEAN },
@@ -776,8 +810,11 @@ function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
     uNose: { value: new THREE.Vector3(0, marks.maxY + marks.jaw.noseDy, marks.jaw.noseZ) },
     uChin: { value: new THREE.Vector3(marks.chin[0], marks.chin[1], marks.chin[2]) },
     uKeyDir: { value: keyDirView },
+    uCrown: { value: new THREE.Vector3(crown[0], crown[1], crown[2]) },
+    uHairDensity: { value: scalp ? scalp.density : 0 },
+    uBald: { value: scalp ? scalp.bald : 0 },
   };
-  material.customProgramCacheKey = () => (warm ? "skin-beard-a" : "skin-beard");
+  material.customProgramCacheKey = () => (warm ? "skin-beard-a4" : "skin-beard-4");
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSkin = uniforms.uSkin;
     shader.uniforms.uSkinMean = uniforms.uSkinMean;
@@ -791,14 +828,18 @@ function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
     shader.uniforms.uNose = uniforms.uNose;
     shader.uniforms.uChin = uniforms.uChin;
     shader.uniforms.uKeyDir = uniforms.uKeyDir;
+    shader.uniforms.uCrown = uniforms.uCrown;
+    shader.uniforms.uHairDensity = uniforms.uHairDensity;
+    shader.uniforms.uBald = uniforms.uBald;
     material.userData.shader = shader;
     shader.vertexShader = `varying vec3 vBind;\n${shader.vertexShader.replace(
       "#include <morphtarget_vertex>",
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
+    const scalpDecl = "uniform vec3 uCrown;\nuniform float uHairDensity;\nuniform float uBald;\n";
     const decl = warm
-      ? "varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nuniform vec3 uNose;\nuniform vec3 uChin;\nuniform vec3 uKeyDir;\nfloat skinMask;\n"
-      : "varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nfloat skinMask;\n";
+      ? `varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nuniform vec3 uNose;\nuniform vec3 uChin;\nuniform vec3 uKeyDir;\n${scalpDecl}float skinMask;\n`
+      : `varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\n${scalpDecl}float skinMask;\n`;
     const color = warm ? `${SKIN_DETAIL}\n${BLUSH}\n${NECK_CUT}` : `${SKIN_DETAIL}\n${NECK_CUT}`;
     shader.fragmentShader = `${decl}${shader.fragmentShader.replace(
       "#include <color_fragment>",
@@ -821,10 +862,10 @@ function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
   return material;
 }
 
-function bodyMaterial(skinHex, style, floor, span, cutY, beard, marks) {
+function bodyMaterial(skinHex, style, floor, span, cutY, beard, marks, scalp) {
   const material = surfaceMaterial("#ffffff", style, 0.8);
   material.map = state.skin;
-  return paintCloth(material, floor, span, cutY, skinHex, beard, style, marks);
+  return paintCloth(material, floor, span, cutY, skinHex, beard, style, marks, scalp);
 }
 
 function litMaterial(style, roughness) {
@@ -886,6 +927,18 @@ const HAIR_VERTEX = `
   float crownW = smoothstep(0.12, 0.55, uBald);
   float templeW = smoothstep(0.18, 0.75, uBald);
   vKeep = 1.0 - clamp(crownW * crownHole + templeW * temple, 0.0, 1.0);
+  // Tuck only the hairline ring into the scalp. Lashes and brows leave uFill at 0.
+  // aMesh stays put for the fragment test; transformed is the drawn shell.
+  if (uFill > 0.5) {
+    float tuckBelow = uCrown.y - aMesh.y;
+    float tuckSide = abs(aMesh.x - uCrown.x);
+    float tuckFwd = aMesh.z - uCrown.z;
+    float tuck = smoothstep(0.045, 0.07, tuckBelow) * (1.0 - smoothstep(0.10, 0.125, tuckBelow));
+    tuck *= 1.0 - smoothstep(0.09, 0.11, tuckSide);
+    tuck *= smoothstep(0.045, 0.08, tuckFwd) * (1.0 - smoothstep(0.11, 0.135, tuckFwd));
+    transformed.y -= 0.003 * tuck;
+    transformed.z -= 0.003 * tuck;
+  }
 `;
 
 const STRAND_FRAG = `
@@ -920,7 +973,16 @@ const STRAND_FRAG = `
   // uCap is metres below the hair crown. Opaque hair still flanks the midline
   // here. Lower than the cap, a fill becomes a bar on the forehead.
   float inMass = step(-0.004, below) * (1.0 - smoothstep(uCap - 0.01, uCap, below));
-  float hole = (1.0 - smoothstep(0.2, 0.45, hairA)) * fillMid * inMass * step(0.5, vKeep);
+  // Partial alpha along the hairline. Alpha 0 stays a hole so the forehead
+  // between cards is not painted into a helmet. The crown is behind the scalp,
+  // so this ring sits 4–13 cm forward of it.
+  float lineSide = abs(vMesh.x - uCrown.x);
+  float fringe = smoothstep(0.02, 0.045, below) * (1.0 - smoothstep(0.095, 0.12, below));
+  fringe *= 1.0 - smoothstep(0.085, 0.108, lineSide);
+  fringe *= smoothstep(0.04, 0.075, forward) * (1.0 - smoothstep(0.115, 0.14, forward));
+  float partial = smoothstep(0.05, 0.22, hairA) * (1.0 - smoothstep(0.62, 0.92, hairA));
+  float edgeFill = fringe * partial * step(0.5, vKeep);
+  float hole = max((1.0 - smoothstep(0.2, 0.45, hairA)) * fillMid * inMass * step(0.5, vKeep), edgeFill);
   if (uFill > 0.5 && hole > 0.4) {
     diffuseColor.rgb = uHair * uFillLift;
     diffuseColor.a = 1.0;
@@ -1014,7 +1076,8 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
   material.polygonOffset = true;
   material.polygonOffsetFactor = offset;
   material.polygonOffsetUnits = offset;
-  // Soft coverage rounds the alpha-test stair. Lashes and brows stay a hard cut.
+  // Soft coverage rounds the alpha-test stair. Brows stay a hard cut.
+  // Style A lashes opt in, so the row does not read as stitches.
   if (softEdge) material.alphaToCoverage = true;
   const uniforms = {
     uHair: { value: new THREE.Color(hairHex) },
@@ -1032,7 +1095,7 @@ function strandMaterial(style, texture, hairHex, threshold, bald, crown, offset,
     material,
     `strand-${style}-${kind}`,
     uniforms,
-    "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;",
+    "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;\nuniform float uFill;",
     HAIR_VERTEX,
     "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uFillLift;\nuniform vec3 uCrown;",
     STRAND_FRAG,
@@ -1110,13 +1173,24 @@ function headMatrix(mesh, head) {
   return new THREE.Matrix4().multiplyMatrices(mesh.skeleton.boneInverses[index], mesh.bindMatrix);
 }
 
-function humanPositions(weights) {
+function humanPositions(weights, editor) {
   const human = state.pack.human;
   const pos = new Float32Array(human.basis);
   for (const morph of human.morphs) {
     const weight = weights[morph.name] || 0;
     if (weight === 0) continue;
     const delta = morph.data;
+    // measure-waist-circ-incr is about 1 cm of width and 3 cm of belly.
+    // The editor multiplies X only, and only for the cloth fit. The glTF
+    // influence stays at the half weight, so the covered belly does not grow.
+    if (editor && morph.name === "waist_width") {
+      for (let i = 0; i < delta.length; i += 3) {
+        pos[i] += weight * 4 * delta[i];
+        pos[i + 1] += weight * delta[i + 1];
+        pos[i + 2] += weight * delta[i + 2];
+      }
+      continue;
+    }
     for (let i = 0; i < delta.length; i += 1) pos[i] += weight * delta[i];
   }
   return pos;
@@ -1368,12 +1442,138 @@ function ySpan(positions) {
   return { minY, span: Math.max(maxY - minY, 0.05) };
 }
 
-function addClothes(mesh, humanPos, outfit, style) {
+function sortedAt(values, p) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))));
+  return sorted[index];
+}
+
+// The hip sculpt stops on the hip line. A skirt hem is bound to the thigh,
+// and the body under the cloth is deleted, so an unmoved hem hides the width.
+// The gain is the body's own outer-hip delta, not the cloth band: the cloth
+// band's high percentile over-widened the plus side and missed the minus side.
+// A skirt keeps that gain to the hem. Trousers fade it out over 16 cm.
+// Seat and bust panels move only when those sliders are off zero, so a lineup
+// shirt is not restyled. The normal gap after this keeps the shell outside.
+function conformCloth(fitted, rest, key, humanPos, weights) {
+  const basis = state.pack.human.basis;
+  const count = (fitted.length / 3) | 0;
+  const skirt = key === "cloth_skirt";
+  const used = weights || {};
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let i = 1; i < rest.length; i += 3) {
+    if (rest[i] < minY) minY = rest[i];
+    if (rest[i] > maxY) maxY = rest[i];
+  }
+  const mid = (minY + maxY) * 0.5;
+  if (Math.abs(used.pelvis_width || 0) > 0.02) {
+    const hip = state.pack.human.morphs.find((morph) => morph.name === "pelvis_width");
+    const delta = hip ? hip.data : null;
+    const right = [];
+    const left = [];
+    let ySum = 0;
+    let n = 0;
+    if (delta) {
+      for (let i = 0; i < basis.length; i += 3) {
+        const x = basis[i];
+        const z = basis[i + 2];
+        if (Math.abs(delta[i]) < 0.015 || Math.abs(x) < 0.13 || Math.abs(z) > 0.12) continue;
+        const moved = humanPos[i] - x;
+        if (x >= 0) right.push(moved);
+        else left.push(moved);
+        ySum += basis[i + 1];
+        n += 1;
+      }
+    }
+    if (n > 20 && right.length && left.length) {
+      const hipY = ySum / n;
+      const gainR = sortedAt(right, 0.85);
+      const gainL = sortedAt(left, 0.15);
+      for (let i = 0; i < count; i += 1) {
+        const x = rest[i * 3];
+        const y = rest[i * 3 + 1];
+        if (y > hipY - 0.012) continue;
+        const ax = Math.abs(x);
+        if (ax < 0.03 || ax > 0.34) continue;
+        const drop = hipY - y;
+        const follow = skirt ? 1 : clamp(1 - Math.max(0, drop - 0.015) / 0.16, 0, 1);
+        if (follow <= 0) continue;
+        const have = fitted[i * 3] - x;
+        const want = x >= 0 ? gainR : gainL;
+        fitted[i * 3] += (want - have) * follow;
+      }
+    }
+  }
+
+  const bodyDeltas = (pick) => {
+    const values = [];
+    for (let i = 0; i < basis.length; i += 3) {
+      if (!pick(basis[i], basis[i + 1], basis[i + 2])) continue;
+      values.push(humanPos[i + 2] - basis[i + 2]);
+    }
+    values.sort((a, b) => a - b);
+    return values;
+  };
+  if (Math.abs(used.buttock_volume || 0) > 0.02) {
+    const fuller = used.buttock_volume >= 0;
+    const seatBody = bodyDeltas((x, y, z) => (
+      Math.abs(x) < 0.18 && z < 0.02 && y < mid + 0.05 && y > minY + 0.02
+    ));
+    if (seatBody.length > 12) {
+      const target = sortedAt(seatBody, fuller ? 0.12 : 0.88);
+      const gate = Math.max(0.004, Math.abs(target) * 0.25);
+      if (Math.abs(target) > 0.003) {
+        for (let i = 0; i < count; i += 1) {
+          const x = rest[i * 3];
+          const y = rest[i * 3 + 1];
+          const z = rest[i * 3 + 2];
+          if (Math.abs(x) > 0.2 || z > 0.04 || y > mid + 0.06 || y < minY) continue;
+          const dz = fitted[i * 3 + 2] - z;
+          const lag = fuller ? dz - target : target - dz;
+          if (lag < gate) continue;
+          fitted[i * 3 + 2] += (target - dz) * 0.9;
+        }
+      }
+    }
+  }
+  const pullChest = (side) => {
+    const chestBody = bodyDeltas((x, y, z) => {
+      if (y < mid - 0.02 || z < 0.025) return false;
+      return side < 0 ? x < -0.03 && x > -0.14 : x > 0.03 && x < 0.14;
+    });
+    if (chestBody.length < 12) return;
+    const target = sortedAt(chestBody, 0.84);
+    if (target < 0.003) return;
+    const gate = Math.max(0.005, target * 0.35);
+    for (let i = 0; i < count; i += 1) {
+      const x = rest[i * 3];
+      const y = rest[i * 3 + 1];
+      const z = rest[i * 3 + 2];
+      if (y < mid - 0.04 || z < 0.015) continue;
+      if (side < 0) {
+        if (x > -0.02 || x < -0.16) continue;
+      } else if (x < 0.02 || x > 0.16) continue;
+      const dz = fitted[i * 3 + 2] - z;
+      if (target - dz < gate) continue;
+      fitted[i * 3 + 2] += (target - dz) * 0.8;
+    }
+  };
+  if (Math.abs(used.breast_volume || 0) > 0.02 || Math.abs(used.breast_height || 0) > 0.02) {
+    pullChest(-1);
+    pullChest(1);
+  }
+}
+
+function addClothes(mesh, humanPos, outfit, style, weights) {
   const worn = [];
+  const basis = state.pack.human.basis;
   for (const key of [outfit.suit, outfit.shoes]) {
     const proxy = state.pack.proxies[key];
     if (!proxy || !proxy.skinIndex) continue;
     const fitted = fitProxy(proxy, humanPos);
+    if (proxy.kind !== "shoes") conformCloth(fitted, fitProxy(proxy, basis), key, humanPos, weights);
     const span = ySpan(fitted);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(fitted, 3));
@@ -1502,12 +1702,18 @@ function addGrooming(mesh, head, humanPos, body, hairHex, irisHex, skinHex, styl
   // The cornea sits behind the lid surface. Face is +Z. Enough to meet the
   // opening, not enough to leave the sphere in front of the lids.
   addFitted(mesh, head, pack.eyes, humanPos, eyeMaterial(style, pack.eyes.texture, irisHex, skinHex), 1, 0.0075);
-  addFitted(
-    mesh, head, pack.lashes, humanPos,
-    strandMaterial(style, pack.lashes.texture, hexOf(mixLinear(linearOf(hairHex), [0, 0, 0], 0.62)), 0.32, 0, marks.crown, -6),
-    4,
-    0.0035,
+  // Style A keeps a thin dark fringe. The hard cut read as a row of stitches,
+  // and the back faces doubled it.
+  // Style A: darker and thinner than the stitch row, still visible as lashes.
+  const lashDark = style === "A" ? 0.85 : 0.62;
+  const lashCut = style === "A" ? 0.5 : 0.32;
+  const lashMat = strandMaterial(
+    style, pack.lashes.texture,
+    hexOf(mixLinear(linearOf(hairHex), [0, 0, 0], lashDark)),
+    lashCut, 0, marks.crown, -6, false, style === "A",
   );
+  if (style === "A") lashMat.side = THREE.FrontSide;
+  addFitted(mesh, head, pack.lashes, humanPos, lashMat, 4, style === "A" ? 0.0022 : 0.0035);
   return { hairName };
 }
 
@@ -1815,8 +2021,9 @@ function buildPerson(template, member, x) {
   const root = cloneSkeleton(template);
   const mesh = findMesh(root);
   const emphasise = state.style === "A" && !member.palette;
-  const extra = state.editMode === 2 ? state.provisional : null;
-  const shaped = morphWeights(member.body, member.sex, emphasise, extra);
+  const editor = state.editMode === 2;
+  const extra = editor ? state.provisional : null;
+  const shaped = morphWeights(member.body, member.sex, emphasise, extra, editor);
   const weights = shaped.weights;
   applyWeights(mesh, weights);
   smoothSkinNormals(mesh);
@@ -1848,11 +2055,14 @@ function buildPerson(template, member, x) {
     color: hair,
     density: bearded ? clamp(member.body.beard_density, 0, 1) : 0,
     coverage: bearded ? clamp(member.body.beard_coverage, 0, 1) : 0,
-  }, marks);
+  }, marks, {
+    density: clamp(member.body.hair_density, 0, 1),
+    bald: bearded ? clamp(member.body.balding_stage, 0, 7) / 7 : 0,
+  });
   mesh.castShadow = true;
   mesh.frustumCulled = false;
   const body = { ...member.body, sex: member.sex };
-  const humanPos = humanPositions(weights);
+  const humanPos = humanPositions(weights, editor);
   const outfit = outfitOf(member);
   const suitProxy = state.pack.proxies[outfit.suit];
   const shoeProxy = state.pack.proxies[outfit.shoes];
@@ -1871,7 +2081,7 @@ function buildPerson(template, member, x) {
     mesh.parent.add(outline);
   }
   const groom = addGrooming(mesh, head, humanPos, body, hair, iris, skin, state.style, marks, personKey(member));
-  const clothes = addClothes(mesh, humanPos, outfit, state.style);
+  const clothes = addClothes(mesh, humanPos, outfit, state.style, weights);
   if (state.close) {
     for (const piece of clothes) piece.visible = false;
   }
@@ -3756,7 +3966,15 @@ function applySimulate() {
       state.hoverRegion = arg;
       state.cursorPinned = true;
     } else if (op === "panel") setCategory(arg, true);
-    else if (DIRECT_REGIONS[op]) {
+    else if (op === "region") {
+      if (DIRECT_REGIONS[arg]) state.directRegion = arg;
+    } else if (op === "axis") {
+      const cut2 = arg.indexOf(":");
+      if (cut2 < 0) continue;
+      const key = arg.slice(0, cut2);
+      const bag = PROVISIONAL_KEYS.includes(key) ? state.provisional : state.editBody;
+      if (bag && Object.prototype.hasOwnProperty.call(bag, key)) bag[key] = quantizeZ(Number(arg.slice(cut2 + 1)));
+    } else if (DIRECT_REGIONS[op]) {
       state.directRegion = op;
       const value = Number(arg);
       const axes = axesFor(op);

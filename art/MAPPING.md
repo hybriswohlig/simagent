@@ -122,19 +122,20 @@ muscle_chest    = bulk * 1.6 - soft * 0.5
 
 ## Direct shape keys
 
-`z / 4` is the weight, and a negative weight is allowed. One standard
-deviation is a quarter of the sculpted target. That scale is a proposal.
-The incr targets are one-sided sculpts, so the negative side is an
-approximation.
+On the lineup every key in this table is `z / 4`. `?edit=2` keeps that
+quarter for the unlisted axes and uses a stronger weight where ±2 has to
+read at full-body distance. ±3 is one and a half times the ±2 weight. A
+negative weight mirrors the incr sculpt. That negative side is an
+approximation, because the targets are one-sided.
 
 | Key | Contract | Targets, under `targets/` | Weight |
 |---|---|---|---|
 | `leg_upper` | `leg_ratio_z` | `legs/measure-upperleg-height-incr` | `z / 4`. Positive is longer. |
 | `leg_lower` | `leg_ratio_z` | `legs/measure-lowerleg-height-incr` | Same weight as `leg_upper`. |
 | `head_size` | `head_size_z` | `head/head-scale-horiz-incr` + `head-scale-vert-incr` + `head-scale-depth-incr` | `z / 4` |
-| `shoulder_width` | `shoulder_width_z` | `torso/measure-shoulder-dist-incr` | `z / 4`. `torso-vshape-incr` is not used. |
+| `shoulder_width` | `shoulder_width_z` | `torso/measure-shoulder-dist-incr` | Lineup `z / 4`. Editor `z`. `torso-vshape-incr` is not used. |
 | `chest_depth` | `chest_depth_z` | `torso/torso-scale-depth-incr` | `z / 4` |
-| `pelvis_width` | `hip_width_z` | `hip/hip-scale-horiz-incr` | `z / 4` |
+| `pelvis_width` | `hip_width_z` | `hip/hip-scale-horiz-incr` | Lineup `z / 4`. Editor `z / 2`. The skirt hem copies this body delta. |
 | `fat_central` | `body_fat_z`, `fat_distribution_z` | `torso/measure-waist-circ-incr` | See fat section. Positive distribution adds waist. |
 | `fat_peripheral` | `body_fat_z`, `fat_distribution_z` | `legs/l-upperleg-fat-incr` + `r-upperleg-fat-incr` | See fat section. Negative distribution adds thigh. |
 | `fat_belly` | `body_fat_z`, `fat_distribution_z` | `stomach/stomach-pregnant-incr` | `heavy * belly * 0.25`. Central fat only. |
@@ -204,18 +205,19 @@ face_age_incr = clamp((face_form_age - body_form_age) / 45, 0, 1)
 
 ## Face axes
 
-Proposal for this sample. Positive weight is `z / 4`. Bilateral files are
-one key.
+Proposal for this sample. Positive weight is `z / 4`, except nose width
+and cheek fullness, which are `z / 2` so ±2 is readable at face zoom.
+Bilateral files are one key.
 
 | Axis | Proposal | Targets, under `targets/` |
 |---|---|---|
-| `face_axis_01` | Nose width | `nose/nose-scale-horiz-incr` |
+| `face_axis_01` | Nose width. Lineup `z / 4`, editor `z`. | `nose/nose-scale-horiz-incr` |
 | `face_axis_02` | Nose projection | `nose/nose-scale-depth-incr` |
 | `face_axis_03` | Nose length | `nose/nose-scale-vert-incr` |
 | `face_axis_04` | Jaw width | `chin/chin-width-incr` |
 | `face_axis_05` | Chin height | `chin/chin-height-incr` |
 | `face_axis_06` | Jaw prominence | `chin/chin-prognathism-incr` |
-| `face_axis_07` | Cheek fullness | `cheek/l-cheek-volume-incr` + `r-cheek-volume-incr` |
+| `face_axis_07` | Cheek fullness. Lineup `z / 4`, editor `z / 2`. | `cheek/l-cheek-volume-incr` + `r-cheek-volume-incr` |
 | `face_axis_08` | Cheekbones | `cheek/l-cheek-bones-incr` + `r-cheek-bones-incr` |
 | `face_axis_09` | Eye size | `eyes/l-eye-scale-incr` + `r-eye-scale-incr` |
 | `face_axis_10` | Eye spacing | `eyes/l-eye-trans-out` + `r-eye-trans-out` |
@@ -232,9 +234,14 @@ provisional key below, not one of these twelve.
 Decision of 2026-11-12 (`docs/entscheidung-koerperachsen-v1.md`): Kimi's
 seven axes, plus the nine from the addendum. The core does not store them
 yet. `?edit=2` keeps them in page state only. Nothing is written into
-`family.json` or the contract. Weight is `z / 4`, same scale as the direct
-keys above. A negative weight mirrors the incr sculpt. Every file is a
-CC0 MakeHuman target from the pinned mpfb2 commit.
+`family.json` or the contract. On the lineup they stay at weight 0. In
+`?edit=2` the default is still `z / 4`. Buttock volume is `z` (about 6 cm
+at ±2). Waist width is `z / 2` on the body; the cloth fit multiplies only
+the X delta by 4, because the file is mostly belly depth. Breast volume is
+`z * 0.75 * breast_development`. Breast height is
+`z * 1.5 * clamp(breast_development / 0.5, 0, 1)`. Nose bridge and nose
+tip are `z * 1.35`. A negative weight mirrors the incr sculpt. Every file
+is a CC0 MakeHuman target from the pinned mpfb2 commit.
 
 These are stand-ins, not a finished genetic mapping. `waist_width` reuses
 the waist-circumference sculpt that `fat_central` already uses, as its own
@@ -257,13 +264,13 @@ or age gate in this sample.
 | `ear_projection` | `ear_projection_z` | `ears/l-ear-flap-incr` + `r-ear-flap-incr` | ears stick out |
 | `eye_roundness` | `eye_roundness_z` | `eyes/l-eye-height2-incr` + `r-eye-height2-incr` | rounder eye opening |
 | `forehead_height` | `forehead_height_z` | `forehead/forehead-scale-vert-incr` | taller forehead |
-| `buttock_volume` | `buttock_volume_z` | `buttocks/buttocks-volume-incr` | fuller buttocks |
+| `buttock_volume` | `buttock_volume_z` | `buttocks/buttocks-volume-incr` | fuller buttocks, editor `z`. The skirt seat follows it. |
 | `buttock_lift` | `buttock_lift_z` | `hip/hip-trans-up` | higher buttocks |
-| `waist_width` | `waist_width_z` | `torso/measure-waist-circ-incr` | wider waist |
-| `breast_volume` | `breast_volume_z` | `breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness` | fuller bust, gated |
-| `breast_height` | `breast_height_z` | `breast/breast-trans-up` | higher bust, gated |
-| `nose_bridge` | `nose_bridge_z` | `nose/nose-hump-incr` | higher nose bridge |
-| `nose_tip` | `nose_tip_z` | `nose/nose-point-up` | tip turned up |
+| `waist_width` | `waist_width_z` | `torso/measure-waist-circ-incr` | wider waist. Editor body `z / 2`; cloth X is ×4. |
+| `breast_volume` | `breast_volume_z` | `breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness` | fuller bust, gated, editor `z * 0.75 * breast` |
+| `breast_height` | `breast_height_z` | `breast/breast-trans-up` | higher bust, gated, editor `z * 1.5 * cup gate` |
+| `nose_bridge` | `nose_bridge_z` | `nose/nose-hump-incr` | higher nose bridge, editor `z * 1.35` |
+| `nose_tip` | `nose_tip_z` | `nose/nose-point-up` | tip turned up, editor `z * 1.35` |
 | `brow_arch` | `brow_arch_z` | `eyebrows/eyebrows-angle-up` | more arched brows |
 | `lip_ratio` | `lip_ratio_z` | `mouth/mouth-upperlip-volume-incr` minus `mouth-lowerlip-volume-incr` | fuller upper lip |
 
