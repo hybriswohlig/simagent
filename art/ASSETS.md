@@ -59,11 +59,38 @@ The body contract has no origin field. The three races are weighted equally (1/3
 
 ## Clothes
 
-The sample paints a sleeveless body suit on the CC0 body. A shader band on the
-skin material colours the torso and hips `#314a6e`, from mid-thigh to a straight
-cut at the base of the neck. The cut is a constant height on the morphed mesh,
-so the neckline stays a clean edge. Head, arms, hands and lower legs stay skin.
-Breast shape is still the mesh under that colour. No clothes file is added.
+The navy shader band is gone. Each person wears a MakeHuman proxy suit and a
+pair of shoes from the same CC0 system-assets zip as the hair. `pack_proxies.py`
+fits them with the `.mhclo` bindings, so the cloth follows the morphed body.
+The page recolours the suit from a muted palette and keeps the ambient-occlusion
+weave. Printed logos are not shown. Shoes keep their diffuse texture.
+
+Every clothes item in that zip was opened. All twenty carry the same header:
+released as CC0 in September 2020 by Data Collection AB, Joel Palmius and
+Jonas Hauquier. Source page:
+https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html
+Zip:
+https://files.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip
+
+| Key | Path in the zip | Worn as |
+|---|---|---|
+| `cloth_shirt` | `clothes/male_casualsuit01/` | Button shirt and trousers. |
+| `cloth_jacket` | `clothes/male_casualsuit05/` | Jacket over a vest, and trousers. |
+| `cloth_tee` | `clothes/male_casualsuit06/` | Packed. Sleeveless, so the wardrobe does not assign it. |
+| `cloth_f_tee` | `clothes/female_casualsuit01/` | Short-sleeve t-shirt and trousers. Children use this for trousers. |
+| `cloth_shorts` | `clothes/female_casualsuit02/` | T-shirt and shorts. One child outfit. |
+| `cloth_skirt` | `clothes/female_elegantsuit01/` | Top and skirt. |
+| `shoes_brown` | `clothes/shoes01/` | Brown shoes. |
+| `shoes_black` | `clothes/shoes04/` | Black shoes. |
+| `shoes_sneaker` | `clothes/shoes06/` | Sneakers. Every child. |
+
+Adults get a t-shirt, a shirt or a jacket, plus trousers or a skirt, plus shoes.
+Children of 13 and under get a t-shirt with trousers or shorts, and sneakers.
+The choice is a hash of the sim id. The same person keeps the same outfit.
+
+Inspected, CC0, and not worn: `fedora01`, `fedora_cocked`, `female_sportsuit01`,
+`male_casualsuit02`, `male_casualsuit03`, `male_casualsuit04`,
+`male_elegantsuit01`, `male_worksuit01`, `shoes02`, `shoes03`, `shoes05`.
 
 ## Skin
 
@@ -138,10 +165,10 @@ downloaded asset.
 ## Not used
 
 - `rigs/standard/rig.mixamo.json` and `weights.mixamo.json` are in the same directory. This sample does not use Mixamo, and it does not use assets from any game.
-- The system-assets zip also contains clothes, skins, teeth and other hair.
-  This sample uses only the eye, brow, lash and five hair proxies in the
-  table above, plus the young caucasian female skin in the skin section.
-  It does not use clothes from that zip.
+- The system-assets zip also contains other skins, teeth and other hair.
+  This sample uses the eye, brow, lash and five hair proxies in the table
+  above, the young caucasian female skin, and the clothes listed in the
+  clothes section.
 - The zip does not contain this base mesh or these morph targets. Those stay
   the MPFB2 files at the top of this note.
 - `macrodetails/height/*` (144 targets) and the breast/proportion grids are left unused. Height is a bone scale. See `MAPPING.md`.

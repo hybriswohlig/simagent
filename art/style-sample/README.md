@@ -51,8 +51,10 @@ unlit colour. Skin uses the CC0 young-caucasian-female diffuse, divided by
 its average and multiplied by the contract skin colour. The darkest painted
 eyes and brows in that texture are lifted. Hair and iris colours are the contract
 `melanin_to_srgb` tables, interpolated in linear light and stored on the
-material as sRGB. A shader band colours the torso and hips navy, with a
-straight cut at the base of the neck. Eyes, brows, lashes and hair are
+material as sRGB. Clothes are MakeHuman proxy suits and shoes, fitted to
+the morphed body and recoloured from a muted palette. The outfit is a hash
+of the sim id. Children wear a t-shirt, trousers or shorts, and sneakers.
+Eyes, brows, lashes and hair are
 MakeHuman proxies fitted to the morphed body (see `../ASSETS.md`). Hair
 length is not a gene and not an age. Each person gets one of five CC0
 cuts from a hash of the sim id. A balding man is put on the short cut.

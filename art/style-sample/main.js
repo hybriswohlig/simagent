@@ -66,7 +66,6 @@ const state = {
   clock: 0,
 };
 const FACE_COUNT = 5;
-const CLOTH = "#314a6e";
 
 const canvas = document.querySelector("#stage");
 const labels = document.querySelector("#labels");
@@ -566,16 +565,9 @@ const SKIN_DETAIL = `
   #endif
 `;
 
-const CLOTH_BAND = `
+const NECK_CUT = `
   if (uCut > 0.0 && vBind.y < uCut) discard;
-  float ny = (vBind.y - uFloor) / uSpan;
-  float ax = abs(vBind.x);
-  float vertical = smoothstep(0.328, 0.336, ny) * (1.0 - smoothstep(0.812, 0.822, ny));
-  // Past the shoulder joint (x ≈ 0.17). The A-pose arm is farther out, so the
-  // neckline stays a straight cut across the collarbone.
-  float arm = smoothstep(0.26, 0.34, ax);
-  diffuseColor.rgb = mix(diffuseColor.rgb, uCloth, vertical * (1.0 - arm));
-  skinMask = 1.0 - vertical * (1.0 - arm);
+  skinMask = 1.0;
 `;
 
 // Cheeks sit beside the nose, between nose and mouth. Lips sit just above the chin.
@@ -605,7 +597,6 @@ const SKIN_WRAP = `
 function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
   const warm = style === "A";
   const uniforms = {
-    uCloth: { value: new THREE.Color(CLOTH) },
     uSkin: { value: new THREE.Color(skinHex) },
     uSkinMean: { value: SKIN_MEAN },
     uBeardCol: { value: new THREE.Color(beard.color) },
@@ -619,9 +610,8 @@ function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
     uChin: { value: new THREE.Vector3(marks.chin[0], marks.chin[1], marks.chin[2]) },
     uKeyDir: { value: keyDirView },
   };
-  material.customProgramCacheKey = () => (warm ? "bodysuit-skin-beard-a" : "bodysuit-skin-beard");
+  material.customProgramCacheKey = () => (warm ? "skin-beard-a" : "skin-beard");
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uCloth = uniforms.uCloth;
     shader.uniforms.uSkin = uniforms.uSkin;
     shader.uniforms.uSkinMean = uniforms.uSkinMean;
     shader.uniforms.uBeardCol = uniforms.uBeardCol;
@@ -640,9 +630,9 @@ function paintCloth(material, floor, span, cutY, skinHex, beard, style, marks) {
       "#include <morphtarget_vertex>\n\tvBind = transformed;",
     )}`;
     const decl = warm
-      ? "varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nuniform vec3 uNose;\nuniform vec3 uChin;\nuniform vec3 uKeyDir;\nfloat skinMask;\n"
-      : "varying vec3 vBind;\nuniform vec3 uCloth;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nfloat skinMask;\n";
-    const color = warm ? `${SKIN_DETAIL}\n${BLUSH}\n${CLOTH_BAND}` : `${SKIN_DETAIL}\n${CLOTH_BAND}`;
+      ? "varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nuniform vec3 uNose;\nuniform vec3 uChin;\nuniform vec3 uKeyDir;\nfloat skinMask;\n"
+      : "varying vec3 vBind;\nuniform vec3 uSkin;\nuniform vec3 uSkinMean;\nuniform vec3 uBeardCol;\nuniform float uBeardDensity;\nuniform float uBeardCoverage;\nuniform sampler2D uBeardMap;\nuniform float uFloor;\nuniform float uSpan;\nuniform float uCut;\nfloat skinMask;\n";
+    const color = warm ? `${SKIN_DETAIL}\n${BLUSH}\n${NECK_CUT}` : `${SKIN_DETAIL}\n${NECK_CUT}`;
     shader.fragmentShader = `${decl}${shader.fragmentShader.replace(
       "#include <color_fragment>",
       `#include <color_fragment>\n${color}`,
@@ -1019,6 +1009,243 @@ function addFitted(mesh, head, proxy, humanPos, material, order, nudgeZ, reshape
   return object;
 }
 
+const DYES = [
+  ["#6d7c8a", "#2c333c"],
+  ["#8d735c", "#3a342c"],
+  ["#5e7268", "#2e3832"],
+  ["#8a8070", "#24312e"],
+  ["#7a624e", "#343c4c"],
+  ["#6a6258", "#4a433c"],
+];
+const CHILD_DYES = [
+  ["#5f746c", "#3a4450"],
+  ["#6e7f8c", "#35423e"],
+  ["#8a6e58", "#4a3e36"],
+  ["#5c6574", "#3a4250"],
+];
+// Fraction of the fitted suit where the jeans or skirt take over.
+// A lower cut painted the crotch in the shirt colour.
+const WAIST = {
+  cloth_shirt: 0.56,
+  cloth_jacket: 0.55,
+  cloth_tee: 0.58,
+  cloth_f_tee: 0.58,
+  cloth_shorts: 0.48,
+  cloth_skirt: 0.42,
+};
+
+function outfitOf(member) {
+  const h = hashSim(personKey(member));
+  const years = Number(member.age_years);
+  const child = Number.isFinite(years) && years <= 13;
+  const female = member.sex === "female";
+  let suit;
+  let shoes;
+  if (child) {
+    const trousers = (h % 2) === 1;
+    // The male casual suit is a tank. Children wear the sleeved t-shirt.
+    suit = trousers ? "cloth_f_tee" : "cloth_shorts";
+    shoes = "shoes_sneaker";
+  } else if (female) {
+    const slot = h % 3;
+    suit = ["cloth_f_tee", "cloth_skirt", "cloth_shirt"][slot];
+    shoes = ["shoes_sneaker", "shoes_black", "shoes_brown"][slot];
+  } else {
+    const slot = h % 3;
+    suit = ["cloth_f_tee", "cloth_shirt", "cloth_jacket"][slot];
+    shoes = ["shoes_sneaker", "shoes_brown", "shoes_black"][slot];
+  }
+  const dyes = (child ? CHILD_DYES : DYES)[(h >>> 4) % (child ? CHILD_DYES.length : DYES.length)];
+  return { suit, shoes, top: dyes[0], bottom: dyes[1], child };
+}
+
+function restKey(x, y, z) {
+  return `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
+}
+
+function buildRestIndex(bodyRest, geometry) {
+  // 0.1 mm cells. A glb corner and its base vertex can sit on opposite
+  // sides of a cell wall, so a miss also checks the neighbouring cells.
+  const map = new Map();
+  for (let i = 0; i < bodyRest.length; i += 3) {
+    const key = restKey(bodyRest[i], bodyRest[i + 1], bodyRest[i + 2]);
+    const list = map.get(key);
+    if (list) list.push(i / 3);
+    else map.set(key, [i / 3]);
+  }
+  const pos = geometry.attributes.position.array;
+  const hm = new Int32Array(pos.length / 3);
+  let missed = 0;
+  const nearest = (x, y, z) => {
+    const qx = Math.round(x * 1e4);
+    const qy = Math.round(y * 1e4);
+    const qz = Math.round(z * 1e4);
+    let best = -1;
+    let bestD = 4e-8;
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dz = -1; dz <= 1; dz += 1) {
+          const list = map.get(`${qx + dx},${qy + dy},${qz + dz}`);
+          if (!list) continue;
+          for (let n = 0; n < list.length; n += 1) {
+            const id = list[n];
+            const o = id * 3;
+            const ex = bodyRest[o] - x;
+            const ey = bodyRest[o + 1] - y;
+            const ez = bodyRest[o + 2] - z;
+            const dist = ex * ex + ey * ey + ez * ez;
+            if (dist < bestD) {
+              bestD = dist;
+              best = id;
+            }
+          }
+        }
+      }
+    }
+    return best;
+  };
+  for (let i = 0; i < hm.length; i += 1) {
+    const x = pos[i * 3];
+    const y = pos[i * 3 + 1];
+    const z = pos[i * 3 + 2];
+    const id = nearest(x, y, z);
+    if (id < 0) {
+      hm[i] = -1;
+      missed += 1;
+    } else {
+      hm[i] = id;
+    }
+  }
+  return { hm, missed, corners: hm.length };
+}
+
+function hiddenFaces(geometry, hm, deleted) {
+  const src = geometry.index.array;
+  const kept = [];
+  let dropped = 0;
+  for (let t = 0; t < src.length; t += 3) {
+    const a = hm[src[t]];
+    const b = hm[src[t + 1]];
+    const c = hm[src[t + 2]];
+    if (a >= 0 && b >= 0 && c >= 0 && deleted.has(a) && deleted.has(b) && deleted.has(c)) {
+      dropped += 1;
+      continue;
+    }
+    kept.push(src[t], src[t + 1], src[t + 2]);
+  }
+  return { index: new Uint32Array(kept), dropped, total: src.length / 3 };
+}
+
+function deleteSet(pieces) {
+  const set = new Set();
+  for (const proxy of pieces) {
+    if (!proxy || !proxy.delete) continue;
+    for (let i = 0; i < proxy.delete.length; i += 1) set.add(proxy.delete[i]);
+  }
+  return set;
+}
+
+const CLOTH_COLOR = `
+  float ao = texture(uAo, vMapUv).r;
+  float seam = smoothstep(uSplit - 0.03, uSplit + 0.03, vNy);
+  vec3 dye = mix(uBottom, uTop, seam);
+  diffuseColor.rgb = dye * mix(0.55, 0.92, ao);
+  diffuseColor.a = 1.0;
+`;
+
+function clothMaterial(style, proxy, topHex, bottomHex, floor, span) {
+  if (proxy.kind === "shoes") {
+    const material = litMaterial(style, 0.64);
+    material.map = proxy.texture;
+    material.color.setRGB(0.78, 0.76, 0.72);
+    // Cuffs and collars are open shells. One winding faces inward.
+    material.side = THREE.DoubleSide;
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -2;
+    material.polygonOffsetUnits = -2;
+    return material;
+  }
+  const material = litMaterial(style, 0.88);
+  material.side = THREE.FrontSide;
+  material.map = proxy.ao || proxy.texture;
+  material.color.setHex(0xffffff);
+  material.polygonOffset = true;
+  material.polygonOffsetFactor = -1;
+  material.polygonOffsetUnits = -1;
+  const uniforms = {
+    uTop: { value: new THREE.Color(topHex) },
+    uBottom: { value: new THREE.Color(bottomHex) },
+    uSplit: { value: proxy.split },
+    uFloor: { value: floor },
+    uSpan: { value: Math.max(span, 0.05) },
+    uAo: { value: proxy.ao || proxy.texture },
+  };
+  return bindShader(
+    material,
+    `cloth-${style}`,
+    uniforms,
+    "varying float vNy;\nuniform float uFloor;\nuniform float uSpan;",
+    "vNy = (position.y - uFloor) / max(uSpan, 1e-4);",
+    "varying float vNy;\nuniform vec3 uTop;\nuniform vec3 uBottom;\nuniform float uSplit;\nuniform sampler2D uAo;",
+    CLOTH_COLOR,
+  );
+}
+
+function ySpan(positions) {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let i = 1; i < positions.length; i += 3) {
+    minY = Math.min(minY, positions[i]);
+    maxY = Math.max(maxY, positions[i]);
+  }
+  return { minY, span: Math.max(maxY - minY, 0.05) };
+}
+
+function addClothes(mesh, humanPos, outfit, style) {
+  const worn = [];
+  for (const key of [outfit.suit, outfit.shoes]) {
+    const proxy = state.pack.proxies[key];
+    if (!proxy || !proxy.skinIndex) continue;
+    const fitted = fitProxy(proxy, humanPos);
+    const span = ySpan(fitted);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(fitted, 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(proxy.uv), 2));
+    geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(proxy.skinIndex, 4));
+    geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(proxy.skinWeight, 4));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(proxy.faces), 1));
+    geometry.computeVertexNormals();
+    // The garment is fitted to the same morphs as the body, but a pec or a
+    // hip still breaks through where the authored offset is only a few
+    // millimetres. A small step along the normal keeps the cloth outside.
+    const gap = proxy.kind === "shoes" ? 0.003 : 0.006;
+    const normals = geometry.attributes.normal.array;
+    for (let i = 0; i < fitted.length; i += 3) {
+      fitted[i] += normals[i] * gap;
+      fitted[i + 1] += normals[i + 1] * gap;
+      fitted[i + 2] += normals[i + 2] * gap;
+    }
+    geometry.attributes.position.needsUpdate = true;
+    const object = new THREE.SkinnedMesh(
+      geometry,
+      clothMaterial(style, proxy, outfit.top, outfit.bottom, span.minY, span.span),
+    );
+    // Bone matrices are in world space. Attached mode, the same mode as the
+    // body, rebuilds bindMatrixInverse from this mesh's world matrix. A
+    // detached inverse stayed at identity and the placement was applied twice.
+    object.bindMode = "attached";
+    object.bind(mesh.skeleton, mesh.bindMatrix);
+    object.frustumCulled = false;
+    object.renderOrder = proxy.kind === "shoes" ? 2 : 1;
+    object.position.copy(mesh.position);
+    object.quaternion.copy(mesh.quaternion);
+    object.scale.copy(mesh.scale);
+    mesh.parent.add(object);
+    worn.push(object);
+  }
+  return worn;
+}
+
 // eyebrow001's inner ends sit between the eyes, on the nose, and the hair
 // strokes there read as a dark grid. The arcs over the eyes stay.
 function browFaces(proxy, humanPos) {
@@ -1370,6 +1597,16 @@ function buildPerson(template, member, x) {
     coverage: bearded ? clamp(member.body.beard_coverage, 0, 1) : 0,
   }, marks);
   mesh.frustumCulled = false;
+  const body = { ...member.body, sex: member.sex };
+  const humanPos = humanPositions(weights);
+  const outfit = outfitOf(member);
+  const suitProxy = state.pack.proxies[outfit.suit];
+  const shoeProxy = state.pack.proxies[outfit.shoes];
+  let covered = null;
+  if (state.bodyHm && suitProxy) {
+    covered = hiddenFaces(mesh.geometry, state.bodyHm.hm, deleteSet([suitProxy, shoeProxy]));
+    mesh.geometry.setIndex(new THREE.BufferAttribute(covered.index, 1));
+  }
   let outline = null;
   if (state.style === "B") {
     outline = new THREE.SkinnedMesh(mesh.geometry, outlineMaterial(cutY));
@@ -1379,9 +1616,11 @@ function buildPerson(template, member, x) {
     outline.frustumCulled = false;
     mesh.parent.add(outline);
   }
-  const body = { ...member.body, sex: member.sex };
-  const humanPos = humanPositions(weights);
   const groom = addGrooming(mesh, head, humanPos, body, hair, iris, skin, state.style, marks, personKey(member));
+  const clothes = addClothes(mesh, humanPos, outfit, state.style);
+  if (state.close) {
+    for (const piece of clothes) piece.visible = false;
+  }
   scene.add(wrapper);
   wrapper.updateWorldMatrix(true, true);
   hangArms(root, shaped.slices.child);
@@ -1401,6 +1640,7 @@ function buildPerson(template, member, x) {
     wrapper, mesh, head, outline, spines, rest, scale, tag, marks,
     anchor: new THREE.Vector3(), member, shaped, skin, hair, geneticHair, iris,
     hairName: groom.hairName, beardTris: 0, arms: root.userData.arms,
+    outfit, covered: covered ? covered.dropped : 0,
   };
 }
 
@@ -1434,6 +1674,9 @@ function weightRow(person) {
     hair_grey_fraction: person.member.body.hair_grey_fraction,
     iris_melanin: person.member.body.iris_melanin,
     hair_proxy: person.hairName,
+    suit: person.outfit.suit,
+    shoes: person.outfit.shoes,
+    covered: person.covered,
     beard_tris: person.beardTris,
     balding_stage: person.member.body.balding_stage,
     beard_density: person.member.body.beard_density,
@@ -1523,18 +1766,16 @@ function frame() {
     const xs = people.map((person) => person.wrapper.position.x);
     const heights = people.map((person) => person.member.body.height_cm / 100);
     const maxH = Math.max(...heights);
-    const minX = Math.min(...xs) - 0.2;
-    const maxX = Math.max(...xs) + 0.2;
+    const minX = Math.min(...xs) - 0.35;
+    const maxX = Math.max(...xs) + 0.35;
     const midX = (minX + maxX) / 2;
-    const width = Math.max(maxX - minX, 0.5);
-    const top = maxH * 0.94;
-    const bot = maxH * 0.40;
-    const midY = (top + bot) / 2;
-    const distH = ((top - bot) / 0.88) / (2 * Math.tan(v / 2));
+    const width = Math.max(maxX - minX, 0.7);
+    const lookY = maxH * 0.46;
+    const distH = (maxH / 0.82) / (2 * Math.tan(v / 2));
     const distW = width / (2 * Math.tan(h / 2));
     const distance = Math.max(distH, distW);
-    camera.position.set(midX, midY, distance);
-    camera.lookAt(midX, midY, 0);
+    camera.position.set(midX, lookY + maxH * 0.02, distance);
+    camera.lookAt(midX, lookY, 0);
   } else {
     const xs = people.map((person) => person.wrapper.position.x);
     const heights = people.map((person) => person.member.body.height_cm / 100);
@@ -1701,26 +1942,53 @@ async function loadPack() {
   };
   const loader = new THREE.TextureLoader();
   const textures = {};
-  const proxies = {};
-  for (const [key, proxy] of Object.entries(meta.proxies)) {
-    if (!textures[proxy.texture]) {
-      const texture = await loader.loadAsync(`/cache/proxies/${proxy.texture}`);
+  const aoTextures = {};
+  const colorTexture = async (file) => {
+    if (!textures[file]) {
+      const texture = await loader.loadAsync(`/cache/proxies/${file}`);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.flipY = true;
       texture.wrapS = THREE.ClampToEdgeWrapping;
       texture.wrapT = THREE.ClampToEdgeWrapping;
-      textures[proxy.texture] = texture;
+      textures[file] = texture;
     }
-    proxies[key] = {
+    return textures[file];
+  };
+  const aoTexture = async (file) => {
+    if (!file) return null;
+    if (!aoTextures[file]) {
+      const texture = await loader.loadAsync(`/cache/proxies/${file}`);
+      // Weave, not colour. OBJ uvs, same flip as the diffuse.
+      texture.colorSpace = THREE.NoColorSpace;
+      texture.flipY = true;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      aoTextures[file] = texture;
+    }
+    return aoTextures[file];
+  };
+  const proxies = {};
+  for (const [key, proxy] of Object.entries(meta.proxies)) {
+    const entry = {
+      kind: proxy.kind || "groom",
       scale: proxy.scale,
       count: proxy.count,
-      texture: textures[proxy.texture],
+      texture: await colorTexture(proxy.texture),
       bind: bufferView(buffer, proxy.bind, Float32Array),
       uv: bufferView(buffer, proxy.uv, Float32Array),
       faces: bufferView(buffer, proxy.faces, Uint32Array),
     };
+    if (proxy.skin_index) {
+      entry.split = WAIST[key] ?? (proxy.split || 0);
+      entry.ao = await aoTexture(proxy.ao);
+      entry.skinIndex = bufferView(buffer, proxy.skin_index, Uint16Array);
+      entry.skinWeight = bufferView(buffer, proxy.skin_weight, Float32Array);
+      entry.delete = bufferView(buffer, proxy.delete, Uint32Array);
+    }
+    proxies[key] = entry;
   }
-  return { human, proxies };
+  const bodyRest = meta.body_rest ? bufferView(buffer, meta.body_rest, Float32Array) : null;
+  return { human, proxies, bodyRest };
 }
 
 async function loadSkin() {
@@ -2128,7 +2396,12 @@ async function boot() {
   state.skin = skin;
   state.beard = beard;
   state.template = gltf.scene;
-  state.normalGroups = buildNormalGroups(findMesh(gltf.scene).geometry);
+  const templateMesh = findMesh(gltf.scene);
+  state.normalGroups = buildNormalGroups(templateMesh.geometry);
+  if (pack.bodyRest) {
+    state.bodyHm = buildRestIndex(pack.bodyRest, templateMesh.geometry);
+    console.log(`body rest match missed ${state.bodyHm.missed} of ${state.bodyHm.corners}`);
+  }
   const line = family.line || {};
   caption.textContent = `Seed ${family.seed}. Sims ${line.grandfather}, ${line.grandmother}, ${line.father}, ${line.mother}, girl ${line.girl_17}, boy ${line.boy_13}.`;
   setupEditor();
