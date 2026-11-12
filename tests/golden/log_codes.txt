@@ -49,6 +49,7 @@ payload 41 core:believed
 payload 42 core:unbelieved
 payload 43 core:told
 payload 44 core:refuted
+payload 45 core:felt
 cause 0 event
 cause 1 plan
 cause 2 input

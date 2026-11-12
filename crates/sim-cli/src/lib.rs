@@ -1239,7 +1239,7 @@ fn scored_offers(
     choice: &ChoiceAt<'_>,
     bonus: impl Fn(u16) -> i64,
 ) -> Result<Vec<sim_core::house::choice::Scored>, CliError> {
-    use sim_core::house::choice::{age, mood, score};
+    use sim_core::house::choice::{Bonus, age, mood, score};
     use sim_core::house::day::night;
     let broken = |what: &str| CliError::new("save_rejected", format!("the choice: {what}"));
     let state = world.state();
@@ -1260,7 +1260,10 @@ fn scored_offers(
     };
     let depart_in = choice.leaves.map(|leaves| (leaves - choice.at).as_secs());
     let values = (age, choice.needs, choice.room);
-    let mut scored = score(house, houses, values, (left, depart_in), moods, bonus);
+    // The company in `core:company` is the temper's scaled value already (ADR-0032 section 5), so
+    // the net the entry gives goes in at temper 0, which scales nothing.
+    let net = |object| Bonus::company(bonus(object));
+    let mut scored = score(house, houses, values, (left, depart_in), moods, 0, net);
     scored.sort_by_key(|scored| {
         (
             core::cmp::Reverse(scored.points),

@@ -135,6 +135,7 @@ pub(crate) fn apply_move_in(
         super::day::plan_series(domain, data, sim, entry, ctx);
         super::memory::resume(domain, sim, entry, ctx);
         super::bond::resume(domain, sim, ctx.now());
+        super::feeling::resume(domain, sim, ctx.now());
     }
     super::bond::on_move_in(domain, data, &members, entry, ctx);
     super::belief::judge_move_in(domain, data, &members, ctx.now());
@@ -360,8 +361,9 @@ fn cancel(
 }
 
 /// A person leaves the house part: its pending house events, its needs, its waiting
-/// positions and its holds, its memories keep to the strongest (`memory::leave`) and its
-/// beliefs and deeds freeze (`belief::leave`). Returns
+/// positions and its holds, its memories keep to the strongest (`memory::leave`), its channels
+/// and temper are written down (`feeling::leave`) and its beliefs and deeds freeze
+/// (`belief::leave`). Returns
 /// what it was doing, with its needs now.
 fn forget(
     domain: &mut DomainState,
@@ -380,6 +382,7 @@ fn forget(
     let now = ctx.now();
     super::memory::leave(domain, data, sim, now);
     super::bond::leave(domain, data, sim, now);
+    super::feeling::leave(domain, data, sim, now);
     super::belief::leave(domain, sim);
     super::talk::drop_last_talk(domain, sim);
     person.and_then(|person| Some((person.action?, person.needs.map(|need| need.value_at(now)))))
@@ -453,6 +456,7 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
             super::day::plan_series(domain, data, change.sim, entry, ctx);
             super::memory::resume(domain, change.sim, entry, ctx);
             super::bond::resume(domain, change.sim, ctx.now());
+            super::feeling::resume(domain, change.sim, ctx.now());
             super::bond::on_join(domain, data, to, change.sim, entry, ctx);
             if morning {
                 let causes = Causes::new(Cause::Event(entry));

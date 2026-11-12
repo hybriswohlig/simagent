@@ -30,8 +30,14 @@ pub(crate) fn others(a: Option<SimId>, b: Option<SimId>) -> [Option<SimId>; 2] {
 }
 
 /// Whether `sim` lives in a moved-in household and is old enough to remember (ADR-0030 section
-/// 3, "Wer"). Judged where the person lives now: a handler's moves settle after it.
-fn remembers(domain: &DomainState, social: &SocialData, sim: SimId, now: SimTime) -> bool {
+/// 3, "Wer"); the feelings (ADR-0032) take the same entitlement. Judged where the person lives
+/// now: a handler's moves settle after it.
+pub(super) fn remembers(
+    domain: &DomainState,
+    social: &SocialData,
+    sim: SimId,
+    now: SimTime,
+) -> bool {
     let Some(person) = domain.sims.get(&sim) else {
         return false;
     };
@@ -292,20 +298,18 @@ pub(super) fn partner_lost(
 }
 
 /// Everyone in a moved-in household who is old enough and a relative of `dead`, by ascending
-/// SimId, remembers its death (`by` its `core:death`; ADR-0030 section 1): a relative is a person
-/// with φ of at least `relative_phi_eighths` eighths to it. The dead have left the town; the
+/// SimId: a relative is a person with φ of at least `relative_phi_eighths` eighths to it (ADR-0030
+/// section 1; ADR-0032 section 3 takes the same entitlement). The dead have left the town; the
 /// others are judged where they live now.
-pub(super) fn relative_died(
+pub(super) fn relatives_of(
     domain: &mut DomainState,
     data: &Data,
     dead: SimId,
-    by: EventId,
-    ctx: &mut SimCtx<'_, '_>,
-) {
+    now: SimTime,
+) -> Vec<SimId> {
     let Some(social) = data.social() else {
-        return;
+        return Vec::new();
     };
-    let now = ctx.now();
     let mut candidates: Vec<SimId> = (domain.house.households.keys())
         .filter_map(|household| domain.members.get(household))
         .flatten()
@@ -313,17 +317,23 @@ pub(super) fn relative_died(
         .filter(|&sim| remembers(domain, social, sim, now))
         .collect();
     candidates.sort_unstable();
-    for sim in candidates {
-        if market::kin_from_eighths(
-            domain,
-            data,
-            dead,
-            sim,
-            u32::from(social.memory.relative_phi_eighths),
-        ) {
-            let kind = (RELATIVE_DIED, others(Some(dead), None));
-            let _ = remember(domain, data, sim, kind, Cause::Event(by), ctx);
-        }
+    let eighths = u32::from(social.memory.relative_phi_eighths);
+    candidates.retain(|&sim| market::kin_from_eighths(domain, data, dead, sim, eighths));
+    candidates
+}
+
+/// Everyone in a moved-in household who is old enough and a relative of `dead`, by ascending
+/// SimId, remembers its death (`by` its `core:death`; ADR-0030 section 1).
+pub(super) fn relative_died(
+    domain: &mut DomainState,
+    data: &Data,
+    dead: SimId,
+    by: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    for sim in relatives_of(domain, data, dead, ctx.now()) {
+        let kind = (RELATIVE_DIED, others(Some(dead), None));
+        let _ = remember(domain, data, sim, kind, Cause::Event(by), ctx);
     }
 }
 

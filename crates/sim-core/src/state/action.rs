@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use super::house::{plan_crossings, planned_in};
 use super::{DomainState, Slot};
 use crate::data::Data;
-use crate::house::choice::{CRITICAL, Choice, choose, filler, in_tier, mood, score, tier};
+use crate::house::choice::{Bonus, CRITICAL, Choice, choose, filler, in_tier, mood, score, tier};
 use crate::house::data::{BedFor, House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::day::{departure, night, work_draw};
 use crate::house::need::{EMERGENCY, EMPTY, FULL};
@@ -22,6 +22,7 @@ use crate::house::state::{
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::log::{Cause, Causes, Company, EndReason, LogPayload, Subject};
 use crate::social::bond::choice_bonus;
+use crate::social::feeling::{read, scaled_company};
 use crate::time::{SimDuration, SimTime, day_index};
 use crate::world::{EventPayload, SimCtx};
 
@@ -333,14 +334,15 @@ pub(crate) fn decide(
     let moods = |object, offer| mood(seed, key, now, (object, offer), percent);
     let leaves = departure(houses.day(), birth, || work_draw(seed, key), now);
     let depart_in = leaves.map(|leaves| (leaves - now).as_secs());
-    let (nets, rows) = company_of(domain, data, household, house, sim, now);
+    let (bonuses, rows, temper) = company_of(domain, data, household, house, sim, now);
     let scored = score(
         house,
         houses,
         (age, needs, room),
         (left, depart_in),
         moods,
-        |object| nets.get(usize::from(object)).copied().unwrap_or(0),
+        temper,
+        |object| (bonuses.get(usize::from(object)).copied()).unwrap_or(Bonus::NONE),
     );
     let choice = choose(
         (house, houses),
@@ -457,10 +459,12 @@ pub(crate) fn decide(
     }
 }
 
-/// Company and avoid for this choice, and the log rows of the furniture where one of them
-/// counts (ADR-0030 section 4). Someone there is another member of the household with an action
-/// on that object, sitting or still on the way. A bare hold is not enough, and a person with no
-/// bond is skipped. Without social data the bonus is 0 and there is no row.
+/// Company and avoid for this choice, the log rows of the furniture where one of them counts
+/// (ADR-0030 section 4) and the chooser's temper at `now`, with which `score` scales the company
+/// and the rows show it scaled (ADR-0032 section 5). Someone there is another member of the
+/// household with an action on that object, sitting or still on the way. A bare hold is not
+/// enough, and a person with no bond is skipped. Without social data the bonus is 0, the temper 0
+/// and there is no row.
 fn company_of(
     domain: &DomainState,
     data: &Data,
@@ -468,19 +472,25 @@ fn company_of(
     house: &House,
     sim: SimId,
     now: SimTime,
-) -> (Vec<i64>, Vec<Company>) {
+) -> (Vec<Bonus>, Vec<Company>, i16) {
     let Some(social) = data.social() else {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), 0);
     };
+    let temper = read(
+        domain.house.social.feelings.get(&sim),
+        now,
+        &social.feelings,
+    )
+    .1;
     let Some(members) = domain.members.get(&household) else {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), temper);
     };
     let rules = &social.choice;
     let familiarity = social.bonds.familiarity_fade;
     let grudge = social.bonds.grudge_fade;
     let bonds = domain.house.social.bonds.get(&sim);
     let objects = &house.def().objects;
-    let mut nets = vec![0; objects.len()];
+    let mut bonuses = vec![Bonus::NONE; objects.len()];
     let mut rows = Vec::new();
     for (object, def) in (0_u16..).zip(objects) {
         if !social.sociable(&def.kind) {
@@ -515,16 +525,19 @@ fn company_of(
         if weighed.liked.is_none() && weighed.avoided.is_none() {
             continue;
         }
-        nets[usize::from(object)] = weighed.company - weighed.avoid;
+        bonuses[usize::from(object)] = Bonus {
+            company: weighed.company,
+            avoid: weighed.avoid,
+        };
         rows.push(Company {
             object,
             liked: weighed.liked,
-            company: weighed.company,
+            company: scaled_company(weighed.company, temper),
             avoided: weighed.avoided,
             avoid: weighed.avoid,
         });
     }
-    (nets, rows)
+    (bonuses, rows, temper)
 }
 
 /// How a walk begins: by a choice, as a time-filler or not, or by a command (ADR-0024 section 5).
@@ -1012,6 +1025,11 @@ pub(crate) fn on_arrive(
             return;
         }
         person.place = Place::Room(to);
+        // The walk to the room one stays in ends: the arrival, caused by the idle that planned
+        // it (ADR-0032 section 4).
+        if let Some(by) = ctx.planned_by() {
+            super::feeling::arrived(domain, data, sim, by, ctx);
+        }
         if night(houses.day(), born, now).is_some() {
             decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
         }
@@ -1031,6 +1049,8 @@ pub(crate) fn on_arrive(
     // The change of rates first: it may give energy its extra (ADR-0026, addendum of 2026-11-06
     // on hunger at 0), which the end reckons with.
     plan_crossings(domain, data, sim, entry, ctx);
+    // The arrival in a room pushes the others there, if the anger is high (ADR-0032 section 4).
+    super::feeling::arrived(domain, data, sim, entry, ctx);
     let end = match action.filler {
         // A time-filler ends at the next choice from here (ADR-0026, addendum of 2026-11-04 on
         // comfort and the time-filler).

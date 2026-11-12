@@ -710,6 +710,7 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:unbelieved": "{0} glaubt es nicht mehr",
   "payload core:told": "{0} erzählt {1} etwas",
   "payload core:refuted": "{0} wird widerlegt",
+  "payload core:felt": "{0} fühlt etwas",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
   "cause event": "Folge eines Ereignisses",
