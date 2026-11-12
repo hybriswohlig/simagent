@@ -1012,7 +1012,7 @@ pub(crate) fn on_arrive(
     let band = band(domain, sim, now);
     let born = born(domain, sim);
     let person = person_mut(domain, sim);
-    let (Place::Walking { to, .. }, action) = (person.place, person.action) else {
+    let (Place::Walking { from, to, .. }, action) = (person.place, person.action) else {
         panic!("invariant house.orphan_event");
     };
     // Out of the door the person is away; its needs stand still since it left (ADR-0024
@@ -1026,9 +1026,9 @@ pub(crate) fn on_arrive(
         }
         person.place = Place::Room(to);
         // The walk to the room one stays in ends: the arrival, caused by the idle that planned
-        // it (ADR-0032 section 4).
+        // it (ADR-0032 section 4). The room before the walk decides whether this is an entering.
         if let Some(by) = ctx.planned_by() {
-            super::feeling::arrived(domain, data, sim, by, ctx);
+            super::feeling::arrived(domain, data, sim, Some(from), by, ctx);
         }
         if night(houses.day(), born, now).is_some() {
             decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
@@ -1049,8 +1049,9 @@ pub(crate) fn on_arrive(
     // The change of rates first: it may give energy its extra (ADR-0026, addendum of 2026-11-06
     // on hunger at 0), which the end reckons with.
     plan_crossings(domain, data, sim, entry, ctx);
-    // The arrival in a room pushes the others there, if the anger is high (ADR-0032 section 4).
-    super::feeling::arrived(domain, data, sim, entry, ctx);
+    // The arrival in a room pushes the others there, if the anger is high and the room is a
+    // new one (ADR-0032 section 4, addendum of 2026-11-12).
+    super::feeling::arrived(domain, data, sim, Some(from), entry, ctx);
     let end = match action.filler {
         // A time-filler ends at the next choice from here (ADR-0026, addendum of 2026-11-04 on
         // comfort and the time-filler).

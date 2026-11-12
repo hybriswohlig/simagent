@@ -554,6 +554,7 @@ const DINING: u16 = 0;
 const FRIDGE: u16 = 1;
 const TOILET: u16 = 2;
 const SHOWER: u16 = 3;
+const SOFA: u16 = 4;
 
 /// A meal of `meal` seconds at a two-place dining table and the other essential kinds, as in
 /// `house_talk.rs`; everything stands in the hall. The repository's social data.
@@ -563,6 +564,7 @@ fn talk_data(
     dwell: u32,
     day_file: &str,
     social: sim_core::social::data::SocialData,
+    sofa_room: &str,
 ) -> Data {
     let kinds = format!(
         r#"[
@@ -591,7 +593,7 @@ fn talk_data(
         {{"kind": "core:fridge", "room": "hall"}},
         {{"kind": "core:toilet", "room": "hall"}},
         {{"kind": "core:shower", "room": "hall"}},
-        {{"kind": "core:sofa", "room": "hall"}},
+        {{"kind": "core:sofa", "room": "{sofa_room}"}},
         {{"kind": "core:bed", "room": "hall"}}]
     }}"#
     );
@@ -638,7 +640,7 @@ fn talked(run: &Run) -> Vec<&LogEntry> {
 fn a_tease_in_the_band_angers_the_teased_one() {
     let born = [-30 * year(), -32 * year()];
     let day = include_str!("../../../data/house/day.json");
-    let data = talk_data(7_200, 2, 60, day, common::repository_social());
+    let data = talk_data(7_200, 2, 60, day, common::repository_social(), "hall");
     let (mut run, _) = Run::family(data, 0x5EED, "test:social", &born, 0);
     let arrival = arrive(&mut run, day::MORNING, &[(1, DINING), (2, DINING)]);
     let first = arrival + TALK_DELAY;
@@ -702,7 +704,7 @@ fn lie_data() -> Data {
         social["bonds"]["start"]["housemate"][1] = json!(600);
         social["bonds"]["start"]["housemate"][5] = json!(800);
     });
-    talk_data(20_000, 3, 43_200, &day, social)
+    talk_data(20_000, 3, 43_200, &day, social, "hall")
 }
 
 fn lie_early() -> Run {
@@ -845,7 +847,8 @@ fn four_data() -> Data {
             "\"from_age\": 7,\n    \"until_age\": 8,",
         );
     assert_ne!(day, repository, "the ages in the day file still bind");
-    talk_data(20_000, 4, 43_200, &day, common::repository_social())
+    // The sofa stands in the den, so an arrival in the hall from it is an entering.
+    talk_data(20_000, 4, 43_200, &day, common::repository_social(), "den")
 }
 
 fn at(run: &Run, who: u64) -> (sim_core::house::state::Place, Option<u16>) {
@@ -873,14 +876,15 @@ fn pushed(run: &Run, who: u64, from: i64) -> Vec<(i64, LogPayload, Vec<u64>)> {
         .collect()
 }
 
-/// Acceptance 4 of ADR-0032: a woman (sim 1) arrives in the hall with an anger of 720; there sit
-/// the man (sim 2, anger 0, A), the girl (sim 3, 650, B) and the boy (sim 4, 800, C), all at the
-/// toilet in the hall, and nobody else in the house. A has 150, B has 699, C stays 800 and has no
-/// entry and no new `since`; she herself is not touched. Each entry is caused by her `core:reached`
-/// and its temper follows by the rule of an occasion (150: -37, 49: -12). Then B comes to the
-/// fridge with 699: below 700 she pushes nobody. Then C comes to the fridge with 800: A, with 150,
-/// gets 150 more (300, temper -37 more), B at 699 stays (the cap, no change, no entry), the woman at
-/// 720 stays.
+/// Acceptance 4 of ADR-0032: a woman (sim 1) enters the hall from the den with an anger of 720;
+/// there sit the man (sim 2, anger 0, A), the girl (sim 3, 650, B) and the boy (sim 4, 800, C),
+/// all at the toilet in the hall, and nobody else in the house. A has 150, B has 699, C stays
+/// 800 and has no entry and no new `since`; she herself is not touched. Each entry is caused by
+/// her `core:reached` and its temper follows by the rule of an occasion (150: -37, 49: -12).
+/// Then B, at 699, leaves to the den and enters the hall again at the fridge: below 700 she
+/// pushes nobody. Then C, at 800, leaves to the den and enters the hall again at the fridge: A,
+/// with 150, gets 150 more (300, temper -37 more), B at 699 stays (the cap, no change, no entry),
+/// the woman at 720 stays. Each of those arrivals is an entering (addendum of 2026-11-12).
 #[test]
 fn an_angry_arrival_gives_everyone_in_the_room_a_capped_push_and_no_one_passes_it_on() {
     let born = [-30 * year(), -32 * year(), -10 * year(), -12 * year()];
@@ -889,9 +893,11 @@ fn an_angry_arrival_gives_everyone_in_the_room_a_capped_push_and_no_one_passes_i
     for who in [2, 3, 4] {
         run.submit(command(who, TOILET));
     }
+    run.submit(command(1, SOFA));
     let origin = day::MORNING + 200;
     run.advance(origin);
     let hall = sim_core::house::state::Place::Room(0);
+    let den = sim_core::house::state::Place::Room(1);
     for who in [2, 3, 4] {
         assert_eq!(
             at(&run, who),
@@ -899,6 +905,7 @@ fn an_angry_arrival_gives_everyone_in_the_room_a_capped_push_and_no_one_passes_i
             "sim {who} sits in the hall"
         );
     }
+    assert_eq!(at(&run, 1), (den, Some(SOFA)), "she waits in the den");
     // The feelings from a save, as a person would have them after a long day: anger, nothing else.
     let anger = |value: u16| Feel {
         channels: [0, value, 0, 0],
@@ -908,12 +915,14 @@ fn an_angry_arrival_gives_everyone_in_the_room_a_capped_push_and_no_one_passes_i
     };
     let feelings = [(1, anger(720)), (3, anger(650)), (4, anger(800))];
     run.world = common::with_feelings(&run.world, &run.out.year_hashes, &four_data(), &feelings);
-    // She comes to the shower in the hall.
+    // She enters the hall at the shower. The door from the den is 1 s.
     run.submit(command(1, SHOWER));
-    run.advance(origin + 60);
+    let mut clock = origin + 60;
+    run.advance(clock);
     let arrival = reached(&run, 1, SHOWER, origin);
     let second = arrival.t.as_secs();
     let id = day::number(&arrival.id);
+    assert_eq!(at(&run, 1), (hall, Some(SHOWER)), "she entered the hall");
     assert_eq!(
         pushed(&run, 2, origin),
         [(second, felt_payload([0, 150, 0, 0], -37), vec![id])]
@@ -942,23 +951,43 @@ fn an_angry_arrival_gives_everyone_in_the_room_a_capped_push_and_no_one_passes_i
             temper_since: t(second)
         })
     );
-    // B arrives with 699: below 700, no push at all.
+    // B leaves the hall, then enters it again with 699: below 700, no push at all.
+    run.submit(command(3, SOFA));
+    clock += 30;
+    run.advance(clock);
+    assert_eq!(at(&run, 3), (den, Some(SOFA)), "B left the hall");
     run.submit(command(3, FRIDGE));
-    run.advance(second + 60);
+    clock += 30;
+    run.advance(clock);
     let b = reached(&run, 3, FRIDGE, second);
     let later = b.t.as_secs();
     assert!(later > second);
+    assert_eq!(
+        at(&run, 3),
+        (hall, Some(FRIDGE)),
+        "B entered the hall again"
+    );
     for who in [1, 2, 3, 4] {
         assert!(
             pushed(&run, who, second + 1).is_empty(),
             "sim {who} after B's arrival"
         );
     }
-    // C arrives with 800: A gets 150 more, B and the woman stay.
+    // C leaves the hall, then enters it again with 800: A gets 150 more, B and the woman stay.
+    run.submit(command(4, SOFA));
+    clock += 30;
+    run.advance(clock);
+    assert_eq!(at(&run, 4), (den, Some(SOFA)), "C left the hall");
     run.submit(command(4, FRIDGE));
-    run.advance(later + 60);
+    clock += 30;
+    run.advance(clock);
     let c = reached(&run, 4, FRIDGE, later);
     let last = c.t.as_secs();
+    assert_eq!(
+        at(&run, 4),
+        (hall, Some(FRIDGE)),
+        "C entered the hall again"
+    );
     assert_eq!(
         pushed(&run, 2, second + 1),
         [(
@@ -973,4 +1002,140 @@ fn an_angry_arrival_gives_everyone_in_the_room_a_capped_push_and_no_one_passes_i
             "sim {who} after C's arrival"
         );
     }
+}
+
+/// The living room and the kitchen are different rooms. The sofa and the television stand in
+/// the living room; the table and the fridge stand in the kitchen. The door between them is
+/// 3 s. No duty, and no talk, so a feeling written here comes only from the arrival.
+fn rooms_data() -> Data {
+    let repository = include_str!("../../../data/house/day.json");
+    let day = repository
+        .replace(
+            r#""school": {"from_age": 6, "until_age": 18"#,
+            r#""school": {"from_age": 6, "until_age": 7"#,
+        )
+        .replace(
+            "\"from_age\": 18,\n    \"until_age\": 67,",
+            "\"from_age\": 7,\n    \"until_age\": 8,",
+        );
+    assert_ne!(day, repository, "the ages in the day file still bind");
+    let kinds = r#"[
+      {"id": "core:dining_table", "slots": 2, "offers": [
+        {"id": "eat", "rates": {"hunger": 1}, "seconds": 43200, "min_age": 0, "max_age": 130}]},
+      {"id": "core:fridge", "slots": 2, "offers": [
+        {"id": "snack", "rates": {"hunger": 1}, "seconds": 43200, "min_age": 0, "max_age": 130}]},
+      {"id": "core:toilet", "slots": 1, "offers": [
+        {"id": "use", "rates": {"bladder": 1}, "seconds": 43200, "min_age": 0, "max_age": 130}]},
+      {"id": "core:shower", "slots": 1, "offers": [
+        {"id": "shower", "rates": {"hygiene": 1}, "seconds": 43200, "min_age": 0, "max_age": 130}]},
+      {"id": "core:sofa", "slots": 2, "offers": [
+        {"id": "sit", "rates": {"fun": 1}, "seconds": 43200, "min_age": 0, "max_age": 130}]},
+      {"id": "test:tv", "slots": 1, "offers": [
+        {"id": "watch", "rates": {"fun": 1}, "seconds": 43200, "min_age": 0, "max_age": 130}]},
+      {"id": "core:bed", "slots": 3, "offers": [
+        {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}]}
+    ]"#;
+    let house = r#"{
+      "id": "test:rooms", "capacity": 3,
+      "rooms": [{"id": "hall", "entrance": true}, {"id": "living"}, {"id": "kitchen"}],
+      "child_day_room": "living", "child_night_room": "living", "dwell_room": "living",
+      "doors": [
+        {"a": "hall", "b": "living", "seconds": 3},
+        {"a": "hall", "b": "kitchen", "seconds": 4},
+        {"a": "living", "b": "kitchen", "seconds": 3}],
+      "objects": [
+        {"kind": "core:dining_table", "room": "kitchen"},
+        {"kind": "core:fridge", "room": "kitchen"},
+        {"kind": "core:toilet", "room": "hall"},
+        {"kind": "core:shower", "room": "hall"},
+        {"kind": "core:sofa", "room": "living"},
+        {"kind": "test:tv", "room": "living"},
+        {"kind": "core:bed", "room": "hall"}]
+    }"#;
+    let houses = common::houses_from(&day::rates(1, 0, 0), &day, kinds, &[house]);
+    let (calibration, genome_map) = common::death_files(1e-9, None, json!([]));
+    let definitions = common::definitions_with(common::demography(), calibration, genome_map)
+        .expect("definitions");
+    Data::new(definitions)
+        .expect("checked")
+        .with_houses(houses)
+        .with_social(common::repository_social_without_talks(|_| {}))
+}
+
+/// Addendum of 2026-11-12: contagion only when the arrival's room differs from the room before
+/// the walk. The woman (anger 720) and the man sit on the sofa in the living room; the child
+/// sits at the table in the kitchen. She walks to the television in that same living room and
+/// infects nobody. She then enters the kitchen: the child gets 150 and a temper of -37, caused
+/// by her `core:reached`. The man, still in the living room, is not touched, and neither is she.
+#[test]
+fn moving_within_a_room_infects_nobody_and_entering_the_kitchen_does() {
+    const SOFA: u16 = 4;
+    const TELEVISION: u16 = 5;
+    /// The door from the living room to the kitchen, in seconds.
+    const TO_KITCHEN: i64 = 3;
+    let living = sim_core::house::state::Place::Room(1);
+    let kitchen = sim_core::house::state::Place::Room(2);
+    let born = [-30 * year(), -32 * year(), -10 * year()];
+    let (mut run, _) = Run::family(rooms_data(), 0x5EED, "test:rooms", &born, 0);
+    run.advance(day::MORNING);
+    run.submit(command(1, SOFA));
+    run.submit(command(2, SOFA));
+    run.submit(command(3, DINING));
+    let origin = day::MORNING + 30;
+    run.advance(origin);
+    assert_eq!(at(&run, 1), (living, Some(SOFA)), "she sits on the sofa");
+    assert_eq!(at(&run, 2), (living, Some(SOFA)), "he sits on the sofa");
+    assert_eq!(
+        at(&run, 3),
+        (kitchen, Some(DINING)),
+        "the child sits in the kitchen"
+    );
+    let anger = |value: u16| Feel {
+        channels: [0, value, 0, 0],
+        since: t(origin),
+        temper: 0,
+        temper_since: t(origin),
+    };
+    run.world = common::with_feelings(
+        &run.world,
+        &run.out.year_hashes,
+        &rooms_data(),
+        &[(1, anger(720))],
+    );
+    // Same room: the command acts in the next second and the walk takes 5 s.
+    run.submit(command(1, TELEVISION));
+    let after_television = origin + 30;
+    run.advance(after_television);
+    let arrival = reached(&run, 1, TELEVISION, origin);
+    assert_eq!(arrival.t, t(origin + 1 + WITHIN_ROOM));
+    assert_eq!(at(&run, 1), (living, Some(TELEVISION)));
+    assert_eq!(at(&run, 2), (living, Some(SOFA)), "he never left the sofa");
+    for who in [1, 2, 3] {
+        assert!(
+            pushed(&run, who, origin).is_empty(),
+            "sim {who} after the television, still in the living room"
+        );
+    }
+    run.submit(command(1, FRIDGE));
+    run.advance(after_television + 30);
+    let entered = reached(&run, 1, FRIDGE, after_television);
+    assert_eq!(entered.t, t(after_television + 1 + TO_KITCHEN));
+    assert_eq!(at(&run, 1), (kitchen, Some(FRIDGE)));
+    assert_eq!(at(&run, 3), (kitchen, Some(DINING)));
+    assert_eq!(
+        pushed(&run, 3, after_television),
+        [(
+            entered.t.as_secs(),
+            felt_payload([0, 150, 0, 0], -37),
+            vec![day::number(&entered.id)]
+        )]
+    );
+    assert!(
+        pushed(&run, 1, origin).is_empty(),
+        "the arriver is not touched"
+    );
+    assert!(
+        pushed(&run, 2, origin).is_empty(),
+        "he stayed in the living room"
+    );
 }

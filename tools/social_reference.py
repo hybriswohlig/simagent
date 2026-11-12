@@ -1159,12 +1159,20 @@ def rows_for(sim: int, effects: List[Effect], affection_to: Callable[[int, int],
     return [(steps, None if band is None else affection_to(sim, band)) for who, steps, band in effects if who == sim]
 
 
+def enters(previous: Optional[int], arrival: int) -> bool:
+    """ADR-0032 4, addendum 2026-11-12: contagion only when the arrival's room differs from
+    the room before the walk. `previous is None` is from outside (came home) and counts as
+    entering. A walk to another object in the same room does not."""
+    return previous != arrival
+
+
 def contagion(arriver: int, arriver_anger: int, room: List[Tuple[int, int, int]]) -> List[Tuple[int, int, int]]:
     """ADR-0032 4: on entering a room with anger >= 700 (at the arrival second), every other
     person from 6 in that room (`room` = (sim, age, anger at now) of everyone whose place is
     the room) in SimId order gets min(anger + 150, 699) if below 700; at 700 or above the
-    anger stays; the arriver is not touched. Returns (sim, new anger, delta) for every
-    eligible person (delta 0 for those unchanged), so the temper can follow by section 2
+    anger stays; the arriver is not touched. Call this only when `enters` is true: the room
+    is given, not whether the arriver was already in it. Returns (sim, new anger, delta) for
+    every eligible person (delta 0 for those unchanged), so the temper can follow by section 2
     (apply the delta through apply_occasion with the row (0, delta, 0, 0), no band). Nobody
     is infected twice by one push and nobody's anger falls."""
     if arriver_anger < CONTAGION_MIN_ANGER:
@@ -1757,7 +1765,10 @@ def check_feelings() -> None:
     _, _, d = apply_occasion(Feel(), 0, [((1, 0, 0, 0), 700), ((1, 0, 0, 0), 700)])
     expect("band: truncation per row (1 stays 1, not 3/2 of the sum 2 = 3)", d[JOY], 2)
 
-    # Acceptance 4: contagion
+    # Acceptance 4: contagion. The push itself takes the room; whether the walk entered it is separate.
+    expect("4: sofa to television in the same room is not an entering", enters(1, 1), False)
+    expect("4: living to kitchen is an entering", enters(1, 2), True)
+    expect("4: coming home from outside is an entering", enters(None, 0), True)
     room = [(7, 30, 650), (5, 30, 0), (9, 30, 800), (3, 30, 720)]
     out = contagion(3, 720, room)
     expect("4: A 150, B 699, C 800 in SimId order, the arriver is not in it", out, [(5, 150, 150), (7, 699, 49), (9, 800, 0)])

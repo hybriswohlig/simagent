@@ -207,10 +207,15 @@ pub(super) fn need_empty(
 /// place is that room, in the order of their SimId. Each gets what `social::feeling::infected`
 /// says; the temper follows by the rule of an occasion. Read before a `zero::settle` of the same
 /// return, and the arriver's anger before anyone's write: a push is not passed on.
+///
+/// `from` is the room the person was in before this walk. `None` is from outside, including
+/// coming home. The same room is not an entering (addendum of 2026-11-12): another object there
+/// infects nobody.
 pub(super) fn arrived(
     domain: &mut DomainState,
     data: &Data,
     arriver: SimId,
+    from: Option<u8>,
     entry: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
@@ -226,6 +231,9 @@ pub(super) fn arrived(
     let Some(Place::Room(room)) = domain.house.sims.get(&arriver).map(|person| person.place) else {
         return;
     };
+    if from == Some(room) {
+        return;
+    }
     let Some(household) = domain.sims.get(&arriver).map(|person| person.household) else {
         return;
     };

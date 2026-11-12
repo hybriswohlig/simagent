@@ -374,7 +374,8 @@ pub(crate) fn on_return(
     plan_crossings(domain, data, sim, entry, ctx);
     // The anger it comes home with is read before a need the jump put at 0 is settled
     // (ADR-0032 section 4).
-    super::feeling::arrived(domain, data, sim, entry, ctx);
+    // Coming home is from outside, so it is an entering (ADR-0032 section 4).
+    super::feeling::arrived(domain, data, sim, None, entry, ctx);
     let causes = Causes::new(Cause::Event(entry));
     if emptied.contains(&true) {
         super::zero::settle(domain, data, sim, (emptied, true), causes, ctx);
