@@ -1247,3 +1247,124 @@ fn saves_while_someone_is_avoided_load() {
         }
     }
 }
+
+/// Two adults, one place at the table, mood ±10, hunger falling by 100 an hour, and no
+/// social data. The sofa keeps its minute.
+fn one_table() -> Data {
+    let mut kinds = family_kinds(60);
+    kinds[0]["slots"] = json!(1);
+    let houses = common::houses_from(
+        &day::rates(-100, 0, 0),
+        &day_at(10),
+        &kinds.to_string(),
+        &[&family_house()],
+    );
+    common::death_data(1e-9, None, json!([])).with_houses(houses)
+}
+
+/// Seed 2. At 06:00 she takes the only place and he waits. Hunger is 600, comfort 1 000,
+/// so the weight is 400 and the meal's gain is 100. From the hall the walk costs 150.
+/// Mood +1 is `400 · 101 − 150 = 40 250`, enough; mood 0 is `39 850`, not. The command
+/// at that clock acts at 06:00:01 and frees the table then. The place is held for him and
+/// his choice is that second, so he starts then. The sofa is the door away, 3 s, and lasts
+/// 60 s, so it ends at 06:01:04. A save in the command's second loads, and a save at
+/// 06:00:59 loads and resumes the same run.
+#[test]
+fn a_waiters_wakeup_in_an_input_stays_due_now() {
+    /// The command at the 06:00 clock acts one second later.
+    const WAKE: i64 = 1;
+    /// Closed at 06:00:59, after he has started and before the sofa ends.
+    const SAVE: i64 = 59;
+    /// Arrival 3 s after the command, then the sofa's 60 s.
+    const SOFA_END: i64 = WAKE + DOOR + 60;
+    const _: () = assert!(SOFA_END == 64);
+    const _: () = assert!(WAKE < SAVE && SAVE < SOFA_END);
+    // The first whole minute after 06:00:01 is 06:01:00. Weight 401 there. Mood +1 is
+    // `401 · 101 − 150 = 40 351`, enough, and that is the idle plan an input must not
+    // substitute for the wakeup.
+    assert_eq!(weight(60), 401);
+    assert_eq!(weight(60) * 101 - DOOR * WALK_COST, 40_351);
+    assert_eq!(weight(0) * 101 - DOOR * WALK_COST, 40_250);
+    assert_eq!(weight(0) * 100 - DOOR * WALK_COST, 39_850);
+    const _: () = assert!(40_250 >= ENOUGH && 39_850 < ENOUGH && 40_351 >= ENOUGH);
+
+    let data = one_table();
+    let born = [-30 * YEAR.as_secs(), -32 * YEAR.as_secs()];
+    let (mut run, _) = Run::family(data.clone(), 2, "test:house", &born, 0);
+    run.advance(MORNING);
+    assert_eq!(
+        person(&run, 1)
+            .action
+            .map(|action| (action.object, action.offer)),
+        Some((TABLE, 0)),
+        "she took the only place at 06:00"
+    );
+    assert!(
+        matches!(person(&run, 1).place, Place::Walking { .. }),
+        "the table is the door away, so she is still walking"
+    );
+    assert!(person(&run, 2).action.is_none(), "he has no place yet");
+    assert!(
+        run.world
+            .state()
+            .house()
+            .waits
+            .values()
+            .flatten()
+            .any(|(_, waiter)| *waiter == sim(2)),
+        "he waits for the table"
+    );
+
+    run.submit(command(1, SOFA));
+    assert!(
+        run.world
+            .state()
+            .house()
+            .holds
+            .values()
+            .any(|holder| *holder == sim(2)),
+        "the freed place is held for him"
+    );
+    let held = run
+        .world
+        .save(&run.out.year_hashes)
+        .expect("the wakeup is pending");
+    World::load(&held, data.clone()).expect("a save while the place is held loads");
+
+    let wake = MORNING + WAKE;
+    let save_at = MORNING + SAVE;
+    run.advance(save_at);
+    assert!(
+        took_meal(&run.log, 2, wake),
+        "he starts at 06:00:01 and the hold is consumed"
+    );
+    assert!(
+        run.world.state().house().holds.is_empty(),
+        "no hold remains at 06:00:59"
+    );
+    let bytes = run
+        .world
+        .save(&run.out.year_hashes)
+        .expect("saved at 06:00:59");
+    let (mut loaded, _) = World::load(&bytes, data).expect("a save at 06:00:59 loads");
+
+    let sofa_end = MORNING + SOFA_END;
+    run.advance(sofa_end);
+    assert!(
+        run.log.iter().any(|entry| {
+            entry.t.as_secs() == sofa_end
+                && entry.subjects == [Subject::Sim(sim(1))]
+                && matches!(entry.payload, LogPayload::ActionEnded { object: SOFA, .. })
+        }),
+        "the sofa ends at 06:01:04"
+    );
+
+    let mut out = YearOut::default();
+    loaded.advance_until(&mut out, SimTime::from_secs(sofa_end), &mut |_| false);
+    let loaded_log = loaded.take_log();
+    assert_eq!(
+        rows_after(&loaded_log, save_at),
+        rows_after(&run.log, save_at)
+    );
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+}
