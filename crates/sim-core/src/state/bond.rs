@@ -202,6 +202,8 @@ pub(super) fn form_one(
                 }
                 None => (wrote, 1),
             };
+            // A new bond can turn company or avoid on for whoever is idle at home.
+            super::action::changed_for(domain, holder, last);
             Some(Formed::Wrote { last, entries })
         }
     }

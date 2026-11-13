@@ -312,6 +312,8 @@ pub(crate) fn leave(
         // A walk that would end beyond the end of time is over at once.
         None => person.place = Place::Away,
     }
+    // Leaving the room drops a seat. Idle choices are planned again from `core:left_home`.
+    action::changed(domain, household, entry);
     // Still needs cross nothing: this only cancels the crossings planned.
     plan_crossings(domain, data, sim, entry, ctx);
     if let Some(place) = held {
@@ -333,7 +335,7 @@ pub(crate) fn on_return(
     // The event that runs right now is no longer pending.
     domain.pending.remove(&(sim, Slot::Return));
     let now = ctx.now();
-    let (_, houses, house) = home(domain, data, sim);
+    let (household, houses, house) = home(domain, data, sim);
     let jumps = &houses.day().return_jumps;
     let jumps = [
         jumps.hunger,
@@ -372,6 +374,9 @@ pub(crate) fn on_return(
         ctx.cancel(handle);
     }
     plan_crossings(domain, data, sim, entry, ctx);
+    // The room changed. A push below can move a temper and replaces this entry as the cause
+    // of the idle plan (ADR-0030, addendum of 2026-11-13; ADR-0032 section 4).
+    action::changed(domain, household, entry);
     // The anger it comes home with is read before a need the jump put at 0 is settled
     // (ADR-0032 section 4).
     // Coming home is from outside, so it is an entering (ADR-0032 section 4).

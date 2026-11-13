@@ -99,7 +99,12 @@ fn write(
         fear,
         temper: after.temper,
     };
-    Some(ctx.emit(felt, vec![Subject::Sim(sim)], Causes::new(cause)))
+    let id = ctx.emit(felt, vec![Subject::Sim(sim)], Causes::new(cause));
+    // A temper jump scales company. The idle choice is planned again when this handler or
+    // input ends (ADR-0030, addendum of 2026-11-13). A channel that does not move the drag
+    // leaves the queued second where it is.
+    super::action::changed_for(domain, sim, id);
+    Some(id)
 }
 
 /// The own child `child`, born now with the entry `born`, is a joy for its mother and its father
