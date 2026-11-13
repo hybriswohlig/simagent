@@ -236,7 +236,7 @@ fn the_villages_are_the_adrs() {
 #[test]
 fn the_repository_data_are_the_clis() {
     let data = repository_data(&root()).expect("the repository's data");
-    assert_eq!(data.hash(), 0xf3cb_25b3_5a27_ab32);
+    assert_eq!(data.hash(), 0x57e6_320f_6113_787a);
 }
 
 /// The text without the values of `z` and `gl`, which may differ in their last bits (the
@@ -268,7 +268,7 @@ fn a_village_of_48_years_reads_as_the_reference_reads_it() {
     assert_eq!(text.len(), 68_381);
     let masked = masked(&text);
     assert_eq!(masked.len(), 58_791);
-    assert_eq!(stable_hash64(masked.as_bytes()), 0x4a5d_ae0d_d0a2_b941);
+    assert_eq!(stable_hash64(masked.as_bytes()), 0xf8b8_bbec_0df9_c583);
     let measured = measure(&text).expect("a measure");
     let block = &measured.block;
     assert_eq!(block["end_years"], 48);

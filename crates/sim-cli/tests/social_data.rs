@@ -11,7 +11,7 @@ const SOCIAL: &str = include_str!("../../../data/social/social.json");
 /// The data hash of the repository's data from `tools/data_reference.py` (ADR-0007), with the
 /// social data after the houses; without them it is 0a08eab115b75093. The feelings of ADR-0032
 /// moved it from 01ce3a4b0ac58e6f.
-const DATA_HASH: u64 = 0xf3cb_25b3_5a27_ab32;
+const DATA_HASH: u64 = 0x57e6_320f_6113_787a;
 
 /// The repository's data, for the kinds of furniture of its houses.
 fn repository() -> &'static sim_core::data::Data {
@@ -147,7 +147,7 @@ fn the_repository_social_data_loads_with_the_numbers_of_the_adrs() {
         (600, 400)
     );
     let beliefs = &social.beliefs;
-    assert_eq!((beliefs.lie_ppm, beliefs.refute_ppm), (50_000, 500_000));
+    assert_eq!((beliefs.lie_ppm, beliefs.refute_ppm), (50_000, 200_000));
     assert_eq!(
         (
             beliefs.heard_cap,

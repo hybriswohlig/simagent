@@ -1,7 +1,9 @@
 //! A talk of two people at one sociable furniture (ADR-0030 section 3). Planning follows an
 //! arrival; the run is the event, or the same-second end that must happen first. Necken writes
-//! the seen deed `neckt`. Klatsch passes one statement on, or a lie when the speaker has a
-//! reason and the lie draw hits, and writes the seen deed `lästert` (ADR-0031 sections 2 to 4).
+//! the seen deed `neckt` for the target only. Klatsch passes one statement on, or a lie when
+//! the speaker has a reason and the lie draw hits, and writes the seen deed `lästert` for a
+//! bystander, not for the speaker and not for the hearer of that sentence (ADR-0031 sections
+//! 2 to 4 and the addendum of 2026-11-12).
 //! Every topic may then refute one false belief and both remember "Widerlegung" (section 5).
 
 use alloc::vec;
@@ -22,8 +24,9 @@ use crate::ids::{EventId, HouseholdId, MAX_JS_SAFE, SimId};
 use crate::log::{Cause, Causes, DrawRef, LogPayload, Subject};
 use crate::rng::{DrawKey, WorldSeed};
 use crate::social::belief::{
-    Basis, Belief, Statement, aimed_doer, choose_speaker, gossip_material, heard_bond_steps,
-    lie_reason, lie_statement, live_material, pick_refutation, refute, said_belief,
+    Basis, Belief, Statement, aimed_doer, audience, choose_speaker, gossip_material,
+    heard_bond_steps, lie_reason, lie_statement, live_material, pick_refutation, refute,
+    said_belief,
 };
 use crate::social::bond::{GRUDGE, TRUST};
 use crate::social::data::{Occasion, REFUTED, TALK};
@@ -604,6 +607,8 @@ pub(crate) fn run(
             Causes::new(cause.clone()),
         );
         cause = Cause::Event(id);
+        // Affection, familiarity, trust or a grudge moved. An idle choice weighs the first three.
+        super::action::changed_for(domain, outcome.owner, id);
         if outcome.owner == a {
             charge(&mut entries_a, 1);
         } else {
@@ -640,6 +645,7 @@ pub(crate) fn run(
             statement,
             (home, object),
             &mut charges,
+            None,
             cause,
             ctx,
         );
@@ -876,16 +882,20 @@ fn trust_in(
     }
 }
 
-/// Everyone of `min_age` or older at the furniture sees `statement`. A third person needs
-/// two free places of the day's 34, even when the write is one entry (ADR-0030 section 5).
-/// The two participants are not third persons: their 16 free places were required to plan
-/// the talk. Only entries actually written are charged.
+/// Everyone of `min_age` or older whom [`audience`] names sees `statement`. A third person
+/// needs two free places of the day's 34, even when the write is one entry (ADR-0030
+/// section 5). The two participants are not third persons: their 16 free places were
+/// required to plan the talk. Only entries actually written are charged. `sentence_hearer`
+/// is the hearer of the sentence when `statement` is the seen `lästert` of that telling,
+/// and `None` for a `neckt`.
+#[allow(clippy::too_many_arguments)]
 fn offer_seen(
     domain: &mut DomainState,
     data: &Data,
     statement: Statement,
     place: (HouseholdId, u16),
     charges: &mut Charges<'_>,
+    sentence_hearer: Option<SimId>,
     mut cause: Cause,
     ctx: &mut SimCtx<'_, '_>,
 ) -> Cause {
@@ -895,7 +905,14 @@ fn offer_seen(
     let min_age = u32::from(social.limits.min_age);
     let now = ctx.now();
     let (household, object) = place;
-    for holder in at_furniture(domain, household, object) {
+    let Statement::Tat {
+        doer, kind, other, ..
+    } = statement
+    else {
+        panic!("invariant talk.seen");
+    };
+    let seated = at_furniture(domain, household, object);
+    for holder in audience(kind, doer, other, &seated, sentence_hearer) {
         if years(domain, holder, now) < min_age {
             continue;
         }
@@ -1029,6 +1046,7 @@ fn refute_one(
             );
             *cause = Cause::Event(id);
             charges.add(pick.hearer, 1);
+            super::action::changed_for(domain, pick.hearer, id);
         }
     }
     true
@@ -1038,7 +1056,8 @@ fn refute_one(
 /// one bond step when the belief was stored and was not a confirmation, then the speaker's
 /// deed. A lie records `lügt` toward the hearer (not seen) and says `Tat(W, lästert, hearer,
 /// today)` without the speaker adopting it. Either way the seen deed is `lästert` of the
-/// speaker about the doer of the said statement, for everyone old enough at the furniture.
+/// speaker about the doer of the said statement, for everyone old enough at the furniture
+/// except the speaker and except the hearer of this sentence.
 ///
 /// READING: the bond step is on the hearer's edge to the doer, not to the speaker. If that
 /// edge does not exist, none is formed and no `core:bond_changed` is written. The first entry
@@ -1132,6 +1151,8 @@ fn pass_on(
                     );
                     cause = Cause::Event(id);
                     charges.add(hearer, 1);
+                    // A lie, a telling-on or an avoidance: trust and sometimes a grudge.
+                    super::action::changed_for(domain, hearer, id);
                 }
             }
         }
@@ -1161,7 +1182,16 @@ fn pass_on(
         other: doer,
         day: pass.day,
     };
-    offer_seen(domain, data, statement, pass.place, charges, cause, ctx)
+    offer_seen(
+        domain,
+        data,
+        statement,
+        pass.place,
+        charges,
+        Some(hearer),
+        cause,
+        ctx,
+    )
 }
 
 /// The memory `kind` for `owner`, about `other`. Returns the cause of the next entry and

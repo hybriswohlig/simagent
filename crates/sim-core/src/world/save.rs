@@ -2713,28 +2713,98 @@ fn taken_for(
     Some(taken)
 }
 
-/// The next choice of a person idle in a room or on its walk to the room one stays in, not lying
-/// and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest), recomputed from
-/// the second the loaded world runs next, planned in the clock (its addendum on comfort and the
-/// time-filler), with the places of its household taken by an action or held for others; `None`
-/// for anyone else or if nothing comes.
-fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
-    let person = loaded.house.sims.get(&sim)?;
+/// The next `Decide` of a person idle in a room or on its walk to the room one stays in, not
+/// lying and waiting for nothing (ADR-0026, addendum of 2026-11-04 after the playtest),
+/// recomputed from `start`, planned in `after` (its addendum on comfort and the time-filler),
+/// with the places of its household taken by an action or held for others. `None` for anyone
+/// else. The drag is `min(0, scaled company − avoid)` at the second being weighed, and `t−`
+/// uses company 0 and avoid in full (ADR-0030, addendum of 2026-11-13).
+fn choice_plan_from(
+    loaded: &LoadedState,
+    rules: &Rules<'_>,
+    sim: SimId,
+    start: SimTime,
+    after: SimTime,
+) -> Option<SimTime> {
+    let person = loaded.house.sims.get(&sim)?.clone();
     let houses = rules.data.houses()?;
     let house = house_of(loaded, rules.data, sim)?;
     let waits = (loaded.house.waits.values().flatten()).any(|&(_, waiter)| waiter == sim);
-    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(person, house);
+    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(&person, house);
     if !stands || person.action.is_some() || person.collapsed || waits {
         return None;
     }
     let me = loaded.sims.get(&sim)?;
-    let start = loaded
-        .closed_through
-        .checked_add(SimDuration::from_secs(1))?;
+    let household = me.household;
     let taken = taken_for(loaded, rules, sim, start)?;
     let who = (me.born, me.lineage_key, rules.seed);
-    let from = (start, loaded.closed_through);
-    crate::house::state::next_choice_of((house, houses), who, person, &taken, from)
+    let members: Vec<SimId> = loaded
+        .sims
+        .iter()
+        .filter(|(_, other)| other.household == household)
+        .map(|(id, _)| *id)
+        .collect();
+    let places = |other| {
+        let seated = loaded.house.sims.get(&other)?;
+        Some((seated.action, seated.place))
+    };
+    let worst_drag = match rules.data.social() {
+        Some(social) => {
+            let (bonuses, _, _) = crate::state::action::seat_bonus(
+                social,
+                &loaded.house.social,
+                house,
+                sim,
+                start,
+                members.iter().copied(),
+                places,
+            );
+            crate::state::action::object_worst_drag(&bonuses)
+        }
+        None => Vec::new(),
+    };
+    let drag = |at: i64, object: u16| {
+        let Some(social) = rules.data.social() else {
+            return 0;
+        };
+        crate::state::action::object_drags_at(
+            social,
+            &loaded.house.social,
+            house,
+            sim,
+            SimTime::from_secs(at),
+            members.iter().copied(),
+            places,
+        )
+        .get(usize::from(object))
+        .copied()
+        .unwrap_or(0)
+    };
+    let worst = |object: u16| worst_drag.get(usize::from(object)).copied().unwrap_or(0);
+    crate::house::state::idle_plan(
+        (house, houses),
+        who,
+        &person,
+        &taken,
+        (start, after),
+        drag,
+        worst,
+    )
+}
+
+/// The one second a pending `Decide` of `sim` may name. A place held for `sim` is the wakeup
+/// `release` planned for the next second, and that choice is due then (ADR-0026 section 5).
+/// An idle person who holds nothing names the second the idle plan searches from the second
+/// after the clock, planned in the clock (ADR-0026, addendum of 2026-11-04 after the playtest;
+/// ADR-0030, addendum of 2026-11-13).
+fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
+    let clock = loaded.closed_through;
+    let next = clock.checked_add(SimDuration::from_secs(1))?;
+    let held = (loaded.house.holds.values()).any(|holder| *holder == sim);
+    if held {
+        return Some(next);
+    }
+    choice_plan_from(loaded, rules, sim, next, clock)
 }
 
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at
@@ -2950,20 +3020,15 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && action_due(loaded, rules, *sim) == Some(entry.time)
             }
             // A choice planned by a handler runs in its second (ADR-0026 section 3), so after a
-            // run only the next choice of an idle person is pending, at the second it is
-            // recomputed for (ADR-0026, addendum of 2026-11-04 after the playtest). An input at
-            // the clock plans one for the next second, once per person idle in a room: a command
-            // or another input that freed a place held for a waiter, or a day begun (ADR-0024
-            // sections 2 and 5); a waiter has none (the house part's checks).
+            // run only the next choice of an idle person is pending, at the one second
+            // [`choice_due`] recomputes. A holder is due in the next second; an idle person who
+            // holds nothing is at the idle plan's second (ADR-0026 section 5 and the addendum of
+            // 2026-11-04 after the playtest; ADR-0030, addendum of 2026-11-13). A waiter has none
+            // (the house part's checks).
             EventPayload::Decide { sim } => {
-                let idle = (loaded.house.sims.get(sim)).is_some_and(|person| {
-                    let room = matches!((person.place, person.action), (Place::Room(_), None));
-                    room && !person.collapsed
-                });
-                let next = clock.checked_add(SimDuration::from_secs(1)) == Some(entry.time);
-                let by_input = rules.opened && idle && next;
-                let planned = choice_due(loaded, rules, *sim) == Some(entry.time);
-                entry.period.is_none() && choices.insert(*sim) && (by_input || planned)
+                entry.period.is_none()
+                    && choices.insert(*sim)
+                    && choice_due(loaded, rules, *sim) == Some(entry.time)
             }
             // Once per person with needs, at the start of its night of today if that is still
             // to come (ADR-0026, addendum of 2026-11-04), checked as a whole below.

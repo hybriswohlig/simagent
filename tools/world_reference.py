@@ -765,7 +765,10 @@ PROJECTION_VERSION = 24
 # person, a ninth map, so the empty house is nine zero lengths. The save format stays 2. A file
 # of the previous projection does not load (ADR-0006, no migration). A run without MoveIn keeps
 # its log; every year hash changes once: projection 24, core 69.
-CORE_VERSION = 69
+# Who sees a deed, and which belief falls first, and refute_ppm 200 000 (ADR-0031 addenda of
+# 2026-11-12). No new state; the data hash changes (refute_ppm). A run without a household in a
+# house keeps its log: the projection stays 24, core 70.
+CORE_VERSION = 70
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

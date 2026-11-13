@@ -115,7 +115,7 @@
     "lie_ppm": 50000,
     "lie_grudge": 700,
     "lie_certainty": 900,
-    "refute_ppm": 500000,
+    "refute_ppm": 200000,
     "refute_trust": -120,
     "refute_grudge": 150,
     "heard_aimed_trust": -80,

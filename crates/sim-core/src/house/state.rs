@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::house::choice::{CRITICAL, next_choice};
+use crate::house::choice::{CRITICAL, next_choice_drag};
 use crate::house::data::{
     AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
 };
@@ -182,6 +182,28 @@ pub fn next_choice_of(
     taken: &BTreeSet<(u16, u8)>,
     (start, after): (SimTime, SimTime),
 ) -> Option<SimTime> {
+    next_choice_of_drag(
+        (house, data),
+        (born, key, seed),
+        person,
+        taken,
+        (start, after),
+        |_, _| 0,
+        |_| 0,
+    )
+}
+
+/// As [`next_choice_of`], weighing each object with `drag` and bounding `t−` by `worst`
+/// ([`next_choice_drag`]).
+fn next_choice_of_drag(
+    (house, data): (&House, &HouseData),
+    (born, key, seed): (SimTime, crate::lineage::LineageKey, u64),
+    person: &InHouse,
+    taken: &BTreeSet<(u16, u8)>,
+    (start, after): (SimTime, SimTime),
+    drag: impl Fn(i64, u16) -> i64,
+    worst: impl Fn(u16) -> i64,
+) -> Option<SimTime> {
     let (room, start) = match person.place {
         Place::Room(room) => (room, start),
         Place::Walking { to, arrive, .. } => (to, start.max(arrive)),
@@ -198,13 +220,38 @@ pub fn next_choice_of(
     };
     let draw = || work_draw(seed, key);
     let leaves = |at: SimTime| day_departure(data.day(), born, draw, at);
-    next_choice(
+    next_choice_drag(
         (house, data),
         (born, &person.needs, room),
         free,
         (start, after),
         moods,
         leaves,
+        |at, object| at.map_or_else(|| worst(object), |at| drag(at, object)),
+    )
+}
+
+/// The next `Decide` of an idle person (ADR-0026, addendum of 2026-11-04 after the playtest,
+/// and ADR-0030, addendum of 2026-11-13). `drag(second, object)` is `min(0, scaled company −
+/// avoid)` at that second, and `worst(object)` is that drag with company 0 and avoid in full.
+/// Both are 0 when nobody is avoided, and the second is then [`next_choice_of`].
+pub(crate) fn idle_plan(
+    (house, data): (&House, &HouseData),
+    who: (SimTime, crate::lineage::LineageKey, u64),
+    person: &InHouse,
+    taken: &BTreeSet<(u16, u8)>,
+    (start, after): (SimTime, SimTime),
+    drag: impl Fn(i64, u16) -> i64,
+    worst: impl Fn(u16) -> i64,
+) -> Option<SimTime> {
+    next_choice_of_drag(
+        (house, data),
+        who,
+        person,
+        taken,
+        (start, after),
+        drag,
+        worst,
     )
 }
 

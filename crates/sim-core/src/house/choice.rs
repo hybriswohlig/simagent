@@ -552,9 +552,8 @@ pub fn urgent_part(def: &OfferDef, rates: &NeedRates, (age, values): (u8, [u16; 
 /// which comes first, and nothing is planned (ADR-0026, addendum of 2026-11-04 on comfort and the
 /// time-filler). `None` if nothing comes, or beyond the end of time. The needs keep the rates of
 /// their samples; the sample of a need that rises is weighed at its value at `start` for the most
-/// and full for the least, so both bounds only grow with time. Company and avoid are not in this
-/// search: who sits is known when the choice runs, and `decide` adds them then. Here every offer
-/// is weighed with bonus 0, so a loaded world and a run plan the same second.
+/// and full for the least, so both bounds only grow with time. Every offer is weighed with bonus
+/// 0. The idle plan subtracts avoid as well ([`next_choice_drag`]); with avoid 0 the two agree.
 pub fn next_choice(
     (house, data): (&House, &HouseData),
     (born, needs, room): (SimTime, &[NeedSample; 5], u8),
@@ -562,6 +561,35 @@ pub fn next_choice(
     (start, after): (SimTime, SimTime),
     moods: impl Fn(SimTime, u16, u16) -> i8,
     departure: impl Fn(SimTime) -> Option<SimTime>,
+) -> Option<SimTime> {
+    next_choice_drag(
+        (house, data),
+        (born, needs, room),
+        free,
+        (start, after),
+        moods,
+        departure,
+        |_, _| 0,
+    )
+}
+
+/// As [`next_choice`], and the idle plan when someone is avoided (ADR-0030, addendum of
+/// 2026-11-13). `drag(Some(second), object)` is `min(0, scaled company − avoid)` at the second
+/// being weighed, never above the net the choice itself adds. `drag(None, object)` is the
+/// smallest drag in the window (company 0, avoid in full). The two bounds stay monotone and are
+/// bisected ([`first_at`]): `t+` with bonus 0, as [`next_choice`], and `t−` with that smallest
+/// drag and the least mood. Between them every whole minute is weighed on its own, with that
+/// minute's mood and `drag(Some(minute), object)`, and the first that brings `ENOUGH` wins; no
+/// minute before `t−` leaves `t−`. A score that is enough with the drag is enough in the choice.
+/// With avoid 0, `drag` is 0 and this is [`next_choice`].
+pub(crate) fn next_choice_drag(
+    (house, data): (&House, &HouseData),
+    (born, needs, room): (SimTime, &[NeedSample; 5], u8),
+    free: impl Fn(u16) -> bool,
+    (start, after): (SimTime, SimTime),
+    moods: impl Fn(SimTime, u16, u16) -> i8,
+    departure: impl Fn(SimTime) -> Option<SimTime>,
+    drag: impl Fn(Option<i64>, u16) -> i64,
 ) -> Option<SimTime> {
     let rules = data.day();
     let planned = |start: SimTime| {
@@ -605,14 +633,14 @@ pub fn next_choice(
                 panic!("invariant house.offer_length");
             }));
             let weighed = (data.rates(), band, length);
-            let reaches = |at: i64, mood: i8, bound: Option<u16>| {
+            let reaches = |at: i64, mood: i8, bound: Option<u16>, bonus: i64| {
                 let at = SimTime::from_secs(at);
                 let values = core::array::from_fn(|n| match (needs[n].rate() > 0, bound) {
                     (true, Some(value)) => value,
                     (true, None) => needs[n].value_at(start),
                     (false, _) => needs[n].value_at(at),
                 });
-                points(def, weighed, values, walk, mood, 0) >= ENOUGH
+                points(def, weighed, values, walk, mood, bonus) >= ENOUGH
             };
             // Only before the departure closes it; it runs longer the later it is chosen.
             let closes = |at: i64| {
@@ -623,11 +651,14 @@ pub fn next_choice(
             };
             let open = first_at(start.as_secs(), limit, closes).unwrap_or(limit);
             let until = first.unwrap_or(limit).min(limit).min(open);
-            let most = |at: i64| reaches(at, percent, None);
+            // Bonus 0: company never pulls a choice earlier, and the bound only grows.
+            let most = |at: i64| reaches(at, percent, None, 0);
             let Some(from) = first_at(start.as_secs(), until, most) else {
                 continue;
             };
-            let least = |at: i64| reaches(at, -percent, Some(FULL));
+            // Company 0 and avoid in full, with the least mood: still monotone, so bisected.
+            let floor = drag(None, object);
+            let least = |at: i64| reaches(at, -percent, Some(FULL), floor);
             let surely = first_at(from, until, least);
             let mut minute = from.div_euclid(MINUTE.as_secs()) * MINUTE.as_secs();
             if minute < from {
@@ -636,7 +667,15 @@ pub fn next_choice(
             let mut found = surely;
             while minute < surely.unwrap_or(until) {
                 let mood = moods(SimTime::from_secs(minute), object, offer);
-                if points(def, weighed, values_at(minute), walk, mood, 0) >= ENOUGH {
+                if points(
+                    def,
+                    weighed,
+                    values_at(minute),
+                    walk,
+                    mood,
+                    drag(Some(minute), object),
+                ) >= ENOUGH
+                {
                     found = Some(minute);
                     break;
                 }

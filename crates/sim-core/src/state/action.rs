@@ -222,6 +222,13 @@ pub(super) fn changed(domain: &mut DomainState, household: HouseholdId, by: Even
     domain.house_changed.insert(household, by);
 }
 
+/// As [`changed`], for the household `sim` lives in. Nothing when `sim` is already gone.
+pub(super) fn changed_for(domain: &mut DomainState, sim: SimId, by: EventId) {
+    if let Some(household) = domain.sims.get(&sim).map(|person| person.household) {
+        changed(domain, household, by);
+    }
+}
+
 /// The keys of all places of a household's objects.
 fn household_places(household: HouseholdId) -> core::ops::RangeInclusive<(HouseholdId, u16, u8)> {
     (household, 0, 0)..=(household, u16::MAX, u8::MAX)
@@ -476,19 +483,46 @@ fn company_of(
     let Some(social) = data.social() else {
         return (Vec::new(), Vec::new(), 0);
     };
-    let temper = read(
-        domain.house.social.feelings.get(&sim),
-        now,
-        &social.feelings,
-    )
-    .1;
     let Some(members) = domain.members.get(&household) else {
+        let temper = read(
+            domain.house.social.feelings.get(&sim),
+            now,
+            &social.feelings,
+        )
+        .1;
         return (Vec::new(), Vec::new(), temper);
     };
+    seat_bonus(
+        social,
+        &domain.house.social,
+        house,
+        sim,
+        now,
+        members.iter().copied(),
+        |other| {
+            let person = domain.house.sims.get(&other)?;
+            Some((person.action, person.place))
+        },
+    )
+}
+
+/// [`company_of`] for a household whose members and places the caller names. The loader plans
+/// from a save with the same bonus the run used.
+pub(crate) fn seat_bonus(
+    social: &crate::social::data::SocialData,
+    stored: &crate::social::state::Social,
+    house: &House,
+    sim: SimId,
+    now: SimTime,
+    members: impl Iterator<Item = SimId>,
+    at: impl Fn(SimId) -> Option<(Option<Action>, Place)>,
+) -> (Vec<Bonus>, Vec<Company>, i16) {
+    let temper = read(stored.feelings.get(&sim), now, &social.feelings).1;
     let rules = &social.choice;
     let familiarity = social.bonds.familiarity_fade;
     let grudge = social.bonds.grudge_fade;
-    let bonds = domain.house.social.bonds.get(&sim);
+    let bonds = stored.bonds.get(&sim);
+    let members: Vec<SimId> = members.collect();
     let objects = &house.def().objects;
     let mut bonuses = vec![Bonus::NONE; objects.len()];
     let mut rows = Vec::new();
@@ -498,14 +532,14 @@ fn company_of(
         }
         let mut for_company = Vec::new();
         let mut for_avoid = Vec::new();
-        for other in members {
+        for other in &members {
             if *other == sim {
                 continue;
             }
-            let Some(person) = domain.house.sims.get(other) else {
+            let Some((action, place)) = at(*other) else {
                 continue;
             };
-            let Some(action) = person.action else {
+            let Some(action) = action else {
                 continue;
             };
             if action.object != object {
@@ -513,7 +547,7 @@ fn company_of(
             }
             // On the way the place is reserved, so company counts. Avoid waits for arrival.
             for_company.push(*other);
-            if matches!(person.place, Place::Room(_)) {
+            if matches!(place, Place::Room(_)) {
                 for_avoid.push(*other);
             }
         }
@@ -548,6 +582,38 @@ fn company_of(
     (bonuses, rows, temper)
 }
 
+/// `min(0, scaled company − avoid)` per object. Never positive, and never above the net the
+/// choice itself adds.
+pub(crate) fn object_drag(bonuses: &[Bonus], temper: i16) -> Vec<i64> {
+    bonuses
+        .iter()
+        .map(|bonus| (scaled_company(bonus.company, temper) - bonus.avoid).min(0))
+        .collect()
+}
+
+/// The drag of every object at `at` ([`object_drag`]). Who sits is the household now; the
+/// temper and the fading bonds are read at `at`, which is how a later save names the same
+/// second (ADR-0032).
+pub(crate) fn object_drags_at(
+    social: &crate::social::data::SocialData,
+    stored: &crate::social::state::Social,
+    house: &House,
+    sim: SimId,
+    at: SimTime,
+    members: impl Iterator<Item = SimId>,
+    places: impl Fn(SimId) -> Option<(Option<Action>, Place)>,
+) -> Vec<i64> {
+    let (bonuses, _, temper) = seat_bonus(social, stored, house, sim, at, members, places);
+    object_drag(&bonuses, temper)
+}
+
+/// Company 0 and avoid in full: `−avoid` per object, the smallest drag while these people sit.
+/// The bound of `t−` (ADR-0030, addendum of 2026-11-13). Trust does not fade, and scaled company
+/// is at least 0, so a later second of the same seating is never below this.
+pub(crate) fn object_worst_drag(bonuses: &[Bonus]) -> Vec<i64> {
+    bonuses.iter().map(|bonus| -bonus.avoid).collect()
+}
+
 /// How a walk begins: by a choice, as a time-filler or not, or by a command (ADR-0024 section 5).
 #[derive(Clone, Copy)]
 enum Begun {
@@ -558,13 +624,19 @@ enum Begun {
 /// The next choices of the idle persons of each household whose free places changed in this
 /// handler (ADR-0026, addendum of 2026-11-04 after the playtest), in the order of the
 /// households and their members: each idle in a room or on its walk to the room one stays in,
-/// not lying and waiting for nothing, chooses at `next_choice_of` from now on, planned by the
+/// not lying and waiting for nothing, chooses at `idle_plan` from now on, planned by the
 /// household's last entry that changed it; anyone else has no choice planned. A choice already
-/// due in this second stays: it comes anyway, and plans the next. The end of a time-filler at
-/// its object is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
-/// addendum of 2026-11-04 on comfort and the time-filler); in an input at the clock even one due
-/// in its second, which has not come yet, as a loaded world plans it from the clock. Each plan is
-/// made in `planned_in`.
+/// due in this second stays in a handler: it comes anyway, and plans the next. An input acts
+/// before the events of its second, so there even one due in that second, which has not come
+/// yet, is planned anew, as a loaded world plans it from the clock. A waiter's wakeup stays:
+/// `release` held a place for them and scheduled the choice for this second. The plan weighs
+/// every whole minute with that minute's drag, between a bonus-0 `t+` and a `t−` that uses
+/// company 0 and avoid in full, so an idle choice does not schedule itself again and a save
+/// during the wait names that same second (ADR-0030, addendum of 2026-11-13). The end of a
+/// time-filler at its object is its next choice, planned anew in the same way (`filler_end_of`;
+/// ADR-0026,
+/// addendum of 2026-11-04 on comfort and the time-filler), including one due in an input's
+/// second. Each plan is made in `planned_in`.
 pub(crate) fn plan_idle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     for (household, by) in core::mem::take(&mut domain.house_changed) {
         if !domain.house.households.contains_key(&household) {
@@ -588,6 +660,7 @@ fn plan_next(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let now = ctx.now();
+    let held = held_by(domain, household, sim).is_some();
     let Some(person) = domain.house.sims.get(&sim) else {
         return;
     };
@@ -599,7 +672,11 @@ fn plan_next(
     }
     let pending = domain.pending.get(&(sim, Slot::Decide)).copied();
     let due = pending.and_then(|handle| ctx.pending_time(handle));
-    if due == Some(now) {
+    // A handler's choice already due in this second stays: it comes anyway. An input acts
+    // before the events of its second, so an idle timer due then has not come yet and is
+    // planned anew, as a loaded world plans it from the clock (ADR-0030, addendum of
+    // 2026-11-13). A place held for this person is a waiter's wakeup, due now, and stays.
+    if due == Some(now) && (!ctx.in_input() || held) {
         return;
     }
     let (_, houses, house) = home(domain, data, sim);
@@ -615,8 +692,58 @@ fn plan_next(
             };
             let taken = taken(domain, data, household, sim, now);
             let who = (born(domain, sim), key, seed);
-            let from = (now, planned_in(ctx));
-            crate::house::state::next_choice_of((house, houses), who, person, &taken, from)
+            let planned = planned_in(ctx);
+            let person = person.clone();
+            let worst_drag = match data.social() {
+                Some(social) => {
+                    let members = (domain.members.get(&household).into_iter().flatten()).copied();
+                    let (bonuses, _, _) = seat_bonus(
+                        social,
+                        &domain.house.social,
+                        house,
+                        sim,
+                        now,
+                        members,
+                        |other| {
+                            let seated = domain.house.sims.get(&other)?;
+                            Some((seated.action, seated.place))
+                        },
+                    );
+                    object_worst_drag(&bonuses)
+                }
+                None => Vec::new(),
+            };
+            let drag = |at: i64, object: u16| {
+                let Some(social) = data.social() else {
+                    return 0;
+                };
+                let members = (domain.members.get(&household).into_iter().flatten()).copied();
+                object_drags_at(
+                    social,
+                    &domain.house.social,
+                    house,
+                    sim,
+                    SimTime::from_secs(at),
+                    members,
+                    |other| {
+                        let seated = domain.house.sims.get(&other)?;
+                        Some((seated.action, seated.place))
+                    },
+                )
+                .get(usize::from(object))
+                .copied()
+                .unwrap_or(0)
+            };
+            let worst = |object: u16| worst_drag.get(usize::from(object)).copied().unwrap_or(0);
+            crate::house::state::idle_plan(
+                (house, houses),
+                who,
+                &person,
+                &taken,
+                (now, planned),
+                drag,
+                worst,
+            )
         }
         false => None,
     };
@@ -1028,17 +1155,23 @@ pub(crate) fn on_arrive(
     // its planned choice; in its night it chooses now (ADR-0026, addendum of 2026-11-04 after
     // the playtest), as the bedtime it walked through made nobody choose.
     let Some(action) = action else {
-        if to == house.def().entrance {
-            person.place = Place::Away;
-            return;
-        }
-        person.place = Place::Room(to);
-        // The walk to the room one stays in ends: the arrival, caused by the idle that planned
-        // it (ADR-0032 section 4). The room before the walk decides whether this is an entering.
+        // Out of the door, or into the room one stays in. Either way the room changed. A push
+        // on the way in can move a temper (ADR-0032 section 4). Idle choices are planned
+        // again from whichever entry is last: this arrival's cause, then the push if it writes
+        // one (ADR-0030, addendum of 2026-11-13).
+        let entering = to != house.def().entrance;
+        person.place = if entering {
+            Place::Room(to)
+        } else {
+            Place::Away
+        };
         if let Some(by) = ctx.planned_by() {
-            super::feeling::arrived(domain, data, sim, Some(from), by, ctx);
+            changed_for(domain, sim, by);
+            if entering {
+                super::feeling::arrived(domain, data, sim, Some(from), by, ctx);
+            }
         }
-        if night(houses.day(), born, now).is_some() {
+        if entering && night(houses.day(), born, now).is_some() {
             decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
         }
         return;
@@ -1077,6 +1210,12 @@ pub(crate) fn on_arrive(
     if let Some(end) = end {
         let handle = ctx.schedule(end, EventPayload::ActionEnd { sim }, entry);
         domain.pending.insert((sim, Slot::End), handle);
+    }
+    // Avoid starts at the seat, not on the way. Idle choices are planned again, so a save
+    // while the partner sits names the same second the run has queued (ADR-0030, addendum
+    // of 2026-11-13). One already due in this second stays and can still idle.
+    if let Some(household) = domain.sims.get(&sim).map(|person| person.household) {
+        changed(domain, household, entry);
     }
     super::talk::on_seated(domain, data, sim, entry, ctx);
 }

@@ -71,7 +71,7 @@ COMPANY_MIN_SUM = 600
 AVOID_BELOW_TRUST = 400
 
 LIE_PPM = 50_000  # ADR-0031 4
-REFUTE_PPM = 500_000  # ADR-0031 5
+REFUTE_PPM = 200_000  # ADR-0031 5, addendum 2026-11-12
 LIE_GRUDGE = 700
 LIE_CERTAINTY = 900
 HEARD_CAP = 900
@@ -682,20 +682,39 @@ def see(held: Optional[Belief], key: tuple, now: int) -> Tuple[Optional[Belief],
     return None, "unchanged"
 
 
+def audience(kind: int, doer: int, other: int, seated: List[int], hearer: Optional[int]) -> List[int]:
+    """Who at the furniture holds a seen deed (ADR-0031 addendum 2026-11-12).
+
+    `neckt`: only the target (`other`), and not when the target is the doer.
+    `lästert`: every seated person except the doer and except `hearer`, the hearer of the
+    sentence in this talk. `hearer` None leaves out only the doer. Any other kind: nobody.
+    The order is the order of `seated`. Age is the caller's check."""
+    if kind == NECKT:
+        return [sim for sim in seated if sim == other and sim != doer]
+    if kind == LAESTERT:
+        return [sim for sim in seated if sim != doer and sim != hearer]
+    return []
+
+
 def belief_eviction_order(b: Belief) -> tuple:
-    return (b.certainty, b.since, b.key)
+    """Unprotected `gesehen` falls first (0), then every other basis (1). Within a group:
+    smallest certainty, then the older `since`, then the smaller key (ADR-0031 addendum
+    2026-11-12). The newcomer is ranked the same way."""
+    group = 0 if b.basis == GESEHEN else 1
+    return (group, b.certainty, b.since, b.key)
 
 
 def insert_belief(
     beliefs: Dict[tuple, Belief], new: Belief, own_children: set, cap: int = BELIEF_CAP
 ) -> Tuple[Dict[tuple, Belief], Optional[tuple], bool]:
-    """Adding a belief of a key not held yet (ADR-0031 2). A full list drops the belief
-    with the smallest certainty (then the older `since`, then the smaller key), never one
-    with `secret` and never a VaterVon of the holder's own child; the newcomer counts as
-    in ADR-0030 1 and, if it is the weakest, is not taken in; if there is no old one that
-    may fall, the newcomer is not taken in. The protection holds for the newcomer too: a
-    protected newcomer is never the one that falls (ADR-0031 2 "nie einer mit secret").
-    Returns (beliefs, dropped key, accepted)."""
+    """Adding a belief of a key not held yet (ADR-0031 2 and the addendum of 2026-11-12).
+    A full list never drops a `secret` or a VaterVon of the holder's own child. After that
+    protection, an unprotected `gesehen` falls before every other basis; within a group the
+    smallest certainty, then the older `since`, then the smaller key. The newcomer counts
+    as in ADR-0030 1 and, if it is the weakest, is not taken in; if there is no old one
+    that may fall, the newcomer is not taken in. The protection holds for the newcomer
+    too: a protected newcomer is never the one that falls (ADR-0031 2 "nie einer mit
+    secret"). Returns (beliefs, dropped key, accepted)."""
     assert new.key not in beliefs
     if len(beliefs) < cap:
         out = dict(beliefs)
@@ -1501,6 +1520,21 @@ def check_beliefs() -> None:
     s, kind = see(b1, k, 12)
     expect("seen replaces heard", (s.certainty, s.basis, kind), (1000, GESEHEN, "replaced"))
     expect("seen leaves widerlegt", see(Belief(k, None, 0, 1, 2, 2, WIDERLEGT), k, 12), (None, "unchanged"))
+    seated = [1, 2, 3, 4]
+    expect("audience: neckt is only the target", audience(NECKT, 1, 2, seated, None), [2])
+    expect("audience: neckt skips a target who is the doer", audience(NECKT, 2, 2, seated, None), [])
+    expect("audience: neckt skips a target who is not seated", audience(NECKT, 1, 9, seated, None), [])
+    expect(
+        "audience: lästert is the bystanders",
+        audience(LAESTERT, 1, 9, seated, 2),
+        [3, 4],
+    )
+    expect(
+        "audience: lästert keeps a seated person who is not the hearer",
+        audience(LAESTERT, 1, 9, seated, 8),
+        [2, 3, 4],
+    )
+    expect("audience: lügt is not a seen deed", audience(LUEGT, 1, 2, seated, None), [])
 
     # The three lies in the chain of ADR-0031 acceptance 6: trust 600 -> 520 -> 440 -> 360
     bond = Bond(4, (500, 600, 400, 0, 300, 0), 0)
@@ -1557,6 +1591,45 @@ def check_beliefs() -> None:
     allp = {kk(d): Belief(kk(d), None, 500, 100, 2, 2, GEHOERT, secret=True) for d in range(32)}
     out, dropped, ok = insert_belief(allp, new, set())
     expect("belief: only protected ones, newcomer not made", (dropped, ok), (None, False))
+
+    # A heard 570 is floor(900 * (500 + 450) / 1500). Seen 1000s fall before it.
+    def seen_full() -> Dict[tuple, Belief]:
+        out = {}
+        for d in range(32):
+            sk = tat_key(50, NECKT, 51, d)
+            out[sk] = Belief(sk, None, 1000, 100 + d, None, None, GESEHEN)
+        return out
+
+    lie_key = tat_key(60, LAESTERT, 61, 0)
+    lie = Belief(lie_key, None, 570, 1000, 7, 7, GEHOERT)
+    expect("lie at housemate trust", heard_certainty(900, 450), 570)
+    out, dropped, ok = insert_belief(seen_full(), lie, set())
+    expect(
+        "a heard 570 stays against a list full of seen 1000s",
+        (dropped, ok, out[lie_key].certainty, len(out)),
+        (kk(0), True, 570, 32),
+    )
+    mixed = seen_full()
+    heard_key = kk(5)
+    mixed[heard_key] = Belief(heard_key, None, 1, 105, 2, 2, GEHOERT)
+    seen_new = Belief(tat_key(60, NECKT, 61, 0), None, 1000, 1000, None, None, GESEHEN)
+    out, dropped, ok = insert_belief(mixed, seen_new, set())
+    expect(
+        "a seen newcomer displaces a seen one, not the heard",
+        (dropped, ok, heard_key in out, seen_new.key in out),
+        (kk(0), True, True, True),
+    )
+    protected_seen = seen_full()
+    protected_seen[kk(0)] = Belief(kk(0), None, 1, 100, None, None, GESEHEN, secret=True)
+    out, dropped, ok = insert_belief(protected_seen, lie, set())
+    expect(
+        "a secret seen belief stays while a seen one falls",
+        (dropped, ok, out[kk(0)].secret),
+        (kk(1), True, True),
+    )
+    seen_only = Belief(tat_key(60, NECKT, 61, 2), None, 1000, 1000, None, None, GESEHEN)
+    out, dropped, ok = insert_belief(full_beliefs(), seen_only, set())
+    expect("a seen newcomer does not displace a heard belief", (dropped, ok), (None, False))
 
     # Truth window
     d = Deeds([])
@@ -1695,7 +1768,7 @@ def check_beliefs() -> None:
     bond = bond_apply(Bond(3, (500, 600, 400, 0, 300, 100), 0), 0, {TRUST: -120, GRUDGE: 150})
     expect("refute applied to an edge", (bond.values[TRUST], bond.values[GRUDGE]), (480, 250))
     expect("draw rule: lie below 50000", (lies(49_999), lies(50_000)), (True, False))
-    expect("draw rule: refute below 500000", (refutes(499_999), refutes(500_000)), (True, False))
+    expect("draw rule: refute below 200000", (refutes(199_999), refutes(200_000)), (True, False))
 
 
 def check_paternity() -> None:
@@ -1943,7 +2016,7 @@ def print_pins() -> None:
                 f"  topic, a=founder {x}, b=founder {y}, ages 30/32, {label}: allowed {allowed},"
                 f" sums {sums}, chosen {topic} {TOPIC_NAMES[topic]}, actor {who}"
             )
-    print("TALK_LIE (u in 0..999999, lie if < 50000) and TALK_REFUTE (refute if < 500000),")
+    print("TALK_LIE (u in 0..999999, lie if < 50000) and TALK_REFUTE (refute if < 200000),")
     print("seed 0x5EED, occasion = second, subject = speaker/refuter, detail = hearer:")
     for second in (6 * 3600, 6 * 3600 + 3600, 2 * DAY + 18 * 3600):
         for s_i, h_i in ((0, 1), (1, 0), (2, 3), (3, 2)):

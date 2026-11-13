@@ -578,7 +578,7 @@ mod tests {
         assert_eq!(rows[2], [44, 850, 922, 380, 111, 824]);
         assert_eq!(rows[3], [947, 239, 296, 644, 8, 434]);
         // The reference table of TALK_LIE and TALK_REFUTE (tools/social_reference.py), seed
-        // 0x5EED, founders of test:social. A lie is u < 50_000. A refutation is u < 500_000.
+        // 0x5EED, founders of test:social. A lie is u < 50_000. A refutation is u < 200_000.
         let ppm = |speaker: usize, second: i64, hearer: usize, lie: bool| {
             let key = if lie {
                 lie_draw_key(keys[speaker], at(second), keys[hearer])
@@ -610,7 +610,16 @@ mod tests {
         assert_eq!(ppm(0, 229_800, 1, true), 3_870);
         assert_eq!(ppm(0, 324_000, 1, true), 15_212);
         assert_eq!(ppm(2, 27_000, 1, false), 218_846);
+        assert_eq!(ppm(2, 27_012, 1, false), 22_449);
+        assert!(ppm(2, 27_012, 1, false) < 200_000);
+        assert_eq!(ppm(2, 27_616, 1, false), 189_792);
+        assert!(ppm(2, 27_616, 1, false) < 200_000);
         assert_eq!(ppm(2, 30_600, 1, false), 533_784);
+        assert!(ppm(2, 30_600, 1, false) >= 200_000);
+        assert_eq!(ppm(1, 30_605, 0, false), 91_195);
+        assert!(ppm(1, 30_605, 0, false) < 200_000);
+        assert_eq!(ppm(0, 30_605, 1, true), 962_713);
+        assert_eq!(ppm(1, 30_605, 0, true), 957_388);
         let social = social();
         let dining = DataId::new("core:dining_table").expect("id");
         let house = [400, 450, 400, 0, 200, 0];

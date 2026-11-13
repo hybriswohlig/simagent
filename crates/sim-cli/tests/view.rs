@@ -2180,7 +2180,7 @@ fn settings_file(values: &str) -> String {
 
 /// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
 /// `the_base_game_loads`).
-const BASE_HASH: &str = "f3cb25b35a27ab32";
+const BASE_HASH: &str = "57e6320f6113787a";
 
 /// The data hash in the manifest of the run in `dir`.
 fn data_hash(dir: &Path) -> String {
@@ -4605,7 +4605,8 @@ fn a_talk_is_a_memory_on_the_house_answer() {
     assert_eq!(talk["strength"], json!(strength));
 }
 
-/// Six teases leave six talk memories, one seen belief, and a deed "Warum?" can call true.
+/// Six teases leave six talk memories, one seen belief on the target, and a deed "Warum?"
+/// can call true.
 ///
 /// The founders of seed `0x5EED` and tag `test:social` tease every time they sit down
 /// (interests pinned in `interest_pins_of_the_social_founders_choose_the_reference_topics`):
@@ -4629,9 +4630,10 @@ fn a_talk_is_a_memory_on_the_house_answer() {
 /// (600, 598, 595, 593, 590, and 588 for the oldest), so the tie does not choose. The
 /// oldest is the one left out. The sort is left as the page has it.
 ///
-/// The belief is the first tease, seen by both, and later teases of the same deed do not
-/// move `since`. Truth is read at the clock, which this answer leaves on the sixth talk,
-/// still house day 1, inside the 30-day window.
+/// The belief is the first tease. Only the target (sim 2) holds it. The doer (sim 1) does
+/// not, and a bystander would not. Later teases of the same deed do not move `since`.
+/// Truth is read at the clock, which this answer leaves on the sixth talk, still house
+/// day 1, inside the 30-day window.
 #[test]
 fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
     use sim_core::input::{Command as Order, Input};
@@ -4745,11 +4747,12 @@ fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
         "basis": "gesehen",
         "secret": false,
     });
-    assert_eq!(person(1)["beliefs"], json!([belief.clone()]));
+    assert_eq!(person(1)["beliefs"], json!([]));
     assert_eq!(person(2)["beliefs"], json!([belief]));
     // The hand history, not the live log. The drop is at the choice, so nothing fades,
-    // and trust is the line's 320. The live belief of the same statement is not a secret.
-    // The deed was done on house day 1 and the clock is still that day, so truth is true.
+    // and trust is the line's 320. The doer does not hold the seen tease, so the page's
+    // secret flag stays false. The deed was done on house day 1 and the clock is still
+    // that day, so truth is true.
     let history: Vec<LogEntry> = serde_json::from_str(
         r#"[
             {"id":4,"t":108000,"subjects":[{"sim":1}],"causes":[{"rule":"core:test"}],
