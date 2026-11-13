@@ -829,7 +829,7 @@ fn version_bytes(bytes: &[u8]) -> (usize, usize) {
     let core_at = bytes.len() - rest.len();
     let (core, rest) = postcard::take_from_bytes::<u32>(rest).expect("core");
     assert_eq!(core, CORE_VERSION);
-    assert_eq!(bytes[core_at], 0x46);
+    assert_eq!(bytes[core_at], 0x47);
     let (_, rest) = postcard::take_from_bytes::<u64>(rest).expect("hash");
     let proj_at = bytes.len() - rest.len();
     let (projection, _) = postcard::take_from_bytes::<u32>(rest).expect("projection");
@@ -872,7 +872,7 @@ fn second_birth_at() -> i64 {
 #[test]
 fn a_save_in_the_middle_of_the_week_loads_and_an_old_one_does_not() {
     assert_eq!(FORMAT_VERSION, 2);
-    assert_eq!(CORE_VERSION, 70);
+    assert_eq!(CORE_VERSION, 71);
     assert_eq!(PROJECTION_VERSION, 24);
     let second = second_birth_at();
     let (mut run, _) = couple(quiet(), 7);

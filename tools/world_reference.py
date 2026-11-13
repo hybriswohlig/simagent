@@ -768,7 +768,10 @@ PROJECTION_VERSION = 24
 # Who sees a deed, and which belief falls first, and refute_ppm 200 000 (ADR-0031 addenda of
 # 2026-11-12). No new state; the data hash changes (refute_ppm). A run without a household in a
 # house keeps its log: the projection stays 24, core 70.
-CORE_VERSION = 70
+# The topic and the said sentence of a talk (ADR-0030 and ADR-0031, addenda of 2026-11-13).
+# No new state. A save keeps every byte but the core version, and a run without a household
+# in a house keeps its year hashes and its log: the projection stays 24, core 71.
+CORE_VERSION = 71
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
