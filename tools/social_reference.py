@@ -15,9 +15,10 @@ What it implements (section numbers refer to the ADRs):
   the topic draw (TALK_TOPIC = 38, addendum 2026-11-13).
 - Choice bonus (ADR-0030 4): `liked` / `avoided`, company and avoid per furniture.
 - Beliefs (ADR-0031 1 to 5): statement keys, heard certainty, confirmation, seen
-  replacing heard, belief eviction, gossip material and speaker, the bond steps for heard
-  deeds, the lie decision (TALK_LIE = 36), which sentence is said (TALK_SAY = 39,
-  addendum 2026-11-13), the refutation decision (TALK_REFUTE = 37) and its effects.
+  replacing heard, belief eviction, gossip material and speaker (heard material first,
+  second addendum 2026-11-13), the bond steps for heard deeds, the lie decision
+  (TALK_LIE = 36), which sentence is said (TALK_SAY = 39, addendum 2026-11-13), the
+  refutation decision (TALK_REFUTE = 37) and its effects.
 - Paternity at birth (ADR-0031 6): the four rules.
 - Feelings and temper (ADR-0032 1 to 5): analytic channel fade and temper return,
   applying an occasion (band factor per row, rows summed, one clamp, temper from the
@@ -868,9 +869,19 @@ def choose_speaker(
     a: int, material_a: List[Belief], reason_a: Optional[int],
     b: int, material_b: List[Belief], reason_b: Optional[int],
 ) -> Optional[int]:
-    """ADR-0031 3: the speaker is who has material or a reason; if both, the larger sum of
-    the certainties of his material, then the smaller SimId. None: no speaker, so Klatsch
-    is not allowed."""
+    """ADR-0031, second addendum 2026-11-13. Heard material (basis `gehört`, a believed
+    lie included) speaks first. If only one has it, that one speaks. If both or neither
+    have it, the larger sum of the certainties of all the material, then the smaller
+    SimId. A reason alone gives no priority: someone with only a reason speaks only when
+    the other has neither material nor a reason. None: no speaker, so Klatsch is not
+    allowed."""
+    def has_heard(material: List[Belief]) -> bool:
+        return any(piece.basis == GEHOERT for piece in material)
+
+    if has_heard(material_a) and not has_heard(material_b):
+        return a
+    if has_heard(material_b) and not has_heard(material_a):
+        return b
     a_ok = bool(material_a) or reason_a is not None
     b_ok = bool(material_b) or reason_b is not None
     if a_ok and not b_ok:
@@ -879,9 +890,13 @@ def choose_speaker(
         return b
     if not a_ok:
         return None
-    sa = sum(m.certainty for m in material_a)
-    sb = sum(m.certainty for m in material_b)
-    return b if sb > sa else a
+    sa = sum(piece.certainty for piece in material_a)
+    sb = sum(piece.certainty for piece in material_b)
+    if sb > sa:
+        return b
+    if sa > sb:
+        return a
+    return a if a < b else b
 
 
 def said_belief(
@@ -1752,6 +1767,40 @@ def check_beliefs() -> None:
     expect("speaker: larger sum of certainties", choose_speaker(1, [m3], None, 2, [m1], None), 2)
     expect("speaker: tie, smaller SimId", choose_speaker(1, [m1], None, 2, [m2], None), 1)
     expect("speaker: reason without material counts 0 against material", choose_speaker(1, [], 40, 2, [m3], None), 2)
+    expect("speaker: both heard, tie, smaller SimId passed second", choose_speaker(2, [m1], None, 1, [m2], None), 1)
+    # Heard material speaks first. A believed lie is basis `gehört` at 100. The other
+    # side's seen deed is 1000. Only one has heard material, so 2 speaks. 1000 > 100.
+    lie = Belief(tat_key(31, LAESTERT, 2, 4), None, 100, 5, 8, 8, GEHOERT)
+    seen_1000 = Belief(tat_key(30, NECKT, 1, 4), None, 1000, 5, None, None, GESEHEN)
+    expect(
+        "speaker: only the heard side speaks, though the seen sum is larger",
+        choose_speaker(1, [seen_1000], None, 2, [lie], None),
+        2,
+    )
+    # Both have heard material. 100 + 1000 = 1100 against 900, so the larger sum of all
+    # the material speaks. The heard priority cancels.
+    heard_100 = Belief(tat_key(32, LAESTERT, 2, 4), None, 100, 5, 8, 8, GEHOERT)
+    seen_extra = Belief(tat_key(30, NECKT, 1, 5), None, 1000, 5, None, None, GESEHEN)
+    heard_900 = Belief(tat_key(33, LAESTERT, 1, 4), None, 900, 5, 8, 8, GEHOERT)
+    expect(
+        "speaker: both heard, the larger sum of all material",
+        choose_speaker(1, [heard_100, seen_extra], None, 2, [heard_900], None),
+        1,
+    )
+    # Neither has heard material. Seen 400 against seen 900.
+    seen_400 = Belief(tat_key(34, NECKT, 1, 4), None, 400, 5, None, None, GESEHEN)
+    seen_900 = Belief(tat_key(35, NECKT, 1, 4), None, 900, 5, None, None, GESEHEN)
+    expect(
+        "speaker: neither heard, the larger sum",
+        choose_speaker(1, [seen_400], None, 2, [seen_900], None),
+        2,
+    )
+    # One has only a reason. The other has only the seen 900. The reason gives no priority.
+    expect(
+        "speaker: a reason alone loses to seen material",
+        choose_speaker(1, [], 40, 2, [seen_900], None),
+        2,
+    )
     # By hand: household order 1, 2, 3, 4; speaker 1 and hearer 2 are skipped. Person 3 at
     # grudge 300 meets the door and is the only candidate, so W is 3. At 299 nobody meets it.
     # Person 4 at 900 and person 3 at 300 both meet it; the smaller SimId is 3.

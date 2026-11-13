@@ -774,6 +774,9 @@ PROJECTION_VERSION = 24
 # lie_grudge 300 (ADR-0031 addendum of 2026-11-13: the 20-seed measurement had fewer than
 # 7 lies). No new state and the core stays 71. A save of the repository's data changes
 # only in the data-hash bytes of its header. Year hashes, the log and the state hash stay.
+# Heard material speaks first (ADR-0031, second addendum of 2026-11-13). No new state,
+# no new tag, and the core stays 71. The data hash stays. A run without a household in a
+# house keeps its year hashes and its log.
 CORE_VERSION = 71
 
 FORMAT_VERSION = 2

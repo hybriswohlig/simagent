@@ -733,11 +733,11 @@ pub fn refute(
     }
 }
 
-/// Who speaks (ADR-0031 section 3). Someone with material or a reason may. If both may, the
-/// larger sum of the certainties of the material speaks, and a tie is the smaller [`SimId`].
-///
-/// READING: the reference returns its first argument on a tie. The ADR says the smaller id,
-/// which is the same when the caller passes the smaller id first, and this does that either way.
+/// Who speaks (ADR-0031 section 3, second addendum of 2026-11-13). Heard material, basis
+/// [`Basis::Gehoert`] (a believed lie included), speaks first. If only one side has it, that
+/// side speaks. If both or neither have it, the larger sum of the certainties of all the
+/// material speaks, and a tie is the smaller [`SimId`]. A reason alone gives no priority:
+/// someone with only a reason speaks only when the other has neither material nor a reason.
 pub fn choose_speaker(
     a: SimId,
     material_a: &[Belief],
@@ -746,6 +746,15 @@ pub fn choose_speaker(
     material_b: &[Belief],
     reason_b: Option<SimId>,
 ) -> Option<SimId> {
+    let heard = |material: &[Belief]| material.iter().any(|belief| belief.basis == Basis::Gehoert);
+    let a_heard = heard(material_a);
+    let b_heard = heard(material_b);
+    if a_heard && !b_heard {
+        return Some(a);
+    }
+    if b_heard && !a_heard {
+        return Some(b);
+    }
     let a_ok = !material_a.is_empty() || reason_a.is_some();
     let b_ok = !material_b.is_empty() || reason_b.is_some();
     if a_ok && !b_ok {
@@ -1587,6 +1596,50 @@ mod tests {
         );
         assert_eq!(
             choose_speaker(id(1), &[], Some(id(40)), id(2), &[m3], None),
+            Some(id(2))
+        );
+        // Heard material speaks first (ADR-0031, second addendum 2026-11-13). The
+        // reference's hand cases. A believed lie is basis `gehört` at 100. The other
+        // side's seen deed is 1000. Only one has heard material, so 2 speaks.
+        let seen_1000 = seen_belief(tat(30, NECKT, 1, 4), 5);
+        let lie = heard(tat(31, LAESTERT, 2, 4), 100, 5, 8, 8);
+        assert_eq!(
+            choose_speaker(id(1), &[seen_1000], None, id(2), &[lie], None),
+            Some(id(2))
+        );
+        // Both have heard material. 100 + 1000 = 1100 against 900, so the larger sum
+        // of all the material speaks.
+        let heard_100 = heard(tat(32, LAESTERT, 2, 4), 100, 5, 8, 8);
+        let seen_extra = seen_belief(tat(30, NECKT, 1, 5), 5);
+        let heard_900 = heard(tat(33, LAESTERT, 1, 4), 900, 5, 8, 8);
+        assert_eq!(
+            choose_speaker(
+                id(1),
+                &[heard_100, seen_extra],
+                None,
+                id(2),
+                &[heard_900],
+                None
+            ),
+            Some(id(1))
+        );
+        // Neither has heard material. Seen 400 against seen 900.
+        let seen_400 = Belief {
+            certainty: 400,
+            ..seen_belief(tat(34, NECKT, 1, 4), 5)
+        };
+        let seen_900 = Belief {
+            certainty: 900,
+            ..seen_belief(tat(35, NECKT, 1, 4), 5)
+        };
+        assert_eq!(
+            choose_speaker(id(1), &[seen_400], None, id(2), &[seen_900], None),
+            Some(id(2))
+        );
+        // One has only a reason. The other has only the seen 900. The reason gives no
+        // priority, so the seen material speaks.
+        assert_eq!(
+            choose_speaker(id(1), &[], Some(id(40)), id(2), &[seen_900], None),
             Some(id(2))
         );
     }
