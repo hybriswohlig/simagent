@@ -628,11 +628,13 @@ enum Begun {
 /// household's last entry that changed it; anyone else has no choice planned. A choice already
 /// due in this second stays in a handler: it comes anyway, and plans the next. An input acts
 /// before the events of its second, so there even one due in that second, which has not come
-/// yet, is planned anew, as a loaded world plans it from the clock. The plan weighs every whole
-/// minute with that minute's drag, between a bonus-0 `t+` and a `t−` that uses company 0 and
-/// avoid in full, so an idle choice does not schedule itself again and a save during the wait
-/// names that same second (ADR-0030, addendum of 2026-11-13). The end of a time-filler at its
-/// object is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
+/// yet, is planned anew, as a loaded world plans it from the clock. A waiter's wakeup stays:
+/// `release` held a place for them and scheduled the choice for this second. The plan weighs
+/// every whole minute with that minute's drag, between a bonus-0 `t+` and a `t−` that uses
+/// company 0 and avoid in full, so an idle choice does not schedule itself again and a save
+/// during the wait names that same second (ADR-0030, addendum of 2026-11-13). The end of a
+/// time-filler at its object is its next choice, planned anew in the same way (`filler_end_of`;
+/// ADR-0026,
 /// addendum of 2026-11-04 on comfort and the time-filler), including one due in an input's
 /// second. Each plan is made in `planned_in`.
 pub(crate) fn plan_idle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
@@ -658,6 +660,7 @@ fn plan_next(
     ctx: &mut SimCtx<'_, '_>,
 ) {
     let now = ctx.now();
+    let held = held_by(domain, household, sim).is_some();
     let Some(person) = domain.house.sims.get(&sim) else {
         return;
     };
@@ -670,9 +673,10 @@ fn plan_next(
     let pending = domain.pending.get(&(sim, Slot::Decide)).copied();
     let due = pending.and_then(|handle| ctx.pending_time(handle));
     // A handler's choice already due in this second stays: it comes anyway. An input acts
-    // before the events of its second, so one due then has not come yet and is planned anew,
-    // as a loaded world plans it from the clock (ADR-0030, addendum of 2026-11-13).
-    if due == Some(now) && !ctx.in_input() {
+    // before the events of its second, so an idle timer due then has not come yet and is
+    // planned anew, as a loaded world plans it from the clock (ADR-0030, addendum of
+    // 2026-11-13). A place held for this person is a waiter's wakeup, due now, and stays.
+    if due == Some(now) && (!ctx.in_input() || held) {
         return;
     }
     let (_, houses, house) = home(domain, data, sim);

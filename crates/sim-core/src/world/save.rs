@@ -2792,13 +2792,19 @@ fn choice_plan_from(
     )
 }
 
-/// The one second a pending `Decide` of `sim` may name: the same search the idle plan ran,
-/// from the second after the clock, planned in the clock (ADR-0026, addendum of 2026-11-04
-/// after the playtest; ADR-0030, addendum of 2026-11-13).
+/// The one second a pending `Decide` of `sim` may name. A place held for `sim` is the wakeup
+/// `release` planned for the next second, and that choice is due then (ADR-0026 section 5).
+/// An idle person who holds nothing names the second the idle plan searches from the second
+/// after the clock, planned in the clock (ADR-0026, addendum of 2026-11-04 after the playtest;
+/// ADR-0030, addendum of 2026-11-13).
 fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
     let clock = loaded.closed_through;
-    let start = clock.checked_add(SimDuration::from_secs(1))?;
-    choice_plan_from(loaded, rules, sim, start, clock)
+    let next = clock.checked_add(SimDuration::from_secs(1))?;
+    let held = (loaded.house.holds.values()).any(|holder| *holder == sim);
+    if held {
+        return Some(next);
+    }
+    choice_plan_from(loaded, rules, sim, next, clock)
 }
 
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at
@@ -3015,8 +3021,10 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
             }
             // A choice planned by a handler runs in its second (ADR-0026 section 3), so after a
             // run only the next choice of an idle person is pending, at the one second
-            // [`choice_due`] recomputes (ADR-0026, addendum of 2026-11-04 after the playtest;
-            // ADR-0030, addendum of 2026-11-13). A waiter has none (the house part's checks).
+            // [`choice_due`] recomputes. A holder is due in the next second; an idle person who
+            // holds nothing is at the idle plan's second (ADR-0026 section 5 and the addendum of
+            // 2026-11-04 after the playtest; ADR-0030, addendum of 2026-11-13). A waiter has none
+            // (the house part's checks).
             EventPayload::Decide { sim } => {
                 entry.period.is_none()
                     && choices.insert(*sim)
