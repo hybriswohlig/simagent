@@ -113,7 +113,7 @@
     "confirm_cap": 900,
     "inferred_certainty": 900,
     "lie_ppm": 50000,
-    "lie_grudge": 700,
+    "lie_grudge": 300,
     "lie_certainty": 900,
     "refute_ppm": 200000,
     "refute_trust": -120,

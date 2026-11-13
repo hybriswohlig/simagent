@@ -1622,24 +1622,28 @@ mod tests {
                     .unwrap_or(0)
             }
         }
+        // The reference's hand case: the door opens at grudge 300 and stays shut at 299.
+        // Household order 1, 2, 3, 4; speaker 1 and hearer 2 are skipped. Person 3 at 300
+        // is the only one at the door. Person 4 at 900 and person 3 at 300 both qualify,
+        // and the smaller SimId is 3.
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(3, 700)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(3, 300)]), 300),
             Some(id(3))
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(3, 699)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(3, 299)]), 300),
             None
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(4, 900), (3, 700)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(4, 900), (3, 300)]), 300),
             Some(id(3))
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(2, 900)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(2, 900)]), 300),
             None
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(1, 900)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(1, 900)]), 300),
             None
         );
         let (said, certainty) = lie_statement(id(3), id(2), 6, &rules);

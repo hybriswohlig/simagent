@@ -72,7 +72,7 @@ AVOID_BELOW_TRUST = 400
 
 LIE_PPM = 50_000  # ADR-0031 4
 REFUTE_PPM = 200_000  # ADR-0031 5, addendum 2026-11-12
-LIE_GRUDGE = 700
+LIE_GRUDGE = 300  # ADR-0031 addendum 2026-11-13: the door opens at grudge 300
 LIE_CERTAINTY = 900
 HEARD_CAP = 900
 CONFIRM_STEP = 50
@@ -854,8 +854,8 @@ def gossip_material(
 def lie_reason(
     speaker: int, hearer: int, household: List[int], speaker_grudge_at_now: Dict[int, int]
 ) -> Optional[int]:
-    """The W of ADR-0031 4: grudge from 700 on a person W of the household who is not the
-    hearer (nor the speaker), the smallest SimId among several."""
+    """The W of ADR-0031 4: grudge from 300 on a person W of the household who is not the
+    hearer (nor the speaker), the smallest SimId among several. The door is shut at 299."""
     for w in sorted(household):
         if w in (speaker, hearer):
             continue
@@ -1752,9 +1752,12 @@ def check_beliefs() -> None:
     expect("speaker: larger sum of certainties", choose_speaker(1, [m3], None, 2, [m1], None), 2)
     expect("speaker: tie, smaller SimId", choose_speaker(1, [m1], None, 2, [m2], None), 1)
     expect("speaker: reason without material counts 0 against material", choose_speaker(1, [], 40, 2, [m3], None), 2)
-    expect("lie reason: grudge 700", lie_reason(1, 2, [1, 2, 3, 4], {3: 700}), 3)
-    expect("lie reason: 699 is none", lie_reason(1, 2, [1, 2, 3, 4], {3: 699}), None)
-    expect("lie reason: smallest SimId", lie_reason(1, 2, [1, 2, 3, 4], {4: 900, 3: 700}), 3)
+    # By hand: household order 1, 2, 3, 4; speaker 1 and hearer 2 are skipped. Person 3 at
+    # grudge 300 meets the door and is the only candidate, so W is 3. At 299 nobody meets it.
+    # Person 4 at 900 and person 3 at 300 both meet it; the smaller SimId is 3.
+    expect("lie door: grudge 300 opens", lie_reason(1, 2, [1, 2, 3, 4], {3: 300}), 3)
+    expect("lie door: grudge 299 stays shut", lie_reason(1, 2, [1, 2, 3, 4], {3: 299}), None)
+    expect("lie reason: smallest SimId", lie_reason(1, 2, [1, 2, 3, 4], {4: 900, 3: 300}), 3)
     expect("lie reason: the hearer is not W", lie_reason(1, 2, [1, 2, 3, 4], {2: 900}), None)
     expect("lie statement", lie_statement(3, 2, 6), (tat_key(3, LAESTERT, 2, 6), 900))
 
