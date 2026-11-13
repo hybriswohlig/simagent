@@ -584,6 +584,22 @@ pub(crate) fn object_drag(bonuses: &[Bonus], temper: i16) -> Vec<i64> {
         .collect()
 }
 
+/// The drag of every object at `at` ([`object_drag`]). Who sits is the household now; the
+/// temper and the fading bonds are read at `at`, which is how a later save names the same
+/// second (ADR-0032).
+pub(crate) fn object_drags_at(
+    social: &crate::social::data::SocialData,
+    stored: &crate::social::state::Social,
+    house: &House,
+    sim: SimId,
+    at: SimTime,
+    members: impl Iterator<Item = SimId>,
+    places: impl Fn(SimId) -> Option<(Option<Action>, Place)>,
+) -> Vec<i64> {
+    let (bonuses, _, temper) = seat_bonus(social, stored, house, sim, at, members, places);
+    object_drag(&bonuses, temper)
+}
+
 /// How a walk begins: by a choice, as a time-filler or not, or by a command (ADR-0024 section 5).
 #[derive(Clone, Copy)]
 enum Begun {
@@ -597,9 +613,10 @@ enum Begun {
 /// not lying and waiting for nothing, chooses at `idle_plan` from now on, planned by the
 /// household's last entry that changed it; anyone else has no choice planned. A choice already
 /// due in this second stays: it comes anyway, and plans the next. When the bonus-0 search names
-/// this second, the plan uses the live negative net instead, so an idle choice does not schedule
-/// itself again (ADR-0030 section 4, ADR-0032 section 5). The end of a time-filler at its object
-/// is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
+/// this second, the plan reads the negative net at each later second, so an idle choice does not
+/// schedule itself again and a save during the wait names that same second (ADR-0030 section 4,
+/// ADR-0032 section 5). The end of a time-filler at its object is its next choice, planned anew
+/// in the same way (`filler_end_of`; ADR-0026,
 /// addendum of 2026-11-04 on comfort and the time-filler); in an input at the clock even one due
 /// in its second, which has not come yet, as a loaded world plans it from the clock. Each plan is
 /// made in `planned_in`.
@@ -654,15 +671,35 @@ fn plan_next(
             let taken = taken(domain, data, household, sim, now);
             let who = (born(domain, sim), key, seed);
             let planned = planned_in(ctx);
-            let (bonuses, _, temper) = company_of(domain, data, household, house, sim, now);
-            let drag = object_drag(&bonuses, temper);
+            let person = person.clone();
+            let drag = |at: i64, object: u16| {
+                let Some(social) = data.social() else {
+                    return 0;
+                };
+                let members = (domain.members.get(&household).into_iter().flatten()).copied();
+                object_drags_at(
+                    social,
+                    &domain.house.social,
+                    house,
+                    sim,
+                    SimTime::from_secs(at),
+                    members,
+                    |other| {
+                        let seated = domain.house.sims.get(&other)?;
+                        Some((seated.action, seated.place))
+                    },
+                )
+                .get(usize::from(object))
+                .copied()
+                .unwrap_or(0)
+            };
             let plan = crate::house::state::idle_plan(
                 (house, houses),
                 who,
-                person,
+                &person,
                 &taken,
                 (now, planned),
-                |object| drag.get(usize::from(object)).copied().unwrap_or(0),
+                drag,
             );
             plan.scheduled(now)
         }

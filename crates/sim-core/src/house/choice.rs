@@ -570,13 +570,16 @@ pub fn next_choice(
         (start, after),
         moods,
         departure,
-        |_| 0,
+        |_, _| 0,
     )
 }
 
-/// As [`next_choice`], with `drag(object)` added where that search adds 0. The idle plan uses a
-/// negative net only when the bonus-0 search names `start` itself: the choice would idle and
-/// schedule the same second again (ADR-0030 section 4, ADR-0032 section 5).
+/// As [`next_choice`], with `drag(second, object)` added where that search adds 0, read at the
+/// second being weighed. The temper returns and familiarity fades with no event, so a run and a
+/// save taken later name the same second from the state alone (ADR-0032 sections 2 and 5). The
+/// idle plan uses a negative net only when the bonus-0 search names `start` itself: the choice
+/// would idle and schedule the same second again (ADR-0030 section 4). The search assumes the
+/// score, once enough, stays enough ([`first_at`]).
 pub(crate) fn next_choice_drag(
     (house, data): (&House, &HouseData),
     (born, needs, room): (SimTime, &[NeedSample; 5], u8),
@@ -584,7 +587,7 @@ pub(crate) fn next_choice_drag(
     (start, after): (SimTime, SimTime),
     moods: impl Fn(SimTime, u16, u16) -> i8,
     departure: impl Fn(SimTime) -> Option<SimTime>,
-    drag: impl Fn(u16) -> i64,
+    drag: impl Fn(i64, u16) -> i64,
 ) -> Option<SimTime> {
     let rules = data.day();
     let planned = |start: SimTime| {
@@ -619,7 +622,6 @@ pub(crate) fn next_choice_drag(
         let kind = kind_of(house, data, object);
         let walk_secs = house.walk_to(room, object);
         let walk = i64::from(walk_secs) * PER_WALKING_SECOND;
-        let bonus = drag(object);
         for (offer, def) in (0_u16..).zip(&kind.offers) {
             // By day an offer of sleep is closed, and the search ends before the night.
             if def.sleep || !(def.min_age..=def.max_age).contains(&age) {
@@ -636,7 +638,7 @@ pub(crate) fn next_choice_drag(
                     (true, None) => needs[n].value_at(start),
                     (false, _) => needs[n].value_at(at),
                 });
-                points(def, weighed, values, walk, mood, bonus) >= ENOUGH
+                points(def, weighed, values, walk, mood, drag(at.as_secs(), object)) >= ENOUGH
             };
             // Only before the departure closes it; it runs longer the later it is chosen.
             let closes = |at: i64| {
@@ -660,7 +662,15 @@ pub(crate) fn next_choice_drag(
             let mut found = surely;
             while minute < surely.unwrap_or(until) {
                 let mood = moods(SimTime::from_secs(minute), object, offer);
-                if points(def, weighed, values_at(minute), walk, mood, bonus) >= ENOUGH {
+                if points(
+                    def,
+                    weighed,
+                    values_at(minute),
+                    walk,
+                    mood,
+                    drag(minute, object),
+                ) >= ENOUGH
+                {
                     found = Some(minute);
                     break;
                 }

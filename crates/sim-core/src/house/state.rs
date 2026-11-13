@@ -188,7 +188,7 @@ pub fn next_choice_of(
         person,
         taken,
         (start, after),
-        |_| 0,
+        |_, _| 0,
     )
 }
 
@@ -199,7 +199,7 @@ fn next_choice_of_drag(
     person: &InHouse,
     taken: &BTreeSet<(u16, u8)>,
     (start, after): (SimTime, SimTime),
-    drag: impl Fn(u16) -> i64,
+    drag: impl Fn(i64, u16) -> i64,
 ) -> Option<SimTime> {
     let (room, start) = match person.place {
         Place::Room(room) => (room, start),
@@ -245,26 +245,21 @@ impl IdlePlan {
             other => other,
         }
     }
-
-    /// A pending `Decide` at `time` is the bonus-0 second, or the dragged second when the
-    /// bonus-0 search names `start` (the choice has not run yet, or it has and was replanned).
-    pub(crate) fn accepts(&self, start: SimTime, time: SimTime) -> bool {
-        self.plain == Some(time) || (self.plain == Some(start) && self.dragged == Some(time))
-    }
 }
 
 /// The next `Decide` of an idle person (ADR-0026, addendum of 2026-11-04 after the playtest).
 /// The bonus-0 search is kept when it names a later second, so company never pulls it earlier.
-/// When it names `start`, `drag(object)` is `min(0, scaled company − avoid)` at that second: a
-/// negative net can put the only enough offer under `ENOUGH`, the choice idles, and planning
-/// `start` again would schedule the same choice (ADR-0030 section 4, ADR-0032 section 5).
+/// When it names `start`, `drag(second, object)` is `min(0, scaled company − avoid)` read at
+/// each second of the search: a negative net can put the only enough offer under `ENOUGH`, the
+/// choice idles, and planning `start` again would schedule the same choice (ADR-0030 section 4,
+/// ADR-0032 section 5).
 pub(crate) fn idle_plan(
     (house, data): (&House, &HouseData),
     who: (SimTime, crate::lineage::LineageKey, u64),
     person: &InHouse,
     taken: &BTreeSet<(u16, u8)>,
     (start, after): (SimTime, SimTime),
-    drag: impl Fn(u16) -> i64,
+    drag: impl Fn(i64, u16) -> i64,
 ) -> IdlePlan {
     let plain = next_choice_of((house, data), who, person, taken, (start, after));
     let dragged = match plain {

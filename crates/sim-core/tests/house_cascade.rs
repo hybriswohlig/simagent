@@ -36,10 +36,12 @@ use sim_core::house::choice::ENOUGH;
 use sim_core::house::state::{Action, Place};
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input};
+use sim_core::log::LogEntry;
 use sim_core::log::{LogPayload, Subject};
 use sim_core::social::data::SocialData;
+use sim_core::social::feeling::Feel;
 use sim_core::time::{HOUR, SimTime};
-use sim_core::world::{World, YearOut};
+use sim_core::world::{LoadError, World, YearOut};
 
 /// Hunger falls by 100 an hour, so the third point takes 108 s.
 const FALL_SECONDS: i64 = 108;
@@ -292,4 +294,248 @@ fn an_idle_choice_does_not_schedule_itself_again() {
                 }
             )
     }));
+}
+
+/// Company 8 000 and avoid 8 000, temper −500 at the morning, returning 1 000 a day.
+/// Hunger is the cascade meal. `lost` is the temper that has returned by `elapsed`.
+const RETURN: i64 = 1_000;
+const TEMPER: i64 = 500;
+const DAY_SECS: i64 = 86_400;
+
+fn lost_temper(elapsed: i64) -> i64 {
+    RETURN * elapsed / DAY_SECS
+}
+
+/// `min(0, company · (1000 − temper_left) / 1000 − avoid)` with both points 8 000.
+fn live_drag(elapsed: i64) -> i64 {
+    let left = TEMPER - lost_temper(elapsed);
+    let scaled = 8_000 * (1_000 - left) / 1_000;
+    (scaled - 8_000).min(0)
+}
+
+fn weight(elapsed: i64) -> i64 {
+    400 + 100 * elapsed / 3_600
+}
+
+/// The meal's points at mood 0 with the drag of `elapsed` read at that same second.
+fn live_points(elapsed: i64) -> i64 {
+    weight(elapsed) * 100 - 250 + live_drag(elapsed)
+}
+
+/// The same points with one drag frozen for the whole search.
+fn frozen_points(elapsed: i64, drag: i64) -> i64 {
+    weight(elapsed) * 100 - 250 + drag
+}
+
+fn decay_social() -> SocialData {
+    common::repository_social_with(|social| {
+        social["bonds"]["start"]["partner"][1] = json!(100);
+        social["choice"]["company"] = json!(8_000);
+        social["choice"]["avoid"] = json!(8_000);
+        social["feelings"]["mood_return"] = json!(RETURN);
+        // She is 30, so min_age stays one she can have feelings at. A talk needs both of
+        // them seated, and he sits alone until she takes the meal, so the bonds stay put.
+    })
+}
+
+fn decay_data() -> Data {
+    let houses = common::houses_from(
+        &day::rates(-100, 0, 0),
+        &day(),
+        &kinds().to_string(),
+        &[&house()],
+    );
+    common::death_data(1e-9, None, json!([]))
+        .with_houses(houses)
+        .with_social(decay_social())
+}
+
+fn rows_after(log: &[LogEntry], from: i64) -> Vec<(i64, Vec<Subject>, LogPayload)> {
+    log.iter()
+        .filter(|entry| entry.t.as_secs() > from)
+        .map(|entry| {
+            (
+                entry.t.as_secs(),
+                entry.subjects.clone(),
+                entry.payload.clone(),
+            )
+        })
+        .collect()
+}
+
+/// Temper −500 at the morning has returned 1 by 6:01:48, so the drag is −3 992 and a
+/// search that freezes it waits until 7:01:48 (weight 443). The temper keeps returning,
+/// and the meal is already enough at 6:25:12 (weight 442, drag −3 864). A save at
+/// 6:16:40, while she waits, must load: the loader used to freeze the drag at the open
+/// second (temper −489, drag −3 912, 6:25:12) and refuse the queued 7:01:48. The resumed
+/// run is the uninterrupted one, and she takes the meal at the live second.
+#[test]
+fn a_save_while_temper_returns_resumes_the_uninterrupted_run() {
+    // 100 · 108 / 3 600 = 3, so the bonus-0 meal is the cascade's 6:01:48.
+    const IDLE_AT: i64 = 108;
+    /// Weight 442 is the first that clears 40 000 with the drag read at that second.
+    const LIVE: i64 = 1_512;
+    /// Weight 443 is the first that clears 40 000 with the drag frozen at 6:01:48.
+    const FROZEN: i64 = 1_548;
+    const SAVE_AT: i64 = 1_000;
+    let idle_drag = live_drag(IDLE_AT);
+    assert_eq!(lost_temper(IDLE_AT), 1);
+    assert_eq!(idle_drag, -3_992);
+    assert!(frozen_points(FROZEN, idle_drag) >= ENOUGH);
+    assert!(frozen_points(FROZEN - 1, idle_drag) < ENOUGH);
+    assert_eq!(lost_temper(LIVE), 17);
+    assert_eq!(live_drag(LIVE), -3_864);
+    assert!(live_points(LIVE) >= ENOUGH);
+    assert!(live_points(LIVE - 1) < ENOUGH);
+    // At the save the open second is one later; 1 000 and 1 001 return the same 11.
+    assert_eq!(lost_temper(SAVE_AT), 11);
+    assert_eq!(lost_temper(SAVE_AT + 1), 11);
+    assert_eq!(live_drag(SAVE_AT), -3_912);
+    assert!(frozen_points(LIVE, live_drag(SAVE_AT)) >= ENOUGH);
+    assert!(frozen_points(LIVE - 1, live_drag(SAVE_AT)) < ENOUGH);
+    // He sat at 6:01:45 and the meal lasts 7 200 s, so he is still there at 6:25:12.
+    const {
+        assert!(105 + 7_200 > LIVE);
+    };
+
+    let data = decay_data();
+    let (mut run, _) = Run::moved_in(data.clone());
+    run.advance(MORNING);
+    let morning = SimTime::from_secs(MORNING);
+    let feel = Feel {
+        channels: [0; 4],
+        since: morning,
+        temper: -500,
+        temper_since: morning,
+    };
+    run.world = common::with_feelings(&run.world, &run.out.year_hashes, &data, &[(1, feel)]);
+    run.advance(MORNING + IDLE_AT - 9);
+    run.submit(Input::Command(Command {
+        sim: sim(2),
+        object: 0,
+        offer: 0,
+    }));
+    let choose = MORNING + IDLE_AT;
+    run.advance(choose);
+    assert_eq!(idles(&run.log, 1, choose), 1, "one idle choice at 6:01:48");
+
+    let save_at = MORNING + SAVE_AT;
+    run.advance(save_at);
+    let bytes = run
+        .world
+        .save(&[])
+        .expect("the wait under a returning temper saves");
+    let (mut loaded, _) = World::load(&bytes, data).expect("a save during the wait loads");
+
+    let live = MORNING + LIVE;
+    run.advance(live);
+    assert_eq!(
+        idles_after(&run.log, 1, choose, live),
+        Vec::<i64>::new(),
+        "she does not choose again until the live score is enough"
+    );
+    assert!(
+        run.log.iter().any(|entry| {
+            entry.t.as_secs() == live
+                && entry.subjects == [Subject::Sim(sim(1))]
+                && matches!(
+                    entry.payload,
+                    LogPayload::ActionStarted {
+                        object: 0,
+                        offer: 0,
+                        filler: false,
+                        ..
+                    }
+                )
+        }),
+        "she takes the meal at 6:25:12, the first second the live score is enough"
+    );
+    assert!(
+        !run.log.iter().any(|entry| {
+            entry.t.as_secs() == MORNING + FROZEN
+                && matches!(entry.payload, LogPayload::ActionStarted { .. })
+        }),
+        "the drag frozen at 6:01:48 would have waited until 7:01:48"
+    );
+
+    let mut out = YearOut::default();
+    loaded.advance_until(&mut out, SimTime::from_secs(live), &mut |_| false);
+    let loaded_log = loaded.take_log();
+    assert_eq!(
+        rows_after(&loaded_log, save_at),
+        rows_after(&run.log, save_at)
+    );
+    assert_eq!(
+        sim_core::log::log_hash(&loaded_log),
+        sim_core::log::log_hash(
+            &run.log
+                .iter()
+                .filter(|entry| entry.t.as_secs() > save_at)
+                .cloned()
+                .collect::<Vec<_>>()
+        )
+    );
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+}
+
+/// The postcard of a positive second: the same bytes `SimTime` writes.
+fn time_bytes(secs: i64) -> Vec<u8> {
+    postcard::to_allocvec(&secs).expect("a second encodes")
+}
+
+/// `bytes` with the one pending time `from` written as `to`. Both encode in the same
+/// number of bytes, the queue stays in order, and the event's handle is untouched.
+fn retimed(bytes: &[u8], from: i64, to: i64) -> Vec<u8> {
+    let old = time_bytes(from);
+    let new = time_bytes(to);
+    assert_eq!(
+        old.len(),
+        new.len(),
+        "both seconds encode in the same width"
+    );
+    let mut at = Vec::new();
+    let last = bytes.len().saturating_sub(old.len());
+    for i in 0..=last {
+        let boundary = i == 0 || bytes[i - 1] & 0x80 == 0;
+        let micro = bytes.get(i + old.len()).copied() == Some(0);
+        if boundary && micro && bytes[i..].starts_with(&old) {
+            at.push(i);
+        }
+    }
+    assert_eq!(at.len(), 1, "the dragged second is one pending time");
+    let mut out = bytes.to_vec();
+    out[at[0]..at[0] + new.len()].copy_from_slice(&new);
+    out
+}
+
+/// After 6:01:48 the pending choice is 7:01:48. Moving it to 6:01:49, the open second,
+/// keeps the handle and the queue order, and used to load: `accepts` still allowed the
+/// bonus-0 time. That run then chooses again, writes entries and spends a decision the
+/// uninterrupted run does not. The save is refused.
+#[test]
+fn a_decide_pulled_back_to_the_open_second_is_refused() {
+    let choose = MORNING + FALL_SECONDS;
+    let later = MORNING + LATER;
+    let data = data();
+    let (mut run, _) = Run::moved_in(data.clone());
+    run.advance(MORNING + FALL_SECONDS - 9);
+    run.submit(Input::Command(Command {
+        sim: sim(2),
+        object: 0,
+        offer: 0,
+    }));
+    run.advance(choose);
+    assert_eq!(idles(&run.log, 1, choose), 1);
+    let bytes = run
+        .world
+        .save(&[])
+        .expect("the dragged choice is the one pending");
+    World::load(&bytes, data.clone()).expect("the honest save loads");
+
+    let tampered = retimed(&bytes, later, choose + 1);
+    let error = match World::load(&tampered, data) {
+        Err(error) => error,
+        Ok(_) => panic!("the open second is not the queued choice"),
+    };
+    assert_eq!(error, LoadError::Inconsistent);
 }

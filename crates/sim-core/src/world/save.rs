@@ -2715,70 +2715,93 @@ fn taken_for(
 
 /// The bonus-0 second and the dragged second of a person idle in a room or on its walk to the
 /// room one stays in, not lying and waiting for nothing (ADR-0026, addendum of 2026-11-04 after
-/// the playtest), recomputed from the second the loaded world runs next, planned in the clock
-/// (its addendum on comfort and the time-filler), with the places of its household taken by an
-/// action or held for others. `None` for anyone else. The drag is the same negative net `decide`
-/// subtracts (ADR-0030 section 4, ADR-0032 section 5), and only when the bonus-0 search names the
-/// open second.
-fn choice_plan(
+/// the playtest), recomputed from `start`, planned in `after` (its addendum on comfort and the
+/// time-filler), with the places of its household taken by an action or held for others. `None`
+/// for anyone else. The drag is the same negative net `decide` subtracts, read at each second
+/// of the search (ADR-0030 section 4, ADR-0032 section 5), and only when the bonus-0 search
+/// names `start`.
+fn choice_plan_from(
     loaded: &LoadedState,
     rules: &Rules<'_>,
     sim: SimId,
+    start: SimTime,
+    after: SimTime,
 ) -> Option<crate::house::state::IdlePlan> {
-    let person = loaded.house.sims.get(&sim)?;
+    let person = loaded.house.sims.get(&sim)?.clone();
     let houses = rules.data.houses()?;
     let house = house_of(loaded, rules.data, sim)?;
     let waits = (loaded.house.waits.values().flatten()).any(|&(_, waiter)| waiter == sim);
-    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(person, house);
+    let stands = matches!(person.place, Place::Room(_)) || dwell_walk(&person, house);
     if !stands || person.action.is_some() || person.collapsed || waits {
         return None;
     }
     let me = loaded.sims.get(&sim)?;
-    let start = loaded
-        .closed_through
-        .checked_add(SimDuration::from_secs(1))?;
+    let household = me.household;
     let taken = taken_for(loaded, rules, sim, start)?;
     let who = (me.born, me.lineage_key, rules.seed);
-    let from = (start, loaded.closed_through);
-    let members = loaded
+    let members: Vec<SimId> = loaded
         .sims
         .iter()
-        .filter(|(_, other)| other.household == me.household)
-        .map(|(id, _)| *id);
-    let drag = match rules.data.social() {
-        Some(social) => {
-            let (bonuses, _, temper) = crate::state::action::seat_bonus(
-                social,
-                &loaded.house.social,
-                house,
-                sim,
-                start,
-                members,
-                |other| {
-                    let person = loaded.house.sims.get(&other)?;
-                    Some((person.action, person.place))
-                },
-            );
-            crate::state::action::object_drag(&bonuses, temper)
-        }
-        None => Vec::new(),
+        .filter(|(_, other)| other.household == household)
+        .map(|(id, _)| *id)
+        .collect();
+    let drag = |at: i64, object: u16| {
+        let Some(social) = rules.data.social() else {
+            return 0;
+        };
+        crate::state::action::object_drags_at(
+            social,
+            &loaded.house.social,
+            house,
+            sim,
+            SimTime::from_secs(at),
+            members.iter().copied(),
+            |other| {
+                let seated = loaded.house.sims.get(&other)?;
+                Some((seated.action, seated.place))
+            },
+        )
+        .get(usize::from(object))
+        .copied()
+        .unwrap_or(0)
     };
     Some(crate::house::state::idle_plan(
         (house, houses),
         who,
-        person,
+        &person,
         &taken,
-        from,
-        |object| drag.get(usize::from(object)).copied().unwrap_or(0),
+        (start, after),
+        drag,
     ))
 }
 
-/// The second the run would have queued for `sim` ([`choice_plan`]).
+/// The one second a pending `Decide` of `sim` may name.
+///
+/// A bonus-0 search that names a later second is that second. One that names the open second
+/// is still that second when the choice has not run, and the dragged second once it has: the
+/// bonus-0 search from the clock names the clock only when the choice was already due there.
+/// Needs written in the open second cannot be read at the clock, and the queue then holds what
+/// planning just computed (ADR-0030 section 4, ADR-0032 section 5).
 fn choice_due(loaded: &LoadedState, rules: &Rules<'_>, sim: SimId) -> Option<SimTime> {
-    let start = loaded
-        .closed_through
-        .checked_add(SimDuration::from_secs(1))?;
-    choice_plan(loaded, rules, sim).and_then(|plan| plan.scheduled(start))
+    let clock = loaded.closed_through;
+    let start = clock.checked_add(SimDuration::from_secs(1))?;
+    let plan = choice_plan_from(loaded, rules, sim, start, clock)?;
+    if plan.plain != Some(start) {
+        return plan.plain;
+    }
+    let written_later = loaded
+        .house
+        .sims
+        .get(&sim)?
+        .needs
+        .iter()
+        .any(|need| need.at() > clock);
+    if written_later {
+        return plan.scheduled(start);
+    }
+    let already = (choice_plan_from(loaded, rules, sim, clock, clock))
+        .is_some_and(|earlier| earlier.plain == Some(clock));
+    if already { plan.dragged } else { Some(start) }
 }
 
 /// The second a person lying on the floor gets up (ADR-0026, addendum of 2026-11-04 on a need at
@@ -2994,27 +3017,15 @@ fn queue_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> bool {
                     && action_due(loaded, rules, *sim) == Some(entry.time)
             }
             // A choice planned by a handler runs in its second (ADR-0026 section 3), so after a
-            // run only the next choice of an idle person is pending, at the second it is
-            // recomputed for (ADR-0026, addendum of 2026-11-04 after the playtest). That second
-            // is the bonus-0 search, or the dragged one when the search names the open second
-            // and the choice has already idled (ADR-0030 section 4). A save from the second
-            // before that choice still holds the bonus-0 time. An input at the clock plans one
-            // for the next second, once per person idle in a room: a command or another input
-            // that freed a place held for a waiter, or a day begun (ADR-0024 sections 2 and 5);
-            // a waiter has none (the house part's checks).
+            // run only the next choice of an idle person is pending, at the one second
+            // [`choice_due`] recomputes (ADR-0026, addendum of 2026-11-04 after the playtest).
+            // That is the bonus-0 second, or, once the choice has idled, the dragged one
+            // (ADR-0030 section 4). A save from the second before still holds the bonus-0 time.
+            // A waiter has none (the house part's checks).
             EventPayload::Decide { sim } => {
-                let idle = (loaded.house.sims.get(sim)).is_some_and(|person| {
-                    let room = matches!((person.place, person.action), (Place::Room(_), None));
-                    room && !person.collapsed
-                });
-                let next = clock.checked_add(SimDuration::from_secs(1)) == Some(entry.time);
-                let by_input = rules.opened && idle && next;
-                let open = clock.checked_add(SimDuration::from_secs(1));
-                let planned = open.is_some_and(|start| {
-                    (choice_plan(loaded, rules, *sim))
-                        .is_some_and(|plan| plan.accepts(start, entry.time))
-                });
-                entry.period.is_none() && choices.insert(*sim) && (by_input || planned)
+                entry.period.is_none()
+                    && choices.insert(*sim)
+                    && choice_due(loaded, rules, *sim) == Some(entry.time)
             }
             // Once per person with needs, at the start of its night of today if that is still
             // to come (ADR-0026, addendum of 2026-11-04), checked as a whole below.
