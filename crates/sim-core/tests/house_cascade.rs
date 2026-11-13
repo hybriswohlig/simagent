@@ -809,3 +809,441 @@ fn a_save_off_a_minute_reloads_the_queued_choice() {
     );
     assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
 }
+
+const TABLE: u16 = 0;
+const FRIDGE: u16 = 1;
+const SOFA: u16 = 4;
+/// The door between the hall and the living room, and the walk that costs.
+const DOOR: i64 = 3;
+const WALK_COST: i64 = 50;
+/// Anger of the push, and the temper it writes: `(0 − 150) / 4 = −37`.
+const PUSH: i64 = 150;
+const PUSHED: i64 = -37;
+/// She reaches the living room at 06:01:27. The write is this many seconds after 06:00.
+const ARRIVE: i64 = 87;
+/// Minute 14, the queued choice while the drag is −2 000. Minute 16 is the one after the push.
+const OPEN: i64 = 840;
+const MOVED: i64 = 960;
+
+fn command(who: u64, object: u16) -> Input {
+    Input::Command(Command {
+        sim: sim(who),
+        object,
+        offer: 0,
+    })
+}
+
+fn family_kinds(sofa_seconds: u32) -> Value {
+    json!([
+        {"id": "core:dining_table", "slots": 3, "offers": [offer("eat", "hunger", 50, 7_200)]},
+        {"id": "core:fridge", "slots": 1, "offers": [offer("snack", "hunger", 1, 60)]},
+        {"id": "core:toilet", "slots": 1, "offers": [offer("use", "bladder", 1, 60)]},
+        {"id": "core:shower", "slots": 1, "offers": [offer("shower", "hygiene", 1, 60)]},
+        {"id": "core:sofa", "slots": 1, "offers": [offer("sit", "fun", 1, sofa_seconds)]},
+        {"id": "test:bed", "slots": 3, "bed_for": "couples", "offers": [
+            {"id": "sleep", "sleep": true, "min_age": 0, "max_age": 130}
+        ]}
+    ])
+}
+
+/// Three places at the table and three beds: the daughter sits as well as the partner.
+fn family_house() -> String {
+    json!({
+        "id": "test:cascade", "capacity": 3,
+        "rooms": [
+            {"id": "hall", "entrance": true, "dwell": false},
+            {"id": "living"},
+            {"id": "bath"},
+            {"id": "bedroom"}
+        ],
+        "child_day_room": "living", "child_night_room": "bedroom", "dwell_room": "living",
+        "doors": [
+            {"a": "hall", "b": "living", "seconds": DOOR},
+            {"a": "hall", "b": "bath", "seconds": 3},
+            {"a": "hall", "b": "bedroom", "seconds": 4}
+        ],
+        "objects": [
+            {"kind": "core:dining_table", "room": "living"},
+            {"kind": "core:fridge", "room": "hall"},
+            {"kind": "core:toilet", "room": "bath"},
+            {"kind": "core:shower", "room": "bath"},
+            {"kind": "core:sofa", "room": "living"},
+            {"kind": "test:bed", "room": "bedroom"}
+        ]
+    })
+    .to_string()
+}
+
+fn family_data(social: SocialData, sofa_seconds: u32) -> Data {
+    let houses = common::houses_from(
+        &day::rates(-100, 0, 0),
+        &day(),
+        &family_kinds(sofa_seconds).to_string(),
+        &[&family_house()],
+    );
+    common::death_data(1e-9, None, json!([]))
+        .with_houses(houses)
+        .with_social(social)
+}
+
+fn family(social: SocialData, sofa_seconds: u32) -> (Run, Data) {
+    let data = family_data(social, sofa_seconds);
+    let born = [
+        -30 * YEAR.as_secs(),
+        -32 * YEAR.as_secs(),
+        -10 * YEAR.as_secs(),
+    ];
+    let (run, _) = Run::family(data.clone(), 4, "test:house", &born, 0);
+    (run, data)
+}
+
+/// The partner is liked and avoided. Feelings stay on: the arrival can push.
+fn contagion_social() -> SocialData {
+    common::repository_social_with(|social| {
+        social["bonds"]["start"]["partner"][1] = json!(100);
+        social["choice"]["company"] = json!(8_000);
+        social["choice"]["avoid"] = json!(10_000);
+    })
+}
+
+/// The partner is avoided and not liked. The daughter is a founder, so the bond is the
+/// housemate's: affection 700 and familiarity 600 keep her the company through the morning,
+/// and trust 700 does not avoid. Nobody of 10 or 30 talks or catches a feeling.
+fn input_social() -> SocialData {
+    common::repository_social_with(|social| {
+        social["bonds"]["start"]["partner"][0] = json!(0);
+        social["bonds"]["start"]["partner"][1] = json!(100);
+        social["bonds"]["start"]["partner"][4] = json!(0);
+        social["bonds"]["start"]["housemate"][0] = json!(700);
+        social["bonds"]["start"]["housemate"][1] = json!(700);
+        social["bonds"]["start"]["housemate"][4] = json!(600);
+        social["choice"]["company"] = json!(8_000);
+        social["choice"]["avoid"] = json!(10_000);
+        social["limits"]["min_age"] = json!(130);
+    })
+}
+
+fn person(run: &Run, who: u64) -> &sim_core::house::state::InHouse {
+    run.world
+        .state()
+        .house()
+        .sims
+        .get(&sim(who))
+        .unwrap_or_else(|| panic!("sim {who}"))
+}
+
+fn took_meal(log: &[LogEntry], who: u64, at: i64) -> bool {
+    log.iter().any(|entry| {
+        entry.t.as_secs() == at
+            && entry.subjects == [Subject::Sim(sim(who))]
+            && matches!(
+                entry.payload,
+                LogPayload::ActionStarted {
+                    object: TABLE,
+                    offer: 0,
+                    filler: false,
+                    ..
+                }
+            )
+    })
+}
+
+/// Company 8 000 and avoid 10 000, mood 0. The partner sits from 06:00:09, so her drag is
+/// −2 000 and the meal is minute 14 (06:14:00). The daughter, anger 900, finishes a snack in
+/// the hall and reaches the living room at 06:01:27 with no action. The push writes the
+/// mother's anger 150 and temper −37. Minute 15 is 39 954, minute 16 is 40 062, so the meal
+/// is 06:16:00. A save at the arrival must load, and she must not idle at 06:14:00.
+#[test]
+fn an_actionless_arrival_replans_the_idle_choice() {
+    // 06:00 in the hall: the door is 3 s, the meal is `400 · 100 − 150 = 39 850`. They walk
+    // home and stand in the living room at 06:00:03. The command at that clock acts at
+    // 06:00:04 and the walk of 5 s seats him at 06:00:09, before 06:01:48.
+    const SEATED: i64 = 4 + 5;
+    assert_eq!(SEATED, 9);
+    assert_eq!(weight(0) * 100 - DOOR * WALK_COST, 39_850);
+    const _: () = assert!(39_850 < ENOUGH);
+    // Her drag while he sits, temper 0: `8 000 − 10 000 = −2 000`. Minute 14 weighs 423.
+    assert_eq!(weight(OPEN), 423);
+    assert_eq!(weight(OPEN) * 100 - 250 - 2_000, 40_050);
+    assert_eq!(weight(OPEN - 60) * 100 - 250 - 2_000, 39_850);
+    // The snack is commanded at the 06:00:20 clock, so it acts at 06:00:21. The door is 3 s,
+    // the snack 60 s, and the walk home another 3 s: she arrives at 06:01:27.
+    const SNACK_END: i64 = 21 + DOOR + 60;
+    assert_eq!(SNACK_END, 84);
+    assert_eq!(SNACK_END + DOOR, ARRIVE);
+    // She is 10, so school at 07:40 (t = 6 000) closes a meal of 7 200 s: it would still be
+    // running when she has to leave. Nothing else is enough, and she walks home with no action.
+    const SCHOOL: i64 = 27_600 - 6 * 3_600;
+    assert_eq!(SCHOOL, 6_000);
+    const _: () = assert!(7_200 > SCHOOL - SNACK_END);
+    // The push is 150 and the temper −37, written at t = 87. Mood returns 100 a day.
+    // Minute 15 (t = 900) is 813 s later, so nothing has returned. Company scales to
+    // `8 000 · 963 / 1 000 = 7 704`, the drag is −2 296, and the weight 425 scores 39 954.
+    // Minute 16 (t = 960) is 873 s later, one point has returned, the temper is −36, the
+    // drag is −2 288, and the weight 426 scores 40 062.
+    const ELAPSED_15: i64 = 900 - ARRIVE;
+    const ELAPSED_16: i64 = 960 - ARRIVE;
+    assert_eq!((ELAPSED_15, ELAPSED_16), (813, 873));
+    assert_eq!(100 * ELAPSED_15 / 86_400, 0);
+    assert_eq!(100 * ELAPSED_16 / 86_400, 1);
+    assert_eq!(8_000 * (1_000 + PUSHED) / 1_000 - 10_000, -2_296);
+    assert_eq!(8_000 * (1_000 + PUSHED + 1) / 1_000 - 10_000, -2_288);
+    assert_eq!(weight(900), 425);
+    assert_eq!(weight(MOVED), 426);
+    assert_eq!(weight(900) * 100 - 250 - 2_296, 39_954);
+    assert_eq!(weight(MOVED) * 100 - 250 - 2_288, 40_062);
+    const _: () = assert!(39_954 < ENOUGH && 40_062 >= ENOUGH);
+    // Anger falls 300 a day. The 67 s from the forge to the arrival lose nothing, so 900
+    // still pushes (the floor is 700) and the step is 150.
+    assert_eq!(300 * (ARRIVE - 20) / 86_400, 0);
+    assert_eq!((0 - PUSH) / 4, PUSHED);
+    // He sits for 7 200 s from 06:00:09, past 06:16:00. Her meal is the second seat.
+    const _: () = assert!(SEATED + 7_200 > MOVED);
+
+    let (mut run, data) = family(contagion_social(), 60);
+    run.advance(MORNING + DOOR);
+    for who in [1, 2, 3] {
+        let home = person(&run, who);
+        assert!(home.action.is_none(), "sim {who} is idle at 06:00:03");
+        assert!(
+            matches!(home.place, Place::Room(_)),
+            "sim {who} stands in the living room"
+        );
+    }
+    run.submit(command(2, TABLE));
+    run.advance(MORNING + 20);
+    let since = SimTime::from_secs(MORNING + 20);
+    let anger = Feel {
+        channels: [0, 900, 0, 0],
+        since,
+        temper: 0,
+        temper_since: since,
+    };
+    run.world = common::with_feelings(&run.world, &run.out.year_hashes, &data, &[(3, anger)]);
+    run.submit(command(3, FRIDGE));
+    let arrive = MORNING + ARRIVE;
+    run.advance(arrive);
+
+    let felt: Vec<_> = run
+        .log
+        .iter()
+        .filter(|entry| {
+            entry.t.as_secs() >= MORNING
+                && entry.subjects == [Subject::Sim(sim(1))]
+                && matches!(entry.payload, LogPayload::Felt { .. })
+        })
+        .collect();
+    assert_eq!(felt.len(), 1, "the push is her only feeling this morning");
+    assert_eq!(felt[0].t.as_secs(), arrive, "she is pushed at 06:01:27");
+    assert!(
+        matches!(
+            felt[0].payload,
+            LogPayload::Felt {
+                joy: 0,
+                anger: 150,
+                sadness: 0,
+                fear: 0,
+                temper: -37,
+            }
+        ),
+        "the push is anger 150 and temper −37, got {:?}",
+        felt[0].payload
+    );
+    assert!(
+        person(&run, 3).action.is_none(),
+        "the daughter arrived idle"
+    );
+    assert!(
+        matches!(person(&run, 3).place, Place::Room(_)),
+        "she stands in the living room"
+    );
+    assert_eq!(
+        person(&run, 2).action.map(|action| action.object),
+        Some(TABLE),
+        "the partner is still at the table"
+    );
+
+    let bytes = run
+        .world
+        .save(&run.out.year_hashes)
+        .expect("saved at 06:01:27");
+    let (mut loaded, _) = World::load(&bytes, data).expect("a save at the contagion loads");
+
+    let meal = MORNING + MOVED;
+    let stale = MORNING + OPEN;
+    run.advance(meal);
+    assert_eq!(
+        idles(&run.log, 1, stale),
+        0,
+        "the push moved the choice off 06:14:00"
+    );
+    assert!(
+        took_meal(&run.log, 1, meal),
+        "she takes the meal at 06:16:00"
+    );
+    assert!(
+        !took_meal(&run.log, 1, stale),
+        "06:14:00 is no longer enough"
+    );
+
+    let mut out = YearOut::default();
+    loaded.advance_until(&mut out, SimTime::from_secs(meal), &mut |_| false);
+    let loaded_log = loaded.take_log();
+    assert_eq!(
+        rows_after(&loaded_log, arrive),
+        rows_after(&run.log, arrive)
+    );
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+}
+
+/// Both sit from 06:00:09. She is a housemate with affection 700 and familiarity 600, so she
+/// is the company; he is avoid and not company. The drag is −2 000 and the choice is
+/// 06:14:00. Commanding her off the table at the 06:13:59 clock acts at 06:14:00, before
+/// that choice. Company goes, the avoid stays, and the drag is −10 000. No whole minute
+/// before 07:01:48 clears it. A save in that second must load, and she must not idle at
+/// 06:14:00.
+#[test]
+fn an_input_at_the_queued_second_replans_the_idle_choice() {
+    // Minute 14 with drag −2 000 is just enough. The minute before is not.
+    assert_eq!(weight(OPEN) * 100 - 250 - 2_000, 40_050);
+    assert_eq!(weight(OPEN - 60) * 100 - 250 - 2_000, 39_850);
+    // With the daughter gone the drag is −10 000. Minute 61 (t = 3 660, weight 501) is
+    // `50 100 − 250 − 10 000 = 39 850`. Weight 503 at t = 3 708 is 40 050, so the meal is
+    // that second, not the next minute.
+    assert_eq!(weight(MINUTE_BEFORE), 501);
+    assert_eq!(weight(MINUTE_BEFORE) * 100 - 250 - 10_000, 39_850);
+    const _: () = assert!(39_850 < ENOUGH && LATER_POINTS >= ENOUGH);
+    // The sofa keeps her for 20 000 s, past 07:01:48. His meal of 7 200 s from 06:00:09
+    // does too. School is 07:40, after the meal.
+    const SOFA_FOR: i64 = 20_000;
+    const _: () = assert!(OPEN + 5 + SOFA_FOR > LATER);
+    const _: () = assert!(9 + 7_200 > LATER && LATER < 6_000);
+
+    let (mut run, data) = family(input_social(), u32::try_from(SOFA_FOR).expect("fits"));
+    run.advance(MORNING + DOOR);
+    run.submit(command(2, TABLE));
+    run.submit(command(3, TABLE));
+    // Closed at 06:13:59. The choice is the next second and has not run.
+    let clock = MORNING + OPEN - 1;
+    run.advance(clock);
+    assert_eq!(
+        idles(&run.log, 1, MORNING + FALL_SECONDS),
+        0,
+        "they sat before 06:01:48"
+    );
+    assert!(person(&run, 1).action.is_none(), "she is waiting");
+    assert_eq!(
+        person(&run, 2).action.map(|action| action.object),
+        Some(TABLE)
+    );
+    assert_eq!(
+        person(&run, 3).action.map(|action| action.object),
+        Some(TABLE)
+    );
+    run.submit(command(3, SOFA));
+    assert!(
+        matches!(person(&run, 3).place, Place::Walking { .. }),
+        "the command has already taken her off the table"
+    );
+    assert_eq!(
+        person(&run, 3).action.map(|action| action.object),
+        Some(SOFA)
+    );
+    assert_eq!(
+        person(&run, 2).action.map(|action| action.object),
+        Some(TABLE),
+        "the partner stays, so the avoid stays"
+    );
+
+    let bytes = run.world.save(&[]).expect("saved at 06:13:59");
+    let (mut loaded, _) = World::load(&bytes, data).expect("a save in the input's second loads");
+
+    let meal = MORNING + LATER;
+    let stale = MORNING + OPEN;
+    run.advance(meal);
+    assert_eq!(
+        idles(&run.log, 1, stale),
+        0,
+        "the input moved the choice off 06:14:00"
+    );
+    assert!(
+        took_meal(&run.log, 1, meal),
+        "she takes the meal at 07:01:48"
+    );
+    let company = run
+        .log
+        .iter()
+        .rev()
+        .find(|entry| {
+            entry.t.as_secs() == meal && matches!(entry.payload, LogPayload::Company { .. })
+        })
+        .expect("the bonus is logged when she takes the meal");
+    match &company.payload {
+        LogPayload::Company { objects } => {
+            let row = objects
+                .iter()
+                .find(|row| row.object == TABLE)
+                .expect("the table");
+            assert_eq!(
+                (row.liked, row.company, row.avoided, row.avoid),
+                (None, 0, Some(sim(2)), 10_000)
+            );
+        }
+        other => panic!("core:company, got {other:?}"),
+    }
+
+    let mut out = YearOut::default();
+    loaded.advance_until(&mut out, SimTime::from_secs(meal), &mut |_| false);
+    let loaded_log = loaded.take_log();
+    // The input's own entries are the second 06:14:00 and are not emitted again on load.
+    assert_eq!(rows_after(&loaded_log, stale), rows_after(&run.log, stale));
+    assert_eq!(loaded.canonical_bytes(), run.world.canonical_bytes());
+}
+
+/// Every 97th second from 06:00 through 08:00, and every second from 06:01:20 through
+/// 06:01:40. 08:00 is 74 steps of 97 s plus the 21 seconds of the arrival, under a hundred
+/// saves. The window holds the push, the hour the choice waits, the meal, a talk once two
+/// of them sit, and the daughter's departure for school at 07:40. A drag written and not
+/// planned again stays wrong on the later quiet seconds, so the step of 97 catches it too.
+#[test]
+fn saves_while_someone_is_avoided_load() {
+    const END: i64 = 2 * 3_600;
+    const STEP: i64 = 97;
+    let mut marks = Vec::new();
+    let mut t = STEP;
+    while t <= END {
+        marks.push(t);
+        t += STEP;
+    }
+    for sec in 80..=100 {
+        marks.push(sec);
+    }
+    marks.sort_unstable();
+    marks.dedup();
+
+    let (mut run, data) = family(contagion_social(), 60);
+    run.advance(MORNING + DOOR);
+    run.submit(command(2, TABLE));
+    run.advance(MORNING + 20);
+    let since = SimTime::from_secs(MORNING + 20);
+    let anger = Feel {
+        channels: [0, 900, 0, 0],
+        since,
+        temper: 0,
+        temper_since: since,
+    };
+    run.world = common::with_feelings(&run.world, &run.out.year_hashes, &data, &[(3, anger)]);
+    run.submit(command(3, FRIDGE));
+
+    for sec in marks {
+        let at = MORNING + sec;
+        run.advance(at);
+        let bytes = run
+            .world
+            .save(&run.out.year_hashes)
+            .unwrap_or_else(|error| panic!("saving at 06:00 plus {sec} s: {error:?}"));
+        if let Err(error) = World::load(&bytes, data.clone()) {
+            panic!("a save at 06:00 plus {sec} s does not load: {error:?}");
+        }
+    }
+}

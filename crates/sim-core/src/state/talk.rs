@@ -607,6 +607,8 @@ pub(crate) fn run(
             Causes::new(cause.clone()),
         );
         cause = Cause::Event(id);
+        // Affection, familiarity, trust or a grudge moved. An idle choice weighs the first three.
+        super::action::changed_for(domain, outcome.owner, id);
         if outcome.owner == a {
             charge(&mut entries_a, 1);
         } else {
@@ -1044,6 +1046,7 @@ fn refute_one(
             );
             *cause = Cause::Event(id);
             charges.add(pick.hearer, 1);
+            super::action::changed_for(domain, pick.hearer, id);
         }
     }
     true
@@ -1148,6 +1151,8 @@ fn pass_on(
                     );
                     cause = Cause::Event(id);
                     charges.add(hearer, 1);
+                    // A lie, a telling-on or an avoidance: trust and sometimes a grudge.
+                    super::action::changed_for(domain, hearer, id);
                 }
             }
         }

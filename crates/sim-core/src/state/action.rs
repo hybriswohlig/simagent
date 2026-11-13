@@ -222,6 +222,13 @@ pub(super) fn changed(domain: &mut DomainState, household: HouseholdId, by: Even
     domain.house_changed.insert(household, by);
 }
 
+/// As [`changed`], for the household `sim` lives in. Nothing when `sim` is already gone.
+pub(super) fn changed_for(domain: &mut DomainState, sim: SimId, by: EventId) {
+    if let Some(household) = domain.sims.get(&sim).map(|person| person.household) {
+        changed(domain, household, by);
+    }
+}
+
 /// The keys of all places of a household's objects.
 fn household_places(household: HouseholdId) -> core::ops::RangeInclusive<(HouseholdId, u16, u8)> {
     (household, 0, 0)..=(household, u16::MAX, u8::MAX)
@@ -619,14 +626,15 @@ enum Begun {
 /// households and their members: each idle in a room or on its walk to the room one stays in,
 /// not lying and waiting for nothing, chooses at `idle_plan` from now on, planned by the
 /// household's last entry that changed it; anyone else has no choice planned. A choice already
-/// due in this second stays: it comes anyway, and plans the next. The plan weighs every whole
+/// due in this second stays in a handler: it comes anyway, and plans the next. An input acts
+/// before the events of its second, so there even one due in that second, which has not come
+/// yet, is planned anew, as a loaded world plans it from the clock. The plan weighs every whole
 /// minute with that minute's drag, between a bonus-0 `t+` and a `t−` that uses company 0 and
 /// avoid in full, so an idle choice does not schedule itself again and a save during the wait
 /// names that same second (ADR-0030, addendum of 2026-11-13). The end of a time-filler at its
 /// object is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
-/// addendum of 2026-11-04 on comfort and the time-filler); in an input at the clock even one due
-/// in its second, which has not come yet, as a loaded world plans it from the clock. Each plan is
-/// made in `planned_in`.
+/// addendum of 2026-11-04 on comfort and the time-filler), including one due in an input's
+/// second. Each plan is made in `planned_in`.
 pub(crate) fn plan_idle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_, '_>) {
     for (household, by) in core::mem::take(&mut domain.house_changed) {
         if !domain.house.households.contains_key(&household) {
@@ -661,7 +669,10 @@ fn plan_next(
     }
     let pending = domain.pending.get(&(sim, Slot::Decide)).copied();
     let due = pending.and_then(|handle| ctx.pending_time(handle));
-    if due == Some(now) {
+    // A handler's choice already due in this second stays: it comes anyway. An input acts
+    // before the events of its second, so one due then has not come yet and is planned anew,
+    // as a loaded world plans it from the clock (ADR-0030, addendum of 2026-11-13).
+    if due == Some(now) && !ctx.in_input() {
         return;
     }
     let (_, houses, house) = home(domain, data, sim);
@@ -1140,17 +1151,23 @@ pub(crate) fn on_arrive(
     // its planned choice; in its night it chooses now (ADR-0026, addendum of 2026-11-04 after
     // the playtest), as the bedtime it walked through made nobody choose.
     let Some(action) = action else {
-        if to == house.def().entrance {
-            person.place = Place::Away;
-            return;
-        }
-        person.place = Place::Room(to);
-        // The walk to the room one stays in ends: the arrival, caused by the idle that planned
-        // it (ADR-0032 section 4). The room before the walk decides whether this is an entering.
+        // Out of the door, or into the room one stays in. Either way the room changed. A push
+        // on the way in can move a temper (ADR-0032 section 4). Idle choices are planned
+        // again from whichever entry is last: this arrival's cause, then the push if it writes
+        // one (ADR-0030, addendum of 2026-11-13).
+        let entering = to != house.def().entrance;
+        person.place = if entering {
+            Place::Room(to)
+        } else {
+            Place::Away
+        };
         if let Some(by) = ctx.planned_by() {
-            super::feeling::arrived(domain, data, sim, Some(from), by, ctx);
+            changed_for(domain, sim, by);
+            if entering {
+                super::feeling::arrived(domain, data, sim, Some(from), by, ctx);
+            }
         }
-        if night(houses.day(), born, now).is_some() {
+        if entering && night(houses.day(), born, now).is_some() {
             decide(domain, data, sim, Causes::new(ctx.trigger()), ctx);
         }
         return;
