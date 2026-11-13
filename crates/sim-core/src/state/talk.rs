@@ -582,7 +582,15 @@ pub(crate) fn run(
         common_memory: shared.is_some(),
         gossip,
     };
-    let topic = choose_topic(social, &view, kind);
+    let topic = choose_topic(
+        social,
+        &view,
+        kind,
+        WorldSeed::new(seed),
+        domain.key_of(a),
+        domain.key_of(b),
+        now,
+    );
     let actor = topic_actor(social, topic, &view);
     let outcomes = topic_outcome(social, topic, &view);
     for outcome in outcomes {
@@ -691,7 +699,13 @@ pub(crate) fn run(
                 cause,
                 ctx,
             );
-        } else if let Some(said) = said_belief(material) {
+        } else if let Some(said) = said_belief(
+            material,
+            WorldSeed::new(seed),
+            domain.key_of(speaker),
+            now,
+            domain.key_of(hearer),
+        ) {
             cause = pass_on(
                 domain,
                 data,

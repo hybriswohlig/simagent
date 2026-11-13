@@ -3692,14 +3692,17 @@ fn the_house_answer_after_a_command() {
 fn couple_in_the_flat(
     change: impl FnOnce(&mut Value, &mut Value),
 ) -> (sim_core::world::World, u64) {
-    founded_couple(7, "test:house", change)
+    founded_couple(7, "test:house", change, |_| {})
 }
 
 /// As `couple_in_the_flat`, with the world's seed and the founder tag chosen by the caller.
+/// `social` changes `data/social/social.json` before it is read; an unchanged file keeps the
+/// social data `core_data` loaded.
 fn founded_couple(
     world_seed: u64,
     founder_tag: &str,
     change: impl FnOnce(&mut Value, &mut Value),
+    social_change: impl FnOnce(&mut Value),
 ) -> (sim_core::world::World, u64) {
     use sim_core::input::{Couple, Founder, Input, MoveIn, Start};
     use sim_core::log::LogPayload;
@@ -3726,9 +3729,19 @@ fn founded_couple(
         ],
     )
     .expect("the houses");
-    let data = sim_cli::data::core_data()
+    let mut social_file: Value =
+        serde_json::from_str(include_str!("../../../data/social/social.json")).expect("json");
+    let untouched = social_file.clone();
+    social_change(&mut social_file);
+    let social = (social_file != untouched).then(|| {
+        sim_cli::data::social_from(&social_file.to_string(), &houses).expect("the social data")
+    });
+    let mut data = sim_cli::data::core_data()
         .expect("the data")
         .with_houses(houses);
+    if let Some(social) = social {
+        data = data.with_social(social);
+    }
     let founder = |born: i64, sex: sim_core::genome::Sex| Founder {
         born: SimTime::from_secs(born),
         sex,
@@ -4608,9 +4621,10 @@ fn a_talk_is_a_memory_on_the_house_answer() {
 /// Six teases leave six talk memories, one seen belief on the target, and a deed "Warum?"
 /// can call true.
 ///
-/// The founders of seed `0x5EED` and tag `test:social` tease every time they sit down
-/// (interests pinned in `interest_pins_of_the_social_founders_choose_the_reference_topics`):
-/// sim 1 teases sim 2. Both are sent to the table sixteen times. The first walk is the
+/// The table offers only Necken: every other topic's furniture list is empty. Both are
+/// under 60, so it is the only allowed topic, and its interest sum is positive, so the
+/// draw selects it. Sim 1 teases sim 2, because her interest in Necken is the larger one.
+/// Both are sent to the table sixteen times. The first walk is the
 /// hall to the kitchen, 4 s, and each later walk is 5 s inside the kitchen. Eating lasts
 /// 1 200 s. A talk is planned 600 s after the later arrival when 3 600 s have passed since
 /// the previous one, so the talks fall at 108 605, 112 220, 115 835, 119 450, 123 065 and
@@ -4639,12 +4653,25 @@ fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
     use sim_core::input::{Command as Order, Input};
     use sim_core::log::{Company, LogEntry, LogPayload, Subject};
     use sim_core::world::YearOut;
-    let (mut world, household) = founded_couple(0x5EED, "test:social", |needs, day| {
-        for need in ["hunger", "energy", "bladder", "hygiene", "fun"] {
-            needs["awake"][need] = json!([0, 0, 0, 0]);
-        }
-        day["work"]["full_time"]["depart"] = json!(45_000);
-    });
+    let (mut world, household) = founded_couple(
+        0x5EED,
+        "test:social",
+        |needs, day| {
+            for need in ["hunger", "energy", "bladder", "hygiene", "fun"] {
+                needs["awake"][need] = json!([0, 0, 0, 0]);
+            }
+            day["work"]["full_time"]["depart"] = json!(45_000);
+        },
+        |social| {
+            let topics = social["topics"].as_array_mut().expect("topics");
+            assert_eq!(topics[2]["id"], "core:tease");
+            for (index, topic) in topics.iter_mut().enumerate() {
+                if index != 2 {
+                    topic["furniture"] = json!([]);
+                }
+            }
+        },
+    );
     let mut out = YearOut::default();
     world.advance_until(&mut out, SimTime::from_secs(MORNING), &mut |_| false);
     let sim = |id: u64| sim_core::ids::SimId::try_from(id).expect("a sim");
