@@ -728,7 +728,7 @@ impl File {
             round: Round::Due,
             magic: *b"SIMAGENT",
             format_version: 2,
-            core_version: 70,
+            core_version: CORE_VERSION,
             data_hash: DATA_HASH,
             projection_version: 24,
             world_seed: Some(0xff),
@@ -2431,7 +2431,7 @@ fn load_rejects_foreign_format_version() {
 /// ADR-0003 `load_rejects_foreign_core_version`.
 #[test]
 fn load_rejects_foreign_core_version() {
-    for version in [69, 71] {
+    for version in [CORE_VERSION - 1, CORE_VERSION + 1] {
         let bytes = File::tiny().with(|f| f.core_version = version);
         assert_eq!(load_error(&bytes), Some(LoadError::ForeignCoreVersion));
     }
@@ -2465,7 +2465,7 @@ fn load_rejects_foreign_data_hash() {
 fn load_checks_run_in_order() {
     let all_wrong = |f: &mut File| {
         f.format_version = 3;
-        f.core_version = 71;
+        f.core_version = CORE_VERSION + 1;
         f.data_hash = 7;
         f.projection_version = 25;
     };
@@ -2481,7 +2481,7 @@ fn load_checks_run_in_order() {
     let bytes = File::tiny().with(|f| {
         all_wrong(f);
         f.format_version = 2;
-        f.core_version = 70;
+        f.core_version = CORE_VERSION;
     });
     assert_eq!(load_error(&bytes), Some(LoadError::ForeignDataHash));
     // The projection version is read before the fields whose layout it decides.
