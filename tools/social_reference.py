@@ -12,12 +12,13 @@ What it implements (section numbers refer to the ADRs):
   clamped steps, eviction of a bond.
 - Talks (ADR-0030 3): planning and execution predicate, the same-second order, the six
   topics with conditions, actor rule and outcome steps, interests (TALK_INTEREST = 35),
-  the topic choice.
+  the topic draw (TALK_TOPIC = 38, addendum 2026-11-13).
 - Choice bonus (ADR-0030 4): `liked` / `avoided`, company and avoid per furniture.
 - Beliefs (ADR-0031 1 to 5): statement keys, heard certainty, confirmation, seen
-  replacing heard, belief eviction, gossip material and speaker, the bond steps for heard
-  deeds, the lie decision (TALK_LIE = 36), the refutation decision (TALK_REFUTE = 37) and
-  its effects.
+  replacing heard, belief eviction, gossip material and speaker (heard material first,
+  second addendum 2026-11-13), the bond steps for heard deeds, the lie decision
+  (TALK_LIE = 36), which sentence is said (TALK_SAY = 39, addendum 2026-11-13), the
+  refutation decision (TALK_REFUTE = 37) and its effects.
 - Paternity at birth (ADR-0031 6): the four rules.
 - Feelings and temper (ADR-0032 1 to 5): analytic channel fade and temper return,
   applying an occasion (band factor per row, rows summed, one clamp, temper from the
@@ -72,16 +73,18 @@ AVOID_BELOW_TRUST = 400
 
 LIE_PPM = 50_000  # ADR-0031 4
 REFUTE_PPM = 200_000  # ADR-0031 5, addendum 2026-11-12
-LIE_GRUDGE = 700
+LIE_GRUDGE = 300  # ADR-0031 addendum 2026-11-13: the door opens at grudge 300
 LIE_CERTAINTY = 900
 HEARD_CAP = 900
 CONFIRM_STEP = 50
 CONFIRM_CAP = 900
 
-# Draw tags (ADR-0030 3, ADR-0031 7)
+# Draw tags (ADR-0030 3, ADR-0031 7, addenda 2026-11-13)
 TALK_INTEREST = 35
 TALK_LIE = 36
 TALK_REFUTE = 37
+TALK_TOPIC = 38
+TALK_SAY = 39
 
 # Bond value indices (ADR-0030 2)
 AFFECTION, TRUST, RESPECT, ATTRACTION, FAMILIARITY, GRUDGE = range(6)
@@ -152,6 +155,30 @@ def refute_draw(seed: int, refuter_key: int, second: int, hearer_key: int) -> in
     """ADR-0031 5: uniform_below(1_000_000) of TALK_REFUTE; subject the refuter's lineage
     key, occasion the second, detail the hearer's."""
     return uniform_below(draw_word(seed, TALK_REFUTE, refuter_key, second, hearer_key), 1_000_000)
+
+
+def topic_draw(seed: int, smaller_key: int, second: int, other_key: int, total: int) -> int:
+    """ADR-0030 addendum 2026-11-13: uniform_below(total) of TALK_TOPIC. Subject the
+    lineage key of the person with the smaller SimId, occasion the second of the Talk,
+    detail the other's lineage key. `total` is the sum of the weights and is at least 1."""
+    return uniform_below(draw_word(seed, TALK_TOPIC, smaller_key, second, other_key), total)
+
+
+def say_draw(seed: int, speaker_key: int, second: int, hearer_key: int, total: int) -> int:
+    """ADR-0031 addendum 2026-11-13: uniform_below(total) of TALK_SAY. Subject the
+    speaker's lineage key, occasion the second of the Talk, detail the hearer's lineage
+    key. `total` is the sum of the certainties and is at least 1."""
+    return uniform_below(draw_word(seed, TALK_SAY, speaker_key, second, hearer_key), total)
+
+
+def pick_weighted(items: List[Tuple[object, int]], draw: int):
+    """The first item, in the given order, whose running weight sum exceeds `draw`."""
+    running = 0
+    for key, weight in items:
+        running += weight
+        if running > draw:
+            return key
+    raise ValueError(f"draw {draw} is not inside {items}")
 
 
 def lies(u: int, lie_ppm: int = LIE_PPM) -> bool:
@@ -504,17 +531,26 @@ def topic_allowed(topic: int, p: TalkPair) -> bool:
     raise ValueError(topic)
 
 
-def choose_topic(p: TalkPair) -> int:
-    """The allowed topic with the largest sum of both interests, the smallest number on a
-    tie. Alltag is always allowed."""
-    best = None
-    for topic in range(6):
-        if not topic_allowed(topic, p):
-            continue
-        score = (-(p.interest_a[topic] + p.interest_b[topic]), topic)
-        if best is None or score < best:
-            best = score
-    return best[1]
+def topic_weights(p: TalkPair) -> List[Tuple[int, int]]:
+    """Allowed topics in topic-number order, each with the sum of both interests."""
+    return [
+        (topic, p.interest_a[topic] + p.interest_b[topic])
+        for topic in range(6)
+        if topic_allowed(topic, p)
+    ]
+
+
+def choose_topic(p: TalkPair, seed: int, key_a: int, key_b: int, second: int) -> int:
+    """ADR-0030 addendum 2026-11-13. The weight of each allowed topic is the sum of both
+    interests. The draw is uniform_below of that total (TALK_TOPIC: subject `key_a`, the
+    lineage key of the smaller SimId, occasion the second of the Talk, detail `key_b`).
+    The topic is the first in topic-number order whose running sum exceeds the draw.
+    A total of 0 is Alltag, and then nothing is drawn."""
+    weighted = topic_weights(p)
+    total = sum(weight for _, weight in weighted)
+    if total == 0:
+        return TOPIC_ALLTAG
+    return pick_weighted(weighted, topic_draw(seed, key_a, second, key_b, total))
 
 
 def topic_outcome(topic: int, p: TalkPair) -> List[Tuple[int, int, Dict[int, int]]]:
@@ -819,8 +855,8 @@ def gossip_material(
 def lie_reason(
     speaker: int, hearer: int, household: List[int], speaker_grudge_at_now: Dict[int, int]
 ) -> Optional[int]:
-    """The W of ADR-0031 4: grudge from 700 on a person W of the household who is not the
-    hearer (nor the speaker), the smallest SimId among several."""
+    """The W of ADR-0031 4: grudge from 300 on a person W of the household who is not the
+    hearer (nor the speaker), the smallest SimId among several. The door is shut at 299."""
     for w in sorted(household):
         if w in (speaker, hearer):
             continue
@@ -833,9 +869,19 @@ def choose_speaker(
     a: int, material_a: List[Belief], reason_a: Optional[int],
     b: int, material_b: List[Belief], reason_b: Optional[int],
 ) -> Optional[int]:
-    """ADR-0031 3: the speaker is who has material or a reason; if both, the larger sum of
-    the certainties of his material, then the smaller SimId. None: no speaker, so Klatsch
-    is not allowed."""
+    """ADR-0031, second addendum 2026-11-13. Heard material (basis `gehört`, a believed
+    lie included) speaks first. If only one has it, that one speaks. If both or neither
+    have it, the larger sum of the certainties of all the material, then the smaller
+    SimId. A reason alone gives no priority: someone with only a reason speaks only when
+    the other has neither material nor a reason. None: no speaker, so Klatsch is not
+    allowed."""
+    def has_heard(material: List[Belief]) -> bool:
+        return any(piece.basis == GEHOERT for piece in material)
+
+    if has_heard(material_a) and not has_heard(material_b):
+        return a
+    if has_heard(material_b) and not has_heard(material_a):
+        return b
     a_ok = bool(material_a) or reason_a is not None
     b_ok = bool(material_b) or reason_b is not None
     if a_ok and not b_ok:
@@ -844,16 +890,31 @@ def choose_speaker(
         return b
     if not a_ok:
         return None
-    sa = sum(m.certainty for m in material_a)
-    sb = sum(m.certainty for m in material_b)
-    return b if sb > sa else a
+    sa = sum(piece.certainty for piece in material_a)
+    sb = sum(piece.certainty for piece in material_b)
+    if sb > sa:
+        return b
+    if sa > sb:
+        return a
+    return a if a < b else b
 
 
-def said_belief(material: List[Belief]) -> Optional[Belief]:
-    """The sentence said: the surest material, the smaller key on a tie."""
+def said_belief(
+    material: List[Belief], seed: int, speaker_key: int, second: int, hearer_key: int
+) -> Optional[Belief]:
+    """ADR-0031 addendum 2026-11-13. The weight of each piece of material is its certainty.
+    The draw is uniform_below of that sum (TALK_SAY: subject the speaker's lineage key,
+    occasion the second of the Talk, detail the hearer's lineage key). Said is the first
+    piece in key order whose running sum exceeds the draw. Nothing to say draws nothing."""
     if not material:
         return None
-    return min(material, key=lambda m: (-m.certainty, m.key))
+    ordered = sorted(material, key=lambda m: m.key)
+    total = sum(m.certainty for m in ordered)
+    if total <= 0:
+        return None
+    draw = say_draw(seed, speaker_key, second, hearer_key, total)
+    chosen = pick_weighted([(m.key, m.certainty) for m in ordered], draw)
+    return next(m for m in ordered if m.key == chosen)
 
 
 def lie_statement(w: int, hearer: int, today: int) -> Tuple[tuple, int]:
@@ -1419,11 +1480,26 @@ def check_talk_rules() -> None:
     p = pair(low, low, zeros, zeros)
     expect("topic: only Alltag/Necken at the housemate start", [topic_allowed(t, p) for t in range(6)],
            [True, False, True, False, False, False])
-    expect("choose: all interests 0 -> smallest number", choose_topic(p), 0)
+    # Both allowed weights are 0, so the sum is 0 and the topic is Alltag. No draw.
+    expect("choose: weight sum 0 is Alltag", choose_topic(p, 0x5EED, 1, 2, 108_606), 0)
+    # The walk itself, with draws a person can check. A weight of 0 never takes the draw.
+    expect("walk: draw 0 is inside the first positive weight", pick_weighted([(0, 10), (2, 30)], 0), 0)
+    expect("walk: the last value of the first weight", pick_weighted([(0, 10), (2, 30)], 9), 0)
+    expect("walk: the next weight starts at the first weight", pick_weighted([(0, 10), (2, 30)], 10), 2)
+    expect("walk: the last value of the total", pick_weighted([(0, 10), (2, 30)], 39), 2)
+    expect("walk: a zero weight is skipped", pick_weighted([(0, 0), (1, 4), (3, 6)], 0), 1)
+    expect("walk: the draw lands in the later weight", pick_weighted([(0, 0), (1, 4), (3, 6)], 4), 3)
+    # Interests 10/10 and 500/300: Alltag 20, Necken 800, total 820. The draw is checked
+    # against the same walk, and the value is printed below for the Rust tests.
     ia = (10, 0, 500, 0, 0, 0)
     ib = (10, 0, 300, 0, 0, 0)
-    expect("choose: largest sum", choose_topic(pair(low, low, ia, ib)), 2)
-    expect("choose: a tie goes to the smallest number", choose_topic(pair(low, low, (500, 0, 500, 0, 0, 0), zeros)), 0)
+    drawn = pair(low, low, ia, ib)
+    weights = topic_weights(drawn)
+    total = sum(weight for _, weight in weights)
+    u = topic_draw(1, 11, 100, 22, total)
+    expect("choose: the walk of a real TALK_TOPIC draw", choose_topic(drawn, 1, 11, 22, 100), pick_weighted(weights, u))
+    # seed 1, subject 11, occasion 100, detail 22. 20 does not exceed 500; 820 does.
+    expect("choose: that draw", (weights, total, u, pick_weighted(weights, u)), ([(0, 20), (2, 800)], 820, 500, 2))
     expect("Necken: someone from 60 forbids it", topic_allowed(2, pair(low, low, zeros, zeros, age_b=60)), False)
     expect("Necken: 59 and 59 allows it", topic_allowed(2, pair(low, low, zeros, zeros, 59, 59)), True)
     like = (500, 450, 400, 0, 200, 0)
@@ -1667,17 +1743,70 @@ def check_beliefs() -> None:
     m1 = Belief(tat_key(30, NECKT, 1, 2), None, 900, 5, 7, 7, GEHOERT)
     m2 = Belief(tat_key(30, NECKT, 1, 1), None, 900, 5, 7, 7, GEHOERT)
     m3 = Belief(tat_key(30, NECKT, 1, 3), None, 500, 5, 7, 7, GEHOERT)
-    expect("said: surest, then smaller key", said_belief([m1, m2, m3]).key, m2.key)
-    expect("said: none", said_belief([]), None)
+    # Key order is day 1, day 2, day 3: weights 900, 900, 500, total 2300.
+    say_items = [(m2.key, 900), (m1.key, 900), (m3.key, 500)]
+    expect("say walk: draw 0 is the first key", pick_weighted(say_items, 0), m2.key)
+    expect("say walk: 899 is still the first key", pick_weighted(say_items, 899), m2.key)
+    expect("say walk: 900 is the second key", pick_weighted(say_items, 900), m1.key)
+    expect("say walk: 1799 is still the second key", pick_weighted(say_items, 1799), m1.key)
+    expect("say walk: 1800 is the lighter third key", pick_weighted(say_items, 1800), m3.key)
+    expect("say walk: 2299 is still the third key", pick_weighted(say_items, 2299), m3.key)
+    say_total = 2300
+    say_u = say_draw(1, 11, 100, 22, say_total)
+    expect(
+        "said: the walk of a real TALK_SAY draw",
+        said_belief([m1, m2, m3], 1, 11, 100, 22).key,
+        pick_weighted(say_items, say_u),
+    )
+    # 1800 does not exceed 2246; 2300 does, so the lighter third key is said.
+    expect("said: that draw", (say_total, say_u, pick_weighted(say_items, say_u)), (2300, 2246, m3.key))
+    expect("said: none", said_belief([], 1, 11, 100, 22), None)
     expect("speaker: only one has material", choose_speaker(1, [m1], None, 2, [], None), 1)
     expect("speaker: only b has a reason", choose_speaker(1, [], None, 2, [], 5), 2)
     expect("speaker: nobody", choose_speaker(1, [], None, 2, [], None), None)
     expect("speaker: larger sum of certainties", choose_speaker(1, [m3], None, 2, [m1], None), 2)
     expect("speaker: tie, smaller SimId", choose_speaker(1, [m1], None, 2, [m2], None), 1)
     expect("speaker: reason without material counts 0 against material", choose_speaker(1, [], 40, 2, [m3], None), 2)
-    expect("lie reason: grudge 700", lie_reason(1, 2, [1, 2, 3, 4], {3: 700}), 3)
-    expect("lie reason: 699 is none", lie_reason(1, 2, [1, 2, 3, 4], {3: 699}), None)
-    expect("lie reason: smallest SimId", lie_reason(1, 2, [1, 2, 3, 4], {4: 900, 3: 700}), 3)
+    expect("speaker: both heard, tie, smaller SimId passed second", choose_speaker(2, [m1], None, 1, [m2], None), 1)
+    # Heard material speaks first. A believed lie is basis `gehört` at 100. The other
+    # side's seen deed is 1000. Only one has heard material, so 2 speaks. 1000 > 100.
+    lie = Belief(tat_key(31, LAESTERT, 2, 4), None, 100, 5, 8, 8, GEHOERT)
+    seen_1000 = Belief(tat_key(30, NECKT, 1, 4), None, 1000, 5, None, None, GESEHEN)
+    expect(
+        "speaker: only the heard side speaks, though the seen sum is larger",
+        choose_speaker(1, [seen_1000], None, 2, [lie], None),
+        2,
+    )
+    # Both have heard material. 100 + 1000 = 1100 against 900, so the larger sum of all
+    # the material speaks. The heard priority cancels.
+    heard_100 = Belief(tat_key(32, LAESTERT, 2, 4), None, 100, 5, 8, 8, GEHOERT)
+    seen_extra = Belief(tat_key(30, NECKT, 1, 5), None, 1000, 5, None, None, GESEHEN)
+    heard_900 = Belief(tat_key(33, LAESTERT, 1, 4), None, 900, 5, 8, 8, GEHOERT)
+    expect(
+        "speaker: both heard, the larger sum of all material",
+        choose_speaker(1, [heard_100, seen_extra], None, 2, [heard_900], None),
+        1,
+    )
+    # Neither has heard material. Seen 400 against seen 900.
+    seen_400 = Belief(tat_key(34, NECKT, 1, 4), None, 400, 5, None, None, GESEHEN)
+    seen_900 = Belief(tat_key(35, NECKT, 1, 4), None, 900, 5, None, None, GESEHEN)
+    expect(
+        "speaker: neither heard, the larger sum",
+        choose_speaker(1, [seen_400], None, 2, [seen_900], None),
+        2,
+    )
+    # One has only a reason. The other has only the seen 900. The reason gives no priority.
+    expect(
+        "speaker: a reason alone loses to seen material",
+        choose_speaker(1, [], 40, 2, [seen_900], None),
+        2,
+    )
+    # By hand: household order 1, 2, 3, 4; speaker 1 and hearer 2 are skipped. Person 3 at
+    # grudge 300 meets the door and is the only candidate, so W is 3. At 299 nobody meets it.
+    # Person 4 at 900 and person 3 at 300 both meet it; the smaller SimId is 3.
+    expect("lie door: grudge 300 opens", lie_reason(1, 2, [1, 2, 3, 4], {3: 300}), 3)
+    expect("lie door: grudge 299 stays shut", lie_reason(1, 2, [1, 2, 3, 4], {3: 299}), None)
+    expect("lie reason: smallest SimId", lie_reason(1, 2, [1, 2, 3, 4], {4: 900, 3: 300}), 3)
     expect("lie reason: the hearer is not W", lie_reason(1, 2, [1, 2, 3, 4], {2: 900}), None)
     expect("lie statement", lie_statement(3, 2, 6), (tat_key(3, LAESTERT, 2, 6), 900))
 
@@ -1999,23 +2128,95 @@ def print_pins() -> None:
         row = tuple(interest(seed, k, t) for t in range(6))
         interests.append(row)
         print(f"  founder {i}: " + " ".join(f"{TOPIC_NAMES[t]}={v}" for t, v in enumerate(row)))
-    for x, y in ((0, 1), (1, 3), (2, 3)):
+    print("TALK_TOPIC (uniform_below(total); subject the smaller SimId's lineage_key,")
+    print("occasion the Talk second, detail the other's lineage_key). Weight = sum of interests.")
+    print("The topic is the first allowed one whose running sum exceeds the draw. Total 0 -> Alltag.")
+    # The worked draw of the check, so a reader can re-add the weights.
+    hand_ia = (10, 0, 500, 0, 0, 0)
+    hand_ib = (10, 0, 300, 0, 0, 0)
+    hand = TalkPair(1, 2, 30, 32, START_VALUES["housemate"], START_VALUES["housemate"], hand_ia, hand_ib, False, False)
+    hand_w = topic_weights(hand)
+    hand_total = sum(weight for _, weight in hand_w)
+    hand_u = topic_draw(1, 11, 100, 22, hand_total)
+    print(
+        f"  hand: seed 1 subject 11 occasion 100 detail 22 weights {hand_w} total {hand_total}"
+        f" draw {hand_u} -> {TOPIC_NAMES[pick_weighted(hand_w, hand_u)]}"
+        f" (running exceeds {hand_u})"
+    )
+    # Seconds the house tests use: the first commanded arrival is 108_006, the Talk 600 later.
+    house_seconds = (108_606, 108_606 + 3600, 108_606 + 2 * 3600, 21_600, 25_200, 237_600)
+    for x, y, age_a, age_b in ((0, 1, 30, 32), (1, 3, 32, 12), (2, 3, 30, 32)):
         for label, ea, eb, memory, gossip in (
             ("housemate start edges", START_VALUES["housemate"], START_VALUES["housemate"], False, False),
             ("partner start edges", START_VALUES["partner"], START_VALUES["partner"], False, False),
+            ("partners, common memory, no gossip", START_VALUES["partner"], START_VALUES["partner"], True, False),
             ("partners, common memory and gossip", START_VALUES["partner"], START_VALUES["partner"], True, True),
             ("a grudges b (400)", (400, 450, 400, 0, 200, 400), START_VALUES["housemate"], False, False),
         ):
-            p = TalkPair(1, 2, 30, 32, ea, eb, interests[x], interests[y], memory, gossip)
-            allowed = [TOPIC_NAMES[t] for t in range(6) if topic_allowed(t, p)]
-            topic = choose_topic(p)
-            actor = topic_actor(topic, p)
-            sums = [p.interest_a[t] + p.interest_b[t] for t in range(6)]
-            who = None if actor is None else f"founder {x if actor == 1 else y}"
-            print(
-                f"  topic, a=founder {x}, b=founder {y}, ages 30/32, {label}: allowed {allowed},"
-                f" sums {sums}, chosen {topic} {TOPIC_NAMES[topic]}, actor {who}"
-            )
+            for second in house_seconds:
+                p = TalkPair(1, 2, age_a, age_b, ea, eb, interests[x], interests[y], memory, gossip)
+                weighted = topic_weights(p)
+                total = sum(weight for _, weight in weighted)
+                if total == 0:
+                    print(
+                        f"  topic a=founder {x} b=founder {y} ages {age_a}/{age_b} second {second} {label}:"
+                        f" total 0 -> Alltag (no draw)"
+                    )
+                    continue
+                draw = topic_draw(seed, keys[x], second, keys[y], total)
+                chosen = pick_weighted(weighted, draw)
+                actor = topic_actor(chosen, p)
+                who = None if actor is None else f"founder {x if actor == 1 else y}"
+                running = 0
+                steps = []
+                for topic, weight in weighted:
+                    running += weight
+                    mark = " *" if topic == chosen else ""
+                    steps.append(f"{TOPIC_NAMES[topic]} {weight} -> {running}{mark}")
+                print(
+                    f"  topic a=founder {x} b=founder {y} ages {age_a}/{age_b} second {second} {label}:"
+                    f" total {total} draw {draw} chosen {chosen} {TOPIC_NAMES[chosen]} actor {who}"
+                )
+                print(f"    {' | '.join(steps)}")
+    # The couple's first talks, founders 0 and 1, partner edges, no gossip. A talk writes
+    # the common memory, so Erinnern is allowed from the second talk on. Grudge fade over
+    # one hour is 0. One Necken adds 60 to the teased person's grudge.
+    print("couple chain, founders 0 and 1, partner edges, seed 0x5EED, talks from 108606 every 3600:")
+    ea = START_VALUES["partner"]
+    eb = START_VALUES["partner"]
+    memory = False
+    for n in range(6):
+        second = 108_606 + n * 3600
+        p = TalkPair(1, 2, 30, 32, ea, eb, interests[0], interests[1], memory, False)
+        weighted = topic_weights(p)
+        total = sum(weight for _, weight in weighted)
+        draw = topic_draw(seed, keys[0], second, keys[1], total)
+        chosen = pick_weighted(weighted, draw)
+        actor = topic_actor(chosen, p)
+        print(
+            f"  talk {n} second {second} total {total} draw {draw} chosen {chosen} {TOPIC_NAMES[chosen]}"
+            f" actor {'a' if actor == 1 else 'b' if actor == 2 else None}"
+            f" edges grudge {ea[GRUDGE]}/{eb[GRUDGE]} memory {memory}"
+        )
+        for owner_is_a, other, steps in topic_outcome(chosen, p):
+            edge = list(ea if owner_is_a == 1 else eb)
+            for index, delta in steps.items():
+                edge[index] = clamp(edge[index] + delta)
+            if owner_is_a == 1:
+                ea = tuple(edge)
+            else:
+                eb = tuple(edge)
+        memory = True
+    print("housemate pair founders 1 and 3, ages 32/12, second 108606 (sim 2 and sim 4):")
+    p = TalkPair(
+        1, 2, 32, 12, START_VALUES["housemate"], START_VALUES["housemate"],
+        interests[1], interests[3], False, False,
+    )
+    weighted = topic_weights(p)
+    total = sum(weight for _, weight in weighted)
+    draw = topic_draw(seed, keys[1], 108_606, keys[3], total)
+    chosen = pick_weighted(weighted, draw)
+    print(f"  weights {[(TOPIC_NAMES[t], w) for t, w in weighted]} total {total} draw {draw} chosen {TOPIC_NAMES[chosen]}")
     print("TALK_LIE (u in 0..999999, lie if < 50000) and TALK_REFUTE (refute if < 200000),")
     print("seed 0x5EED, occasion = second, subject = speaker/refuter, detail = hearer:")
     for second in (6 * 3600, 6 * 3600 + 3600, 2 * DAY + 18 * 3600):
@@ -2027,6 +2228,36 @@ def print_pins() -> None:
                 f"  refute u={ur:>6} {'REFUTE' if refutes(ur) else 'no    '}"
             )
 
+    print("TALK_SAY (weight = certainty, key order; subject speaker, occasion second, detail hearer):")
+    say_rows = [
+        Belief(tat_key(30, NECKT, 1, 2), None, 900, 5, 7, 7, GEHOERT),
+        Belief(tat_key(30, NECKT, 1, 1), None, 900, 5, 7, 7, GEHOERT),
+        Belief(tat_key(30, NECKT, 1, 3), None, 500, 5, 7, 7, GEHOERT),
+    ]
+    say_order = sorted(say_rows, key=lambda m: m.key)
+    say_total = sum(m.certainty for m in say_order)
+    for label, say_seed, speaker_key, second, hearer_key in (
+        ("hand", 1, 11, 100, 22),
+        ("founders 0->1", seed, keys[0], 108_606, keys[1]),
+        ("founders 0->1", seed, keys[0], 21_600, keys[1]),
+        ("founders 1->0", seed, keys[1], 108_606, keys[0]),
+    ):
+        say_u = say_draw(say_seed, speaker_key, second, hearer_key, say_total)
+        running = 0
+        steps = []
+        chosen_key = None
+        for m in say_order:
+            running += m.certainty
+            if chosen_key is None and running > say_u:
+                chosen_key = m.key
+                steps.append(f"{m.key} {m.certainty} -> {running} *")
+            else:
+                steps.append(f"{m.key} {m.certainty} -> {running}")
+        print(
+            f"  {label} seed {say_seed:#x} subject {speaker_key:x} occasion {second} detail {hearer_key:x}:"
+            f" total {say_total} draw {say_u} chosen {chosen_key}"
+        )
+        print(f"    {' | '.join(steps)}")
     print("first second (a multiple of 600 from 06:00) with a hit, for founder 0 -> 1:")
     lie_hit = next(t for t in range(6 * 3600, 400 * DAY, 600) if lies(lie_draw(seed, keys[0], t, keys[1])))
     ref_miss = next(t for t in range(6 * 3600, 400 * DAY, 600) if not refutes(refute_draw(seed, keys[0], t, keys[1])))

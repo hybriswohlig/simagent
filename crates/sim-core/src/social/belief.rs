@@ -13,6 +13,9 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::SimId;
+use crate::lineage::LineageKey;
+use crate::rng::tags::TALK_SAY;
+use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed};
 use crate::social::bond::{GRUDGE, TRUST};
 use crate::social::data::BeliefRules;
 use crate::time::SimTime;
@@ -730,11 +733,11 @@ pub fn refute(
     }
 }
 
-/// Who speaks (ADR-0031 section 3). Someone with material or a reason may. If both may, the
-/// larger sum of the certainties of the material speaks, and a tie is the smaller [`SimId`].
-///
-/// READING: the reference returns its first argument on a tie. The ADR says the smaller id,
-/// which is the same when the caller passes the smaller id first, and this does that either way.
+/// Who speaks (ADR-0031 section 3, second addendum of 2026-11-13). Heard material, basis
+/// [`Basis::Gehoert`] (a believed lie included), speaks first. If only one side has it, that
+/// side speaks. If both or neither have it, the larger sum of the certainties of all the
+/// material speaks, and a tie is the smaller [`SimId`]. A reason alone gives no priority:
+/// someone with only a reason speaks only when the other has neither material nor a reason.
 pub fn choose_speaker(
     a: SimId,
     material_a: &[Belief],
@@ -743,6 +746,15 @@ pub fn choose_speaker(
     material_b: &[Belief],
     reason_b: Option<SimId>,
 ) -> Option<SimId> {
+    let heard = |material: &[Belief]| material.iter().any(|belief| belief.basis == Basis::Gehoert);
+    let a_heard = heard(material_a);
+    let b_heard = heard(material_b);
+    if a_heard && !b_heard {
+        return Some(a);
+    }
+    if b_heard && !a_heard {
+        return Some(b);
+    }
     let a_ok = !material_a.is_empty() || reason_a.is_some();
     let b_ok = !material_b.is_empty() || reason_b.is_some();
     if a_ok && !b_ok {
@@ -770,17 +782,52 @@ pub fn choose_speaker(
     }
 }
 
-/// The sentence said: the surest material, the smaller key on a tie.
-pub fn said_belief(material: &[Belief]) -> Option<Belief> {
-    let mut best: Option<Belief> = None;
-    for belief in material {
-        let rank = (core::cmp::Reverse(belief.certainty), belief.key());
-        let take = best.is_none_or(|old| rank < (core::cmp::Reverse(old.certainty), old.key()));
-        if take {
-            best = Some(*belief);
+/// The said-sentence draw (ADR-0031 addendum 2026-11-13). Subject the speaker's lineage key,
+/// occasion the second of the Talk, detail the hearer's lineage key. The world seed.
+pub fn say_draw_key(speaker: LineageKey, second: SimTime, hearer: LineageKey) -> DrawKey {
+    DrawKey {
+        tag: TALK_SAY,
+        subject: SubjectKey::from(speaker),
+        occasion: u64::try_from(second.as_secs()).unwrap_or_else(|_| panic!("invariant talk.say")),
+        detail: hearer.get(),
+    }
+}
+
+/// The sentence said, and the key of the draw that chose it. Each piece of material weighs
+/// its certainty. The draw is `uniform_below` of the sum, on [`say_draw_key`]. The sentence
+/// is the first in key order whose running sum exceeds the draw. Empty material, or a sum of
+/// 0, says nothing, and then nothing is drawn. [`crate::rng::tags::TALK_LIE`] is rolled
+/// before this.
+///
+/// # Panics
+///
+/// Invariant `talk.say` if a positive sum does not select a sentence.
+pub fn said_belief(
+    material: &[Belief],
+    seed: WorldSeed,
+    speaker: LineageKey,
+    second: SimTime,
+    hearer: LineageKey,
+) -> Option<(Belief, DrawKey)> {
+    let mut ordered = material.to_vec();
+    ordered.sort_by_key(|belief| belief.key());
+    let total: u64 = ordered
+        .iter()
+        .map(|belief| u64::from(belief.certainty))
+        .sum();
+    if total == 0 {
+        return None;
+    }
+    let key = say_draw_key(speaker, second, hearer);
+    let draw = Draws::new(seed).uniform_below(key, total);
+    let mut running = 0_u64;
+    for belief in ordered {
+        running += u64::from(belief.certainty);
+        if running > draw {
+            return Some((belief, key));
         }
     }
-    best
+    panic!("invariant talk.say");
 }
 
 #[cfg(test)]
@@ -1496,8 +1543,34 @@ mod tests {
         let m1 = heard(tat(30, NECKT, 1, 2), 900, 5, 7, 7);
         let m2 = heard(tat(30, NECKT, 1, 1), 900, 5, 7, 7);
         let m3 = heard(tat(30, NECKT, 1, 3), 500, 5, 7, 7);
-        assert_eq!(said_belief(&[m1, m2, m3]).expect("said").key(), m2.key());
-        assert_eq!(said_belief(&[]), None);
+        // Key order is day 1, day 2, day 3 (weights 900, 900, 500). Seed 0x5EED, founders of
+        // test:social, second 108606. Speaker 0 hearer 1 draws 1170 and says day 2. Speaker 1
+        // hearer 0 draws 1850 and says day 3, the lighter sentence.
+        let tag = DataId::new("test:social").expect("tag");
+        let founder = |index: u64| LineageKey::founder(&tag, index);
+        let seed = WorldSeed::new(0x5EED);
+        let second = t(108_606);
+        let say = |speaker: u64, hearer: u64| {
+            Draws::new(seed).uniform_below(
+                say_draw_key(founder(speaker), second, founder(hearer)),
+                2_300,
+            )
+        };
+        assert_eq!(say(0, 1), 1_170);
+        let (said, key) =
+            said_belief(&[m1, m2, m3], seed, founder(0), second, founder(1)).expect("said");
+        assert_eq!(said.key(), m1.key());
+        assert_eq!(key, say_draw_key(founder(0), second, founder(1)));
+        assert_eq!(
+            Draws::new(seed).uniform_below(say_draw_key(founder(0), t(21_600), founder(1)), 2_300,),
+            1_038
+        );
+        assert_eq!(say(1, 0), 1_850);
+        let (said, key) =
+            said_belief(&[m1, m2, m3], seed, founder(1), second, founder(0)).expect("said");
+        assert_eq!(said.key(), m3.key());
+        assert_eq!(key, say_draw_key(founder(1), second, founder(0)));
+        assert_eq!(said_belief(&[], seed, founder(0), second, founder(1)), None);
         assert_eq!(
             choose_speaker(id(1), &[m1], None, id(2), &[], None),
             Some(id(1))
@@ -1521,6 +1594,50 @@ mod tests {
         );
         assert_eq!(
             choose_speaker(id(1), &[], Some(id(40)), id(2), &[m3], None),
+            Some(id(2))
+        );
+        // Heard material speaks first (ADR-0031, second addendum 2026-11-13). The
+        // reference's hand cases. A believed lie is basis `gehört` at 100. The other
+        // side's seen deed is 1000. Only one has heard material, so 2 speaks.
+        let seen_1000 = seen_belief(tat(30, NECKT, 1, 4), 5);
+        let lie = heard(tat(31, LAESTERT, 2, 4), 100, 5, 8, 8);
+        assert_eq!(
+            choose_speaker(id(1), &[seen_1000], None, id(2), &[lie], None),
+            Some(id(2))
+        );
+        // Both have heard material. 100 + 1000 = 1100 against 900, so the larger sum
+        // of all the material speaks.
+        let heard_100 = heard(tat(32, LAESTERT, 2, 4), 100, 5, 8, 8);
+        let seen_extra = seen_belief(tat(30, NECKT, 1, 5), 5);
+        let heard_900 = heard(tat(33, LAESTERT, 1, 4), 900, 5, 8, 8);
+        assert_eq!(
+            choose_speaker(
+                id(1),
+                &[heard_100, seen_extra],
+                None,
+                id(2),
+                &[heard_900],
+                None
+            ),
+            Some(id(1))
+        );
+        // Neither has heard material. Seen 400 against seen 900.
+        let seen_400 = Belief {
+            certainty: 400,
+            ..seen_belief(tat(34, NECKT, 1, 4), 5)
+        };
+        let seen_900 = Belief {
+            certainty: 900,
+            ..seen_belief(tat(35, NECKT, 1, 4), 5)
+        };
+        assert_eq!(
+            choose_speaker(id(1), &[seen_400], None, id(2), &[seen_900], None),
+            Some(id(2))
+        );
+        // One has only a reason. The other has only the seen 900. The reason gives no
+        // priority, so the seen material speaks.
+        assert_eq!(
+            choose_speaker(id(1), &[], Some(id(40)), id(2), &[seen_900], None),
             Some(id(2))
         );
     }
@@ -1556,24 +1673,28 @@ mod tests {
                     .unwrap_or(0)
             }
         }
+        // The reference's hand case: the door opens at grudge 300 and stays shut at 299.
+        // Household order 1, 2, 3, 4; speaker 1 and hearer 2 are skipped. Person 3 at 300
+        // is the only one at the door. Person 4 at 900 and person 3 at 300 both qualify,
+        // and the smaller SimId is 3.
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(3, 700)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(3, 300)]), 300),
             Some(id(3))
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(3, 699)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(3, 299)]), 300),
             None
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(4, 900), (3, 700)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(4, 900), (3, 300)]), 300),
             Some(id(3))
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(2, 900)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(2, 900)]), 300),
             None
         );
         assert_eq!(
-            lie_reason(id(1), id(2), &house, grudge(&[(1, 900)]), 700),
+            lie_reason(id(1), id(2), &house, grudge(&[(1, 900)]), 300),
             None
         );
         let (said, certainty) = lie_statement(id(3), id(2), 6, &rules);

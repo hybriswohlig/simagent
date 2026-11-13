@@ -531,7 +531,7 @@ fn a_save_in_the_middle_of_the_week_runs_on_and_the_loader_checks_it() {
     assert_eq!(load(&child), inconsistent);
     // A save of the previous projection, and of the previous core, is refused.
     assert_eq!(PROJECTION_VERSION, 24);
-    assert_eq!(CORE_VERSION, 70);
+    assert_eq!(CORE_VERSION, 71);
     let rest = bytes.strip_prefix(b"SIMAGENT").expect("magic");
     let (_, rest) = postcard::take_from_bytes::<u32>(rest).expect("format");
     let (_, rest) =
@@ -636,11 +636,21 @@ fn talked(run: &Run) -> Vec<&LogEntry> {
 /// teased one, sim 2, has anger +100 at the band of its affection of 700 to the teaser, so +150, and
 /// a temper of -150 / 4 = -37; the teaser has nothing. One `core:felt`, after `core:talked`,
 /// caused by it, and not charged against the talk's limits (the counters stay as without it).
+/// The table offers only Necken, so the first talk is that tease.
 #[test]
 fn a_tease_in_the_band_angers_the_teased_one() {
     let born = [-30 * year(), -32 * year()];
     let day = include_str!("../../../data/house/day.json");
-    let data = talk_data(7_200, 2, 60, day, common::repository_social(), "hall");
+    let social = common::repository_social_with(|file| {
+        let topics = file["topics"].as_array_mut().expect("topics");
+        assert_eq!(topics[2]["id"], "core:tease");
+        for (index, topic) in topics.iter_mut().enumerate() {
+            if index != 2 {
+                topic["furniture"] = json!([]);
+            }
+        }
+    });
+    let data = talk_data(7_200, 2, 60, day, social, "hall");
     let (mut run, _) = Run::family(data, 0x5EED, "test:social", &born, 0);
     let arrival = arrive(&mut run, day::MORNING, &[(1, DINING), (2, DINING)]);
     let first = arrival + TALK_DELAY;
@@ -785,19 +795,19 @@ fn a_lie_against_the_hearer_angers_and_saddens_it_and_a_refutation_is_one_row_wi
     assert_eq!(caused_by(entries[0]), vec![day::number(&spoken[0].id)]);
     assert!(felt(&run, 1).is_empty() && felt(&run, 3).is_empty());
 
-    // At 27 012 he and W talk: Entschuldigung (W apologises, he is the one grudged) with the
-    // refutation of the lie (the reference's draw of founder 2 toward founder 1 hits, u = 22 449).
-    // His rows: joy +50 and anger -200 at his affection of 400 to W (below the band), and anger
-    // +150 refuted toward the source, the liar, at his affection of 700 to her: in the band, +225.
-    // Summed first: anger +25, joy +50. Elapsed since the lie is 3 612 s. The rates lose
-    // 300·3612/86400 = 12 of the anger, 150·3612/86400 = 6 of the sadness and 100·3612/86400 = 4
-    // of the temper, so anger 200 is 188, sadness 100 is 94 and the temper -75 is -71. He has
-    // [50, 213, 94, 0]; the temper moves by (50 - 25) / 4 = 6, once, to -65.
+    // At 24 013 he and W talk: Entschuldigung (the topic draw is 2020 of 3238; W apologises,
+    // he is the one grudged) with the refutation of the lie (founder 2 toward founder 1 hits,
+    // u = 194 680). His rows: joy +50 and anger -200 at his affection of 400 to W (below the
+    // band), and anger +150 refuted toward the source, the liar, at his affection of 700 to
+    // her: in the band, +225. Summed first: anger +25, joy +50. Elapsed since the lie is 613 s.
+    // The rates lose 300·613/86400 = 2 of the anger and 150·613/86400 = 1 of the sadness; the
+    // temper loses 100·613/86400 = 0. Anger 200 is 198, sadness 100 is 99 and the temper -75
+    // stays -75. He has [50, 223, 99, 0]; the temper moves by (50 - 25) / 4 = 6, once, to -69.
     for who in [1, 2] {
         run.submit(command(who, TOILET));
     }
     run.advance(at + 1 + WITHIN_ROOM);
-    let later = 27_012;
+    let later = 24_013;
     let arrival = arrive(
         &mut run,
         later - TALK_DELAY - WITHIN_ROOM - 1,
@@ -828,7 +838,7 @@ fn a_lie_against_the_hearer_angers_and_saddens_it_and_a_refutation_is_one_row_wi
         .collect();
     assert_eq!(at_talk.len(), 1, "one entry for all the rows of the talk");
     assert_eq!(at_talk[0].subjects, [Subject::Sim(sim(2))]);
-    assert_eq!(at_talk[0].payload, felt_payload([50, 213, 94, 0], -65));
+    assert_eq!(at_talk[0].payload, felt_payload([50, 223, 99, 0], -69));
     assert_eq!(caused_by(at_talk[0]), vec![day::number(&talk.id)]);
     assert_eq!(felt(&run, 2).len(), 2);
     assert!(felt(&run, 1).is_empty() && felt(&run, 3).is_empty());

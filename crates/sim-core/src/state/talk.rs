@@ -474,6 +474,22 @@ fn earlier(cause: &Cause, ctx: &SimCtx<'_, '_>) -> EventId {
     }
 }
 
+fn is_draw(cause: &Cause, key: DrawKey) -> bool {
+    matches!(cause, Cause::Random(got) if *got == DrawRef::from(key))
+}
+
+/// `before` was the cause of an entry that was written, and `after` is the cause of the
+/// next one. A topic draw that was `before` has been named, so a later entry does not name
+/// it again (ADR-0001: one draw, one entry).
+fn consumed(unnamed: &mut Option<DrawKey>, before: &Cause, after: &Cause) {
+    if let Some(key) = *unnamed
+        && is_draw(before, key)
+        && !is_draw(after, key)
+    {
+        *unnamed = None;
+    }
+}
+
 fn recall(
     domain: &mut DomainState,
     owner: SimId,
@@ -582,7 +598,22 @@ pub(crate) fn run(
         common_memory: shared.is_some(),
         gossip,
     };
-    let topic = choose_topic(social, &view, kind);
+    let (topic, topic_draw) = choose_topic(
+        social,
+        &view,
+        kind,
+        WorldSeed::new(seed),
+        domain.key_of(a),
+        domain.key_of(b),
+        now,
+    );
+    // The first entry that follows the topic draw names it. A lie, a said sentence or a
+    // refutation names its own draw instead and replaces this cause, so a topic draw that
+    // no entry has named yet stays in `unnamed` until `core:talked`.
+    let mut unnamed = topic_draw;
+    if let Some(key) = topic_draw {
+        cause = Cause::Random(DrawRef::from(key));
+    }
     let actor = topic_actor(social, topic, &view);
     let outcomes = topic_outcome(social, topic, &view);
     for outcome in outcomes {
@@ -597,6 +628,7 @@ pub(crate) fn run(
         if before == after {
             continue;
         }
+        let cited = cause.clone();
         let id = ctx.emit(
             LogPayload::BondChanged {
                 other: outcome.other,
@@ -604,9 +636,10 @@ pub(crate) fn run(
                 after,
             },
             vec![Subject::Sim(outcome.owner)],
-            Causes::new(cause.clone()),
+            Causes::new(cited.clone()),
         );
         cause = Cause::Event(id);
+        consumed(&mut unnamed, &cited, &cause);
         // Affection, familiarity, trust or a grudge moved. An idle choice weighs the first three.
         super::action::changed_for(domain, outcome.owner, id);
         if outcome.owner == a {
@@ -639,6 +672,7 @@ pub(crate) fn run(
             other: target,
             day,
         };
+        let cited = cause.clone();
         cause = offer_seen(
             domain,
             data,
@@ -649,6 +683,7 @@ pub(crate) fn run(
             cause,
             ctx,
         );
+        consumed(&mut unnamed, &cited, &cause);
     }
     if topic == GOSSIP
         && let Some(speaker) = choose_speaker(a, &material_a, reason_a, b, &material_b, reason_b)
@@ -687,13 +722,20 @@ pub(crate) fn run(
                     day,
                     now,
                     fade,
-                    lie: Some(key),
+                    lie: true,
+                    drawn: Some(key),
                 },
                 &mut charges,
                 cause,
                 ctx,
             );
-        } else if let Some(said) = said_belief(material) {
+        } else if let Some((said, key)) = said_belief(
+            material,
+            WorldSeed::new(seed),
+            domain.key_of(speaker),
+            now,
+            domain.key_of(hearer),
+        ) {
             cause = pass_on(
                 domain,
                 data,
@@ -704,7 +746,8 @@ pub(crate) fn run(
                     day,
                     now,
                     fade,
-                    lie: None,
+                    lie: false,
+                    drawn: Some(key),
                 },
                 &mut charges,
                 cause,
@@ -736,19 +779,37 @@ pub(crate) fn run(
         plan_forget(domain, a, by, ctx);
         plan_forget(domain, b, by, ctx);
     }
+    let cited = cause.clone();
     let (cause, kept_a) = wrote_memory(domain, data, a, b, TALK, cause, ctx);
+    consumed(&mut unnamed, &cited, &cause);
     charge(&mut entries_a, kept_a);
+    let cited = cause.clone();
     let (mut cause, kept_b) = wrote_memory(domain, data, b, a, TALK, cause, ctx);
+    consumed(&mut unnamed, &cited, &cause);
     charge(&mut entries_b, kept_b);
     if refuted {
+        let cited = cause.clone();
         let (next, kept) = wrote_memory(domain, data, a, b, REFUTED, cause, ctx);
+        consumed(&mut unnamed, &cited, &next);
         charge(&mut entries_a, kept);
         cause = next;
+        let cited = cause.clone();
         let (next, kept) = wrote_memory(domain, data, b, a, REFUTED, cause, ctx);
+        consumed(&mut unnamed, &cited, &next);
         charge(&mut entries_b, kept);
         cause = next;
     }
     let topic_u8 = u8::try_from(topic).unwrap_or_else(|_| panic!("invariant talk.topic"));
+    // A sentence or a refutation names its own draw on its first entry. A topic draw that
+    // changed no bond and was not the cause of a memory is named here, on the entry that
+    // records the topic, beside the chain. If this cause is already that draw, it is named
+    // once.
+    let causes = match unnamed {
+        Some(key) if !is_draw(&cause, key) => {
+            Causes::new(cause).with(Cause::Random(DrawRef::from(key)))
+        }
+        _ => Causes::new(cause),
+    };
     let talked = ctx.emit(
         LogPayload::Talked {
             other: b,
@@ -757,7 +818,7 @@ pub(crate) fn run(
             actor,
         },
         vec![Subject::Sim(a), Subject::Sim(b)],
-        Causes::new(cause),
+        causes,
     );
     charge(&mut entries_a, 1);
     charge(&mut entries_b, 1);
@@ -821,7 +882,8 @@ impl Charges<'_> {
     }
 }
 
-/// One said statement and where it is said. `lie` is the draw that made it a lie.
+/// One said statement and where it is said. `lie` is whether the statement is a lie.
+/// `drawn` is the draw that chose it: the lie draw, or the said-sentence draw.
 struct Pass {
     speaker: SimId,
     said: Belief,
@@ -829,7 +891,8 @@ struct Pass {
     day: i64,
     now: SimTime,
     fade: (u16, u16),
-    lie: Option<DrawKey>,
+    lie: bool,
+    drawn: Option<DrawKey>,
 }
 
 /// The deed number of `id` in `beliefs.deeds`.
@@ -1061,8 +1124,9 @@ fn refute_one(
 ///
 /// READING: the bond step is on the hearer's edge to the doer, not to the speaker. If that
 /// edge does not exist, none is formed and no `core:bond_changed` is written. The first entry
-/// after a lie draw names the draw. Later entries of the step name the previous entry, so the
-/// hearer's `core:bond_changed` stays caused by `core:believed` (ADR-0031 section 5, Meiden).
+/// after a lie draw or a said-sentence draw names that draw. Later entries of the step name
+/// the previous entry, so the hearer's `core:bond_changed` stays caused by `core:believed`
+/// (ADR-0031 section 5, Meiden).
 fn pass_on(
     domain: &mut DomainState,
     data: &Data,
@@ -1079,7 +1143,7 @@ fn pass_on(
     } else {
         charges.a
     };
-    let told_cause = match pass.lie {
+    let told_cause = match pass.drawn {
         Some(key) => Causes::new(Cause::Random(DrawRef::from(key))),
         None => Causes::new(cause),
     };
@@ -1088,7 +1152,7 @@ fn pass_on(
             to: hearer,
             statement: pass.said.statement,
             certainty: pass.said.certainty,
-            lie: pass.lie.is_some(),
+            lie: pass.lie,
         },
         vec![Subject::Sim(pass.speaker)],
         told_cause,
@@ -1097,11 +1161,7 @@ fn pass_on(
     charges.add(pass.speaker, 1);
     let trust = trust_in(domain, data, hearer, pass.speaker, pass.now, pass.fade);
     // A lie has no speaker belief, so the hearer's origin is the speaker.
-    let speaker_belief = if pass.lie.is_some() {
-        None
-    } else {
-        Some(pass.said)
-    };
+    let speaker_belief = if pass.lie { None } else { Some(pass.said) };
     match belief::store_heard(
         domain,
         data,
@@ -1160,7 +1220,7 @@ fn pass_on(
     let Statement::Tat { doer, .. } = pass.said.statement else {
         panic!("invariant talk.gossip");
     };
-    if pass.lie.is_some() {
+    if pass.lie {
         let lies = DataId::new("core:lies").unwrap_or_else(|_| panic!("invariant belief.deed"));
         let lying = deed_kind(data, &lies);
         belief::record_deed(

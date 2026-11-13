@@ -176,6 +176,17 @@ pub const TALK_LIE: PurposeTag = PurposeTag::from_pinned_list(36);
 /// lineage key. The world seed.
 pub const TALK_REFUTE: PurposeTag = PurposeTag::from_pinned_list(37);
 
+/// Which allowed topic a talk takes, `uniform_below(total)` of the interest sums (ADR-0030
+/// addendum 2026-11-13). subject: the lineage key of the person with the smaller [`SimId`];
+/// occasion: the second of the Talk; detail: the other's lineage key. The world seed. A total
+/// of 0 draws nothing and the topic is Alltag.
+pub const TALK_TOPIC: PurposeTag = PurposeTag::from_pinned_list(38);
+
+/// Which piece of gossip material is said, `uniform_below` of the sum of certainties (ADR-0031
+/// addendum 2026-11-13). subject: the speaker's lineage key; occasion: the second of the Talk;
+/// detail: the hearer's lineage key. The world seed. [`TALK_LIE`] is rolled first.
+pub const TALK_SAY: PurposeTag = PurposeTag::from_pinned_list(39);
+
 /// Every tag in use with its name.
 pub const ALL: &[(PurposeTag, &str)] = &[
     (MEIOSIS_START_STRAND, "MEIOSIS_START_STRAND"),
@@ -215,6 +226,8 @@ pub const ALL: &[(PurposeTag, &str)] = &[
     (TALK_INTEREST, "TALK_INTEREST"),
     (TALK_LIE, "TALK_LIE"),
     (TALK_REFUTE, "TALK_REFUTE"),
+    (TALK_TOPIC, "TALK_TOPIC"),
+    (TALK_SAY, "TALK_SAY"),
 ];
 
 /// Values of deleted tags; they are never used again.
