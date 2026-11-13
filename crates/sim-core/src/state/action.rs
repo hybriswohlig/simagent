@@ -575,8 +575,8 @@ pub(crate) fn seat_bonus(
     (bonuses, rows, temper)
 }
 
-/// `min(0, scaled company − avoid)` per object, the drag an idle plan applies when the bonus-0
-/// search names its own start. A positive net does not move the second.
+/// `min(0, scaled company − avoid)` per object. Never positive, and never above the net the
+/// choice itself adds.
 pub(crate) fn object_drag(bonuses: &[Bonus], temper: i16) -> Vec<i64> {
     bonuses
         .iter()
@@ -600,6 +600,13 @@ pub(crate) fn object_drags_at(
     object_drag(&bonuses, temper)
 }
 
+/// Company 0 and avoid in full: `−avoid` per object, the smallest drag while these people sit.
+/// The bound of `t−` (ADR-0030, addendum of 2026-11-13). Trust does not fade, and scaled company
+/// is at least 0, so a later second of the same seating is never below this.
+pub(crate) fn object_worst_drag(bonuses: &[Bonus]) -> Vec<i64> {
+    bonuses.iter().map(|bonus| -bonus.avoid).collect()
+}
+
 /// How a walk begins: by a choice, as a time-filler or not, or by a command (ADR-0024 section 5).
 #[derive(Clone, Copy)]
 enum Begun {
@@ -612,11 +619,11 @@ enum Begun {
 /// households and their members: each idle in a room or on its walk to the room one stays in,
 /// not lying and waiting for nothing, chooses at `idle_plan` from now on, planned by the
 /// household's last entry that changed it; anyone else has no choice planned. A choice already
-/// due in this second stays: it comes anyway, and plans the next. When the bonus-0 search names
-/// this second, the plan reads the negative net at each later second, so an idle choice does not
-/// schedule itself again and a save during the wait names that same second (ADR-0030 section 4,
-/// ADR-0032 section 5). The end of a time-filler at its object is its next choice, planned anew
-/// in the same way (`filler_end_of`; ADR-0026,
+/// due in this second stays: it comes anyway, and plans the next. The plan weighs every whole
+/// minute with that minute's drag, between a bonus-0 `t+` and a `t−` that uses company 0 and
+/// avoid in full, so an idle choice does not schedule itself again and a save during the wait
+/// names that same second (ADR-0030, addendum of 2026-11-13). The end of a time-filler at its
+/// object is its next choice, planned anew in the same way (`filler_end_of`; ADR-0026,
 /// addendum of 2026-11-04 on comfort and the time-filler); in an input at the clock even one due
 /// in its second, which has not come yet, as a loaded world plans it from the clock. Each plan is
 /// made in `planned_in`.
@@ -672,6 +679,25 @@ fn plan_next(
             let who = (born(domain, sim), key, seed);
             let planned = planned_in(ctx);
             let person = person.clone();
+            let worst_drag = match data.social() {
+                Some(social) => {
+                    let members = (domain.members.get(&household).into_iter().flatten()).copied();
+                    let (bonuses, _, _) = seat_bonus(
+                        social,
+                        &domain.house.social,
+                        house,
+                        sim,
+                        now,
+                        members,
+                        |other| {
+                            let seated = domain.house.sims.get(&other)?;
+                            Some((seated.action, seated.place))
+                        },
+                    );
+                    object_worst_drag(&bonuses)
+                }
+                None => Vec::new(),
+            };
             let drag = |at: i64, object: u16| {
                 let Some(social) = data.social() else {
                     return 0;
@@ -693,15 +719,16 @@ fn plan_next(
                 .copied()
                 .unwrap_or(0)
             };
-            let plan = crate::house::state::idle_plan(
+            let worst = |object: u16| worst_drag.get(usize::from(object)).copied().unwrap_or(0);
+            crate::house::state::idle_plan(
                 (house, houses),
                 who,
                 &person,
                 &taken,
                 (now, planned),
                 drag,
-            );
-            plan.scheduled(now)
+                worst,
+            )
         }
         false => None,
     };
@@ -1162,6 +1189,12 @@ pub(crate) fn on_arrive(
     if let Some(end) = end {
         let handle = ctx.schedule(end, EventPayload::ActionEnd { sim }, entry);
         domain.pending.insert((sim, Slot::End), handle);
+    }
+    // Avoid starts at the seat, not on the way. Idle choices are planned again, so a save
+    // while the partner sits names the same second the run has queued (ADR-0030, addendum
+    // of 2026-11-13). One already due in this second stays and can still idle.
+    if let Some(household) = domain.sims.get(&sim).map(|person| person.household) {
+        changed(domain, household, entry);
     }
     super::talk::on_seated(domain, data, sim, entry, ctx);
 }
