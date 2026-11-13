@@ -472,8 +472,8 @@ fn an_action_end_in_the_same_second_runs_the_talk() {
 /// and reaches the table at 108 006. Talks fall at 108 606 and every 3 600 s: the fifth at
 /// 123 006, the sixth at 126 606. The meal is 18 600 s, and 108 006 + 18 600 = 126 606.
 /// The child is sent at 123 007, arrives at 123 012 and talks at 123 612; those successors
-/// are at 127 212, after the meal. Entries of the chain, before the child: she 2 + 3 + 3 + 2
-/// + 3 = 13, he 3 + 3 + 3 + 4 + 3 = 16. The Necken is the fourth talk and adds 60 grudge;
+/// are at 127 212, after the meal. Entries of the chain, before the child: she
+/// 2 + 3 + 3 + 2 + 3 = 13, he 3 + 3 + 3 + 4 + 3 = 16. The Necken is the fourth talk and adds 60 grudge;
 /// one hour fades none (`10 * 3 600 / 86 400` = 0). She then writes 2 teasing the child
 /// (15) and he writes 4 as the child's target (20). The house day at 126 606 is 1, so the
 /// counters do not reset.
