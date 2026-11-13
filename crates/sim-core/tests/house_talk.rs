@@ -22,12 +22,12 @@ use sim_core::params::WorldParams;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::belief::{
     Basis, Belief, DeedAnswer, Deeds, LAESTERT, LUEGT, NECKT, Statement, gossip_material,
-    live_material,
+    live_material, say_draw_key,
 };
 use sim_core::social::bond::{GRUDGE, TRUST};
 use sim_core::social::data::{REFUTED, TALK};
 use sim_core::social::talk::{
-    TEASE, house_day, interests, lie_draw_key, refute_draw_key, talk_ppm,
+    TEASE, house_day, interests, lie_draw_key, refute_draw_key, talk_ppm, topic_draw_key,
 };
 use sim_core::time::{MONTH, SimDuration, SimTime, YEAR};
 use sim_core::version::CORE_VERSION;
@@ -339,6 +339,23 @@ fn partners_praise_and_talk_again_an_hour_later() {
     // His edge is not written. Hers fades by 1, then Lob steps affection and respect.
     assert_eq!(bond(&run, 1, 2), [700, 700, 500, 500, 600, 0]);
     assert_eq!(bond(&run, 2, 1), [730, 700, 520, 500, 599, 0]);
+    // The topic draw (total 3482, draw 1797) is the cause of her bond step, and of nothing else.
+    let topic = DrawRef::from(topic_draw_key(founder(0), t(first), founder(1)));
+    let praise = (run.log.iter())
+        .find(|entry| {
+            entry.t == t(first)
+                && entry.subjects == vec![Subject::Sim(sim(2))]
+                && matches!(
+                    entry.payload,
+                    LogPayload::BondChanged { other, .. } if other == sim(1)
+                )
+        })
+        .expect("her bond step");
+    assert!(caused_by(praise, topic));
+    assert_eq!(
+        run.log.iter().filter(|entry| cites(entry, topic)).count(),
+        1
+    );
     // Praiser: memory and the talk. Praised: the bond step as well. No belief.
     assert_eq!(counts(&run, 1), (1, 2));
     assert_eq!(counts(&run, 2), (1, 3));
@@ -429,6 +446,61 @@ fn housemates_take_alltag_from_the_interest_pins() {
         t(at)
     );
     assert_eq!(run.world.talk_at(sim(2), sim(4)), Some(t(at + PAIR_GAP)));
+}
+
+/// Nothing at the table is allowed. Alltag names the dining table but only from age 130,
+/// and the other topics name no furniture, so the dining table stays sociable and the weight
+/// sum is 0. Alltag is taken and nothing is drawn. The familiarity steps are still written,
+/// and no entry names a topic draw.
+#[test]
+fn a_zero_total_topic_names_no_draw() {
+    let social = common::repository_social_with(|file| {
+        let topics = file["topics"].as_array_mut().expect("topics");
+        for (index, topic) in topics.iter_mut().enumerate() {
+            if index == 0 {
+                assert_eq!(topic["id"], "core:everyday");
+                topic["min_age"] = json!(130);
+                topic["max_age"] = json!(130);
+                topic["furniture"] = json!(["core:dining_table"]);
+            } else {
+                topic["furniture"] = json!([]);
+            }
+        }
+    });
+    let born = [-30 * year(), -32 * year()];
+    let (mut run, _) = day::Run::family(
+        data(7_200, 2).with_social(social),
+        0x5EED,
+        "test:social",
+        &born,
+        0,
+    );
+    let arrival = seat(&mut run, &[(1, DINING), (2, DINING)]);
+    let at = arrival + TALK_DELAY;
+    assert_eq!(at, 108_606);
+    run.advance(at);
+    let spoken = talked(&run);
+    assert_eq!(spoken.len(), 1);
+    assert_eq!(
+        spoken[0].payload,
+        LogPayload::Talked {
+            other: sim(2),
+            object: DINING,
+            topic: 0,
+            actor: None,
+        }
+    );
+    assert!(run.log.iter().any(|entry| {
+        entry.t == t(at) && matches!(entry.payload, LogPayload::BondChanged { .. })
+    }));
+    let tag = tags::TALK_TOPIC.get();
+    assert!(run.log.iter().all(|entry| {
+        entry
+            .causes
+            .as_slice()
+            .iter()
+            .all(|cause| !matches!(cause, Cause::Random(draw) if draw.tag == tag))
+    }));
 }
 
 /// The smaller person's action ends in the talk's second, so that end runs the talk and no
@@ -767,19 +839,38 @@ fn a_seen_deed_is_passed_on_with_the_heard_certainty_and_the_bond_step() {
         }
     );
     assert_eq!(spoken[1].t, t(gossip_at));
-    assert!(run.log.iter().any(|entry| {
-        entry.t == t(gossip_at)
-            && entry.subjects == vec![Subject::Sim(sim(2))]
-            && matches!(
-                entry.payload,
-                LogPayload::Told {
-                    to,
-                    statement,
-                    certainty: 1000,
-                    lie: false,
-                } if to == sim(1) && statement == teased
-            )
-    }));
+    let told = (run.log.iter())
+        .find(|entry| {
+            entry.t == t(gossip_at)
+                && entry.subjects == vec![Subject::Sim(sim(2))]
+                && matches!(
+                    entry.payload,
+                    LogPayload::Told {
+                        to,
+                        statement,
+                        certainty: 1000,
+                        lie: false,
+                    } if to == sim(1) && statement == teased
+                )
+        })
+        .expect("he tells her");
+    // The said-sentence draw is the cause of `core:told`. The topic draw selected Klatsch,
+    // which writes no bond step, so it is named once, on `core:talked`, beside the chain.
+    let say = DrawRef::from(say_draw_key(founder(1), t(gossip_at), founder(0)));
+    assert!(caused_by(told, say));
+    let topic = DrawRef::from(topic_draw_key(founder(0), t(gossip_at), founder(1)));
+    let naming: Vec<_> = (run.log.iter())
+        .filter(|entry| cites(entry, topic))
+        .collect();
+    assert_eq!(naming.len(), 1);
+    assert!(matches!(
+        naming[0].payload,
+        LogPayload::Talked { topic: 3, .. }
+    ));
+    assert!(matches!(
+        naming[0].causes.as_slice(),
+        [Cause::Event(_), Cause::Random(got)] if *got == topic
+    ));
     let heard = belief(&run, 1, teased);
     assert_eq!(heard.certainty, 800);
     assert_eq!(heard.basis, Basis::Gehoert);
@@ -1892,6 +1983,14 @@ fn caused_by(entry: &LogEntry, draw: DrawRef) -> bool {
     matches!(entry.causes.as_slice(), [Cause::Random(got)] if *got == draw)
 }
 
+fn cites(entry: &LogEntry, draw: DrawRef) -> bool {
+    entry
+        .causes
+        .as_slice()
+        .iter()
+        .any(|cause| matches!(cause, Cause::Random(got) if *got == draw))
+}
+
 fn event_cause(entry: &LogEntry) -> sim_core::ids::EventId {
     match entry.causes.as_slice() {
         [Cause::Event(id)] => *id,
@@ -2039,7 +2138,7 @@ fn a_lie_at_the_first_hit_is_heard_at_660() {
 
 /// The reference's three hits of founder 0 toward founder 1 on house days 1, 2 and 3:
 /// 127 200 (no memory yet), 276 000 and 341 086 (the talk memory is open, and Klatsch
-/// still wins: draws 2716 and 3075 of 4412). Each lie draw hits (u = 27 305, 21 360,
+/// still wins: draws 2716 and 2285 of 4412). Each lie draw hits (u = 27 305, 21 360,
 /// 14 431). Trust 600 falls by 80 each time. At 360 the choice avoids W, and
 /// `core:company` names her.
 #[test]

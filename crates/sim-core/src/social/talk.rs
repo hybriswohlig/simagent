@@ -254,10 +254,11 @@ pub fn topic_allowed(
     }
 }
 
-/// The allowed topic drawn by weight (ADR-0030 addendum 2026-11-13). The weight of each
-/// allowed topic is the sum of both interests. The draw is `uniform_below(total)` of
-/// [`topic_draw_key`]. The topic is the first in topic-number order whose running sum
-/// exceeds the draw. A total of 0 is Alltag, and then nothing is drawn.
+/// The allowed topic drawn by weight (ADR-0030 addendum 2026-11-13), and the key of that
+/// draw when one happened. The weight of each allowed topic is the sum of both interests.
+/// The draw is `uniform_below(total)` of [`topic_draw_key`]. The topic is the first in
+/// topic-number order whose running sum exceeds the draw. A total of 0 is Alltag, and then
+/// nothing is drawn: the key is `None`.
 ///
 /// # Panics
 ///
@@ -272,7 +273,7 @@ pub fn choose_topic(
     key_a: LineageKey,
     key_b: LineageKey,
     second: SimTime,
-) -> usize {
+) -> (usize, Option<DrawKey>) {
     if pair.a >= pair.b {
         panic!("invariant talk.pair");
     }
@@ -288,14 +289,15 @@ pub fn choose_topic(
         total += weight;
     }
     if total == 0 {
-        return EVERYDAY;
+        return (EVERYDAY, None);
     }
-    let draw = Draws::new(seed).uniform_below(topic_draw_key(key_a, second, key_b), total);
+    let key = topic_draw_key(key_a, second, key_b);
+    let draw = Draws::new(seed).uniform_below(key, total);
     let mut running = 0_u64;
     for (topic, weight) in weighted {
         running += weight;
         if running > draw {
-            return topic;
+            return (topic, Some(key));
         }
     }
     panic!("invariant talk.topic");
@@ -485,7 +487,7 @@ mod tests {
             choose_topic(&social, view, &dining, seed, key_a, key_b, at_second)
         };
         // Both interests are 0, so the total is 0 and Alltag is taken without a draw.
-        assert_eq!(pick(&p, second), 0);
+        assert_eq!(pick(&p, second), (0, None));
         let ia = [10, 0, 500, 0, 0, 0];
         let ib = [10, 0, 300, 0, 0, 0];
         let small = pair(low, low, &ia, &ib, 30, 32, false);
@@ -494,13 +496,19 @@ mod tests {
             Draws::new(seed).uniform_below(topic_draw_key(key_a, second, key_b), 820),
             423
         );
-        assert_eq!(pick(&small, second), 2);
+        assert_eq!(
+            pick(&small, second),
+            (2, Some(topic_draw_key(key_a, second, key_b)))
+        );
         // The same weights one second 100 later: draw 332, still Necken.
         assert_eq!(
             Draws::new(seed).uniform_below(topic_draw_key(key_a, at(100), key_b), 820),
             332
         );
-        assert_eq!(pick(&small, at(100)), 2);
+        assert_eq!(
+            pick(&small, at(100)),
+            (2, Some(topic_draw_key(key_a, at(100), key_b)))
+        );
         let tie = [500, 0, 500, 0, 0, 0];
         let tied = pair(low, low, &tie, &zeros, 30, 32, false);
         // Alltag and Necken both weigh 500. Draw 516 of 1000 falls on Necken.
@@ -508,7 +516,10 @@ mod tests {
             Draws::new(seed).uniform_below(topic_draw_key(key_a, second, key_b), 1_000),
             516
         );
-        assert_eq!(pick(&tied, second), 2);
+        assert_eq!(
+            pick(&tied, second),
+            (2, Some(topic_draw_key(key_a, second, key_b)))
+        );
         assert!(!topic_allowed(
             &social,
             2,
@@ -710,7 +721,9 @@ mod tests {
                 common_memory: memory,
                 gossip,
             };
-            let topic = choose_topic(&social, &view, &dining, seed, keys[ia], keys[ib], second);
+            let (topic, draw) =
+                choose_topic(&social, &view, &dining, seed, keys[ia], keys[ib], second);
+            assert_eq!(draw, Some(topic_draw_key(keys[ia], second, keys[ib])));
             (topic, topic_actor(&social, topic, &view))
         };
         // Housemates: Alltag 1009, Necken 1539, draw 1315, Necken, actor the smaller id.
@@ -756,7 +769,7 @@ mod tests {
         // Partners, memory and gossip: total 5951, draw 3071, Necken.
         assert_eq!(
             choose_topic(&social, &quiet, &dining, seed, keys[0], keys[1], second),
-            2
+            (2, Some(topic_draw_key(keys[0], second, keys[1])))
         );
         let mut older = pair(partner, partner, &rows[0], &rows[1], 60, 32, false);
         older.gossip = true;
@@ -767,7 +780,7 @@ mod tests {
         );
         assert_eq!(
             choose_topic(&social, &older, &dining, seed, keys[0], keys[1], second),
-            1
+            (1, Some(topic_draw_key(keys[0], second, keys[1])))
         );
     }
 }

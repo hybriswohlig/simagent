@@ -793,10 +793,11 @@ pub fn say_draw_key(speaker: LineageKey, second: SimTime, hearer: LineageKey) ->
     }
 }
 
-/// The sentence said: each piece of material weighs its certainty. The draw is
-/// `uniform_below` of the sum, on [`say_draw_key`]. The sentence is the first in key order
-/// whose running sum exceeds the draw. Empty material, or a sum of 0, says nothing, and then
-/// nothing is drawn. [`crate::rng::tags::TALK_LIE`] is rolled before this.
+/// The sentence said, and the key of the draw that chose it. Each piece of material weighs
+/// its certainty. The draw is `uniform_below` of the sum, on [`say_draw_key`]. The sentence
+/// is the first in key order whose running sum exceeds the draw. Empty material, or a sum of
+/// 0, says nothing, and then nothing is drawn. [`crate::rng::tags::TALK_LIE`] is rolled
+/// before this.
 ///
 /// # Panics
 ///
@@ -807,7 +808,7 @@ pub fn said_belief(
     speaker: LineageKey,
     second: SimTime,
     hearer: LineageKey,
-) -> Option<Belief> {
+) -> Option<(Belief, DrawKey)> {
     let mut ordered = material.to_vec();
     ordered.sort_by_key(|belief| belief.key());
     let total: u64 = ordered
@@ -817,12 +818,13 @@ pub fn said_belief(
     if total == 0 {
         return None;
     }
-    let draw = Draws::new(seed).uniform_below(say_draw_key(speaker, second, hearer), total);
+    let key = say_draw_key(speaker, second, hearer);
+    let draw = Draws::new(seed).uniform_below(key, total);
     let mut running = 0_u64;
     for belief in ordered {
         running += u64::from(belief.certainty);
         if running > draw {
-            return Some(belief);
+            return Some((belief, key));
         }
     }
     panic!("invariant talk.say");
@@ -1555,23 +1557,19 @@ mod tests {
             )
         };
         assert_eq!(say(0, 1), 1_170);
-        assert_eq!(
-            said_belief(&[m1, m2, m3], seed, founder(0), second, founder(1))
-                .expect("said")
-                .key(),
-            m1.key()
-        );
+        let (said, key) =
+            said_belief(&[m1, m2, m3], seed, founder(0), second, founder(1)).expect("said");
+        assert_eq!(said.key(), m1.key());
+        assert_eq!(key, say_draw_key(founder(0), second, founder(1)));
         assert_eq!(
             Draws::new(seed).uniform_below(say_draw_key(founder(0), t(21_600), founder(1)), 2_300,),
             1_038
         );
         assert_eq!(say(1, 0), 1_850);
-        assert_eq!(
-            said_belief(&[m1, m2, m3], seed, founder(1), second, founder(0))
-                .expect("said")
-                .key(),
-            m3.key()
-        );
+        let (said, key) =
+            said_belief(&[m1, m2, m3], seed, founder(1), second, founder(0)).expect("said");
+        assert_eq!(said.key(), m3.key());
+        assert_eq!(key, say_draw_key(founder(1), second, founder(0)));
         assert_eq!(said_belief(&[], seed, founder(0), second, founder(1)), None);
         assert_eq!(
             choose_speaker(id(1), &[m1], None, id(2), &[], None),
