@@ -237,6 +237,60 @@ pub(super) fn store_heard(
     }
 }
 
+/// The paternity sentences of one child (ADR-0031 section 6), after the child is in the
+/// world. Nothing when her household has not moved in, or when there is no social data.
+/// A father without a sim id names no man. The entries do not count against the day limit.
+pub(super) fn child_born(
+    domain: &mut DomainState,
+    data: &Data,
+    mother: SimId,
+    child: SimId,
+    father: Option<SimId>,
+    born: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    if data.social().is_none() {
+        return;
+    }
+    let Some(home) = domain.sims.get(&mother).map(|her| her.household) else {
+        return;
+    };
+    if !domain.house.households.contains_key(&home) {
+        return;
+    }
+    let now = ctx.now();
+    let partner = super::partnership::open_partnership(domain, mother)
+        .and_then(|id| domain.partnerships.get(&id).map(|pair| pair.man));
+    let father_in_town = father.is_some_and(|father| domain.sims.contains_key(&father));
+    let household: Vec<(SimId, u32)> = (domain.members.get(&home).into_iter().flatten())
+        .filter_map(|sim| {
+            let person = domain.sims.get(sim)?;
+            Some((*sim, whole_years(person.born, now)))
+        })
+        .collect();
+    let sentences = crate::social::belief::paternity_beliefs(
+        mother,
+        child,
+        father,
+        father_in_town,
+        partner,
+        &household,
+        now,
+    );
+    for (holder, belief) in sentences {
+        write(
+            domain,
+            data,
+            holder,
+            belief,
+            false,
+            true,
+            Cause::Event(born),
+            ctx,
+        );
+    }
+}
+
 /// Replaces the belief of this key in place. A refutation is not `core:believed`
 /// (ADR-0031 section 5): the talk writes `core:refuted`. The key is already held.
 pub(super) fn store_refuted(domain: &mut DomainState, holder: SimId, belief: Belief) {

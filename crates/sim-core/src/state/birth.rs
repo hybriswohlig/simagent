@@ -158,6 +158,8 @@ pub(crate) fn on_birth(
         super::memory::child_born(domain, data, (mother, father), child, born, ctx);
         super::feeling::child_born(domain, data, (mother, father), born, ctx);
         super::bond::child_born(domain, data, mother, child, born, ctx);
+        // F is the town father. A pool father has no sim id (`pregnancy.father` is none).
+        super::belief::child_born(domain, data, mother, child, pregnancy.father, born, ctx);
         children.push((child, born));
     }
     // Then per child its first birthday, its deaths and its leaving home: as at an arrival,
