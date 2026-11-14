@@ -151,15 +151,12 @@ pub(crate) fn on_birth(
         conception::note_child(domain, child);
         onset::on_creation(domain, data, child, born, switch_on, ctx);
         household::born_into(domain, child, mother, ctx);
-        let father = pregnancy.father.or_else(|| {
-            let pool = pregnancy.pool_father;
-            pool.and_then(|key| domain.keys.get(&key).copied())
-        });
+        // F is the town father: the recorded one, or a pool father who has a sim id by now.
+        let father = domain.town_parents(child).1;
         super::memory::child_born(domain, data, (mother, father), child, born, ctx);
         super::feeling::child_born(domain, data, (mother, father), born, ctx);
         super::bond::child_born(domain, data, mother, child, born, ctx);
-        // F is the town father. A pool father has no sim id (`pregnancy.father` is none).
-        super::belief::child_born(domain, data, mother, child, pregnancy.father, born, ctx);
+        super::belief::child_born(domain, data, mother, child, father, born, ctx);
         children.push((child, born));
     }
     // Then per child its first birthday, its deaths and its leaving home: as at an arrival,
@@ -188,11 +185,10 @@ pub(crate) fn on_birth(
     }
     // The father's young rose (ADR-0017, addendum of 2026-11-05): the woman of his open
     // partnership, if she is not the mother, by the creation entry of the first child.
-    let father = pregnancy.father.or_else(|| {
-        pregnancy
-            .pool_father
-            .and_then(|key| domain.keys.get(&key).copied())
-    });
+    // The same town father the birth used.
+    let father = children
+        .first()
+        .and_then(|(child, _)| domain.town_parents(*child).1);
     let partner = father
         .filter(|father| domain.sims.contains_key(father))
         .and_then(|father| partnership::open_partnership(domain, father))

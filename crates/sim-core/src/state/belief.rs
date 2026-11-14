@@ -4,13 +4,15 @@
 //! records a deed, or a move-in, cuts the list. The clock does not. Certainty does not fade,
 //! so a freeze does not rewrite `since`. The pure rules are `social::belief`.
 
+use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::{DomainState, whole_years, years_between};
+use super::{DomainState, resolve_town_parents, whole_years, years_between};
 use crate::canonical::LoadedState;
 use crate::data::Data;
 use crate::ids::{EventId, SimId};
+use crate::lineage::LineageKey;
 use crate::log::{Cause, Causes, LogPayload, Subject};
 use crate::social::belief::{
     Basis, Belief, BeliefInsertion, Statement, StatementKey, Taken, find, hear, insert, see,
@@ -31,19 +33,16 @@ fn eligible(domain: &DomainState, social: &SocialData, sim: SimId, now: SimTime)
 }
 
 /// Living and archived children of `holder` (ADR-0031 section 2: a `VaterVon` of an own
-/// child is never dropped). Unborn children have lineage keys, not [`SimId`]s.
+/// child is never dropped). A pool child counts when its lineage key resolves to `holder`.
+/// Unborn children have lineage keys, not [`SimId`]s.
 fn own_children(domain: &DomainState, holder: SimId) -> Vec<SimId> {
     let mut children = Vec::new();
-    let is_child = |parents: Option<super::Parents>| {
-        parents.is_some_and(|parents| parents.mother == holder || parents.father == holder)
+    let is_child = |id: SimId| {
+        let (mother, father) = domain.town_parents(id);
+        mother == Some(holder) || father == Some(holder)
     };
-    for (id, person) in &domain.sims {
-        if is_child(person.parents) {
-            children.push(*id);
-        }
-    }
-    for (id, person) in &domain.archive {
-        if is_child(person.parents) {
+    for id in domain.sims.keys().chain(domain.archive.keys()) {
+        if is_child(*id) {
             children.push(*id);
         }
     }
@@ -239,7 +238,8 @@ pub(super) fn store_heard(
 
 /// The paternity sentences of one child (ADR-0031 section 6), after the child is in the
 /// world. Nothing when her household has not moved in, or when there is no social data.
-/// A father without a sim id names no man. The entries do not count against the day limit.
+/// No father in the town writes nothing, for nobody. The entries do not count against the
+/// day limit. Rule 4 uses `social.limits.min_age`.
 pub(super) fn child_born(
     domain: &mut DomainState,
     data: &Data,
@@ -249,9 +249,9 @@ pub(super) fn child_born(
     born: EventId,
     ctx: &mut SimCtx<'_, '_>,
 ) {
-    if data.social().is_none() {
+    let Some(social) = data.social() else {
         return;
-    }
+    };
     let Some(home) = domain.sims.get(&mother).map(|her| her.household) else {
         return;
     };
@@ -275,6 +275,7 @@ pub(super) fn child_born(
         father_in_town,
         partner,
         &household,
+        u32::from(social.limits.min_age),
         now,
     );
     for (holder, belief) in sentences {
@@ -416,12 +417,14 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
     let kinds = social.beliefs.deeds.len();
     let belief_cap = usize::from(social.limits.beliefs);
     let deed_cap = usize::from(social.limits.deeds);
+    let parents_of = lineage_of(loaded);
     let beliefs_ok = beliefs.iter().all(|(&owner, list)| {
         let fits = |belief: &Belief| {
             let secret_ok = !belief.secret
                 || matches!(
                     belief.statement,
-                    Statement::VaterVon { child, .. } if mother_of(loaded, child) == Some(owner)
+                    Statement::VaterVon { child, .. }
+                        if mother_of(loaded, &parents_of, child) == Some(owner)
                 );
             let certainty_ok = belief.certainty <= 1000
                 && (belief.basis != Basis::Widerlegt
@@ -479,12 +482,36 @@ fn loaded_house_day(loaded: &LoadedState, owner: SimId) -> Option<i64> {
     Some(house_day(loaded.closed_through.max(since), since))
 }
 
-/// The mother of `child`, living or archived.
-fn mother_of(loaded: &LoadedState, child: SimId) -> Option<SimId> {
-    let parents = loaded
+/// Living lineage keys, then archived ones that are still missing. A living person wins.
+fn lineage_of(loaded: &LoadedState) -> BTreeMap<LineageKey, SimId> {
+    let mut keys = BTreeMap::new();
+    for (id, person) in &loaded.sims {
+        keys.insert(person.lineage_key, *id);
+    }
+    for (id, person) in &loaded.archive {
+        keys.entry(person.lineage_key).or_insert(*id);
+    }
+    keys
+}
+
+/// The biological mother of `child` as a town person, living or archived. A recorded
+/// `parents` wins. Otherwise the pool origin's mother key, when it names someone in
+/// `keys`.
+fn mother_of(
+    loaded: &LoadedState,
+    keys: &BTreeMap<LineageKey, SimId>,
+    child: SimId,
+) -> Option<SimId> {
+    let found = loaded
         .sims
         .get(&child)
-        .and_then(|person| person.parents)
-        .or_else(|| loaded.archive.get(&child).and_then(|person| person.parents))?;
-    Some(parents.mother)
+        .map(|person| (person.parents, person.pool.as_ref()))
+        .or_else(|| {
+            loaded
+                .archive
+                .get(&child)
+                .map(|person| (person.parents, person.pool.as_ref()))
+        });
+    let (parents, pool) = found?;
+    resolve_town_parents(parents, pool, |key| keys.get(&key).copied()).0
 }

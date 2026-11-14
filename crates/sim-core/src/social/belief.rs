@@ -831,15 +831,14 @@ pub fn said_belief(
     panic!("invariant talk.say");
 }
 
-/// From this age a person in the mother's household holds the closed sentence (ADR-0031
-/// section 6, the same age as a talk).
-const PATERNITY_MIN_AGE: u32 = 6;
-
-/// The sentences of one birth (ADR-0031 section 6). The caller writes them only when the
-/// mother's household has moved in. `father` is F when he has a sim id, else none (a pool
-/// father names no man, so rules 1 and 2 are skipped). `father_in_town` is whether F lives.
-/// `partner` is P, or none. `household` is `(sim, age)` of the mother's household. One
-/// sentence per person: the earlier rule wins. Source and origin stay empty.
+/// The sentences of one birth (ADR-0031 section 6, addendum 2026-11-14). The caller writes
+/// them only when the mother's household has moved in. `father` is F when he is a person of
+/// the town, else none: no F writes nothing, for nobody. `father_in_town` is whether that
+/// id still lives (an id for someone who does not live still writes the mother's sentence).
+/// `partner` is P, or none. `household` is `(sim, age)` of the mother's household.
+/// `min_age` is `social.limits.min_age`. One sentence per person: the earlier rule wins.
+/// Source and origin stay empty.
+#[allow(clippy::too_many_arguments, reason = "each fact the four rules name")]
 pub fn paternity_beliefs(
     mother: SimId,
     child: SimId,
@@ -847,8 +846,12 @@ pub fn paternity_beliefs(
     father_in_town: bool,
     partner: Option<SimId>,
     household: &[(SimId, u32)],
+    min_age: u32,
     now: SimTime,
 ) -> Vec<(SimId, Belief)> {
+    let Some(father) = father else {
+        return Vec::new();
+    };
     let sentence = |man, certainty, basis, secret| Belief {
         statement: Statement::VaterVon { child, man },
         certainty,
@@ -860,29 +863,23 @@ pub fn paternity_beliefs(
     };
     let mut out = Vec::new();
     let mut given = BTreeSet::new();
-    // Rule 1 is hers. With no id for F it cannot be written, and rule 4 does not
-    // give her P's sentence in its place.
+    let secret = partner.is_some_and(|partner| partner != father);
     given.insert(mother);
-    if let Some(father) = father {
-        let secret = partner.is_some_and(|partner| partner != father);
-        out.push((mother, sentence(father, 1000, Basis::Beteiligt, secret)));
-        if father_in_town && given.insert(father) {
-            out.push((father, sentence(father, 1000, Basis::Beteiligt, false)));
-        }
+    out.push((mother, sentence(father, 1000, Basis::Beteiligt, secret)));
+    if father_in_town && given.insert(father) {
+        out.push((father, sentence(father, 1000, Basis::Beteiligt, false)));
     }
     if let Some(partner) = partner
-        && father != Some(partner)
+        && partner != father
         && given.insert(partner)
     {
         out.push((partner, sentence(partner, 900, Basis::Geschlossen, false)));
     }
-    let Some(named) = partner.or(father) else {
-        return out;
-    };
+    let named = partner.unwrap_or(father);
     let mut house = household.to_vec();
     house.sort_by_key(|(sim, _)| *sim);
     for (sim, age) in house {
-        if sim == child || age < PATERNITY_MIN_AGE || !given.insert(sim) {
+        if sim == child || age < min_age || !given.insert(sim) {
             continue;
         }
         out.push((sim, sentence(named, 900, Basis::Geschlossen, false)));
@@ -2006,6 +2003,7 @@ mod tests {
             true,
             Some(id(30)),
             &household,
+            6,
             t(1000),
         );
         assert_eq!(
@@ -2037,6 +2035,7 @@ mod tests {
             true,
             None,
             &household,
+            6,
             t(1000),
         );
         assert_eq!(
@@ -2070,6 +2069,7 @@ mod tests {
             true,
             Some(id(20)),
             &household,
+            6,
             t(1000),
         );
         assert_eq!(
@@ -2102,6 +2102,7 @@ mod tests {
             false,
             Some(id(30)),
             &household,
+            6,
             t(1000),
         );
         assert_eq!(
@@ -2133,6 +2134,7 @@ mod tests {
             true,
             Some(id(30)),
             &household,
+            6,
             t(1000),
         );
         assert_eq!(
@@ -2165,16 +2167,16 @@ mod tests {
             true,
             Some(id(30)),
             &household,
+            6,
             t(1000),
         );
         assert!(out.iter().all(|(holder, _)| *holder != id(99)));
         assert_eq!(out.len(), 5);
     }
 
-    /// A pool father has no sim id, so no sentence can name him. P and the household still
-    /// name P (ADR-0031 section 6, rules 3 and 4). The mother has no sentence.
+    /// No F in the town: no sentence for anybody (ADR-0031, addendum 2026-11-14).
     #[test]
-    fn paternity_without_a_father_id_names_only_the_partner() {
+    fn paternity_without_a_father_in_the_town_writes_nothing() {
         let household = [
             (id(10), 32),
             (id(30), 35),
@@ -2189,13 +2191,39 @@ mod tests {
             false,
             Some(id(30)),
             &household,
+            6,
+            t(1000),
+        );
+        assert!(out.is_empty());
+    }
+
+    /// Rule 4 uses the age it is given. At 8 the seven-year-old is left out; the rest of
+    /// `paternity_with_a_partner_who_is_not_the_father` stays.
+    #[test]
+    fn paternity_at_min_age_8_skips_the_seven_year_old() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            8,
             t(1000),
         );
         assert_eq!(
             out,
             vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
+                born_belief(20, 99, 20, 1000, Basis::Beteiligt, false),
                 born_belief(30, 99, 30, 900, Basis::Geschlossen, false),
-                born_belief(40, 99, 30, 900, Basis::Geschlossen, false),
                 born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
             ]
         );
