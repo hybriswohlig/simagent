@@ -777,7 +777,10 @@ PROJECTION_VERSION = 24
 # Heard material speaks first (ADR-0031, second addendum of 2026-11-13). No new state,
 # no new tag, and the core stays 71. The data hash stays. A run without a household in a
 # house keeps its year hashes and its log.
-CORE_VERSION = 71
+# Paternity at a birth in a moved-in household (ADR-0031, addendum of 2026-11-14). No new
+# state. A run without MoveIn keeps its log. A moved-in birth writes the sentences, and a
+# pool father is resolved by lineage key: the projection stays 24, core 72.
+CORE_VERSION = 72
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
