@@ -1,0 +1,18 @@
+{
+  "format_version": 5,
+  "start": {
+    "world_seed": "0000000000000001",
+    "founder_tag": "test:social_chain",
+    "world_params": { "hereditary_diseases": false, "nutrition": [] },
+    "founders": [
+      { "born": -943488000, "sex": "female", "alleles": [] },
+      { "born": -1037836800, "sex": "male", "alleles": [] },
+      { "born": -188697600, "sex": "female", "alleles": [] },
+      { "born": -345945600, "sex": "female", "alleles": [] }
+    ],
+    "couples": [{ "woman": 0, "man": 1 }],
+    "capacity": null,
+    "pool": null
+  },
+  "until": 2678399
+}
