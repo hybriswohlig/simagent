@@ -2,7 +2,7 @@
   "format_version": 5,
   "start": {
     "world_seed": "0000000000000001",
-    "founder_tag": "test:social_chain",
+    "founder_tag": "test:story",
     "world_params": { "hereditary_diseases": false, "nutrition": [] },
     "founders": [
       { "born": -943488000, "sex": "female", "alleles": [] },

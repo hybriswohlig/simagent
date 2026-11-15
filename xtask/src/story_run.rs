@@ -1,11 +1,14 @@
 //! `cargo xtask story`: the unscripted chain on the household of four (plan of phase 3,
 //! section 5, criterion 4; ADR-0031, acceptance test 6, addendum of 2026-11-15).
 //!
-//! Seeds 1 to 20 of `tests/scenarios/social_chain.json`. Each run is the CLI's inputs:
+//! Seeds 1 to 20 of `tests/scenarios/social_chain.json`; seed `n` takes the ages of the
+//! phase-2 test family `n - 1` (`family_ages`, the grid of `crates/sim-core/tests/
+//! house_week.rs`), the file holds seed 1. Each run is the CLI's inputs:
 //! start, advance to 86398, move household 1 in, advance to the scenario's end. The domain
 //! log is the text the CLI writes as `events.ndjson`. The bar is one full chain over the
 //! seeds and 16 seeds with a two-hop passing. Three canaries each change one datum
-//! (`beliefs.heard_cap`, `choice.avoid_below_trust`, `beliefs.refute_ppm`) to 0 through
+//! (`beliefs.heard_cap` with `beliefs.confirm_step`, `choice.avoid_below_trust`,
+//! `beliefs.refute_ppm`) to 0 through
 //! [`Data::with_social`] and must fail that bar: the passing canary with no two-hop seed,
 //! avoidance and refutation with no full chain. A debug build runs the release build, so
 //! the time is the release time. Not part of `quick`.
@@ -35,6 +38,21 @@ const TWO_HOP_BAR: usize = 16;
 /// At least one full chain over the seeds.
 const CHAIN_BAR: usize = 1;
 const SCENARIO: &str = "tests/scenarios/social_chain.json";
+/// Seconds of a year of 364 days.
+const YEAR_SECS: i64 = 364 * 86_400;
+
+/// The ages in whole years of the phase-2 test family `i` (`crates/sim-core/tests/
+/// house_week.rs`): the woman, the man and the two girls, in fixed steps through 30 to 45
+/// and 6 to 15.
+pub(crate) fn family_ages(i: u64) -> [i64; 4] {
+    let i = i64::try_from(i).unwrap_or(0);
+    [
+        30 + i % 16,
+        30 + (7 * i + 3) % 16,
+        6 + i % 10,
+        6 + (3 * i + 5) % 10,
+    ]
+}
 
 /// One seed's checker counts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +85,7 @@ pub(crate) enum Canary {
 impl Canary {
     fn label(self) -> &'static str {
         match self {
-            Canary::Heard => "heard_cap=0",
+            Canary::Heard => "heard_cap=0 confirm_step=0",
             Canary::Avoid => "avoid_below_trust=0",
             Canary::Refute => "refute_ppm=0",
         }
@@ -251,7 +269,12 @@ fn with_canary(data: &Data, canary: Canary) -> Result<Data> {
         .ok_or("the repository data hold no social data")?
         .clone();
     match canary {
-        Canary::Heard => social.beliefs.heard_cap = 0,
+        // A heard sentence is believed at 0 and a repeat does not raise it, so nothing heard
+        // becomes material (ADR-0031, addendum of 2026-11-15).
+        Canary::Heard => {
+            social.beliefs.heard_cap = 0;
+            social.beliefs.confirm_step = 0;
+        }
         Canary::Avoid => social.choice.avoid_below_trust = 0,
         Canary::Refute => social.beliefs.refute_ppm = 0,
     }
@@ -263,6 +286,13 @@ fn batch(data: &Data, scenario: &Scenario) -> Result<Batch> {
     for seed in FIRST_SEED..=LAST_SEED {
         let mut start = scenario.start.clone();
         start.world_seed = seed;
+        let ages = family_ages(seed - FIRST_SEED);
+        if start.founders.len() != ages.len() {
+            return Err(format!("{SCENARIO}: four founders expected"));
+        }
+        for (founder, years) in start.founders.iter_mut().zip(ages) {
+            founder.born = SimTime::from_secs(-years * YEAR_SECS);
+        }
         let text = events(data, start, scenario.until)?;
         let report = crate::story::check(&text)?;
         if !report.warnings.is_empty() {
@@ -319,6 +349,15 @@ mod tests {
 
     /// The bar is the spec's 16 seeds and one chain. A louder total under the seed counts
     /// stays red, and one chain with 16 seeds stays green.
+    #[test]
+    fn the_family_ages_follow_the_phase_2_grid() {
+        // Seeds 1, 7, 8 and 20 of the measurement (by hand from the grid).
+        assert_eq!(family_ages(0), [30, 33, 6, 11]);
+        assert_eq!(family_ages(6), [36, 43, 12, 9]);
+        assert_eq!(family_ages(7), [37, 34, 13, 12]);
+        assert_eq!(family_ages(19), [33, 38, 15, 8]);
+    }
+
     #[test]
     fn the_bar_is_one_chain_and_sixteen_two_hop_seeds() {
         assert!(batch_passes(&summary(16, 1, 16, 1)));
