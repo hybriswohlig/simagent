@@ -1,8 +1,10 @@
-//! The unscripted chain (ADR-0031 acceptance test 6, criterion 4).
+//! The unscripted chain (ADR-0031 acceptance test 6).
 //!
 //! Reads an `events.ndjson` text and reports, per run, the full chains with their entry
 //! ids, the number of two-hop passings, and, when no chain is complete, the missing links
-//! of the furthest partial story. The definitions are those of `tools/story_reference.py`,
+//! of the furthest partial story. The definitions are those of `tools/story_reference.py`
+//! for the logs the core writes (ids and sim ids are JSON integers; a float or a bool where
+//! the reference's loose equality would still join is not accepted here),
 //! which stays the reference. The checker reads JSON values only, not the core's log types.
 //!
 //! `cargo xtask story` reads one run through [`check`].

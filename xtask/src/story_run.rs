@@ -1,8 +1,8 @@
-//! `cargo xtask story`: the unscripted chain on the household of four (plan of phase 3,
-//! section 5, criterion 4; ADR-0031, acceptance test 6, addendum of 2026-11-15).
+//! `cargo xtask story`: the unscripted chain on the household of four (ADR-0031,
+//! acceptance test 6, addendum of 2026-11-15).
 //!
 //! Seeds 1 to 20 of `tests/scenarios/social_chain.json`; seed `n` takes the ages of the
-//! phase-2 test family `n - 1` (`family_ages`, the grid of `crates/sim-core/tests/
+//! house-week test family `n - 1` (`family_ages`, the grid of `crates/sim-core/tests/
 //! house_week.rs`), the file holds seed 1. Each run is the CLI's inputs:
 //! start, advance to 86398, move household 1 in, advance to the scenario's end. The domain
 //! log is the text the CLI writes as `events.ndjson`. The bar is one full chain over the
@@ -33,7 +33,7 @@ const MOVE_IN_AT: i64 = 86_398;
 /// World seeds of the measurement (ADR-0031, addendum of 2026-11-15).
 const FIRST_SEED: u64 = 1;
 const LAST_SEED: u64 = 20;
-/// At least this many seeds pass a sentence on over two hops (plan section 5, criterion 4).
+/// At least this many seeds pass a sentence on over two hops (ADR-0031, acceptance test 6).
 const TWO_HOP_BAR: usize = 16;
 /// At least one full chain over the seeds.
 const CHAIN_BAR: usize = 1;
@@ -41,7 +41,7 @@ const SCENARIO: &str = "tests/scenarios/social_chain.json";
 /// Seconds of a year of 364 days.
 const YEAR_SECS: i64 = 364 * 86_400;
 
-/// The ages in whole years of the phase-2 test family `i` (`crates/sim-core/tests/
+/// The ages in whole years of the house-week test family `i` (`crates/sim-core/tests/
 /// house_week.rs`): the woman, the man and the two girls, in fixed steps through 30 to 45
 /// and 6 to 15.
 pub(crate) fn family_ages(i: u64) -> [i64; 4] {
@@ -60,6 +60,11 @@ pub(crate) struct SeedRow {
     pub seed: u64,
     pub passings: usize,
     pub chains: usize,
+    /// A furthest partial story misses only `avoided`: every other link is there.
+    pub only_avoided: bool,
+    /// A furthest partial story misses only `refuted` and `trust_loss` (the loss is caused by
+    /// the refutation): every other link is there.
+    pub only_refuted: bool,
 }
 
 /// The counts the bar reads, and the totals the table prints.
@@ -69,6 +74,10 @@ pub(crate) struct Summary {
     pub chain_seeds: usize,
     pub passings: usize,
     pub chains: usize,
+    /// Seeds whose furthest partial misses only `avoided`.
+    pub only_avoided_seeds: usize,
+    /// Seeds whose furthest partial misses only `refuted` and `trust_loss`.
+    pub only_refuted_seeds: usize,
 }
 
 /// Which datum a canary sets to 0.
@@ -99,24 +108,31 @@ pub(crate) fn summarize(rows: &[SeedRow]) -> Summary {
         chain_seeds: rows.iter().filter(|row| row.chains > 0).count(),
         passings: rows.iter().map(|row| row.passings).sum(),
         chains: rows.iter().map(|row| row.chains).sum(),
+        only_avoided_seeds: rows.iter().filter(|row| row.only_avoided).count(),
+        only_refuted_seeds: rows.iter().filter(|row| row.only_refuted).count(),
     }
 }
 
-/// Criterion 4: at least one full chain, and at least [`TWO_HOP_BAR`] seeds with a two-hop
+/// The bar: at least one full chain, and at least [`TWO_HOP_BAR`] seeds with a two-hop
 /// passing. The totals are not the bar.
 pub(crate) fn batch_passes(summary: &Summary) -> bool {
     summary.chain_seeds >= CHAIN_BAR && summary.two_hop_seeds >= TWO_HOP_BAR
 }
 
 /// The canary fails the same bar for the reason its datum is there to remove.
-/// Passing on must leave no two-hop seed. Avoidance and refutation must leave no full chain.
+/// Passing on must leave no two-hop seed. Avoidance and refutation must leave no full chain,
+/// and some seed must still have every other link (a positive control: the batch is not
+/// silent, only that link is gone). The passing canary also keeps a heard sentence from
+/// being refuted, since a refutation needs certainty above 0 (ADR-0031, addendum of
+/// 2026-11-15); its own test is the two-hop count.
 pub(crate) fn canary_is_red(canary: Canary, summary: &Summary) -> bool {
     if batch_passes(summary) {
         return false;
     }
     match canary {
         Canary::Heard => summary.two_hop_seeds == 0,
-        Canary::Avoid | Canary::Refute => summary.chain_seeds == 0,
+        Canary::Avoid => summary.chain_seeds == 0 && summary.only_avoided_seeds > 0,
+        Canary::Refute => summary.chain_seeds == 0 && summary.only_refuted_seeds > 0,
     }
 }
 
@@ -302,9 +318,16 @@ fn batch(data: &Data, scenario: &Scenario) -> Result<Batch> {
             seed,
             passings: report.hops,
             chains: report.chains.len(),
+            only_avoided: missing_only(&report, &["avoided"]),
+            only_refuted: missing_only(&report, &["refuted", "trust_loss"]),
         });
     }
     Ok(Batch { rows })
+}
+
+/// Whether a furthest partial of the run misses exactly `links`.
+fn missing_only(report: &crate::story::Report, links: &[&str]) -> bool {
+    (report.groups.iter()).any(|group| group.missing.as_slice() == links)
 }
 
 /// The domain log of one run, one JSON entry per line, as the CLI writes `events.ndjson`.
@@ -344,13 +367,15 @@ mod tests {
             chain_seeds,
             passings,
             chains,
+            only_avoided_seeds: 0,
+            only_refuted_seeds: 0,
         }
     }
 
     /// The bar is the spec's 16 seeds and one chain. A louder total under the seed counts
     /// stays red, and one chain with 16 seeds stays green.
     #[test]
-    fn the_family_ages_follow_the_phase_2_grid() {
+    fn the_family_ages_follow_the_house_week_grid() {
         // Seeds 1, 7, 8 and 20 of the measurement (by hand from the grid).
         assert_eq!(family_ages(0), [30, 33, 6, 11]);
         assert_eq!(family_ages(6), [36, 43, 12, 9]);
@@ -375,24 +400,38 @@ mod tests {
                 seed: 1,
                 passings: 4,
                 chains: 0,
+                only_avoided: false,
+                only_refuted: false,
             },
             SeedRow {
                 seed: 7,
                 passings: 5,
                 chains: 1,
+                only_avoided: false,
+                only_refuted: false,
             },
             SeedRow {
                 seed: 8,
                 passings: 4,
                 chains: 2,
+                only_avoided: true,
+                only_refuted: false,
             },
             SeedRow {
                 seed: 11,
                 passings: 0,
                 chains: 0,
+                only_avoided: false,
+                only_refuted: false,
             },
         ];
-        assert_eq!(summarize(&rows), summary(3, 2, 13, 3));
+        let summed = summarize(&rows);
+        assert_eq!((summed.two_hop_seeds, summed.chain_seeds), (3, 2));
+        assert_eq!((summed.passings, summed.chains), (13, 3));
+        assert_eq!(
+            (summed.only_avoided_seeds, summed.only_refuted_seeds),
+            (1, 0)
+        );
     }
 
     /// A green batch is not a red canary. Passing on is red only at zero two-hop seeds.
@@ -411,8 +450,22 @@ mod tests {
         assert!(!canary_is_red(Canary::Heard, &summary(1, 0, 1, 0)));
         let no_chain = summary(20, 0, 48, 0);
         assert!(!batch_passes(&no_chain));
-        assert!(canary_is_red(Canary::Avoid, &no_chain));
-        assert!(canary_is_red(Canary::Refute, &no_chain));
+        // No chain but no seed with the other links: silent, not red for this reason.
+        assert!(!canary_is_red(Canary::Avoid, &no_chain));
+        assert!(!canary_is_red(Canary::Refute, &no_chain));
+        assert!(!canary_is_red(Canary::Avoid, &silent));
+        let avoid_gone = Summary {
+            only_avoided_seeds: 2,
+            ..no_chain
+        };
+        assert!(canary_is_red(Canary::Avoid, &avoid_gone));
+        assert!(!canary_is_red(Canary::Refute, &avoid_gone));
+        let refute_gone = Summary {
+            only_refuted_seeds: 1,
+            ..no_chain
+        };
+        assert!(canary_is_red(Canary::Refute, &refute_gone));
+        assert!(!canary_is_red(Canary::Avoid, &refute_gone));
         assert!(!canary_is_red(Canary::Avoid, &summary(10, 1, 10, 1)));
         assert!(!canary_is_red(Canary::Refute, &green));
     }
