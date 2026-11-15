@@ -383,6 +383,20 @@ function memoryDay(body: { readonly [key: string]: unknown }, view: DayView, for
   return fill(TEXT.social_remembers, { what: memoryCore(kind, personIds(body["with"]), strength, view.name) });
 }
 
+/** Whom a finished action kept away from (ADR-0031 section 5): each avoided person once, in
+ * the order of the rows; null when no row avoids anyone. */
+function avoidDay(body: { readonly [key: string]: unknown }, view: DayView): string | null {
+  const rows = Array.isArray(body["objects"]) ? (body["objects"] as readonly unknown[]) : [];
+  const avoided: number[] = [];
+  for (const row of rows) {
+    const id = typeof row === "object" && row !== null ? num((row as { readonly [key: string]: unknown })["avoided"]) : null;
+    if (id !== null && !avoided.includes(id)) {
+      avoided.push(id);
+    }
+  }
+  return avoided.length === 0 ? null : fill(TEXT.social_avoids_day, { names: joinNames(avoided, view.name) });
+}
+
 function otherDay(body: { readonly [key: string]: unknown }, view: DayView, text: string): string | null {
   const other = num(body["other"]);
   return other === null ? null : fill(text, { name: view.name(other) });
@@ -421,6 +435,8 @@ export function daySocial(item: EventItem, view?: DayView): { readonly text: str
       return line(memoryDay(read.body, seen, false));
     case "core:forgot":
       return line(memoryDay(read.body, seen, true));
+    case "core:company":
+      return line(avoidDay(read.body, seen));
     case "core:bond_formed":
       return line(otherDay(read.body, seen, TEXT.social_bond_formed));
     case "core:bond_changed":

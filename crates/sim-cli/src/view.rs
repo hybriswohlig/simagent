@@ -1493,7 +1493,11 @@ fn passes(entry: &Value, query: &EventQuery) -> Option<bool> {
     let id = entry["id"].as_u64()?;
     let t = entry["t"].as_i64()?;
     let subjects = entry["subjects"].as_array()?;
-    let about = |sim: u64| subjects.iter().any(|s| s["sim"].as_u64() == Some(sim));
+    // A refutation is about its refuter too, who is not a subject (the day list of the house
+    // page shows it on both sides).
+    let refuter = entry["payload"]["core:refuted"]["by"].as_u64();
+    let about =
+        |sim: u64| subjects.iter().any(|s| s["sim"].as_u64() == Some(sim)) || refuter == Some(sim);
     Some(
         query.after.is_none_or(|after| id > after)
             && query.from.is_none_or(|from| t >= from)
@@ -1832,6 +1836,40 @@ mod tests {
             json!({"joy": 500, "anger": 0, "sadness": 0, "fear": 0})
         );
         assert_eq!(page["version"], json!(2));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// `GET /api/runs/{run}/events?subject=` returns a `core:refuted` entry for the hearer
+    /// (a subject) and for the refuter (`by`). An unrelated sim gets none of it. A telling
+    /// still matches only its subjects, not `to`.
+    #[test]
+    fn a_refutation_is_returned_for_the_refuter_and_the_hearer() {
+        let base = std::env::temp_dir().join(format!("simagent-refuted-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).expect("a directory");
+        // Hearer 1, refuter 2. The telling's subject is 9 and its `to` is the refuter, so a
+        // filter that matched every sim in a payload would return it for subject 2.
+        let log = "\
+{\"id\":1,\"t\":0,\"subjects\":[{\"sim\":1}],\"causes\":[],\"payload\":{\"core:refuted\":{\"by\":2,\"statement\":{\"vater_von\":{\"child\":4,\"man\":5}},\"source\":1}}}\n\
+{\"id\":2,\"t\":0,\"subjects\":[{\"sim\":9}],\"causes\":[],\"payload\":{\"core:told\":{\"to\":2,\"statement\":{\"tat\":{\"doer\":5,\"kind\":1,\"other\":1,\"day\":3}},\"certainty\":733,\"lie\":false}}}\n";
+        std::fs::write(base.join("events.ndjson"), log).expect("written");
+        let ids = |query: &str| {
+            let response = events(&base, query, None);
+            assert_eq!(response.status, 200, "{query}");
+            let page: Value = serde_json::from_slice(&response.body).expect("json");
+            page["events"]
+                .as_array()
+                .expect("events")
+                .iter()
+                .map(|item| item["entry"]["id"].as_u64().expect("an id"))
+                .collect::<Vec<_>>()
+        };
+        // By hand: the hearer is the subject of the refutation; the refuter is its `by`;
+        // sim 3 is neither; the telling stays with its own subject.
+        assert_eq!(ids("subject=1"), vec![1]);
+        assert_eq!(ids("subject=2"), vec![1]);
+        assert_eq!(ids("subject=3"), Vec::<u64>::new());
+        assert_eq!(ids("subject=9"), vec![2]);
         let _ = std::fs::remove_dir_all(&base);
     }
 
