@@ -24,6 +24,7 @@ mod release_run;
 mod results;
 mod scan;
 mod smoke;
+mod story;
 mod web;
 mod web_deps;
 
