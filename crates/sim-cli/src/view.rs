@@ -1496,9 +1496,8 @@ fn passes(entry: &Value, query: &EventQuery) -> Option<bool> {
     // A refutation is about its refuter too, who is not a subject (the day list of the house
     // page shows it on both sides).
     let refuter = entry["payload"]["core:refuted"]["by"].as_u64();
-    let about = |sim: u64| {
-        subjects.iter().any(|s| s["sim"].as_u64() == Some(sim)) || refuter == Some(sim)
-    };
+    let about =
+        |sim: u64| subjects.iter().any(|s| s["sim"].as_u64() == Some(sim)) || refuter == Some(sim);
     Some(
         query.after.is_none_or(|after| id > after)
             && query.from.is_none_or(|from| t >= from)
