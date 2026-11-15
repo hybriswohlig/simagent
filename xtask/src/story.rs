@@ -5,9 +5,7 @@
 //! of the furthest partial story. The definitions are those of `tools/story_reference.py`,
 //! which stays the reference. The checker reads JSON values only, not the core's log types.
 //!
-//! The gate does not call this yet.
-
-#![cfg_attr(not(test), allow(dead_code))]
+//! `cargo xtask story` reads one run through [`check`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
