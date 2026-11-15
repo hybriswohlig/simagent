@@ -114,6 +114,25 @@ impl Seeds {
     }
 }
 
+/// The biological mother and father as town persons. `parents` wins. Otherwise each key
+/// of `pool` is resolved; a missing key, or no pool, is `None` on that side.
+pub(crate) fn resolve_town_parents(
+    parents: Option<Parents>,
+    pool: Option<&PoolOrigin>,
+    mut resolve: impl FnMut(LineageKey) -> Option<SimId>,
+) -> (Option<SimId>, Option<SimId>) {
+    if let Some(parents) = parents {
+        return (Some(parents.mother), Some(parents.father));
+    }
+    let Some(pool) = pool else {
+        return (None, None);
+    };
+    (
+        pool.mother.and_then(&mut resolve),
+        pool.father.and_then(&mut resolve),
+    )
+}
+
 /// The biological parents of a sim and the mother's conception number of it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Parents {
@@ -362,6 +381,26 @@ impl DomainState {
             .map(|person| person.lineage_key)
             .or_else(|| self.archive.get(&sim).map(|person| person.lineage_key))
             .unwrap_or_else(|| panic!("invariant unknown_entity_id: sim {}", sim.get()))
+    }
+
+    /// The biological mother and father as persons of the town (ADR-0031, addendum
+    /// 2026-11-14). A recorded `parents` wins. Otherwise each lineage key of the pool
+    /// origin is resolved; a key with no town person, and a person with neither, is
+    /// `None`. Living and archived persons are both resolved through `keys`.
+    pub(crate) fn town_parents(&self, sim: SimId) -> (Option<SimId>, Option<SimId>) {
+        let found = self
+            .sims
+            .get(&sim)
+            .map(|person| (person.parents, person.pool.as_ref()))
+            .or_else(|| {
+                self.archive
+                    .get(&sim)
+                    .map(|person| (person.parents, person.pool.as_ref()))
+            });
+        let Some((parents, pool)) = found else {
+            return (None, None);
+        };
+        resolve_town_parents(parents, pool, |key| self.keys.get(&key).copied())
     }
 
     /// The lineage keys of the biological parents of a person, living or archived: a pool

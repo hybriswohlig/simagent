@@ -7,6 +7,7 @@
 //! state side (`state::belief`) writes the lists and the log. A lie (`TALK_LIE`, section 4) and
 //! a refutation (section 5) are decided here and written by the talk.
 
+use alloc::collections::BTreeSet;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -828,6 +829,69 @@ pub fn said_belief(
         }
     }
     panic!("invariant talk.say");
+}
+
+/// The sentences of one birth (ADR-0031 section 6, addendum 2026-11-14). The caller writes
+/// them only when the mother's household has moved in. `father` is F when he is a person of
+/// the town, else none: no F writes nothing, for nobody. `father_in_town` is whether that
+/// id still lives (an id for someone who does not live still writes the mother's sentence).
+/// `partner` is P, or none. `household` is `(sim, age)` of the mother's household.
+/// `min_age` is `social.limits.min_age`. One sentence per person: the earlier rule wins.
+/// Source and origin stay empty.
+#[allow(clippy::too_many_arguments, reason = "each fact the four rules name")]
+pub fn paternity_beliefs(
+    mother: SimId,
+    child: SimId,
+    father: Option<SimId>,
+    father_in_town: bool,
+    partner: Option<SimId>,
+    household: &[(SimId, u32)],
+    min_age: u32,
+    now: SimTime,
+) -> Vec<(SimId, Belief)> {
+    let Some(father) = father else {
+        return Vec::new();
+    };
+    let sentence = |man, certainty, basis, secret| Belief {
+        statement: Statement::VaterVon { child, man },
+        certainty,
+        since: now,
+        source: None,
+        origin: None,
+        basis,
+        secret,
+    };
+    let mut out = Vec::new();
+    let mut given = BTreeSet::new();
+    let secret = partner.is_some_and(|partner| partner != father);
+    given.insert(mother);
+    out.push((mother, sentence(father, 1000, Basis::Beteiligt, secret)));
+    if father_in_town && given.insert(father) {
+        out.push((father, sentence(father, 1000, Basis::Beteiligt, false)));
+    }
+    if let Some(partner) = partner
+        && partner != father
+        && given.insert(partner)
+    {
+        out.push((partner, sentence(partner, 900, Basis::Geschlossen, false)));
+    }
+    let named = partner.unwrap_or(father);
+    let mut house = household.to_vec();
+    house.sort_by_key(|(sim, _)| *sim);
+    for (sim, age) in house {
+        if sim == child || age < min_age || !given.insert(sim) {
+            continue;
+        }
+        out.push((sim, sentence(named, 900, Basis::Geschlossen, false)));
+    }
+    // The age limit gates every holder (ADR-0031, addendum 2026-11-14). The caller lists
+    // F and P with the household when they live outside.
+    out.retain(|(holder, _)| {
+        (household.iter())
+            .find(|(sim, _)| sim == holder)
+            .is_none_or(|(_, age)| *age >= min_age)
+    });
+    out
 }
 
 #[cfg(test)]
@@ -1901,5 +1965,319 @@ mod tests {
         assert_eq!(cleared.belief.source, Some(id(40)));
         assert_eq!(cleared.belief.origin, Some(id(40)));
         assert_eq!(cleared.toward_source, None);
+    }
+
+    fn born_belief(
+        holder: u64,
+        child: u64,
+        man: u64,
+        certainty: u16,
+        basis: Basis,
+        secret: bool,
+    ) -> (SimId, Belief) {
+        (
+            id(holder),
+            Belief {
+                statement: Statement::VaterVon {
+                    child: id(child),
+                    man: id(man),
+                },
+                certainty,
+                since: t(1000),
+                source: None,
+                origin: None,
+                basis,
+                secret,
+            },
+        )
+    }
+
+    /// `check_paternity`: P is not F, F lives outside, the siblings are 7 and 4. The
+    /// 4-year-old gets nothing. The mother's sentence is secret.
+    #[test]
+    fn paternity_with_a_partner_who_is_not_the_father() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            6,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
+                born_belief(20, 99, 20, 1000, Basis::Beteiligt, false),
+                born_belief(30, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(40, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
+            ]
+        );
+    }
+
+    /// `check_paternity`: no P. The household names F and nothing is secret.
+    #[test]
+    fn paternity_without_a_partner_names_the_father() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            None,
+            &household,
+            6,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, false),
+                born_belief(20, 99, 20, 1000, Basis::Beteiligt, false),
+                born_belief(30, 99, 20, 900, Basis::Geschlossen, false),
+                born_belief(40, 99, 20, 900, Basis::Geschlossen, false),
+                born_belief(50, 99, 20, 900, Basis::Geschlossen, false),
+            ]
+        );
+    }
+
+    /// `check_paternity`: P is F and F lives in the house. One sentence each, none secret,
+    /// and P has no second sentence at 900.
+    #[test]
+    fn paternity_when_the_partner_is_the_father() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+            (id(20), 33),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(20)),
+            &household,
+            6,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, false),
+                born_belief(20, 99, 20, 1000, Basis::Beteiligt, false),
+                born_belief(30, 99, 20, 900, Basis::Geschlossen, false),
+                born_belief(40, 99, 20, 900, Basis::Geschlossen, false),
+                born_belief(50, 99, 20, 900, Basis::Geschlossen, false),
+            ]
+        );
+    }
+
+    /// `check_paternity`: F is not a person of the town. No sentence for him. The mother's
+    /// sentence still names him and stays secret.
+    #[test]
+    fn paternity_skips_a_father_who_is_not_in_the_town() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            false,
+            Some(id(30)),
+            &household,
+            6,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
+                born_belief(30, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(40, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
+            ]
+        );
+    }
+
+    /// `check_paternity`: F lives in the house and still keeps the sentence of rule 2 only.
+    #[test]
+    fn paternity_keeps_the_fathers_sentence_when_he_lives_in_the_house() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+            (id(20), 40),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            6,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
+                born_belief(20, 99, 20, 1000, Basis::Beteiligt, false),
+                born_belief(30, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(40, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
+            ]
+        );
+    }
+
+    /// `check_paternity`: the child itself, listed in the household, gets nothing.
+    #[test]
+    fn paternity_gives_the_child_nothing() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+            (id(99), 0),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            6,
+            t(1000),
+        );
+        assert!(out.iter().all(|(holder, _)| *holder != id(99)));
+        assert_eq!(out.len(), 5);
+    }
+
+    /// No F in the town: no sentence for anybody (ADR-0031, addendum 2026-11-14).
+    #[test]
+    fn paternity_without_a_father_in_the_town_writes_nothing() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            None,
+            false,
+            Some(id(30)),
+            &household,
+            6,
+            t(1000),
+        );
+        assert!(out.is_empty());
+    }
+
+    /// Rule 4 uses the age it is given. At 8 the seven-year-old is left out; the rest of
+    /// `paternity_with_a_partner_who_is_not_the_father` stays.
+    #[test]
+    fn paternity_at_min_age_8_skips_the_seven_year_old() {
+        let household = [
+            (id(10), 32),
+            (id(30), 35),
+            (id(40), 7),
+            (id(41), 4),
+            (id(50), 60),
+        ];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            8,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
+                born_belief(20, 99, 20, 1000, Basis::Beteiligt, false),
+                born_belief(30, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
+            ]
+        );
+    }
+
+    /// `check_paternity`: the limit is 40. The mother is 32, F 34, P 35 and a
+    /// grandparent 45. Only the grandparent holds, and the sentence names P.
+    #[test]
+    fn paternity_at_min_age_40_leaves_only_the_grandparent() {
+        let household = [(id(10), 32), (id(20), 34), (id(30), 35), (id(50), 45)];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            40,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![born_belief(50, 99, 30, 900, Basis::Geschlossen, false)]
+        );
+    }
+
+    /// The mother's secret still depends only on P existing and P not being F. She is
+    /// 45. F is 34 and P is 35, both under 40, so neither holds. The grandparent names P.
+    #[test]
+    fn paternity_keeps_the_mothers_secret_when_f_and_p_are_under_the_limit() {
+        let household = [(id(10), 45), (id(20), 34), (id(30), 35), (id(50), 45)];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            40,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
+                born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
+            ]
+        );
     }
 }

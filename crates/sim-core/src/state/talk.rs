@@ -1002,11 +1002,11 @@ fn offer_seen(
     cause
 }
 
-/// The biological father, living or archived. Founders have none (ADR-0031 section 5).
+/// The biological father as a town person, living or archived (ADR-0031 section 5,
+/// addendum 2026-11-14). A pool father counts once his lineage key names one. Founders
+/// have none.
 fn true_father(domain: &DomainState, child: SimId) -> Option<SimId> {
-    let parents = (domain.sims.get(&child).and_then(|person| person.parents))
-        .or_else(|| domain.archive.get(&child).and_then(|person| person.parents));
-    parents.map(|parents| parents.father)
+    domain.town_parents(child).1
 }
 
 /// Step 5 (ADR-0031 section 5), after the topic. At most one refutation: first `a`, then
