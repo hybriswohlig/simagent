@@ -884,6 +884,13 @@ pub fn paternity_beliefs(
         }
         out.push((sim, sentence(named, 900, Basis::Geschlossen, false)));
     }
+    // The age limit gates every holder (ADR-0031, addendum 2026-11-14). The caller lists
+    // F and P with the household when they live outside.
+    out.retain(|(holder, _)| {
+        (household.iter())
+            .find(|(sim, _)| sim == holder)
+            .is_none_or(|(_, age)| *age >= min_age)
+    });
     out
 }
 
@@ -2224,6 +2231,51 @@ mod tests {
                 born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
                 born_belief(20, 99, 20, 1000, Basis::Beteiligt, false),
                 born_belief(30, 99, 30, 900, Basis::Geschlossen, false),
+                born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
+            ]
+        );
+    }
+
+    /// `check_paternity`: the limit is 40. The mother is 32, F 34, P 35 and a
+    /// grandparent 45. Only the grandparent holds, and the sentence names P.
+    #[test]
+    fn paternity_at_min_age_40_leaves_only_the_grandparent() {
+        let household = [(id(10), 32), (id(20), 34), (id(30), 35), (id(50), 45)];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            40,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![born_belief(50, 99, 30, 900, Basis::Geschlossen, false)]
+        );
+    }
+
+    /// The mother's secret still depends only on P existing and P not being F. She is
+    /// 45. F is 34 and P is 35, both under 40, so neither holds. The grandparent names P.
+    #[test]
+    fn paternity_keeps_the_mothers_secret_when_f_and_p_are_under_the_limit() {
+        let household = [(id(10), 45), (id(20), 34), (id(30), 35), (id(50), 45)];
+        let out = paternity_beliefs(
+            id(10),
+            id(99),
+            Some(id(20)),
+            true,
+            Some(id(30)),
+            &household,
+            40,
+            t(1000),
+        );
+        assert_eq!(
+            out,
+            vec![
+                born_belief(10, 99, 20, 1000, Basis::Beteiligt, true),
                 born_belief(50, 99, 30, 900, Basis::Geschlossen, false),
             ]
         );

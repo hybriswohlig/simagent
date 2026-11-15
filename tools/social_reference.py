@@ -1051,7 +1051,10 @@ def paternity_beliefs(
     3 P, if P exists and is not F: VaterVon(child, P), 900, geschlossen;
     4 every other person from `min_age` in the household: VaterVon(child, S), 900, geschlossen.
     One sentence per person and child: the earlier rule wins. `father_in_town` false with an
-    id for F still writes the mother's sentence (F has a sim id and does not live)."""
+    id for F still writes the mother's sentence (F has a sim id and does not live).
+    `min_age` gates every holder (addendum 2026-11-14): a holder listed in `household`
+    younger than it gets nothing; the caller lists F and P there too when they live
+    outside. The mother's secret still depends only on P."""
     if father is None:
         return []
     key = vater_key(child)
@@ -1071,7 +1074,8 @@ def paternity_beliefs(
             continue
         out.append((sim, Belief(key, s, 900, now, None, None, GESCHLOSSEN, False)))
         given.add(sim)
-    return out
+    ages = dict(household)
+    return [(h, b) for h, b in out if ages.get(h, min_age) >= min_age]
 
 
 # ---------------------------------------------------------------------------------------
@@ -1962,6 +1966,27 @@ def check_paternity() -> None:
             (10, 20, 1000, BETEILIGT, True),
             (20, 20, 1000, BETEILIGT, False),
             (30, 30, 900, GESCHLOSSEN, False),
+            (50, 30, 900, GESCHLOSSEN, False),
+        ],
+    )
+    # min_age gates every holder. Mother 32, F 34, P 35, grandparent 45, limit 40:
+    # only the grandparent holds, and the sentence names P.
+    limited = [(10, 32), (20, 34), (30, 35), (50, 45)]
+    out = paternity_beliefs(mother, child, f, True, p, limited, 40, 1000)
+    expect(
+        "paternity: min_age 40 leaves only the grandparent",
+        [(h, b.man, b.certainty, b.basis, b.secret) for h, b in out],
+        [(50, 30, 900, GESCHLOSSEN, False)],
+    )
+    # The mother's secret still depends only on P existing and P != F. She is old
+    # enough; F and P are not. The grandparent names P.
+    mother_old = [(10, 45), (20, 34), (30, 35), (50, 45)]
+    out = paternity_beliefs(mother, child, f, True, p, mother_old, 40, 1000)
+    expect(
+        "paternity: min_age 40 keeps the mother's secret and skips F and P",
+        [(h, b.man, b.certainty, b.basis, b.secret) for h, b in out],
+        [
+            (10, 20, 1000, BETEILIGT, True),
             (50, 30, 900, GESCHLOSSEN, False),
         ],
     )

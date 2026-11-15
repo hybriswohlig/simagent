@@ -24,7 +24,7 @@ use sim_core::pool::Pool;
 use sim_core::rng::{DrawKey, Draws, WorldSeed, tags};
 use sim_core::social::belief::{Basis, Belief, Statement};
 use sim_core::time::{MONTH, SimDuration, SimTime, YEAR};
-use sim_core::world::{World, YearOut};
+use sim_core::world::{LoadError, World, YearOut};
 
 fn sim(id: u64) -> SimId {
     SimId::try_from(id).expect("valid")
@@ -435,6 +435,56 @@ fn a_seven_year_old_is_silent_when_min_age_is_8() {
     reload(&run, &data);
 }
 
+/// `social.limits.min_age` is 40. The adults are 30, 32 and 34, so none of the four
+/// rules writes. The save loads: a sentence for one of them would fail the age gate.
+#[test]
+fn a_min_age_of_40_writes_nothing_for_the_adults_under_it() {
+    let data = life_data_with(0.0, |file| file["limits"]["min_age"] = json!(40), |_, _| {});
+    let mut run = started_on(
+        data.clone(),
+        vec![
+            founder(30, Sex::Female),
+            founder(32, Sex::Male),
+            founder(34, Sex::Male),
+            founder(7, Sex::Female),
+            founder(4, Sex::Male),
+        ],
+        vec![Couple { woman: 0, man: 1 }],
+        false,
+    );
+    run.advance(MONTH.as_secs());
+    run.submit(Input::SeparatePartnership(SeparatePartnership {
+        woman: sim(1),
+        man: sim(2),
+    }));
+    run.submit(Input::ArrangePartnership(ArrangePartnership {
+        woman: sim(1),
+        man: sim(3),
+    }));
+    run.advance(BIRTH - 2);
+    let home = run
+        .world
+        .state()
+        .household_of(sim(1))
+        .expect("her household");
+    run.submit(Input::MoveIn(MoveIn { household: home }));
+    run.advance(BIRTH);
+    assert!(
+        (run.log.iter()).any(|entry| matches!(entry.payload, LogPayload::Birth { .. })),
+        "the birth happened"
+    );
+    for who in 1..=6 {
+        assert!(held(&run, who).is_empty(), "sim {who} is under 40");
+    }
+    assert!((run.log.iter()).all(|entry| {
+        !matches!(
+            entry.payload,
+            LogPayload::Believed { .. } | LogPayload::Unbelieved { .. }
+        )
+    }));
+    reload(&run, &data);
+}
+
 /// Cap 1, twins, P = F. The parents' own-child sentences stay (the second is refused, so
 /// nothing is unbelieved). The seven-year-old's first sentence falls to the second.
 #[test]
@@ -686,6 +736,64 @@ fn a_pool_father_with_no_town_person_writes_nothing() {
         )
     }));
     reload(&run, &data);
+}
+
+/// The same birth, with a non-secret `VaterVon(child, P)` written into the save. P is a
+/// town person. The child's pool father is not, so the load is refused.
+#[test]
+fn a_vater_von_for_a_child_whose_pool_father_is_nobody_does_not_load() {
+    let data = pool_c_data(POOL_C, |_| {});
+    let (mut run, drawn) = pool_world(data.clone(), 6, 1);
+    assert_eq!(
+        pregnancy_father(&drawn, POOL_MOTHER_WITHOUT_A_FATHER),
+        POOL_FATHER_NOT_IN_TOWN
+    );
+    let mother = sim_of(&run, POOL_MOTHER_WITHOUT_A_FATHER);
+    moved_in_through(&mut run, mother, POOL_BIRTH_WITHOUT_A_FATHER);
+    let children = children_of(&run, mother);
+    assert_eq!(children.len(), 1);
+    let child = children[0];
+    pool_child_without_recorded_parents(&run, child);
+    let allocated = run.world.state().sim_ids_allocated();
+    assert!((1..=allocated).all(|id| {
+        let sim = SimId::try_from(id).expect("id");
+        run.world.state().lineage_key(sim).map(|key| key.get()) != Some(POOL_FATHER_NOT_IN_TOWN)
+    }));
+    let named = (run.log.iter())
+        .find_map(|entry| match entry.payload {
+            LogPayload::Partnered { .. } => match entry.subjects.as_slice() {
+                [Subject::Sim(woman), Subject::Sim(man)] if *woman == mother => Some(*man),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or(mother);
+    assert_ne!(named, child);
+    assert!(
+        run.world.state().born(named).is_some(),
+        "P is a town person"
+    );
+    assert!(run.world.state().house().social.beliefs.is_empty());
+    let bytes = run.world.save(&run.out.year_hashes).expect("saved");
+    assert!(World::load(&bytes, data.clone()).is_ok());
+    let social = run.world.state().house().social.clone();
+    let mut forged_social = social.clone();
+    forged_social.beliefs.insert(
+        mother,
+        vec![sentence(
+            child,
+            named,
+            POOL_BIRTH_WITHOUT_A_FATHER,
+            900,
+            Basis::Geschlossen,
+            false,
+        )],
+    );
+    let forged = replaced(&bytes, &encode(&social), &encode(&forged_social));
+    assert_eq!(
+        World::load(&forged, data).err(),
+        Some(LoadError::Inconsistent)
+    );
 }
 
 /// `pool_c` household 28 with its pregnancy's father retargeted to the solo man of household
@@ -1268,6 +1376,29 @@ fn sentence(
         basis,
         secret,
     }
+}
+
+fn encode<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    postcard::to_allocvec(value).expect("bytes")
+}
+
+/// Replaces the one occurrence of `from` with `to`. The widths may differ: a postcard
+/// struct is its fields in order, so the social field can grow by one belief.
+fn replaced(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    let hits = bytes
+        .windows(from.len())
+        .filter(|window| *window == from)
+        .count();
+    assert_eq!(hits, 1, "one occurrence");
+    let at = bytes
+        .windows(from.len())
+        .position(|window| window == from)
+        .expect("found");
+    let mut forged = Vec::with_capacity(bytes.len() - from.len() + to.len());
+    forged.extend_from_slice(&bytes[..at]);
+    forged.extend_from_slice(to);
+    forged.extend_from_slice(&bytes[at + from.len()..]);
+    forged
 }
 
 fn holds(run: &Run, who: SimId) -> Vec<Belief> {

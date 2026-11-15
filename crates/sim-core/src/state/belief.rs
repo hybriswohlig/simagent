@@ -262,12 +262,20 @@ pub(super) fn child_born(
     let partner = super::partnership::open_partnership(domain, mother)
         .and_then(|id| domain.partnerships.get(&id).map(|pair| pair.man));
     let father_in_town = father.is_some_and(|father| domain.sims.contains_key(&father));
-    let household: Vec<(SimId, u32)> = (domain.members.get(&home).into_iter().flatten())
+    let mut household: Vec<(SimId, u32)> = (domain.members.get(&home).into_iter().flatten())
         .filter_map(|sim| {
             let person = domain.sims.get(sim)?;
             Some((*sim, whole_years(person.born, now)))
         })
         .collect();
+    // F and P may live outside; their ages gate their own sentences.
+    for outside in [father, partner].into_iter().flatten() {
+        if let Some(person) = domain.sims.get(&outside)
+            && household.iter().all(|(sim, _)| *sim != outside)
+        {
+            household.push((outside, whole_years(person.born, now)));
+        }
+    }
     let sentences = crate::social::belief::paternity_beliefs(
         mother,
         child,
@@ -431,7 +439,11 @@ pub(crate) fn consistent(loaded: &LoadedState, data: &Data) -> bool {
                     || belief.certainty == 0
                     || belief.certainty == 1000);
             let statement_ok = match belief.statement {
-                Statement::VaterVon { child, man } => known(child) && known(man),
+                Statement::VaterVon { child, man } => {
+                    known(child)
+                        && known(man)
+                        && town_parents(loaded, &parents_of, child).1.is_some()
+                }
                 Statement::Tat {
                     doer, kind, other, ..
                 } => known(doer) && known(other) && usize::from(kind) < kinds,
@@ -502,6 +514,17 @@ fn mother_of(
     keys: &BTreeMap<LineageKey, SimId>,
     child: SimId,
 ) -> Option<SimId> {
+    town_parents(loaded, keys, child).0
+}
+
+/// The biological mother and father of `child` as town persons, living or archived (the
+/// shared resolution of `resolve_town_parents`). A `VaterVon` loads only when the father
+/// is one (ADR-0031, addendum 2026-11-14).
+fn town_parents(
+    loaded: &LoadedState,
+    keys: &BTreeMap<LineageKey, SimId>,
+    child: SimId,
+) -> (Option<SimId>, Option<SimId>) {
     let found = loaded
         .sims
         .get(&child)
@@ -512,6 +535,8 @@ fn mother_of(
                 .get(&child)
                 .map(|person| (person.parents, person.pool.as_ref()))
         });
-    let (parents, pool) = found?;
-    resolve_town_parents(parents, pool, |key| keys.get(&key).copied()).0
+    let Some((parents, pool)) = found else {
+        return (None, None);
+    };
+    resolve_town_parents(parents, pool, |key| keys.get(&key).copied())
 }
