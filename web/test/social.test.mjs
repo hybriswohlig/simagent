@@ -160,6 +160,23 @@ test("the chronicle tells a saying, hides a lie, and refutes with the ADR's sent
   const lied = entry("core:refuted", { by: 2, statement: deed(3, 2, 1), source: null }, [{ sim: 1 }]);
   assert.equal(speak(refuteSegments(lied), name), "Lena widerlegt Tom: Mia hat Tom nicht belogen.");
   assert.equal(dayLine({ rooms: [], doors: [], objects: [] }, gossip, view(1)).text, "Lena widerlegt Tom: Mia hat nicht über Eva gelästert.");
+  // The refuter's own day keeps the whole sentence. A telling drops the speaker only
+  // because that list is already the speaker's.
+  assert.equal(dayLine({ rooms: [], doors: [], objects: [] }, gossip, view(2)).text, "Lena widerlegt Tom: Mia hat nicht über Eva gelästert.");
+});
+
+test("the day list says whom a choice avoids, each person once", () => {
+  const layout = { rooms: [], doors: [], objects: [] };
+  const row = (avoided) => ({ object: 0, liked: null, company: 0, avoided, avoid: 120 });
+  const line = (objects) => dayLine(layout, entry("core:company", { objects }), view(1));
+  // One avoided row: "meidet Mia".
+  assert.deepEqual(line([row(3)]), { text: "meidet Mia", choice: false });
+  // Two rows avoiding the same person: that name once.
+  assert.deepEqual(line([row(3), row(3)]), { text: "meidet Mia", choice: false });
+  // Distinct people, in the row order, joined as the other day lines join names.
+  assert.deepEqual(line([row(3), row(2), row(3)]), { text: "meidet Mia und Lena", choice: false });
+  // No row avoids anyone: no line, even when a row likes someone.
+  assert.equal(line([row(null), { object: 1, liked: 2, company: 40, avoided: null, avoid: 0 }]), null);
 });
 
 test("Warum names the company and, for someone avoided, the belief and the truth", () => {

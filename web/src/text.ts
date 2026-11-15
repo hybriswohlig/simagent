@@ -511,6 +511,7 @@ export const TEXT = {
   feeling_infects: "steckt {names} mit Ärger an",
   feeling_mood: "Stimmung {temper}: Gesellschaft {company} statt {plain}.",
   social_avoids: "meidet {object}: vertraut {name} {trust}.",
+  social_avoids_day: "meidet {names}",
   social_true: "Wahr ist es.",
   social_false: "Wahr ist es nicht.",
   social_unknown: "Ob es wahr ist, steht nicht fest.",

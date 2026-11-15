@@ -759,10 +759,13 @@ fn the_events_come_in_pages_and_filtered() {
     all.extend(second["events"].as_array().expect("events").iter().cloned());
     assert_eq!(all, file);
 
+    // A subject, and for a refutation also its `by` (the refuter is not a subject).
     let about = |entry: &Value, sim: u64| {
-        (entry["subjects"].as_array().expect("subjects"))
+        let subject = (entry["subjects"].as_array().expect("subjects"))
             .iter()
-            .any(|s| s["sim"].as_u64() == Some(sim))
+            .any(|s| s["sim"].as_u64() == Some(sim));
+        let refuted_by = entry["payload"]["core:refuted"]["by"].as_u64() == Some(sim);
+        subject || refuted_by
     };
     let expected: Vec<&Value> = file.iter().filter(|e| about(e, 1)).collect();
     assert!(!expected.is_empty());
