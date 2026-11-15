@@ -24,6 +24,8 @@ mod release_run;
 mod results;
 mod scan;
 mod smoke;
+mod story;
+mod story_run;
 mod web;
 mod web_deps;
 
@@ -66,6 +68,12 @@ fn main() -> ExitCode {
             return report(
                 "house-week",
                 workspace_root().and_then(|root| house_week::command(&root)),
+            );
+        }
+        Some("story") => {
+            return report(
+                "story",
+                workspace_root().and_then(|root| story_run::command(&root)),
             );
         }
         Some("melanin-chart") => return report("melanin-chart", melanin_chart()),
@@ -151,7 +159,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI)\n  check                 the same gate on a dirty working tree (local iteration)\n  quick                 the gate up to clippy, without the tests and runs (pre-push)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  house-week            50 households a week in their houses: counted limits, release time\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
+                "usage: cargo xtask <command>\n  ci                    the gate; requires a clean working tree (CI)\n  check                 the same gate on a dirty working tree (local iteration)\n  quick                 the gate up to clippy, without the tests and runs (pre-push)\n  kat-record            write the libm bits of the class P known-answer tests (bless)\n  kat-verify-reference  recompute the reference columns with tools/kat_reference.py\n  melanin-chart         write the colours of contracts/body.json to target/reports/\n  codegen               write the types of contracts/body.json into sim-core, and its hash\n  contract-check        the checks of contracts/body.json alone (part of the gate)\n  repro <file>          copy a repro package to tests/repro/, where it is a test (ADR-0016)\n  web-deps              the npm guard of web/ alone (part of the gate, ADR-0021)\n  export-types          the export types against real output (part of the gate, ADR-0021)\n  web                   build web/dist and run the tests of web/ (part of the gate, ADR-0021)\n  bench                 P1: ten founder families over 200 years, median of five release runs\n  house-week            50 households a week in their houses: counted limits, release time\n  story                 the unscripted chain on seeds 1 to 20, and three canaries (release)\n  map4-template <dir>   write the template of map 4 (ADR-0020 section 1) into <dir>\n  prerun measure|pool --out <dir> [--founders N] [--years Y] [--map <dir>]\n                        the pre-run of ADR-0020 section 3 (outside the gate)\n  criteria report <export.ndjson> [<out.json>]\n                        the criteria report of an export; report.json beside it by default\n  criteria town --map <dir> --pool <pool.bin> --out <dir>\n                        P3, P4 city, P5, P9 and F11 on the criteria town (run with --release)\n  criteria village --out <dir>\n                        P4 village: 30 villages from the repository's pool (run with --release)"
             );
             return ExitCode::from(2);
         }
@@ -337,7 +345,25 @@ fn gate(require_clean_tree: bool) -> Result {
     step("export types (release binary)", || {
         check_export_types(&root)
     })?;
-    step("smoke (release binary)", || smoke::smoke(&root))
+    step("smoke (release binary)", || smoke::smoke(&root))?;
+    step("story (release)", || release_xtask(&root, "story"))
+}
+
+/// A release run of this xtask's `command`, the same way the gate runs a release binary.
+fn release_xtask(root: &Path, command: &str) -> Result {
+    cargo(
+        root,
+        &[
+            "run",
+            "--quiet",
+            "--locked",
+            "--release",
+            "--package",
+            "xtask",
+            "--",
+            command,
+        ],
+    )
 }
 
 /// The first part of the gate, the pre-push hook on its own (`cargo xtask quick`): the checks
