@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dayGroups, dayLine, doing, reserveWord } from "../dist/day.js";
+import { dayGroups, dayLine, dayWindow, doing, reserveWord } from "../dist/day.js";
 
 function object(kind, room, offers) {
   return { kind, room, x: 0, y: 0, w: 1, h: 1, slots: 1, offers };
@@ -39,12 +39,12 @@ const item = (id, code, fields, when = date(0, 5, 0)) => ({
 const line = (code, fields) => dayLine(LAYOUT, item(1, code, fields));
 
 test("a choice and a command, the object told apart", () => {
-  assert.deepEqual(line("core:action_started", { object: 2, offer: 0, commanded: false }), { text: "Wahl: ist auf der Toilette im Bad", choice: true });
-  assert.deepEqual(line("core:action_started", { object: 0, offer: 0, commanded: true }), { text: "Befehl: isst am Esstisch", choice: true });
+  assert.deepEqual(line("core:action_started", { object: 2, offer: 0, commanded: false }), { text: "Wahl: ist auf der Toilette im Bad", choice: true, routine: true });
+  assert.deepEqual(line("core:action_started", { object: 0, offer: 0, commanded: true }), { text: "Befehl: isst am Esstisch", choice: true, routine: true });
   // A time-filler says so (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
   assert.deepEqual(
     line("core:action_started", { object: 2, offer: 0, commanded: false, filler: true }),
-    { text: "Zeitvertreib: ist auf der Toilette im Bad", choice: true },
+    { text: "Zeitvertreib: ist auf der Toilette im Bad", choice: true, routine: true },
   );
 });
 
@@ -62,16 +62,16 @@ test("what ended and how", () => {
 });
 
 test("idle where, waiting for what", () => {
-  assert.deepEqual(line("core:idle", { room: 3, needs: [], busy: [], waits: null }), { text: "tut nichts im Bad", choice: true });
-  assert.deepEqual(line("core:idle", { room: 0, needs: [], busy: [1], waits: 1 }), { text: "wartet auf: Toilette auf dem WC", choice: true });
+  assert.deepEqual(line("core:idle", { room: 3, needs: [], busy: [], waits: null }), { text: "tut nichts im Bad", choice: true, routine: true });
+  assert.deepEqual(line("core:idle", { room: 0, needs: [], busy: [1], waits: 1 }), { text: "wartet auf: Toilette auf dem WC", choice: true, routine: true });
   assert.equal(line("core:reached", { object: 0 }), null);
 });
 
 test("the reserve at half and at 0, and its word beside what the person does", () => {
   // ADR-0026, addendum of 2026-11-06 on hunger at 0: the day says "wird geschwächt" and "ist
   // ausgezehrt"; the person's line the server's band in Grok's words, nothing for `none`.
-  assert.deepEqual(line("core:weakened", { capacity: 1000 }), { text: "wird geschwächt", choice: false });
-  assert.deepEqual(line("core:wasted", { capacity: 500 }), { text: "ist ausgezehrt", choice: false });
+  assert.deepEqual(line("core:weakened", { capacity: 1000 }), { text: "wird geschwächt", choice: false, routine: false });
+  assert.deepEqual(line("core:wasted", { capacity: 500 }), { text: "ist ausgezehrt", choice: false, routine: false });
   const word = (band) => reserveWord({ value: 300, capacity: 1000, band });
   assert.equal(word("none"), null);
   assert.equal(word("draws"), "zehrt am Vorrat");
@@ -83,7 +83,7 @@ test("a talk names the other person and the topic", () => {
   const talked = item(9, "core:talked", { other: 2, object: 0, topic: 1, actor: 1 });
   talked.entry.subjects = [{ sim: 1 }, { sim: 2 }];
   const name = (id) => (id === 2 ? "Mia" : "Tom");
-  assert.deepEqual(dayLine(LAYOUT, talked, { sim: 1, name, cheat: false }), { text: "redet mit Mia über ein Lob", choice: false });
+  assert.deepEqual(dayLine(LAYOUT, talked, { sim: 1, name, cheat: false }), { text: "redet mit Mia über ein Lob", choice: false, routine: false });
   assert.equal(dayLine(LAYOUT, talked, { sim: 2, name, cheat: false }).text, "redet mit Tom über ein Lob");
 });
 
@@ -174,7 +174,7 @@ test("an arrival infects by name, and only the persons its felt lines name", () 
   const arrival = item(10, "core:reached", { object: 0 });
   assert.equal(dayLine(LAYOUT, arrival, view, []), null);
   assert.equal(dayLine(LAYOUT, arrival, view, [feltBy(11, 3, 9)]), null);
-  assert.deepEqual(dayLine(LAYOUT, arrival, view, [feltBy(11, 3, 10)]), { text: "steckt Mia mit Ärger an", choice: false });
+  assert.deepEqual(dayLine(LAYOUT, arrival, view, [feltBy(11, 3, 10)]), { text: "steckt Mia mit Ärger an", choice: false, routine: false });
   assert.equal(
     dayLine(LAYOUT, arrival, view, [feltBy(13, 5, 10), feltBy(11, 3, 10)]).text,
     "steckt Mia und Noah mit Ärger an",
@@ -190,6 +190,7 @@ test("an arrival infects by name, and only the persons its felt lines name", () 
   assert.deepEqual(dayLine(LAYOUT, idle, view, [feltBy(11, 3, 10)]), {
     text: "tut nichts im Bad und steckt Mia mit Ärger an",
     choice: true,
+    routine: false,
   });
 });
 
@@ -210,4 +211,29 @@ test("a felt line only when a channel crosses 500 upward", () => {
     "freut sich, ist wütend, hat Angst",
   );
   assert.equal(dayLine(LAYOUT, item(4, "core:felt", zero)), null);
+});
+
+test("eating, sleeping and an on-time departure are routine; contagion and lateness are not", () => {
+  assert.equal(line("core:action_started", { object: 0, offer: 0, commanded: false }).routine, true);
+  const idle = item(10, "core:idle", { room: 3, needs: [], busy: [], waits: null });
+  assert.equal(dayLine(LAYOUT, idle, view, []).routine, true);
+  assert.equal(dayLine(LAYOUT, idle, view, [feltBy(11, 3, 10)]).routine, false);
+  const late = line("core:left_home", { place: "work", late_secs: 300 });
+  assert.equal(late.text, "geht zur Arbeit (5 Min. zu spät)");
+  assert.equal(late.routine, false);
+  const onTime = line("core:left_home", { place: "school", late_secs: 0 });
+  assert.equal(onTime.text, "geht zur Schule");
+  assert.equal(onTime.routine, true);
+  const talked = (topic) => {
+    const entry = item(9, "core:talked", { other: 2, object: 0, topic, actor: null });
+    entry.entry.subjects = [{ sim: 1 }, { sim: 2 }];
+    return dayLine(LAYOUT, entry, view);
+  };
+  assert.equal(talked(0).routine, true);
+  assert.equal(talked(2).routine, false);
+});
+
+test("a day window is the current day, or one whole day further back", () => {
+  assert.deepEqual(dayWindow(1_000_000, 0), { from: 913_600, to: 1_000_001 });
+  assert.deepEqual(dayWindow(1_000_000, 2), { from: 740_800, to: 827_200 });
 });
