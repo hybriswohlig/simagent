@@ -13,8 +13,33 @@ const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
   fun: "need_fun",
 };
 
-/** A line of a person's day: its text, and whether it is a choice with a "Warum?". */
-export type DayLine = { readonly text: string; readonly choice: boolean };
+/** A line of a person's day: its text, whether it is a choice with a "Warum?", and whether it
+ * is everyday, so the house page can hide it. */
+export type DayLine = {
+  readonly text: string;
+  readonly choice: boolean;
+  readonly routine: boolean;
+  /** Whom an avoid line names, so a repeat on the same day can be quieted. */
+  readonly avoided?: readonly number[];
+};
+
+/** One day of the log, in seconds. */
+const DAY_SECONDS = 86_400;
+
+/** The log window `back` whole days before the clock `at`. Zero is the day through the second
+ * after the clock. One or more is the day that ended that many days before the clock. */
+export function dayWindow(at: number, back: number): { readonly from: number; readonly to: number } {
+  if (back < 1) {
+    return { from: at - DAY_SECONDS, to: at + 1 };
+  }
+  return { from: at - (back + 1) * DAY_SECONDS, to: at - back * DAY_SECONDS };
+}
+
+/** Whether the day before window `back` can hold entries: its end is after second 0, so a
+ * window that starts before 0 but ends after it still opens (review). */
+export function earlierDay(at: number, back: number): boolean {
+  return dayWindow(at, back + 1).to > 0;
+}
 
 /** The words of a need by its code. */
 function needWords(code: unknown): string {
@@ -143,10 +168,10 @@ export function dayLine(
       // A commanded start says so (ADR-0024 section 5); "Warum?" tells the points beside it; a
       // time-filler too (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler).
       const said = fields["commanded"] === true ? TEXT.house_commanded : fields["filler"] === true ? TEXT.house_filler : TEXT.house_choice;
-      return { text: said.replace("{what}", placedOfferWords(layout, number("object"), number("offer"))), choice: true };
+      return { text: said.replace("{what}", placedOfferWords(layout, number("object"), number("offer"))), choice: true, routine: true };
     }
     case "core:action_ended":
-      return { text: ended(layout, number("object"), number("offer"), fields["reason"]), choice: false };
+      return { text: ended(layout, number("object"), number("offer"), fields["reason"]), choice: false, routine: true };
     case "core:idle": {
       const waits = fields["waits"];
       const room = layout.rooms[number("room")]?.id ?? "";
@@ -154,45 +179,57 @@ export function dayLine(
         typeof waits === "number"
           ? TEXT.house_waits.replace("{object}", objectName(layout, waits))
           : TEXT.house_idle_day.replace("{room}", ROOM_WORDS[room]?.[2] ?? room);
-      return { text: withContagion(text, item, felts, name), choice: true };
+      const infected = contagion(item, felts, name);
+      return { text: withContagion(text, item, felts, name), choice: true, routine: infected === null };
     }
     case "core:reached": {
       const text = contagion(item, felts, name);
-      return text === null ? null : { text, choice: false };
+      return text === null ? null : { text, choice: false, routine: false };
     }
     case "core:felt": {
       const text = feltWords(item);
-      return text === null ? null : { text, choice: false };
+      return text === null ? null : { text, choice: false, routine: false };
     }
     case "core:need_critical":
       return {
         text: TEXT.house_critical.replace("{need}", needWords(fields["need"])).replace("{level}", String(number("level"))),
         choice: false,
+        routine: true,
       };
     // The day's duty (ADR-0024 section 4): where, when; leaving, late; back; missed.
     case "core:day_planned":
-      return { text: school ? TEXT.house_planned_school : TEXT.house_planned_work, choice: false };
+      return { text: school ? TEXT.house_planned_school : TEXT.house_planned_work, choice: false, routine: true };
     case "core:left_home": {
       const minutes = wholeMinutes(number("late_secs"));
       const late = minutes > 0 ? ` ${TEXT.house_late.replace("{minutes}", String(minutes))}` : "";
-      return { text: `${school ? TEXT.house_left_school : TEXT.house_left_work}${late}`, choice: false };
+      return {
+        text: `${school ? TEXT.house_left_school : TEXT.house_left_work}${late}`,
+        choice: false,
+        routine: minutes === 0,
+      };
     }
-    case "core:came_home":
-      return { text: withContagion(school ? TEXT.house_came_school : TEXT.house_came_work, item, felts, name), choice: false };
+    case "core:came_home": {
+      const infected = contagion(item, felts, name);
+      return {
+        text: withContagion(school ? TEXT.house_came_school : TEXT.house_came_work, item, felts, name),
+        choice: false,
+        routine: infected === null,
+      };
+    }
     case "core:missed":
-      return { text: school ? TEXT.house_missed_school : TEXT.house_missed_work, choice: false };
+      return { text: school ? TEXT.house_missed_school : TEXT.house_missed_work, choice: false, routine: false };
     // A need at 0 and what it brings (ADR-0026, addendum of 2026-11-04 on a need at 0).
     case "core:need_empty":
-      return { text: TEXT.house_empty.replace("{need}", needWords(fields["need"])), choice: false };
+      return { text: TEXT.house_empty.replace("{need}", needWords(fields["need"])), choice: false, routine: false };
     case "core:collapsed":
-      return { text: TEXT.house_collapsed, choice: false };
+      return { text: TEXT.house_collapsed, choice: false, routine: false };
     case "core:accident":
-      return { text: TEXT.house_accident, choice: false };
+      return { text: TEXT.house_accident, choice: false, routine: false };
     // The reserve at half and at 0 (ADR-0026, addendum of 2026-11-06 on hunger at 0).
     case "core:weakened":
-      return { text: TEXT.house_weakened, choice: false };
+      return { text: TEXT.house_weakened, choice: false, routine: false };
     case "core:wasted":
-      return { text: TEXT.house_wasted, choice: false };
+      return { text: TEXT.house_wasted, choice: false, routine: false };
     default:
       return null;
   }
@@ -214,6 +251,25 @@ export function dayGroups<T extends { readonly date: CalendarDate }>(
     }
   }
   return groups;
+}
+
+/** The lines of a day list with each avoid line that names only persons already avoided
+ * earlier on the same calendar day made routine, so "meidet Julia" is said once a day and again
+ * only when someone new is avoided. */
+export function quietRepeats<T extends { readonly date: CalendarDate; readonly line: DayLine }>(pairs: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return pairs.map((pair) => {
+    const avoided = pair.line.avoided;
+    if (avoided === undefined) {
+      return pair;
+    }
+    const keys = avoided.map((id) => `${pair.date.year}-${pair.date.day_of_year}-${id}`);
+    const repeat = keys.every((key) => seen.has(key));
+    for (const key of keys) {
+      seen.add(key);
+    }
+    return repeat ? { ...pair, line: { ...pair.line, routine: true } } : pair;
+  });
 }
 
 /** Where a room is, "im Bad", by its number in the drawing. */

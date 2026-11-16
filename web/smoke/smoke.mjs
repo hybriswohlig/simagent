@@ -493,6 +493,8 @@ if (browser !== undefined) {
     if (!apart) {
       throw new Error("the plan: a name over another, or a dot over another");
     }
+    // Everyday lines, among them each choice with its "Warum?", are hidden until asked for.
+    await step("everyday shown", page.getByLabel("Alltag zeigen").check());
     await step("the day", page.getByText("Die letzten 24 Stunden").first().click());
     await step("why", page.getByRole("button", { name: "Warum?" }).first().click());
     await step("why told", page.getByText(/Gewählt: .*, [\d.]+ Punkte \(Laune (?:[+−]\d+|0) %\)\./).first().waitFor());

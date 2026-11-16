@@ -395,6 +395,12 @@ export const TEXT = {
   house_now: "Jetzt:",
   house_day: "Die letzten 24 Stunden",
   house_day_of: "{weekday}, {date}",
+  house_show_routine: "Alltag zeigen",
+  house_day_earlier: "← Tag davor",
+  house_day_later: "Tag danach →",
+  house_day_none: "Keine Einträge.",
+  house_day_back_one: "Die 24 Stunden davor",
+  house_day_back: "Die 24 Stunden, {n} Tage zurück",
   house_choice: "Wahl: {what}",
   house_end_done: "{finished} {at}",
   house_end_broken: "hört auf: {what} ({why})",
@@ -473,6 +479,12 @@ export const TEXT = {
   social_memories: "Erinnerungen",
   social_bond_values:
     "Zuneigung {affection}, Vertrauen {trust}, Respekt {respect}, Anziehung {attraction}, Vertrautheit {familiarity}, Groll {grudge}",
+  social_value_affection: "Zuneigung",
+  social_value_trust: "Vertrauen",
+  social_value_respect: "Respekt",
+  social_value_attraction: "Anziehung",
+  social_value_familiarity: "Vertrautheit",
+  social_value_grudge: "Groll",
   social_talk: "redet mit {partner} {topic}",
   social_topic_everyday: "über den Alltag",
   social_topic_praise: "über ein Lob",
@@ -531,6 +543,7 @@ export const TEXT = {
   social_displaced: "verdrängt",
   social_bond_formed: "knüpft eine Beziehung zu {name}.",
   social_bond_changed: "ändert die Beziehung zu {name}.",
+  social_bond_changed_values: "Beziehung zu {name}: {changes}",
   social_bond_dropped: "löst die Beziehung zu {name}.",
 } as const;
 

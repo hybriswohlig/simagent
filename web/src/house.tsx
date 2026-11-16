@@ -4,7 +4,7 @@ import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { commandChoices, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
-import { dayGroups, dayLine, doing, reserveWord, type DayLine } from "./day.js";
+import { dayGroups, dayLine, dayWindow, doing, earlierDay, quietRepeats, reserveWord, type DayLine } from "./day.js";
 import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseBelief, HouseBond, HouseChild, HouseLayout, HouseMemory, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName, surnames } from "./names.js";
@@ -28,9 +28,6 @@ const EVENTS = { format: "simagent.view.events", version: 2 } as const;
 const HOUSES = { format: "simagent.view.houses", version: 2 } as const;
 /** How many pages of a person's day the page reads at most (a day has some hundred entries). */
 const DAY_PAGES = 10;
-/** How far back a person's day list reaches from the clock, in seconds: the last 24 hours, so
- * that after "Bis morgen früh" the evening before is still there (the playtest of 2026-11-04). */
-const DAY_SECONDS = 86_400;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
 const WHY = { format: "simagent.view.why", version: 11 } as const;
@@ -72,21 +69,20 @@ function useHouse(run: string, household: string, at: string): Loaded<HouseAnswe
   return current(loaded, key);
 }
 
-/** The household's `core:felt` lines of the last 24 hours, one read per person with needs, so a
+/** The household's `core:felt` lines of the day's window, one read per person with needs, so a
  * day line can name whom an arrival infected (ADR-0032 section 7). A failed read leaves the
- * lines out; each person's own day still loads. */
-function useFelt(run: string, house: HouseAnswer | null): readonly EventItem[] {
-  const [felts, setFelts] = useState<readonly EventItem[]>([]);
+ * lines out; each person's own day still loads. `back` is whole days before the clock. */
+function useFelt(run: string, house: HouseAnswer | null, back: number): readonly EventItem[] {
+  const [felts, setFelts] = useState<{ readonly back: number; readonly felts: readonly EventItem[] }>({ back, felts: [] });
   const at = house?.at.t ?? null;
   const sims = house === null ? "" : house.persons.map((person) => person.sim).join(",");
   useEffect(() => {
     if (at === null || sims === "") {
-      setFelts([]);
+      setFelts({ back, felts: [] });
       return;
     }
     let live = true;
-    const from = at - DAY_SECONDS;
-    const to = at + 1;
+    const { from, to } = dayWindow(at, back);
     const read = async () => {
       const all: EventItem[] = [];
       for (const sim of sims.split(",")) {
@@ -109,13 +105,13 @@ function useFelt(run: string, house: HouseAnswer | null): readonly EventItem[] {
       return all;
     };
     read()
-      .then((all) => live && setFelts(all))
-      .catch(() => live && setFelts([]));
+      .then((all) => live && setFelts({ back, felts: all }))
+      .catch(() => live && setFelts({ back, felts: [] }));
     return () => {
       live = false;
     };
-  }, [run, at, sims]);
-  return felts;
+  }, [run, at, sims, back]);
+  return felts.back === back ? felts.felts : [];
 }
 
 /** The words of a room, its name, "into" it and "in" it. */
@@ -178,9 +174,11 @@ function Why({ run, house, entry, names }: { run: string; house: HouseAnswer; en
   );
 }
 
-/** A person's house entries of the last 24 hours up to the second after the clock, in which an
- * input given at the clock acts (ADR-0004 section 4), from the run's log, by day, each choice
- * with its "Warum?"; read again with each house answer, so a command shows at once. */
+/** A person's house entries of one day ending at the clock, or `back` whole days earlier, up to
+ * the second after the clock when `back` is 0, in which an input given at the clock acts
+ * (ADR-0004 section 4), from the run's log, by day, each choice with its "Warum?"; read again
+ * with each house answer, so a command shows at once. Everyday lines stay out unless the page
+ * asks for them. */
 function Day({
   run,
   house,
@@ -188,6 +186,8 @@ function Day({
   names,
   cheat,
   felts,
+  back,
+  showRoutine,
 }: {
   run: string;
   house: HouseAnswer;
@@ -195,10 +195,13 @@ function Day({
   names: ReadonlyMap<number, string>;
   cheat: boolean;
   felts: readonly EventItem[];
+  back: number;
+  showRoutine: boolean;
 }) {
-  const [items, setItems] = useState<readonly EventItem[] | "failed">([]);
-  const from = house.at.t - DAY_SECONDS;
-  const to = house.at.t + 1;
+  // The read answers with the day it was asked for, so a page turn shows "Wird geladen" and
+  // not the other day's lines under the new heading (review).
+  const [items, setItems] = useState<{ readonly back: number; readonly items: readonly EventItem[] } | "failed">({ back, items: [] });
+  const { from, to } = dayWindow(house.at.t, back);
   useEffect(() => {
     let live = true;
     // The window, page by page (500 entries each).
@@ -218,40 +221,49 @@ function Day({
       return all;
     };
     read()
-      .then((all) => live && setItems(all))
+      .then((all) => live && setItems({ back, items: all }))
       .catch(() => live && setItems("failed"));
     return () => {
       live = false;
     };
-  }, [run, sim, house]);
+  }, [run, sim, house, back]);
   if (items === "failed") {
     return <p>{TEXT.failed_network}</p>;
   }
+  if (items.back !== back) {
+    return (
+      <details>
+        <summary>{TEXT.loading}</summary>
+      </details>
+    );
+  }
   const view = { sim, name: named(names), cheat };
-  const lines = items
+  const shown = items.items
     .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item, view, felts) }))
     .filter((pair): pair is { item: EventItem; date: EventItem["date"]; line: DayLine } => pair.line !== null);
-  if (lines.length === 0) {
-    return null;
-  }
+  const lines = quietRepeats(shown).filter((pair) => showRoutine || !pair.line.routine);
   return (
     <details>
-      <summary>{TEXT.house_day}</summary>
-      {dayGroups(lines).map((group) => (
-        <div key={`${group.date.year}-${group.date.day_of_year}`}>
-          <p style={{ margin: "0.4em 0 0" }}>
-            <strong>{group.title}</strong>
-          </p>
-          <ol style={{ paddingLeft: "1.2em", margin: 0 }}>
-            {group.items.map(({ item, line }) => (
-              <li key={item.entry.id}>
-                {timeOfDay(item.date.second_of_day)} {line.text}{" "}
-                {line.choice && <Why run={run} house={house} entry={item.entry.id} names={names} />}
-              </li>
-            ))}
-          </ol>
-        </div>
-      ))}
+      <summary>{back === 0 ? TEXT.house_day : back === 1 ? TEXT.house_day_back_one : TEXT.house_day_back.replace("{n}", String(back))}</summary>
+      {lines.length === 0 ? (
+        <p>{TEXT.house_day_none}</p>
+      ) : (
+        dayGroups(lines).map((group) => (
+          <div key={`${group.date.year}-${group.date.day_of_year}`}>
+            <p style={{ margin: "0.4em 0 0" }}>
+              <strong>{group.title}</strong>
+            </p>
+            <ol style={{ paddingLeft: "1.2em", margin: 0 }}>
+              {group.items.map(({ item, line }) => (
+                <li key={item.entry.id}>
+                  {timeOfDay(item.date.second_of_day)} {line.text}{" "}
+                  {line.choice && <Why run={run} house={house} entry={item.entry.id} names={names} />}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))
+      )}
     </details>
   );
 }
@@ -440,6 +452,8 @@ function Resident({
   memories,
   beliefs,
   felts,
+  back,
+  showRoutine,
 }: {
   run: string;
   house: HouseAnswer;
@@ -455,6 +469,8 @@ function Resident({
   memories: readonly HouseMemory[];
   beliefs: readonly HouseBelief[];
   felts: readonly EventItem[];
+  back: number;
+  showRoutine: boolean;
 }) {
   const known = pedigree.persons.find((p) => p.sim === sim);
   const name = known === undefined ? String(sim) : fullName(known);
@@ -482,7 +498,7 @@ function Resident({
             <p style={{ margin: "0.2em 0 0" }}>{feelingWords(person)}</p>
             <Needs person={person} name={known?.first_name ?? name} comfort={house.comfort} />
             <Social run={run} names={names} bonds={bonds} memories={memories} beliefs={beliefs} />
-            <Day run={run} house={house} sim={sim} names={names} cheat={cheat} felts={felts} />
+            <Day run={run} house={house} sim={sim} names={names} cheat={cheat} felts={felts} back={back} showRoutine={showRoutine} />
             {commandable(person) && <Command run={run} layout={house.layout} person={person} name={name} given={given} />}
           </>
         )}
@@ -612,6 +628,8 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
   const pedigree = usePedigree(run, String(at));
   const people = usePeople(run, String(at));
   const [clock, setClock] = useState<Clock | null>(null);
+  const [showRoutine, setShowRoutine] = useState(false);
+  const [back, setBack] = useState(0);
   const latest = useRef<Clock | null>(null);
   const live = useRef(true);
   useEffect(() => {
@@ -639,7 +657,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
   }
   const persons = lastPedigree.current;
   const looks = lastPeople.current;
-  const felts = useFelt(run, house);
+  const felts = useFelt(run, house, back);
   useEffect(() => {
     if (house !== null && latest.current === null) {
       const start = standing(house.at.t, house.at.date);
@@ -683,11 +701,11 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
   if (loaded.state === "failed" && house === null) {
     return <p role="alert">{TEXT[loaded.text]}</p>;
   }
-  const back = <a href={format({ page: "run", run })}>{TEXT.to_run.replace("{run}", run)}</a>;
+  const toRun = <a href={format({ page: "run", run })}>{TEXT.to_run.replace("{run}", run)}</a>;
   if (house === null) {
     return (
       <p>
-        {TEXT.house_none} {back}
+        {TEXT.house_none} {toRun}
       </p>
     );
   }
@@ -708,7 +726,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
     <section>
       <h1>{family === "" ? TEXT.house_of_household.replace("{n}", household) : TEXT.house_family.replace("{names}", family)}</h1>
       <p>
-        {back} · {TEXT.house_now} {dateText(house.at.date)}, {timeOfDay(house.at.date.second_of_day)}
+        {toRun} · {TEXT.house_now} {dateText(house.at.date)}, {timeOfDay(house.at.date.second_of_day)}
       </p>
       {clock !== null && (
         <div role="group" aria-label={TEXT.steps}>
@@ -729,6 +747,18 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
           {clock.refused !== null && <span role="status"> {refusalText(clock.refused)}</span>}
         </div>
       )}
+      <p>
+        <label>
+          <input type="checkbox" checked={showRoutine} onChange={(event) => setShowRoutine(event.currentTarget.checked)} />{" "}
+          {TEXT.house_show_routine}
+        </label>{" "}
+        <button type="button" disabled={!earlierDay(house.at.t, back)} onClick={() => setBack((days) => days + 1)}>
+          {TEXT.house_day_earlier}
+        </button>{" "}
+        <button type="button" disabled={back === 0} onClick={() => setBack((days) => days - 1)}>
+          {TEXT.house_day_later}
+        </button>
+      </p>
       {loaded.state === "failed" && <p role="alert">{TEXT[loaded.text]}</p>}
       {pedigree.state === "failed" && <p role="alert">{TEXT[pedigree.text]}</p>}
       {!house.morning && <p>{TEXT.house_before_morning}</p>}
@@ -768,6 +798,8 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
                 memories={person.memories}
                 beliefs={person.beliefs}
                 felts={felts}
+                back={back}
+                showRoutine={showRoutine}
               />
             ))}
             {house.children.map((child) => (
@@ -787,6 +819,8 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
                 memories={[]}
                 beliefs={[]}
                 felts={felts}
+                back={back}
+                showRoutine={showRoutine}
               />
             ))}
           </ul>

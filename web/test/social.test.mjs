@@ -115,6 +115,7 @@ test("a talk on the day list names the partner and the topic", () => {
   assert.deepEqual(dayLine({ rooms: [], doors: [], objects: [] }, talked, view(1)), {
     text: "redet mit Mia über den Alltag",
     choice: false,
+    routine: true,
   });
   // The same entry on the partner's day names the first of the pair.
   assert.equal(dayLine({ rooms: [], doors: [], objects: [] }, talked, view(3)).text, "redet mit Tom über den Alltag");
@@ -137,6 +138,11 @@ test("the day list says a telling, a lie, a belief, a memory and a bond", () => 
   const forgot = entry("core:forgot", { kind: 0, with: [3, null], at: 10, reason: "faded" });
   assert.equal(dayLine(layout, forgot, view(1)).text, "vergisst: Gespräch mit Mia, verblasst.");
   assert.equal(dayLine(layout, entry("core:forgot", { kind: 2, with: [null, null], at: 10, reason: "displaced" }), view(1)).text, "vergisst: Tod eines Verwandten, verdrängt.");
+  // A talk's memory comes and goes with every talk: routine. Another kind is not.
+  assert.equal(dayLine(layout, remembered, view(1)).routine, true);
+  assert.equal(dayLine(layout, forgot, view(1)).routine, true);
+  assert.equal(dayLine(layout, entry("core:forgot", { kind: 2, with: [null, null], at: 10, reason: "displaced" }), view(1)).routine, false);
+  assert.equal(dayLine(layout, entry("core:remembered", { kind: 5, with: [3, null], at: 10, strength: 700 }), view(1)).routine, false);
   assert.equal(dayLine(layout, entry("core:bond_formed", { other: 3, values: [400, 450, 400, 0, 200, 0] }), view(1)).text, "knüpft eine Beziehung zu Mia.");
   assert.equal(dayLine(layout, entry("core:bond_changed", { other: 3, before: [], after: [] }), view(1)).text, "ändert die Beziehung zu Mia.");
   assert.equal(dayLine(layout, entry("core:bond_dropped", { other: 3 }), view(1)).text, "löst die Beziehung zu Mia.");
@@ -170,11 +176,11 @@ test("the day list says whom a choice avoids, each person once", () => {
   const row = (avoided) => ({ object: 0, liked: null, company: 0, avoided, avoid: 120 });
   const line = (objects) => dayLine(layout, entry("core:company", { objects }), view(1));
   // One avoided row: "meidet Mia".
-  assert.deepEqual(line([row(3)]), { text: "meidet Mia", choice: false });
+  assert.deepEqual(line([row(3)]), { text: "meidet Mia", choice: false, routine: false, avoided: [3] });
   // Two rows avoiding the same person: that name once.
-  assert.deepEqual(line([row(3), row(3)]), { text: "meidet Mia", choice: false });
+  assert.deepEqual(line([row(3), row(3)]), { text: "meidet Mia", choice: false, routine: false, avoided: [3] });
   // Distinct people, in the row order, joined as the other day lines join names.
-  assert.deepEqual(line([row(3), row(2), row(3)]), { text: "meidet Mia und Lena", choice: false });
+  assert.deepEqual(line([row(3), row(2), row(3)]), { text: "meidet Mia und Lena", choice: false, routine: false, avoided: [3, 2] });
   // No row avoids anyone: no line, even when a row likes someone.
   assert.equal(line([row(null), { object: 1, liked: 2, company: 40, avoided: null, avoid: 0 }]), null);
 });
@@ -263,4 +269,39 @@ test("the chronicle keeps a telling and a refutation, and not every bond change"
   assert.equal(followed(item("core:talked")), false);
   assert.equal(followed(item("core:bond_changed")), false);
   assert.equal(followed(item("core:believed")), false);
+});
+
+test("a bond change names each value that moved, and only a familiarity change is routine", () => {
+  const layout = { rooms: [], doors: [], objects: [] };
+  const julia = (id) => (id === 3 ? "Julia" : name(id));
+  const changed = (before, after) =>
+    dayLine(layout, entry("core:bond_changed", { other: 3, before, after }), { sim: 1, name: julia, cheat: false });
+  assert.deepEqual(changed([400, 430, 400, 0, 200, 0], [400, 350, 400, 0, 200, 120]), {
+    text: "Beziehung zu Julia: Vertrauen 430 → 350 ↓, Groll 0 → 120 ↑",
+    choice: false,
+    routine: false,
+  });
+  assert.deepEqual(changed([400, 430, 400, 0, 600, 0], [400, 430, 400, 0, 640, 0]), {
+    text: "Beziehung zu Julia: Vertrautheit 600 → 640 ↑",
+    choice: false,
+    routine: true,
+  });
+  assert.deepEqual(changed([400, 430, 400, 0, 200, 0], [400, 350, 400, 0, 200, 0]), {
+    text: "Beziehung zu Julia: Vertrauen 430 → 350 ↓",
+    choice: false,
+    routine: false,
+  });
+  assert.equal(changed([1, 2, 3, 4, 5], [9, 2, 3, 4, 5, 6]).text, "ändert die Beziehung zu Julia.");
+  assert.equal(changed([], []).routine, false);
+  assert.equal(changed([400, 430, 400, 0, 200, 0], [400, 430, 400, 0, 200, 0]).text, "ändert die Beziehung zu Julia.");
+});
+
+test("a telling, a refutation and an avoidance are not routine", () => {
+  const layout = { rooms: [], doors: [], objects: [] };
+  const told = entry("core:told", { to: 3, statement: deed(5, 1, 1), certainty: 733, lie: false });
+  assert.equal(dayLine(layout, told, view(1)).routine, false);
+  const gossip = entry("core:refuted", { by: 2, statement: deed(3, 1, 5), source: 1 }, [{ sim: 1 }]);
+  assert.equal(dayLine(layout, gossip, view(1)).routine, false);
+  const avoided = dayLine(layout, entry("core:company", { objects: [{ object: 0, liked: null, company: 0, avoided: 3, avoid: 120 }] }), view(1));
+  assert.equal(avoided.routine, false);
 });

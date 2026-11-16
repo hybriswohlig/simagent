@@ -33,6 +33,8 @@ const TOPICS: readonly (keyof typeof TEXT)[] = [
   "social_topic_apology",
 ];
 
+/** The memory kind of a talk, the first of `KINDS`. */
+const TALK = 0;
 const KINDS: readonly (keyof typeof TEXT)[] = [
   "social_kind_talk",
   "social_kind_born",
@@ -384,8 +386,8 @@ function memoryDay(body: { readonly [key: string]: unknown }, view: DayView, for
 }
 
 /** Whom a finished action kept away from (ADR-0031 section 5): each avoided person once, in
- * the order of the rows; null when no row avoids anyone. */
-function avoidDay(body: { readonly [key: string]: unknown }, view: DayView): string | null {
+ * the order of the rows. */
+function avoidedIds(body: { readonly [key: string]: unknown }): number[] {
   const rows = Array.isArray(body["objects"]) ? (body["objects"] as readonly unknown[]) : [];
   const avoided: number[] = [];
   for (const row of rows) {
@@ -394,7 +396,20 @@ function avoidDay(body: { readonly [key: string]: unknown }, view: DayView): str
       avoided.push(id);
     }
   }
-  return avoided.length === 0 ? null : fill(TEXT.social_avoids_day, { names: joinNames(avoided, view.name) });
+  return avoided;
+}
+
+/** The avoid line: whom, as text and as ids, so the day can quiet a repeat (house playtest of
+ * 2026-11-16: each choice of an avoiding day says it again). */
+function avoidDay(
+  body: { readonly [key: string]: unknown },
+  view: DayView,
+): { readonly text: string; readonly choice: false; readonly routine: false; readonly avoided: readonly number[] } | null {
+  const avoided = avoidedIds(body);
+  if (avoided.length === 0) {
+    return null;
+  }
+  return { text: fill(TEXT.social_avoids_day, { names: joinNames(avoided, view.name) }), choice: false, routine: false, avoided };
 }
 
 function otherDay(body: { readonly [key: string]: unknown }, view: DayView, text: string): string | null {
@@ -402,18 +417,90 @@ function otherDay(body: { readonly [key: string]: unknown }, view: DayView, text
   return other === null ? null : fill(text, { name: view.name(other) });
 }
 
+/** The six bond values, in the order the log settles them. Familiarity is the fifth. */
+const FAMILIARITY = 4;
+const BOND_VALUES: readonly (keyof typeof TEXT)[] = [
+  "social_value_affection",
+  "social_value_trust",
+  "social_value_respect",
+  "social_value_attraction",
+  "social_value_familiarity",
+  "social_value_grudge",
+];
+
+/** Six numbers, or null when the field is not that. */
+function sixNumbers(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length !== 6) {
+    return null;
+  }
+  const numbers: number[] = [];
+  for (const one of value) {
+    if (typeof one !== "number") {
+      return null;
+    }
+    numbers.push(one);
+  }
+  return numbers;
+}
+
+/** A bond change: each value that moved, in log order, or the old sentence when the two
+ * lists are missing or nothing moved. Familiarity alone is everyday. */
+function bondChanged(
+  body: { readonly [key: string]: unknown },
+  view: DayView,
+): { readonly text: string; readonly choice: false; readonly routine: boolean } | null {
+  const other = num(body["other"]);
+  if (other === null) {
+    return null;
+  }
+  const name = view.name(other);
+  const before = sixNumbers(body["before"]);
+  const after = sixNumbers(body["after"]);
+  const plain = { text: fill(TEXT.social_bond_changed, { name }), choice: false as const, routine: false };
+  if (before === null || after === null) {
+    return plain;
+  }
+  const changes: string[] = [];
+  let familiarityOnly = true;
+  for (let index = 0; index < BOND_VALUES.length; index += 1) {
+    const was = before[index];
+    const now = after[index];
+    const word = BOND_VALUES[index];
+    if (was === undefined || now === undefined || word === undefined || was === now) {
+      continue;
+    }
+    if (index !== FAMILIARITY) {
+      familiarityOnly = false;
+    }
+    const arrow = now > was ? "↑" : "↓";
+    changes.push(`${TEXT[word]} ${was} → ${now} ${arrow}`);
+  }
+  if (changes.length === 0) {
+    return plain;
+  }
+  return {
+    text: fill(TEXT.social_bond_changed_values, { name, changes: changes.join(", ") }),
+    choice: false,
+    routine: familiarityOnly,
+  };
+}
+
 /** A social entry of a person's day, or null when the entry is not one of these. The talk names
- * the other person of the pair. A lie follows the chronicle (C24). */
-export function daySocial(item: EventItem, view?: DayView): { readonly text: string; readonly choice: false } | null {
+ * the other person of the pair. A lie follows the chronicle (C24). Everyday talk and a
+ * familiarity-only bond change are routine. */
+export function daySocial(
+  item: EventItem,
+  view?: DayView,
+): { readonly text: string; readonly choice: false; readonly routine: boolean; readonly avoided?: readonly number[] } | null {
   const read = bodyOf(item);
   if (read === null) {
     return null;
   }
   const seen = view ?? { sim: subject(item, 0) ?? 0, name: (id: number) => `${TEXT.person} ${id}`, cheat: false };
-  const line = (text: string | null) => (text === null ? null : { text, choice: false as const });
+  const line = (text: string | null, routine = false) => (text === null ? null : { text, choice: false as const, routine });
   switch (read.code) {
     case "core:talked":
-      return line(talkDay(item, read.body, seen));
+      return line(talkDay(item, read.body, seen), num(read.body["topic"]) === 0);
     case "core:told": {
       const parts = toldSegments(item, seen.cheat);
       if (parts === null) {
@@ -431,16 +518,17 @@ export function daySocial(item: EventItem, view?: DayView): { readonly text: str
       return line(beliefDay(read.body, seen, true));
     case "core:unbelieved":
       return line(beliefDay(read.body, seen, false));
+    // A talk's memory comes and goes with every talk; other memories are not everyday.
     case "core:remembered":
-      return line(memoryDay(read.body, seen, false));
+      return line(memoryDay(read.body, seen, false), num(read.body["kind"]) === TALK);
     case "core:forgot":
-      return line(memoryDay(read.body, seen, true));
+      return line(memoryDay(read.body, seen, true), num(read.body["kind"]) === TALK);
     case "core:company":
-      return line(avoidDay(read.body, seen));
+      return avoidDay(read.body, seen);
     case "core:bond_formed":
       return line(otherDay(read.body, seen, TEXT.social_bond_formed));
     case "core:bond_changed":
-      return line(otherDay(read.body, seen, TEXT.social_bond_changed));
+      return bondChanged(read.body, seen);
     case "core:bond_dropped":
       return line(otherDay(read.body, seen, TEXT.social_bond_dropped));
     default:
