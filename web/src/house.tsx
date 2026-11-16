@@ -4,7 +4,7 @@ import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { commandChoices, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
-import { dayGroups, dayLine, dayWindow, doing, earlierDay, reserveWord, type DayLine } from "./day.js";
+import { dayGroups, dayLine, dayWindow, doing, earlierDay, quietRepeats, reserveWord, type DayLine } from "./day.js";
 import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseBelief, HouseBond, HouseChild, HouseLayout, HouseMemory, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName, surnames } from "./names.js";
@@ -238,10 +238,10 @@ function Day({
     );
   }
   const view = { sim, name: named(names), cheat };
-  const lines = items.items
+  const shown = items.items
     .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item, view, felts) }))
-    .filter((pair): pair is { item: EventItem; date: EventItem["date"]; line: DayLine } => pair.line !== null)
-    .filter((pair) => showRoutine || !pair.line.routine);
+    .filter((pair): pair is { item: EventItem; date: EventItem["date"]; line: DayLine } => pair.line !== null);
+  const lines = quietRepeats(shown).filter((pair) => showRoutine || !pair.line.routine);
   return (
     <details>
       <summary>{back === 0 ? TEXT.house_day : back === 1 ? TEXT.house_day_back_one : TEXT.house_day_back.replace("{n}", String(back))}</summary>

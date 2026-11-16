@@ -15,7 +15,13 @@ const NEED_KEYS: { readonly [need: string]: keyof typeof TEXT } = {
 
 /** A line of a person's day: its text, whether it is a choice with a "Warum?", and whether it
  * is everyday, so the house page can hide it. */
-export type DayLine = { readonly text: string; readonly choice: boolean; readonly routine: boolean };
+export type DayLine = {
+  readonly text: string;
+  readonly choice: boolean;
+  readonly routine: boolean;
+  /** Whom an avoid line names, so a repeat on the same day can be quieted. */
+  readonly avoided?: readonly number[];
+};
 
 /** One day of the log, in seconds. */
 const DAY_SECONDS = 86_400;
@@ -245,6 +251,25 @@ export function dayGroups<T extends { readonly date: CalendarDate }>(
     }
   }
   return groups;
+}
+
+/** The lines of a day list with each avoid line that names only persons already avoided
+ * earlier on the same calendar day made routine, so "meidet Julia" is said once a day and again
+ * only when someone new is avoided. */
+export function quietRepeats<T extends { readonly date: CalendarDate; readonly line: DayLine }>(pairs: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return pairs.map((pair) => {
+    const avoided = pair.line.avoided;
+    if (avoided === undefined) {
+      return pair;
+    }
+    const keys = avoided.map((id) => `${pair.date.year}-${pair.date.day_of_year}-${id}`);
+    const repeat = keys.every((key) => seen.has(key));
+    for (const key of keys) {
+      seen.add(key);
+    }
+    return repeat ? { ...pair, line: { ...pair.line, routine: true } } : pair;
+  });
 }
 
 /** Where a room is, "im Bad", by its number in the drawing. */

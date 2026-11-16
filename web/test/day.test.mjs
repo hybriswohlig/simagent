@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dayGroups, dayLine, dayWindow, doing, earlierDay, reserveWord } from "../dist/day.js";
+import { dayGroups, dayLine, dayWindow, doing, earlierDay, quietRepeats, reserveWord } from "../dist/day.js";
 
 function object(kind, room, offers) {
   return { kind, room, x: 0, y: 0, w: 1, h: 1, slots: 1, offers };
@@ -256,4 +256,12 @@ test("the day before opens while it ends after second 0", () => {
   assert.equal(earlierDay(129_600, 0), true);
   assert.equal(earlierDay(129_600, 1), false);
   assert.equal(earlierDay(86_400, 0), false);
+});
+
+test("an avoid line is said once a day and again only for someone new", () => {
+  const day = (n) => ({ year: 0, day_of_year: n, weekday: 0, second_of_day: 0 });
+  const avoid = (n, avoided) => ({ date: day(n), line: { text: "meidet", choice: false, routine: false, avoided } });
+  const other = { date: day(1), line: { text: "isst", choice: true, routine: true } };
+  const routine = quietRepeats([avoid(1, [4]), other, avoid(1, [4]), avoid(1, [4, 3]), avoid(1, [3, 4]), avoid(2, [4])]).map((pair) => pair.line.routine);
+  assert.deepEqual(routine, [false, true, true, false, true, false]);
 });

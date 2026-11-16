@@ -138,6 +138,11 @@ test("the day list says a telling, a lie, a belief, a memory and a bond", () => 
   const forgot = entry("core:forgot", { kind: 0, with: [3, null], at: 10, reason: "faded" });
   assert.equal(dayLine(layout, forgot, view(1)).text, "vergisst: Gespräch mit Mia, verblasst.");
   assert.equal(dayLine(layout, entry("core:forgot", { kind: 2, with: [null, null], at: 10, reason: "displaced" }), view(1)).text, "vergisst: Tod eines Verwandten, verdrängt.");
+  // A talk's memory comes and goes with every talk: routine. Another kind is not.
+  assert.equal(dayLine(layout, remembered, view(1)).routine, true);
+  assert.equal(dayLine(layout, forgot, view(1)).routine, true);
+  assert.equal(dayLine(layout, entry("core:forgot", { kind: 2, with: [null, null], at: 10, reason: "displaced" }), view(1)).routine, false);
+  assert.equal(dayLine(layout, entry("core:remembered", { kind: 5, with: [3, null], at: 10, strength: 700 }), view(1)).routine, false);
   assert.equal(dayLine(layout, entry("core:bond_formed", { other: 3, values: [400, 450, 400, 0, 200, 0] }), view(1)).text, "knüpft eine Beziehung zu Mia.");
   assert.equal(dayLine(layout, entry("core:bond_changed", { other: 3, before: [], after: [] }), view(1)).text, "ändert die Beziehung zu Mia.");
   assert.equal(dayLine(layout, entry("core:bond_dropped", { other: 3 }), view(1)).text, "löst die Beziehung zu Mia.");
@@ -171,11 +176,11 @@ test("the day list says whom a choice avoids, each person once", () => {
   const row = (avoided) => ({ object: 0, liked: null, company: 0, avoided, avoid: 120 });
   const line = (objects) => dayLine(layout, entry("core:company", { objects }), view(1));
   // One avoided row: "meidet Mia".
-  assert.deepEqual(line([row(3)]), { text: "meidet Mia", choice: false, routine: false });
+  assert.deepEqual(line([row(3)]), { text: "meidet Mia", choice: false, routine: false, avoided: [3] });
   // Two rows avoiding the same person: that name once.
-  assert.deepEqual(line([row(3), row(3)]), { text: "meidet Mia", choice: false, routine: false });
+  assert.deepEqual(line([row(3), row(3)]), { text: "meidet Mia", choice: false, routine: false, avoided: [3] });
   // Distinct people, in the row order, joined as the other day lines join names.
-  assert.deepEqual(line([row(3), row(2), row(3)]), { text: "meidet Mia und Lena", choice: false, routine: false });
+  assert.deepEqual(line([row(3), row(2), row(3)]), { text: "meidet Mia und Lena", choice: false, routine: false, avoided: [3, 2] });
   // No row avoids anyone: no line, even when a row likes someone.
   assert.equal(line([row(null), { object: 1, liked: 2, company: 40, avoided: null, avoid: 0 }]), null);
 });
