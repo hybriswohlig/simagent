@@ -29,6 +29,12 @@ export function dayWindow(at: number, back: number): { readonly from: number; re
   return { from: at - (back + 1) * DAY_SECONDS, to: at - back * DAY_SECONDS };
 }
 
+/** Whether the day before window `back` can hold entries: its end is after second 0, so a
+ * window that starts before 0 but ends after it still opens (review). */
+export function earlierDay(at: number, back: number): boolean {
+  return dayWindow(at, back + 1).to > 0;
+}
+
 /** The words of a need by its code. */
 function needWords(code: unknown): string {
   const need = NEED_KEYS[String(code)];

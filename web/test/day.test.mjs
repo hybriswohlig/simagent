@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dayGroups, dayLine, dayWindow, doing, reserveWord } from "../dist/day.js";
+import { dayGroups, dayLine, dayWindow, doing, earlierDay, reserveWord } from "../dist/day.js";
 
 function object(kind, room, offers) {
   return { kind, room, x: 0, y: 0, w: 1, h: 1, slots: 1, offers };
@@ -236,4 +236,24 @@ test("eating, sleeping and an on-time departure are routine; contagion and laten
 test("a day window is the current day, or one whole day further back", () => {
   assert.deepEqual(dayWindow(1_000_000, 0), { from: 913_600, to: 1_000_001 });
   assert.deepEqual(dayWindow(1_000_000, 2), { from: 740_800, to: 827_200 });
+});
+
+test("an ended action, a critical need, the day's plan and coming home are routine", () => {
+  assert.equal(line("core:action_ended", { object: 0, offer: 0, reason: "done", needs: [] }).routine, true);
+  assert.equal(line("core:need_critical", { need: "hunger", level: 150 }).routine, true);
+  assert.equal(line("core:day_planned", { place: "school" }).routine, true);
+  const home = item(10, "core:came_home", { place: "work" });
+  assert.equal(dayLine(LAYOUT, home, view, []).routine, true);
+  assert.equal(dayLine(LAYOUT, home, view, [feltBy(11, 3, 10)]).routine, false);
+  // Under a whole minute late the line does not say late, so it stays routine with it.
+  const barely = line("core:left_home", { place: "school", late_secs: 30 });
+  assert.equal(barely.text, "geht zur Schule");
+  assert.equal(barely.routine, true);
+});
+
+test("the day before opens while it ends after second 0", () => {
+  // 1.5 days after second 0: the day before reaches back to -43200 but ends at 43200.
+  assert.equal(earlierDay(129_600, 0), true);
+  assert.equal(earlierDay(129_600, 1), false);
+  assert.equal(earlierDay(86_400, 0), false);
 });

@@ -4,7 +4,7 @@ import { getJson, getJsonOrRefusal, postJson } from "./api.js";
 import { answered, pause, play, playText, press, refused, standing, tick, type Clock, type Next, type Step } from "./clock.js";
 import { commandChoices, type CommandChoice } from "./command.js";
 import { dateText } from "./dates.js";
-import { dayGroups, dayLine, dayWindow, doing, reserveWord, type DayLine } from "./day.js";
+import { dayGroups, dayLine, dayWindow, doing, earlierDay, reserveWord, type DayLine } from "./day.js";
 import type { AdvanceAnswer, EventItem, EventsAnswer, HouseAnswer, HouseBelief, HouseBond, HouseChild, HouseLayout, HouseMemory, HousePerson, HousesAnswer, Pedigree, PeopleAnswer, Person, WhyAnswer } from "./generated/export.js";
 import { current, failure, type Loaded } from "./loaded.js";
 import { fullName, surnames } from "./names.js";
@@ -73,12 +73,12 @@ function useHouse(run: string, household: string, at: string): Loaded<HouseAnswe
  * day line can name whom an arrival infected (ADR-0032 section 7). A failed read leaves the
  * lines out; each person's own day still loads. `back` is whole days before the clock. */
 function useFelt(run: string, house: HouseAnswer | null, back: number): readonly EventItem[] {
-  const [felts, setFelts] = useState<readonly EventItem[]>([]);
+  const [felts, setFelts] = useState<{ readonly back: number; readonly felts: readonly EventItem[] }>({ back, felts: [] });
   const at = house?.at.t ?? null;
   const sims = house === null ? "" : house.persons.map((person) => person.sim).join(",");
   useEffect(() => {
     if (at === null || sims === "") {
-      setFelts([]);
+      setFelts({ back, felts: [] });
       return;
     }
     let live = true;
@@ -105,13 +105,13 @@ function useFelt(run: string, house: HouseAnswer | null, back: number): readonly
       return all;
     };
     read()
-      .then((all) => live && setFelts(all))
-      .catch(() => live && setFelts([]));
+      .then((all) => live && setFelts({ back, felts: all }))
+      .catch(() => live && setFelts({ back, felts: [] }));
     return () => {
       live = false;
     };
   }, [run, at, sims, back]);
-  return felts;
+  return felts.back === back ? felts.felts : [];
 }
 
 /** The words of a room, its name, "into" it and "in" it. */
@@ -198,7 +198,9 @@ function Day({
   back: number;
   showRoutine: boolean;
 }) {
-  const [items, setItems] = useState<readonly EventItem[] | "failed">([]);
+  // The read answers with the day it was asked for, so a page turn shows "Wird geladen" and
+  // not the other day's lines under the new heading (review).
+  const [items, setItems] = useState<{ readonly back: number; readonly items: readonly EventItem[] } | "failed">({ back, items: [] });
   const { from, to } = dayWindow(house.at.t, back);
   useEffect(() => {
     let live = true;
@@ -219,7 +221,7 @@ function Day({
       return all;
     };
     read()
-      .then((all) => live && setItems(all))
+      .then((all) => live && setItems({ back, items: all }))
       .catch(() => live && setItems("failed"));
     return () => {
       live = false;
@@ -228,8 +230,15 @@ function Day({
   if (items === "failed") {
     return <p>{TEXT.failed_network}</p>;
   }
+  if (items.back !== back) {
+    return (
+      <details>
+        <summary>{TEXT.loading}</summary>
+      </details>
+    );
+  }
   const view = { sim, name: named(names), cheat };
-  const lines = items
+  const lines = items.items
     .map((item) => ({ item, date: item.date, line: dayLine(house.layout, item, view, felts) }))
     .filter((pair): pair is { item: EventItem; date: EventItem["date"]; line: DayLine } => pair.line !== null)
     .filter((pair) => showRoutine || !pair.line.routine);
@@ -743,7 +752,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
           <input type="checkbox" checked={showRoutine} onChange={(event) => setShowRoutine(event.currentTarget.checked)} />{" "}
           {TEXT.house_show_routine}
         </label>{" "}
-        <button type="button" disabled={dayWindow(house.at.t, back + 1).from < 0} onClick={() => setBack((days) => days + 1)}>
+        <button type="button" disabled={!earlierDay(house.at.t, back)} onClick={() => setBack((days) => days + 1)}>
           {TEXT.house_day_earlier}
         </button>{" "}
         <button type="button" disabled={back === 0} onClick={() => setBack((days) => days - 1)}>
