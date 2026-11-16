@@ -235,7 +235,7 @@ function Day({
     .filter((pair) => showRoutine || !pair.line.routine);
   return (
     <details>
-      <summary>{TEXT.house_day}</summary>
+      <summary>{back === 0 ? TEXT.house_day : back === 1 ? TEXT.house_day_back_one : TEXT.house_day_back.replace("{n}", String(back))}</summary>
       {lines.length === 0 ? (
         <p>{TEXT.house_day_none}</p>
       ) : (

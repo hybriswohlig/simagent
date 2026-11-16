@@ -399,6 +399,8 @@ export const TEXT = {
   house_day_earlier: "← Tag davor",
   house_day_later: "Tag danach →",
   house_day_none: "Keine Einträge.",
+  house_day_back_one: "Die 24 Stunden davor",
+  house_day_back: "Die 24 Stunden, {n} Tage zurück",
   house_choice: "Wahl: {what}",
   house_end_done: "{finished} {at}",
   house_end_broken: "hört auf: {what} ({why})",
