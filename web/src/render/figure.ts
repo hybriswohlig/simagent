@@ -393,8 +393,10 @@ function loadAssets(): Promise<Assets> {
   return loading;
 }
 
-/** Set once a renderer could not be made on this page. */
-let noWebgl = false;
+/** Canvases on which a renderer could not be made. three registers its listeners on the
+ * canvas before it asks for a context, so trying the same canvas again would only add more;
+ * a new card brings a new canvas and tries again. */
+const failedCanvases = new WeakSet<HTMLCanvasElement>();
 
 async function loadAssetsOnce(): Promise<Assets> {
   const [bytes, pack, skin] = await Promise.all([
@@ -1493,14 +1495,12 @@ export function mountFigure(
   return loadAssets().then((assets) => {
     if (cancel.cancelled) return () => {};
     const owned = freshOwned();
-    if (noWebgl) throw new Error("no WebGL");
+    if (failedCanvases.has(canvas)) throw new Error("no WebGL");
     let renderer: WebGLRenderer;
     try {
       renderer = new WebGLRenderer({ canvas, antialias: true });
     } catch (error) {
-      // three registers its canvas listeners before it asks for a context; a second try
-      // would only add more of them, so this page stops trying.
-      noWebgl = true;
+      failedCanvases.add(canvas);
       throw error instanceof Error ? error : new Error("no WebGL");
     }
     let undo = () => {};

@@ -29,6 +29,22 @@ test("a body that names an external buffer or image is refused", () => {
   assert.throws(() => selfContained(glb({ images: [{ uri: "x.png" }] })), /external/);
 });
 
+test("a second JSON chunk that names an external buffer is refused", () => {
+  const first = new Uint8Array(glb({ buffers: [{ byteLength: 4 }] }));
+  const second = new Uint8Array(glb({ buffers: [{ uri: "https://example.org/x.bin", byteLength: 4 }] })).slice(12);
+  const both = new Uint8Array(first.length + second.length);
+  both.set(first);
+  both.set(second, first.length);
+  new DataView(both.buffer).setUint32(8, both.length, true);
+  assert.throws(() => selfContained(both.buffer), /extra chunks/);
+});
+
+test("a header length that does not match the bytes is refused", () => {
+  const bytes = glb({ buffers: [{ byteLength: 4 }] });
+  new DataView(bytes).setUint32(8, bytes.byteLength + 4, true);
+  assert.throws(() => selfContained(bytes), /length/);
+});
+
 test("bytes that are no binary glTF are refused", () => {
   assert.throws(() => selfContained(new ArrayBuffer(8)), /not a binary glTF/);
 });
