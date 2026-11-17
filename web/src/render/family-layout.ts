@@ -78,3 +78,12 @@ export function familyNamePercent(index: number, count: number): number {
   const x = (index - (n - 1) / 2) * FAMILY_SPACING_M;
   return (0.5 + x / view) * 100;
 }
+
+/**
+ * The body values as the row draws them: every number to one decimal. Ages move a little
+ * with every clock step; at one decimal (about five weeks of age, a tenth of a standard
+ * deviation, a millimetre) the row is built again only when a figure would visibly change.
+ */
+export function visualKey(body: object): string {
+  return JSON.stringify(body, (_key, value: unknown) => (typeof value === "number" ? Math.round(value * 10) / 10 : value));
+}

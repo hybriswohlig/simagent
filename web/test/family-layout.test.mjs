@@ -14,6 +14,7 @@ import {
   familyPlaces,
   familyViewWidthM,
   framedBodyM,
+  visualKey,
 } from "../dist/render/family-layout.js";
 
 test("the canvas is one 120 px slot per member, at most eight", () => {
@@ -73,4 +74,14 @@ test("a name sits under its figure", () => {
   assert.equal(familyNamePercent(0, 3), 25);
   assert.equal(familyNamePercent(1, 3), 50);
   assert.equal(familyNamePercent(2, 3), 75);
+});
+
+test("an hour of age keeps the visual key, a tenth of a year changes it", () => {
+  // One hour is 1 / (364 * 24) = 0.000114 of a year: 30.0 stays 30.0. 30.06 rounds to 30.1.
+  const body = { body_form_age: 30.0, face_form_age: 30.0, height_cm: 171.24, face_axis_01: -0.53 };
+  const hour = { ...body, body_form_age: 30.000114, face_form_age: 30.000114, height_cm: 171.2401 };
+  const later = { ...body, body_form_age: 30.06, face_form_age: 30.06 };
+  assert.equal(visualKey(hour), visualKey(body));
+  assert.notEqual(visualKey(later), visualKey(body));
+  assert.equal(visualKey(body), '{"body_form_age":30,"face_form_age":30,"height_cm":171.2,"face_axis_01":-0.5}');
 });

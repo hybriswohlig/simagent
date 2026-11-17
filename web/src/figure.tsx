@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { BodyParams } from "./generated/body.js";
 import { Portrait } from "./portrait.js";
-import { FAMILY_HEIGHT_PX, FAMILY_LIMIT, FAMILY_SLOT_PX, familyCanvasWidth, familyNamePercent } from "./render/family-layout.js";
+import { FAMILY_HEIGHT_PX, FAMILY_LIMIT, FAMILY_SLOT_PX, familyCanvasWidth, familyNamePercent, visualKey } from "./render/family-layout.js";
 import { FIGURE_HEIGHT, FIGURE_WIDTH, mountFamily, mountFigure, type FigureMember } from "./render/figure.js";
 import type { Sex } from "./render/portrait.js";
 import { format } from "./router.js";
@@ -72,10 +72,11 @@ export type FamilyMember = {
   readonly body: BodyParams;
 };
 
-/** Sim ids and the body values. A clock step whose bodies did not change keeps the same key. */
+/** Sim ids and the body values to one decimal: a clock step that changes no figure visibly
+ * keeps the same key. */
 function figureKey(members: readonly FamilyMember[]): string {
   const ids = members.map((member) => member.sim).join(",");
-  return `${ids}|${JSON.stringify(members.map((member) => member.body))}`;
+  return `${ids}|${members.map((member) => visualKey(member.body)).join("|")}`;
 }
 
 /**
@@ -87,8 +88,8 @@ export function FamilyFigures({ run, members }: { run: string; members: readonly
   const shown = members.length > FAMILY_LIMIT ? members.slice(0, FAMILY_LIMIT) : members;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
-  // The effect follows the sim ids and the body values. A new array with the same
-  // bodies, such as each minute of the clock, does not build the figures again.
+  // The effect follows the sim ids and the body values to one decimal, so the minute and
+  // hour steps of the clock do not build the figures again.
   const key = figureKey(shown);
   useEffect(() => {
     const canvas = canvasRef.current;
