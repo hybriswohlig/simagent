@@ -7,7 +7,8 @@ import type { Sex } from "./render/portrait.js";
 
 /**
  * The person's figure. While it loads, and if the files or WebGL are missing, the
- * portrait stays. A failure is not written on the card.
+ * portrait stays. A failure is not written on the card. The canvas stays mounted, so a
+ * later body can try again, and a lost WebGL context shows the portrait until it returns.
  */
 export function Figure({ params, sex, sim, label }: { params: BodyParams; sex: Sex; sim: string; label: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -16,41 +17,46 @@ export function Figure({ params, sex, sim, label }: { params: BodyParams; sex: S
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return;
-    let live = true;
+    const cancel = { cancelled: false };
     let dispose = () => {};
+    let lost = false;
+    setFailed(false);
     setReady(false);
-    mountFigure(canvas, params, sex, sim)
+    mountFigure(canvas, params, sex, sim, cancel, (isLost) => {
+      lost = isLost;
+      if (!cancel.cancelled) setReady(!isLost);
+    })
       .then((stop) => {
-        if (!live) {
+        if (cancel.cancelled) {
           stop();
           return;
         }
         dispose = stop;
-        setReady(true);
+        if (!lost) setReady(true);
       })
       .catch(() => {
-        if (live) setFailed(true);
+        if (!cancel.cancelled) setFailed(true);
       });
     return () => {
-      live = false;
+      cancel.cancelled = true;
       dispose();
     };
   }, [params, sex, sim]);
-  if (failed) return <Portrait params={params} sex={sex} label={label} />;
   const box = { width: `${FIGURE_WIDTH}px`, height: `${FIGURE_HEIGHT}px` };
+  const showPortrait = failed || !ready;
   return (
     <div style={{ position: "relative", ...box }}>
-      {ready ? null : (
+      {showPortrait ? (
         <div style={{ position: "absolute", inset: "0" }}>
           <Portrait params={params} sex={sex} label={label} />
         </div>
-      )}
+      ) : null}
       <canvas
         ref={canvasRef}
         role="img"
-        aria-hidden={!ready}
+        aria-hidden={showPortrait}
         aria-label={label}
-        style={{ ...box, display: "block", touchAction: "none", cursor: "grab" }}
+        style={{ ...box, display: "block", touchAction: "none", cursor: "grab", visibility: showPortrait ? "hidden" : "visible" }}
       />
     </div>
   );

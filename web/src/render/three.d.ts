@@ -71,12 +71,14 @@ declare module "three" {
   }
 
   export class Texture {
+    constructor(image?: CanvasImageSource | null);
     colorSpace: string;
     flipY: boolean;
     wrapS: number;
     wrapT: number;
     anisotropy: number;
     image: CanvasImageSource | null;
+    needsUpdate: boolean;
     dispose(): void;
   }
 
@@ -144,6 +146,7 @@ declare module "three" {
   export class Skeleton {
     bones: Bone[];
     boneInverses: Matrix4[];
+    dispose(): void;
   }
 
   export class SkinnedMesh extends Mesh {
@@ -196,15 +199,7 @@ declare module "three" {
     setClearColor(color: number, alpha?: number): void;
     render(scene: Scene, camera: Camera): void;
     dispose(): void;
-  }
-
-  export class FileLoader {
-    setResponseType(value: string): this;
-    loadAsync(url: string): Promise<string | ArrayBuffer>;
-  }
-
-  export class TextureLoader {
-    loadAsync(url: string): Promise<Texture>;
+    forceContextLoss(): void;
   }
 
   export const SRGBColorSpace: string;
@@ -223,7 +218,7 @@ declare module "three" {
 declare module "three/addons/loaders/GLTFLoader.js" {
   import { Group } from "three";
   export class GLTFLoader {
-    loadAsync(url: string): Promise<{ scene: Group }>;
+    parseAsync(data: ArrayBuffer | string, path: string): Promise<{ scene: Group }>;
   }
 }
 

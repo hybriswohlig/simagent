@@ -1,14 +1,16 @@
 /**
  * The standing figure on the person card. The body values arrive from the server; the
- * shape keys, colours and clothes come from `figure-map`. The mesh, the proxies and the
- * skin texture are loaded once per page. A card that cannot draw them rejects, and the
- * page keeps the portrait.
+ * shape keys, colours and clothes come from `figure-map`. The mesh, the proxy bytes and
+ * the decoded images are loaded once per page. Each mount makes its own textures from
+ * those images and frees them with its renderer. A card that cannot draw rejects, and
+ * the page keeps the portrait.
  *
  * The body faces +Z (the sample's mesh space, Y up). The camera sits on +Z and looks
  * toward the origin, so the face is toward the viewer. A positive yaw swings that face
  * toward world +X.
  */
 
+import { figureBytes, figureImage, figureText } from "../api.js";
 import type { BodyParams } from "../generated/body.js";
 import {
   ACESFilmicToneMapping,
@@ -18,7 +20,6 @@ import {
   Color,
   DirectionalLight,
   DoubleSide,
-  FileLoader,
   Float32BufferAttribute,
   FrontSide,
   Group,
@@ -32,10 +33,10 @@ import {
   Object3D,
   PerspectiveCamera,
   Scene,
+  Skeleton,
   SkinnedMesh,
   SRGBColorSpace,
   Texture,
-  TextureLoader,
   Uint16BufferAttribute,
   Vector3,
   WebGLRenderer,
@@ -132,16 +133,18 @@ type Morph = { name: string; data: Float32Array };
 
 type Human = { basis: Float32Array; morphs: Morph[] };
 
+type FigureImage = ImageBitmap | HTMLImageElement;
+
 type Proxy = {
   kind: string;
   scale: Scale;
   count: number;
-  texture: Texture;
+  image: FigureImage;
   bind: Float32Array;
   uv: Float32Array;
   faces: Uint32Array;
   split: number;
-  ao: Texture | null;
+  aoImage: FigureImage | null;
   skinIndex: Uint16Array | null;
   skinWeight: Float32Array | null;
   deleteIndices: Uint32Array | null;
@@ -156,10 +159,35 @@ type Assets = {
   groups: NormalGroups;
   restIndex: Int32Array;
   pack: Pack;
-  skin: Texture;
+  skin: FigureImage;
 };
 
-type Owned = { geometries: BufferGeometry[]; materials: Material[] };
+type Owned = {
+  geometries: BufferGeometry[];
+  materials: Material[];
+  textures: Texture[];
+  skeletons: Skeleton[];
+  made: Map<FigureImage, Texture>;
+};
+
+function freshOwned(): Owned {
+  return { geometries: [], materials: [], textures: [], skeletons: [], made: new Map() };
+}
+
+/** One texture for this mount. The decoded image stays in the page cache. */
+function textureOf(image: FigureImage, flipY: boolean, colorSpace: string, owned: Owned): Texture {
+  const found = owned.made.get(image);
+  if (found !== undefined) return found;
+  const texture = new Texture(image);
+  texture.colorSpace = colorSpace;
+  texture.flipY = flipY;
+  texture.wrapS = ClampToEdgeWrapping;
+  texture.wrapT = ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  owned.made.set(image, texture);
+  owned.textures.push(texture);
+  return texture;
+}
 
 type Marks = {
   maxY: number;
@@ -208,32 +236,9 @@ function viewU16(buffer: ArrayBuffer, ref: Ref): Uint16Array {
   return new Uint16Array(buffer, ref.offset, ref.count);
 }
 
-async function loadText(url: string): Promise<string> {
-  const data = await new FileLoader().loadAsync(url);
-  if (typeof data !== "string") fail("figure file is not text");
-  return data;
-}
-
-async function loadBytes(url: string): Promise<ArrayBuffer> {
-  const loader = new FileLoader();
-  loader.setResponseType("arraybuffer");
-  const data = await loader.loadAsync(url);
-  if (!(data instanceof ArrayBuffer)) fail("figure file is not bytes");
-  return data;
-}
-
-async function loadColor(url: string, flipY: boolean, colorSpace: string): Promise<Texture> {
-  const texture = await new TextureLoader().loadAsync(url);
-  texture.colorSpace = colorSpace;
-  texture.flipY = flipY;
-  texture.wrapS = ClampToEdgeWrapping;
-  texture.wrapT = ClampToEdgeWrapping;
-  return texture;
-}
-
 async function loadPack(): Promise<Pack> {
-  const meta = asRecord(JSON.parse(await loadText(`${FIGURE}/proxies/proxies.json`)), "proxies");
-  const buffer = await loadBytes(`${FIGURE}/proxies/proxies.bin`);
+  const meta = asRecord(JSON.parse(await figureText(`${FIGURE}/proxies/proxies.json`)), "proxies");
+  const buffer = await figureBytes(`${FIGURE}/proxies/proxies.bin`);
   const humanMeta = asRecord(meta["human"], "human");
   const morphList = humanMeta["morphs"];
   if (!Array.isArray(morphList)) fail("human morphs are missing");
@@ -252,9 +257,9 @@ async function loadPack(): Promise<Pack> {
     const proxy = asRecord(listed[key], key);
     if (typeof proxy["texture"] !== "string" || typeof proxy["count"] !== "number") fail(`${key} is incomplete`);
     const scale = asRecord(proxy["scale"], `${key} scale`);
-    const texture = await loadColor(`${FIGURE}/proxies/${proxy["texture"]}`, true, SRGBColorSpace);
+    const image = await figureImage(`${FIGURE}/proxies/${proxy["texture"]}`);
     const aoName = proxy["ao"];
-    const ao = typeof aoName === "string" && aoName !== "" ? await loadColor(`${FIGURE}/proxies/${aoName}`, true, NoColorSpace) : null;
+    const aoImage = typeof aoName === "string" && aoName !== "" ? await figureImage(`${FIGURE}/proxies/${aoName}`) : null;
     const skin = proxy["skin_index"];
     proxies[key] = {
       kind: typeof proxy["kind"] === "string" ? proxy["kind"] : "groom",
@@ -264,12 +269,12 @@ async function loadPack(): Promise<Pack> {
         z: pairOf(scale["z"], `${key} z`),
       },
       count: proxy["count"],
-      texture,
+      image,
       bind: viewF32(buffer, refOf(proxy["bind"], `${key} bind`)),
       uv: viewF32(buffer, refOf(proxy["uv"], `${key} uv`)),
       faces: viewU32(buffer, refOf(proxy["faces"], `${key} faces`)),
       split: WAIST[key] ?? (typeof proxy["split"] === "number" ? proxy["split"] : 0),
-      ao,
+      aoImage,
       skinIndex: skin === undefined ? null : viewU16(buffer, refOf(skin, `${key} skin`)),
       skinWeight: proxy["skin_weight"] === undefined ? null : viewF32(buffer, refOf(proxy["skin_weight"], `${key} weight`)),
       deleteIndices: proxy["delete"] === undefined ? null : viewU32(buffer, refOf(proxy["delete"], `${key} delete`)),
@@ -375,18 +380,25 @@ function buildRestIndex(bodyRest: Float32Array, geometry: BufferGeometry): Int32
 }
 
 function loadAssets(): Promise<Assets> {
-  if (assetsPromise === null) {
-    assetsPromise = loadAssetsOnce();
-  }
-  return assetsPromise;
+  if (assetsPromise !== null) return assetsPromise;
+  const loading = loadAssetsOnce().then(
+    (assets) => assets,
+    (error: unknown) => {
+      assetsPromise = null;
+      throw error;
+    },
+  );
+  assetsPromise = loading;
+  return loading;
 }
 
 async function loadAssetsOnce(): Promise<Assets> {
-  const [gltf, pack, skin] = await Promise.all([
-    new GLTFLoader().loadAsync(`${FIGURE}/body.glb`),
+  const [bytes, pack, skin] = await Promise.all([
+    figureBytes(`${FIGURE}/body.glb`),
     loadPack(),
-    loadColor(`${FIGURE}/young_lightskinned_female_diffuse.png`, false, SRGBColorSpace),
+    figureImage(`${FIGURE}/young_lightskinned_female_diffuse.png`),
   ]);
+  const gltf = await new GLTFLoader().parseAsync(bytes, `${FIGURE}/`);
   const template = gltf.scene;
   const mesh = findSkinned(template);
   return {
@@ -1098,10 +1110,15 @@ function ySpan(positions: Float32Array): { minY: number; span: number } {
   return { minY, span: Math.max(maxY - minY, 0.05) };
 }
 
+function clothMap(proxy: Proxy, owned: Owned): Texture {
+  if (proxy.aoImage === null) return textureOf(proxy.image, true, SRGBColorSpace, owned);
+  return textureOf(proxy.aoImage, true, NoColorSpace, owned);
+}
+
 function clothMaterial(proxy: Proxy, outfit: Outfit, floor: number, span: number, owned: Owned): Material {
   if (proxy.kind === "shoes") {
     const material = new MeshStandardMaterial({ roughness: 0.64, metalness: 0 });
-    material.map = proxy.texture;
+    material.map = textureOf(proxy.image, true, SRGBColorSpace, owned);
     material.color.setRGB(0.78, 0.76, 0.72);
     material.side = DoubleSide;
     material.polygonOffset = true;
@@ -1110,9 +1127,10 @@ function clothMaterial(proxy: Proxy, outfit: Outfit, floor: number, span: number
     owned.materials.push(material);
     return material;
   }
+  const map = clothMap(proxy, owned);
   const material = new MeshStandardMaterial({ roughness: 0.88, metalness: 0 });
   material.side = FrontSide;
-  material.map = proxy.ao ?? proxy.texture;
+  material.map = map;
   material.color.set("#ffffff");
   material.polygonOffset = true;
   material.polygonOffsetFactor = -1;
@@ -1123,7 +1141,7 @@ function clothMaterial(proxy: Proxy, outfit: Outfit, floor: number, span: number
     uSplit: { value: proxy.split },
     uFloor: { value: floor },
     uSpan: { value: Math.max(span, 0.05) },
-    uAo: { value: proxy.ao ?? proxy.texture },
+    uAo: { value: map },
   };
   bindShader(
     material,
@@ -1260,7 +1278,7 @@ function addGrooming(
       hair,
       hair.faces,
       humanPos,
-      strandMaterial(hair.texture, hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, owned),
+      strandMaterial(textureOf(hair.image, true, SRGBColorSpace, owned), hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, owned),
       2,
       0,
       null,
@@ -1277,7 +1295,7 @@ function addGrooming(
       brows,
       browFaces(brows, humanPos),
       humanPos,
-      strandMaterial(brows.texture, hairHex, browCut, 0, marks.crown, -8, false, false, 0, owned),
+      strandMaterial(textureOf(brows.image, true, SRGBColorSpace, owned), hairHex, browCut, 0, marks.crown, -8, false, false, 0, owned),
       3,
       0.003,
       thickenBrows,
@@ -1286,7 +1304,7 @@ function addGrooming(
   }
   const eyes = proxyOf(pack, "eyes");
   if (eyes !== null) {
-    addFitted(mesh, head, eyes, eyes.faces, humanPos, eyeMaterial(eyes.texture, irisHex, skinHex, owned), 1, 0.0075, null, owned);
+    addFitted(mesh, head, eyes, eyes.faces, humanPos, eyeMaterial(textureOf(eyes.image, true, SRGBColorSpace, owned), irisHex, skinHex, owned), 1, 0.0075, null, owned);
   }
 }
 
@@ -1395,9 +1413,10 @@ function turn(canvas: HTMLCanvasElement, wrapper: Group, render: () => void): ()
   };
 }
 
-function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, keyDir: Vector3, owned: Owned): Group {
+function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, keyDir: Vector3, anisotropy: number, owned: Owned): Group {
   const root = cloneSkeleton(assets.template);
   const mesh = findSkinned(root);
+  owned.skeletons.push(mesh.skeleton);
   takeOwnership(mesh, owned);
   const weights = morphWeights(body, sex);
   applyWeights(mesh, weights);
@@ -1417,7 +1436,9 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
   const skin = skinColor(body);
   const hair = hairColor(body);
   const iris = irisColor(body);
-  mesh.material = paintSkin(skin, assets.skin, marks, keyDir, owned);
+  const skinMap = textureOf(assets.skin, false, SRGBColorSpace, owned);
+  skinMap.anisotropy = anisotropy;
+  mesh.material = paintSkin(skin, skinMap, marks, keyDir, owned);
   mesh.frustumCulled = false;
   const humanPos = humanPositions(assets.pack.human, weights);
   const outfit = clothes(sex, simId, body.body_form_age);
@@ -1430,19 +1451,57 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
 }
 
 /**
- * Draws `body` on `canvas` and lets a horizontal drag turn it. The returned function
- * frees this card's geometry, materials and renderer. Textures and the template stay
- * loaded for the next card.
+ * Frees this mount's textures and cloned skeletons before the renderer. Uploading a
+ * texture attaches a dispose listener that would keep the renderer alive (three r170).
+ * `dispose` itself leaves the WebGL context on the canvas. Losing it while the canvas
+ * stays mounted would hand the next mount a dead context, because `getContext` returns
+ * that one and `dispose` has removed three's restore listener. A canvas that has left
+ * the document would keep the context until collection, so lose it then.
  */
-export function mountFigure(canvas: HTMLCanvasElement, body: BodyParams, sex: Sex, simId: string): Promise<() => void> {
+function freeMount(owned: Owned, renderer: WebGLRenderer): void {
+  for (const texture of owned.textures) texture.dispose();
+  for (const skeleton of owned.skeletons) skeleton.dispose();
+  for (const geometry of owned.geometries) geometry.dispose();
+  for (const material of owned.materials) material.dispose();
+  const canvas = renderer.domElement;
+  renderer.dispose();
+  if (!canvas.isConnected) renderer.forceContextLoss();
+}
+
+/** Set `cancelled` to stop a mount before it creates a renderer. */
+export type FigureCancel = { cancelled: boolean };
+
+/**
+ * Draws `body` on `canvas` and lets a horizontal drag turn it. The returned function
+ * frees this card's textures, skeleton, geometry, materials and renderer. Decoded images
+ * and the template stay loaded for the next card. `onLost(true)` means the WebGL context
+ * is gone and the portrait should show; `onLost(false)` means a restore has been drawn.
+ */
+export function mountFigure(
+  canvas: HTMLCanvasElement,
+  body: BodyParams,
+  sex: Sex,
+  simId: string,
+  cancel: FigureCancel,
+  onLost: (lost: boolean) => void,
+): Promise<() => void> {
   return loadAssets().then((assets) => {
-    const owned: Owned = { geometries: [], materials: [] };
+    if (cancel.cancelled) return () => {};
+    const owned = freshOwned();
     let renderer: WebGLRenderer;
     try {
       renderer = new WebGLRenderer({ canvas, antialias: true });
     } catch (error) {
       throw error instanceof Error ? error : new Error("no WebGL");
     }
+    let undo = () => {};
+    let done = false;
+    const release = () => {
+      if (done) return;
+      done = true;
+      undo();
+      freeMount(owned, renderer);
+    };
     try {
       renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
       renderer.setSize(FIGURE_WIDTH, FIGURE_HEIGHT, false);
@@ -1450,7 +1509,6 @@ export function mountFigure(canvas: HTMLCanvasElement, body: BodyParams, sex: Se
       renderer.toneMapping = ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1;
       renderer.setClearColor(CLEAR, 1);
-      assets.skin.anisotropy = renderer.capabilities.getMaxAnisotropy();
       const scene = new Scene();
       const camera = new PerspectiveCamera(26, FIGURE_WIDTH / FIGURE_HEIGHT, 0.05, 80);
       const hemi = new HemisphereLight(0xffe4cc, 0xc9d0dc, Math.PI * 0.32);
@@ -1462,27 +1520,39 @@ export function mountFigure(canvas: HTMLCanvasElement, body: BodyParams, sex: Se
       rim.position.set(0.6, 3.4, -4.4);
       scene.add(hemi, key, fill, rim);
       const keyDir = new Vector3();
-      const wrapper = buildFigure(assets, body, sex, simId, keyDir, owned);
+      const wrapper = buildFigure(assets, body, sex, simId, keyDir, renderer.capabilities.getMaxAnisotropy(), owned);
       scene.add(wrapper);
       const child = ageSlices(body.body_form_age)[0];
       hangArms(wrapper, child);
       frameCamera(camera, FRAME_CM);
       keyDir.copy(key.position).normalize().transformDirection(camera.matrixWorldInverse);
+      let lost = false;
       const render = () => {
+        if (lost) return;
         renderer.render(scene, camera);
       };
-      render();
-      const undrag = turn(canvas, wrapper, render);
-      return () => {
-        undrag();
-        for (const geometry of owned.geometries) geometry.dispose();
-        for (const material of owned.materials) material.dispose();
-        renderer.dispose();
+      const onContextLost = (event: Event) => {
+        event.preventDefault();
+        lost = true;
+        onLost(true);
       };
+      const onContextRestored = () => {
+        lost = false;
+        render();
+        onLost(false);
+      };
+      canvas.addEventListener("webglcontextlost", onContextLost);
+      canvas.addEventListener("webglcontextrestored", onContextRestored);
+      const undrag = turn(canvas, wrapper, render);
+      undo = () => {
+        undrag();
+        canvas.removeEventListener("webglcontextlost", onContextLost);
+        canvas.removeEventListener("webglcontextrestored", onContextRestored);
+      };
+      render();
+      return release;
     } catch (error) {
-      for (const geometry of owned.geometries) geometry.dispose();
-      for (const material of owned.materials) material.dispose();
-      renderer.dispose();
+      release();
       throw error instanceof Error ? error : new Error("the figure failed");
     }
   });
