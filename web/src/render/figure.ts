@@ -1,9 +1,10 @@
 /**
- * The standing figure on the person card. The body values arrive from the server; the
- * shape keys, colours and clothes come from `figure-map`. The mesh, the proxy bytes and
- * the decoded images are loaded once per page. Each mount makes its own textures from
- * those images and frees them with its renderer. A card that cannot draw rejects, and
- * the page keeps the portrait.
+ * The standing figure on the person card, and the same figure for each member of a
+ * household. The body values arrive from the server; the shape keys, colours and
+ * clothes come from `figure-map`. The mesh, the proxy bytes and the decoded images
+ * are loaded once per page. Each mount makes its own textures from those images and
+ * frees them with its renderer. A card that cannot draw rejects, and the page keeps
+ * the portrait. A household is one renderer and one scene: browsers cap WebGL contexts.
  *
  * The body faces +Z (the sample's mesh space, Y up). The camera sits on +Z and looks
  * toward the origin, so the face is toward the viewer. A positive yaw swings that face
@@ -56,6 +57,17 @@ import {
   wornHair,
   type Outfit,
 } from "./figure-map.js";
+import {
+  FAMILY_HEIGHT_PX,
+  FAMILY_LIMIT,
+  FAMILY_SPACING_M,
+  FRAME_CM,
+  FRAME_FILL,
+  familyCanvasWidth,
+  familyPlaces,
+  familyViewWidthM,
+  framedBodyM,
+} from "./family-layout.js";
 import { selfContained } from "./glb.js";
 import type { Sex } from "./portrait.js";
 
@@ -1366,8 +1378,6 @@ function hangArms(root: Object3D, child: number): void {
 }
 
 /** Every card frames the same height, so a child stands smaller than its parents. */
-const FRAME_CM = 200;
-
 function frameCamera(camera: PerspectiveCamera, heightCm: number): void {
   const heightM = heightCm / 100;
   const aspect = FIGURE_WIDTH / FIGURE_HEIGHT;
@@ -1378,8 +1388,8 @@ function frameCamera(camera: PerspectiveCamera, heightCm: number): void {
   const vertical = MathUtils.degToRad(camera.fov);
   const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * aspect);
   const lookY = heightM * 0.48;
-  const distH = heightM / 0.86 / (2 * Math.tan(vertical / 2));
-  const distW = Math.max(heightM * 0.7, 0.7) / (2 * Math.tan(horizontal / 2));
+  const distH = heightM / FRAME_FILL / (2 * Math.tan(vertical / 2));
+  const distW = framedBodyM(heightM) / (2 * Math.tan(horizontal / 2));
   const distance = Math.max(distH, distW);
   camera.position.set(0, lookY, distance);
   camera.lookAt(0, lookY, 0);
@@ -1387,7 +1397,30 @@ function frameCamera(camera: PerspectiveCamera, heightCm: number): void {
   camera.updateMatrixWorld(true);
 }
 
-function turn(canvas: HTMLCanvasElement, wrapper: Group, render: () => void): () => void {
+/**
+ * The row frames {@link FRAME_CM} the way the card does, and steps back when the
+ * members side by side need more width than that frame already shows.
+ */
+function frameFamily(camera: PerspectiveCamera, count: number): void {
+  const width = familyCanvasWidth(count);
+  const height = FAMILY_HEIGHT_PX;
+  const viewW = familyViewWidthM(count);
+  const aspect = width / height;
+  const viewH = viewW / aspect;
+  camera.fov = 26;
+  camera.aspect = aspect;
+  camera.near = 0.05;
+  camera.far = 80;
+  const tanV = Math.tan(MathUtils.degToRad(camera.fov) / 2);
+  const lookY = (FRAME_CM / 100) * 0.48;
+  camera.position.set(0, lookY, viewH / (2 * tanV));
+  camera.lookAt(0, lookY, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+}
+
+/** One horizontal drag yaws every figure by the same angle, each about its own feet. */
+function turn(canvas: HTMLCanvasElement, figures: readonly Object3D[], render: () => void): () => void {
   let yaw = 0;
   let dragging = false;
   let lastX = 0;
@@ -1401,7 +1434,7 @@ function turn(canvas: HTMLCanvasElement, wrapper: Group, render: () => void): ()
     const dx = event.clientX - lastX;
     lastX = event.clientX;
     yaw += dx * 0.01;
-    wrapper.rotation.y = yaw;
+    for (const figure of figures) figure.rotation.y = yaw;
     render();
   };
   const up = (event: PointerEvent) => {
@@ -1478,17 +1511,27 @@ function freeMount(owned: Owned, renderer: WebGLRenderer): void {
 /** Set `cancelled` to stop a mount before it creates a renderer. */
 export type FigureCancel = { cancelled: boolean };
 
+/** One standing person in a mount: the server's body, and the sex and sim the clothes follow. */
+export type FigureMember = {
+  readonly body: BodyParams;
+  readonly sex: Sex;
+  readonly simId: string;
+};
+
 /**
- * Draws `body` on `canvas` and lets a horizontal drag turn it. The returned function
- * frees this card's textures, skeleton, geometry, materials and renderer. Decoded images
- * and the template stay loaded for the next card. `onLost(true)` means the WebGL context
- * is gone and the portrait should show; `onLost(false)` means a restore has been drawn.
+ * One renderer, one scene, the members in order at `xs` on the ground `buildFigure`
+ * already sets. A horizontal drag turns them all. The returned function frees this
+ * mount's textures, skeletons, geometry, materials and renderer. Decoded images and
+ * the template stay loaded. `onLost(true)` means the WebGL context is gone;
+ * `onLost(false)` means a restore has been drawn.
  */
-export function mountFigure(
+function mountMembers(
   canvas: HTMLCanvasElement,
-  body: BodyParams,
-  sex: Sex,
-  simId: string,
+  members: readonly FigureMember[],
+  width: number,
+  height: number,
+  xs: readonly number[],
+  frame: (camera: PerspectiveCamera) => void,
   cancel: FigureCancel,
   onLost: (lost: boolean) => void,
 ): Promise<() => void> {
@@ -1513,13 +1556,13 @@ export function mountFigure(
     };
     try {
       renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-      renderer.setSize(FIGURE_WIDTH, FIGURE_HEIGHT, false);
+      renderer.setSize(width, height, false);
       renderer.outputColorSpace = SRGBColorSpace;
       renderer.toneMapping = ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1;
       renderer.setClearColor(CLEAR, 1);
       const scene = new Scene();
-      const camera = new PerspectiveCamera(26, FIGURE_WIDTH / FIGURE_HEIGHT, 0.05, 80);
+      const camera = new PerspectiveCamera(26, width / height, 0.05, 80);
       const hemi = new HemisphereLight(0xffe4cc, 0xc9d0dc, Math.PI * 0.32);
       const key = new DirectionalLight(0xffc9a0, Math.PI * 0.48);
       key.position.set(-2.2, 4.6, 4.0);
@@ -1529,11 +1572,17 @@ export function mountFigure(
       rim.position.set(0.6, 3.4, -4.4);
       scene.add(hemi, key, fill, rim);
       const keyDir = new Vector3();
-      const wrapper = buildFigure(assets, body, sex, simId, keyDir, renderer.capabilities.getMaxAnisotropy(), owned);
-      scene.add(wrapper);
-      const child = ageSlices(body.body_form_age)[0];
-      hangArms(wrapper, child);
-      frameCamera(camera, FRAME_CM);
+      const anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const standing: Group[] = [];
+      for (let i = 0; i < members.length; i += 1) {
+        const member = members[i] ?? fail("a figure is missing");
+        const wrapper = buildFigure(assets, member.body, member.sex, member.simId, keyDir, anisotropy, owned);
+        wrapper.position.x = xs[i] ?? 0;
+        scene.add(wrapper);
+        hangArms(wrapper, ageSlices(member.body.body_form_age)[0]);
+        standing.push(wrapper);
+      }
+      frame(camera);
       keyDir.copy(key.position).normalize().transformDirection(camera.matrixWorldInverse);
       let lost = false;
       const render = () => {
@@ -1552,7 +1601,7 @@ export function mountFigure(
       };
       canvas.addEventListener("webglcontextlost", onContextLost);
       canvas.addEventListener("webglcontextrestored", onContextRestored);
-      const undrag = turn(canvas, wrapper, render);
+      const undrag = turn(canvas, standing, render);
       undo = () => {
         undrag();
         canvas.removeEventListener("webglcontextlost", onContextLost);
@@ -1565,4 +1614,58 @@ export function mountFigure(
       throw error instanceof Error ? error : new Error("the figure failed");
     }
   });
+}
+
+/**
+ * Draws `body` on `canvas` and lets a horizontal drag turn it. The returned function
+ * frees this card's textures, skeleton, geometry, materials and renderer. Decoded images
+ * and the template stay loaded for the next card. `onLost(true)` means the WebGL context
+ * is gone and the portrait should show; `onLost(false)` means a restore has been drawn.
+ */
+export function mountFigure(
+  canvas: HTMLCanvasElement,
+  body: BodyParams,
+  sex: Sex,
+  simId: string,
+  cancel: FigureCancel,
+  onLost: (lost: boolean) => void,
+): Promise<() => void> {
+  return mountMembers(
+    canvas,
+    [{ body, sex, simId }],
+    FIGURE_WIDTH,
+    FIGURE_HEIGHT,
+    [0],
+    (camera) => frameCamera(camera, FRAME_CM),
+    cancel,
+    onLost,
+  );
+}
+
+/**
+ * Draws `members` in order, side by side on one ground, with one renderer. At most
+ * eight. An empty row does not take a context. A horizontal drag turns them all.
+ */
+export function mountFamily(
+  canvas: HTMLCanvasElement,
+  members: readonly FigureMember[],
+  cancel: FigureCancel,
+  onLost: (lost: boolean) => void,
+): Promise<() => void> {
+  const drawn = members.slice(0, FAMILY_LIMIT);
+  if (drawn.length === 0) return Promise.resolve(() => {});
+  const places = familyPlaces(
+    drawn.map((member) => member.body.height_cm),
+    FAMILY_SPACING_M,
+  );
+  return mountMembers(
+    canvas,
+    drawn,
+    familyCanvasWidth(drawn.length),
+    FAMILY_HEIGHT_PX,
+    places.map((place) => place.x),
+    (camera) => frameFamily(camera, drawn.length),
+    cancel,
+    onLost,
+  );
 }
