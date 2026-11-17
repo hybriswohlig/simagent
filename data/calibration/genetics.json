@@ -826,9 +826,110 @@
       "source": "Chao F et al. (2019), PNAS 116:9303-9311; Destatis, Lebendgeborene nach Geschlecht: Europe 1.058, Germany 2021 to 2025 1.055; game value 1.05",
       "as_of": "2026-10-08",
       "note": "docs/genetik-spezifikation.md 2.3, 7.5 and 11.3 (W11.3d): sons per daughter; the father passes his Y with r / (1 + r) = 1.05 / 2.05 = 21/41 (ADR-0017 section 4)"
+    },
+    "core:agreeableness_development_mean": {
+      "value": 0.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development mean m_D in standard deviations; 0 until a measurement run"
+    },
+    "core:agreeableness_development_sd": {
+      "value": 1.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development standard deviation s_D; 1 until a measurement run"
+    },
+    "core:conscientiousness_development_mean": {
+      "value": 0.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development mean m_D in standard deviations; 0 until a measurement run"
+    },
+    "core:conscientiousness_development_sd": {
+      "value": 1.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development standard deviation s_D; 1 until a measurement run"
+    },
+    "core:extraversion_development_mean": {
+      "value": 0.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development mean m_D in standard deviations; 0 until a measurement run"
+    },
+    "core:extraversion_development_sd": {
+      "value": 1.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development standard deviation s_D; 1 until a measurement run"
+    },
+    "core:neuroticism_development_mean": {
+      "value": 0.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development mean m_D in standard deviations; 0 until a measurement run"
+    },
+    "core:neuroticism_development_sd": {
+      "value": 1.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development standard deviation s_D; 1 until a measurement run"
+    },
+    "core:openness_development_mean": {
+      "value": 0.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development mean m_D in standard deviations; 0 until a measurement run"
+    },
+    "core:openness_development_sd": {
+      "value": 1.0,
+      "unit": "standard_deviation",
+      "source": "docs/genetik-spezifikation.md 4.1",
+      "as_of": "2026-11-17",
+      "note": "development standard deviation s_D; 1 until a measurement run"
     }
   },
   "traits": [
+    {
+      "trait": "core:agreeableness",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the child (genetics specification 4.2)"
+      },
+      "c2_child": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the child (genetics specification 4.2)"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the adult (genetics specification 4.2)"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the adult (genetics specification 4.2)"
+      }
+    },
     {
       "trait": "core:androgen",
       "h2_child": {
@@ -1078,6 +1179,37 @@
       }
     },
     {
+      "trait": "core:conscientiousness",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the child (genetics specification 4.2)"
+      },
+      "c2_child": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the child (genetics specification 4.2)"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the adult (genetics specification 4.2)"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the adult (genetics specification 4.2)"
+      }
+    },
+    {
       "trait": "core:curl",
       "h2_child": {
         "value": 0.6,
@@ -1168,6 +1300,37 @@
         "source": "ADR-0020 section 1 (genetics specification 4.2 and 10.7)",
         "as_of": "2026-10-12",
         "note": "c2 of the adult, template of map 4"
+      }
+    },
+    {
+      "trait": "core:extraversion",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the child (genetics specification 4.2)"
+      },
+      "c2_child": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the child (genetics specification 4.2)"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the adult (genetics specification 4.2)"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the adult (genetics specification 4.2)"
       }
     },
     {
@@ -1853,6 +2016,68 @@
       }
     },
     {
+      "trait": "core:neuroticism",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the child (genetics specification 4.2)"
+      },
+      "c2_child": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the child (genetics specification 4.2)"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the adult (genetics specification 4.2)"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the adult (genetics specification 4.2)"
+      }
+    },
+    {
+      "trait": "core:openness",
+      "h2_child": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the child (genetics specification 4.2)"
+      },
+      "c2_child": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the child (genetics specification 4.2)"
+      },
+      "h2_adult": {
+        "value": 0.5,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "h2 of the adult (genetics specification 4.2)"
+      },
+      "c2_adult": {
+        "value": 0.05,
+        "unit": "fraction",
+        "source": "docs/genetik-spezifikation.md 4.2",
+        "as_of": "2026-11-17",
+        "note": "c2 of the adult (genetics specification 4.2)"
+      }
+    },
+    {
       "trait": "core:pigment",
       "h2_child": {
         "value": 0.8,
@@ -1979,6 +2204,23 @@
   ],
   "sex_differences": [
     {
+      "trait": "core:agreeableness",
+      "shift": {
+        "value": -0.3,
+        "unit": "standard_deviation",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "shift of men against women, in standard deviations (genetics specification 6.2)"
+      },
+      "variance_ratio": {
+        "value": 1.0,
+        "unit": "ratio",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "variance of men over women (genetics specification 6.2)"
+      }
+    },
+    {
       "trait": "core:cognition",
       "shift": {
         "value": 0.0,
@@ -1994,7 +2236,76 @@
         "as_of": "2026-10-12",
         "note": "variance of men over women, template of map 4"
       }
+    },
+    {
+      "trait": "core:conscientiousness",
+      "shift": {
+        "value": -0.1,
+        "unit": "standard_deviation",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "shift of men against women, in standard deviations (genetics specification 6.2)"
+      },
+      "variance_ratio": {
+        "value": 1.0,
+        "unit": "ratio",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "variance of men over women (genetics specification 6.2)"
+      }
+    },
+    {
+      "trait": "core:extraversion",
+      "shift": {
+        "value": -0.1,
+        "unit": "standard_deviation",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "shift of men against women, in standard deviations (genetics specification 6.2)"
+      },
+      "variance_ratio": {
+        "value": 1.0,
+        "unit": "ratio",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "variance of men over women (genetics specification 6.2)"
+      }
+    },
+    {
+      "trait": "core:neuroticism",
+      "shift": {
+        "value": -0.4,
+        "unit": "standard_deviation",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "shift of men against women, in standard deviations (genetics specification 6.2)"
+      },
+      "variance_ratio": {
+        "value": 1.0,
+        "unit": "ratio",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "variance of men over women (genetics specification 6.2)"
+      }
+    },
+    {
+      "trait": "core:openness",
+      "shift": {
+        "value": 0.0,
+        "unit": "standard_deviation",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "shift of men against women, in standard deviations (genetics specification 6.2)"
+      },
+      "variance_ratio": {
+        "value": 1.0,
+        "unit": "ratio",
+        "source": "docs/genetik-spezifikation.md 6.2",
+        "as_of": "2026-11-17",
+        "note": "variance of men over women (genetics specification 6.2)"
+      }
     }
+
   ],
   "diseases": [
     {

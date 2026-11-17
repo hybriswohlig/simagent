@@ -2,6 +2,30 @@
 
 Jede Änderung von `genome_map.json` erhöht `map_version` und steht hier (B9, ADR-0007).
 
+## 5 (2026-11-17)
+
+- Fünf Temperamentsmerkmale (Spezifikation 4.1, 4.2 und 6.2, ADR-0020 Abschnitt 1,
+  ADR-0033 Abschnitt 2): `core:agreeableness`, `core:conscientiousness`,
+  `core:extraversion`, `core:neuroticism`, `core:openness`. Jedes mit acht eigenen
+  additiven autosomalen Genorten (`core:<merkmal>_01` bis `_08`), Effekt 1, Ladung +1,
+  Klasse klein, Mutation in beide Richtungen. Die Orte liegen in freien Plätzen der
+  Karte 4 nach der Regel aus ADR-0020 Abschnitt 1 (die Ordnungszahl zählt nur unter den
+  fünf neuen Merkmalen); die alten Genorte behalten ihre Stellen. Kartenformat
+  unverändert, `map_version` 5.
+- Referenzwerte je Merkmal: `d_ref` 1 je Genort, `sigma_ref` 2, `mean_ref` 0. Das sind
+  die exakten Parameter der Hardy-Weinberg-Verteilung bei p = 0.5
+  (`Var(A) = 8 · 2p(1−p) = 4`), eine Ausnahme vom Messen.
+- Kalibrierung: `h2` des Kindes 0.5, `c2` des Kindes 0.15, `h2` des Erwachsenen 0.5,
+  `c2` des Erwachsenen 0.05 (Spezifikation 4.2). Geschlechtsunterschiede (Spezifikation
+  6.2, Einheit Standardabweichung, Varianzverhältnis 1): Verträglichkeit −0.3,
+  Gewissenhaftigkeit −0.1, Extraversion −0.1, Neurotizismus −0.4, Offenheit 0. Unter
+  `values` je Achse `development_mean` 0 und `development_sd` 1 (Standardabweichungen),
+  bis ein Messlauf sie ersetzt.
+- Die Pooldatei `data/pool/pool.bin` bleibt bytegleich. Ihr `frozen_hash`
+  `4864bcf40e824de2` ist der Hash der Definitionen ohne diese Erweiterung, mit
+  `map_version` 4. Die vierzig Genorte kommen beim Laden in die Genome, nicht in die
+  Datei.
+
 ## 4 (2026-10-19)
 
 - Karte 4 aus ADR-0020, vom Vorlauf (`cargo xtask prerun`) aus der Vorlage der Karte 4
