@@ -1453,16 +1453,31 @@ fn check_temperament(definitions: &Definitions) -> Result<(), DataError> {
         if locus.chromosome != Chromosome::Autosome {
             return Err(DataError::CalibrationUnknown);
         }
-        let weights = locus
-            .action
-            .weights()
-            .ok_or(DataError::CalibrationUnknown)?;
-        if !weights
-            .loads
-            .iter()
-            .any(|load| load.target == trait_ids[index / 8])
-        {
+        // Exactly one load, on its own axis: the stripped hash drops the whole locus, so a
+        // second load on an old trait would change that trait unseen.
+        let Action::Additive(weights) = &locus.action else {
             return Err(DataError::CalibrationUnknown);
+        };
+        if weights.loads.len() != 1 || weights.loads[0].target != trait_ids[index / 8] {
+            return Err(DataError::CalibrationUnknown);
+        }
+    }
+    // One phenotype row and one sex-difference row per axis.
+    for trait_id in &trait_ids {
+        let rows = definitions
+            .calibration
+            .traits
+            .iter()
+            .filter(|row| &row.target == trait_id)
+            .count();
+        let sex_rows = definitions
+            .calibration
+            .sex_differences
+            .iter()
+            .filter(|row| &row.target == trait_id)
+            .count();
+        if rows != 1 || sex_rows != 1 {
+            return Err(DataError::CalibrationMissing);
         }
     }
     for trait_id in &trait_ids {
@@ -2253,7 +2268,7 @@ pub(crate) mod testing {
 
     /// Removes the text of each calibration value, trait and locus; each text must be
     /// there and not blank, as sim-cli demands.
-    fn without_text(mut calibration: Value, mut genome_map: Value) -> (Value, Value) {
+    pub(crate) fn without_text(mut calibration: Value, mut genome_map: Value) -> (Value, Value) {
         let take = |entry: &mut Value, name| {
             let text = entry.as_object_mut().expect("entry").remove(name);
             let filled = text
@@ -2371,6 +2386,88 @@ pub(crate) mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The repository's genetics, map 5, with the demography of the test data.
+    fn repository_definitions() -> Definitions {
+        let read = |text| serde_json::from_str::<serde_json::Value>(text).expect("json");
+        let (calibration, genome_map) = testing::without_text(
+            read(include_str!("../../../data/calibration/genetics.json")),
+            read(include_str!("../../../data/genetics/genome_map.json")),
+        );
+        Definitions {
+            demography: testing::data().definitions.demography.clone(),
+            calibration: serde_json::from_value(calibration).expect("calibration"),
+            genome_map: serde_json::from_value(genome_map).expect("genome map"),
+        }
+    }
+
+    fn openness_01(definitions: &mut Definitions) -> &mut Locus {
+        let id = DataId::new("core:openness_01").expect("id");
+        definitions
+            .genome_map
+            .loci
+            .iter_mut()
+            .find(|locus| locus.id == id)
+            .expect("the locus")
+    }
+
+    #[test]
+    fn the_repository_temperament_passes() {
+        assert_eq!(check_temperament(&repository_definitions()), Ok(()));
+    }
+
+    /// The stripped hash drops a temperament locus whole, so a second load on an old
+    /// trait would change that trait without moving the frozen hash.
+    #[test]
+    fn a_temperament_locus_that_also_loads_an_old_trait_is_rejected() {
+        let mut definitions = repository_definitions();
+        let Action::Additive(weights) = &mut openness_01(&mut definitions).action else {
+            panic!("additive");
+        };
+        weights.loads.push(Load {
+            target: DataId::new("core:cognition").expect("id"),
+            weight: FiniteF64::try_new(0.01).expect("finite"),
+        });
+        assert_eq!(
+            check_temperament(&definitions),
+            Err(DataError::CalibrationUnknown)
+        );
+    }
+
+    #[test]
+    fn a_temperament_locus_with_a_threshold_action_is_rejected() {
+        let mut definitions = repository_definitions();
+        let locus = openness_01(&mut definitions);
+        let weights = locus.action.weights().expect("weights").clone();
+        locus.action = Action::Threshold(weights);
+        assert_eq!(
+            check_temperament(&definitions),
+            Err(DataError::CalibrationUnknown)
+        );
+    }
+
+    #[test]
+    fn a_temperament_axis_without_its_calibration_rows_is_missing() {
+        let openness = DataId::new("core:openness").expect("id");
+        let mut no_phenotype = repository_definitions();
+        no_phenotype
+            .calibration
+            .traits
+            .retain(|row| row.target != openness);
+        assert_eq!(
+            check_temperament(&no_phenotype),
+            Err(DataError::CalibrationMissing)
+        );
+        let mut no_sex = repository_definitions();
+        no_sex
+            .calibration
+            .sex_differences
+            .retain(|row| row.target != openness);
+        assert_eq!(
+            check_temperament(&no_sex),
+            Err(DataError::CalibrationMissing)
+        );
+    }
 
     #[test]
     fn two_loci_with_one_key_are_rejected() {

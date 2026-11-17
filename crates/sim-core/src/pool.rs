@@ -1147,6 +1147,7 @@ pub fn extend_temperament(pool: &mut Pool, loci: &[crate::data::Locus]) {
         .collect();
     let draws = Draws::new(WorldSeed::new(pool.pool_seed));
     let mut assigned: BTreeMap<LineageKey, Genome> = BTreeMap::new();
+    let mut by_genome_key: BTreeMap<GenomeKey, Genome> = BTreeMap::new();
     for (_, place) in extension_visits(pool) {
         let (key, genome_key, sex, genome, mother, father) = match place {
             ExtensionPlace::Member(h, m) => {
@@ -1182,10 +1183,17 @@ pub fn extend_temperament(pool: &mut Pool, loci: &[crate::data::Locus]) {
             father: father.filter(|parent| living.contains(parent)),
         };
         let mut written = person.genome;
+        // A genome key written before (an identical twin, whatever the order of birth
+        // seconds and keys) gives its new alleles unchanged.
+        let first = by_genome_key.get(&genome_key).copied();
         for locus in &loci {
-            let copies = assign_locus(&draws, &person, locus, 0.5, &assigned);
+            let copies = match first {
+                Some(twin) => twin.copies(locus),
+                None => assign_locus(&draws, &person, locus, 0.5, &assigned),
+            };
             written.set_copies(locus, &copies);
         }
+        by_genome_key.entry(genome_key).or_insert(written);
         assigned.insert(key, written);
         match place {
             ExtensionPlace::Member(h, m) => pool.households[h].members[m].genome = written,
@@ -1732,6 +1740,25 @@ mod tests {
             let u = draw_unit(pool.pool_seed, half_key, locus, 1);
             half_genome.copies(locus)[1] == u8::from(u < 0.5)
         }));
+    }
+
+    /// The mother born at the twins' second, so she may be visited between them: the
+    /// twins still get the same new alleles (tools/pool_extension_reference.py, line
+    /// `fixture_late_mother_twin_a`).
+    #[test]
+    fn twins_stay_equal_when_a_parent_shares_their_birth_second() {
+        let loci = temperament_loci();
+        let (mut pool, keys) = fixture();
+        let [mother, _, _, _, twin_a, twin_b, _, _, _] = keys;
+        pool.households[0].members[0].born = SimTime::from_secs(200);
+        assert_eq!(pool.households[0].members[0].lineage_key, mother);
+        extend_temperament(&mut pool, &loci);
+        assert_alleles(
+            genome_of(&pool, twin_a),
+            &loci,
+            b"11100010111100101000101100000000111111000101100101111100001100010001110000111100",
+        );
+        assert_eq!(genome_of(&pool, twin_a), genome_of(&pool, twin_b));
     }
 
     /// The repository pool file stays byte-identical. The extension's alleles, the

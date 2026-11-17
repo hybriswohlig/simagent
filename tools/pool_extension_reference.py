@@ -204,6 +204,7 @@ def extend_pool(pool: dict) -> dict:
     """
     living = {person["lineage_key"] for household in pool["households"] for person in household["members"]}
     assigned = {}
+    by_genome_key = {}
     mendelian = 0
     alt = 0
     copies = 0
@@ -214,11 +215,16 @@ def extend_pool(pool: dict) -> dict:
         if mother_genome is not None or father_genome is not None:
             mendelian += 1
         genome = person["genome"]
+        # A genome key written before (an identical twin, whatever the order of birth
+        # seconds and keys) gives its new alleles unchanged.
+        first = by_genome_key.get(person["genome_key"])
         for locus_id, segment, slot in LOCI:
             drawn = []
             for detail, parent in ((0, mother_genome), (1, father_genome)):
                 u = draw_unit(pool["pool_seed"], person["genome_key"], locus_id, detail)
-                if parent is None:
+                if first is not None:
+                    allele = copies_at(first, segment, slot)[detail]
+                elif parent is None:
                     allele = 1 if u < 0.5 else 0
                 else:
                     parent_copies = copies_at(parent, segment, slot)
@@ -229,6 +235,7 @@ def extend_pool(pool: dict) -> dict:
                 copies += 1
             genome = write_copies(genome, segment, slot, drawn)
         person["genome"] = genome
+        by_genome_key.setdefault(person["genome_key"], genome)
         assigned[person["lineage_key"]] = genome
     return {
         "genomes": copies // (2 * len(LOCI)),
@@ -388,6 +395,17 @@ def run_fixture() -> None:
     print(f"fixture_twins_equal {int(people[keys['twin_a']]['genome'] == people[keys['twin_b']]['genome'])}")
     print(f"fixture_unborn_twins_equal {int(people[keys['unborn']]['genome'] == people[keys['unborn_twin']]['genome'])}")
     print(f"fixture_child_shares {int(child_shares(pool, keys['child'], keys['mother'], keys['father']))}")
+    # The mother born at the twins' second: whatever the key order, the twins stay equal.
+    late = fixture_pool()
+    late_keys = late.pop("_keys")
+    for household in late["households"]:
+        for member in household["members"]:
+            if member["lineage_key"] == late_keys["mother"]:
+                member["born"] = 200
+    extend_pool(late)
+    late_people = {person["lineage_key"]: person for person, _, _ in iter_genomes(late)}
+    print(f"fixture_late_mother_twins_equal {int(late_people[late_keys['twin_a']]['genome'] == late_people[late_keys['twin_b']]['genome'])}")
+    print(f"fixture_late_mother_twin_a {alleles_of(late_people[late_keys['twin_a']])}")
     # The half-orphan's paternal copy is the independent draw, not a parent's allele.
     half = people[keys["half"]]
     independent = True
