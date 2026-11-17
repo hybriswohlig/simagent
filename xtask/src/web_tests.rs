@@ -40,7 +40,9 @@ fn the_page_maps_exactly_the_vendored_modules() {
         serde_json::json!({"imports": {
             "preact": "./vendor/preact.mjs",
             "preact/hooks": "./vendor/hooks.mjs",
-            "preact/jsx-runtime": "./vendor/jsx-runtime.mjs"
+            "preact/jsx-runtime": "./vendor/jsx-runtime.mjs",
+            "three": "./vendor/three.module.js",
+            "three/addons/": "./vendor/three/addons/"
         }})
     );
     assert_eq!(page.matches("importmap").count(), 1);

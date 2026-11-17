@@ -2,7 +2,10 @@
 //! (no symbolic link, no other host, `Math` only under `web/src/render/`), checks that the
 //! running Node has the major of `web/.nvmrc`, installs the locked packages without scripts
 //! (`npm ci`), compiles `web/src` with the pinned `tsc` into `web/dist`, writes the page
-//! with its import map there and copies the vendored Preact modules beside it, and runs
+//! with its import map there, copies the vendored Preact and Three modules beside it
+//! (Three's addons keep their relative paths under `vendor/three/addons/`), copies the
+//! figure files listed in [`FIGURE_FILES`] from `SIMAGENT_FIGURE_DIR` when that variable
+//! names a directory, and runs
 //! `web/test` with `node --test` on it. `tsc` and the tests run under Node's permission
 //! model with an empty environment: `tsc` reads `web/` and writes `web/dist`; the tests read
 //! only `web/package.json`, `web/dist` and `web/test`, write nothing, start no process or
@@ -21,7 +24,7 @@ use crate::Result;
 
 /// The import map of the page: the specifier, the module in `web/dist`, and the file below
 /// `web/node_modules` it is copied from.
-pub const VENDOR: [(&str, &str, &str); 3] = [
+pub const VENDOR: [(&str, &str, &str); 4] = [
     ("preact", "vendor/preact.mjs", "preact/dist/preact.mjs"),
     (
         "preact/hooks",
@@ -33,17 +36,65 @@ pub const VENDOR: [(&str, &str, &str); 3] = [
         "vendor/jsx-runtime.mjs",
         "preact/jsx-runtime/dist/jsxRuntime.mjs",
     ),
+    (
+        "three",
+        "vendor/three.module.js",
+        "three/build/three.module.js",
+    ),
+];
+
+/// Addons the page imports from `three/addons/`, copied from `three/examples/jsm` and
+/// keeping that relative layout so `GLTFLoader.js` still finds `../utils/BufferGeometryUtils.js`.
+const THREE_ADDONS: [&str; 3] = [
+    "loaders/GLTFLoader.js",
+    "utils/BufferGeometryUtils.js",
+    "utils/SkeletonUtils.js",
+];
+
+/// Files the figure on the person card loads, relative to `SIMAGENT_FIGURE_DIR` and to
+/// `web/dist/figure`. Anything else in the source folder is left there.
+pub const FIGURE_FILES: [&str; 25] = [
+    "body.glb",
+    "young_lightskinned_female_diffuse.png",
+    "proxies/proxies.json",
+    "proxies/proxies.bin",
+    "proxies/brown_eye.png",
+    "proxies/eyebrow001.png",
+    "proxies/eyelashes01.png",
+    "proxies/short04_diffuse.png",
+    "proxies/bob01_diffuse.png",
+    "proxies/long01_diffuse.png",
+    "proxies/ponytail01_diffuse.png",
+    "proxies/braid01_diffuse.png",
+    "proxies/male_casualsuit01_diffuse.png",
+    "proxies/male_casualsuit01_ao.png",
+    "proxies/male_casualsuit05_diffuse.png",
+    "proxies/male_casualsuit05_ao.png",
+    "proxies/female_casualsuit01_diffuse.png",
+    "proxies/female_casualsuit01_ao.png",
+    "proxies/female_casualsuit02_diffuse.png",
+    "proxies/female_casualsuit02_ao.png",
+    "proxies/female_elegantsuit01_diffuse.png",
+    "proxies/female_elegantsuit01_ao.png",
+    "proxies/shoes01_diffuse.png",
+    "proxies/shoes04_diffuse.png",
+    "proxies/shoes06_diffuse.png",
 ];
 /// The one directory of `web/src` whose code may compute (SVG geometry, the sRGB rule
 /// ADR-0005 section 5 gives to readers).
 const RENDER: &str = "web/src/render/";
 
 /// The page, `web/dist/index.html`. It is written here and not kept in `web/`, so its
-/// import map is exactly [`VENDOR`] and it loads nothing but `./main.js`.
+/// import map is exactly [`VENDOR`] plus the `three/addons/` prefix, and it loads nothing
+/// but `./main.js`.
 pub fn page() -> String {
-    let imports: serde_json::Map<String, serde_json::Value> = (VENDOR.iter())
+    let mut imports: serde_json::Map<String, serde_json::Value> = (VENDOR.iter())
         .map(|(name, path, _)| ((*name).to_owned(), serde_json::json!(format!("./{path}"))))
         .collect();
+    imports.insert(
+        "three/addons/".to_owned(),
+        serde_json::json!("./vendor/three/addons/"),
+    );
     let map = serde_json::json!({ "imports": imports });
     format!(
         "<!doctype html>\n<html lang=\"de\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <title>SimAgent</title>\n    <script type=\"importmap\">{map}</script>\n    <script type=\"module\" src=\"./main.js\"></script>\n  </head>\n  <body>\n    <main id=\"app\"></main>\n  </body>\n</html>\n"
@@ -270,6 +321,25 @@ pub(crate) fn run(dir: &Path, program: &str, args: &[&str]) -> Result {
     }
 }
 
+/// Copies [`FIGURE_FILES`] into `web/dist/figure` when `SIMAGENT_FIGURE_DIR` names a
+/// directory. An unset variable, or a path that is not a directory, copies nothing and the
+/// page keeps the portrait. A directory that lacks a listed file fails the build.
+fn copy_figure(dist: &Path) -> Result {
+    let Some(raw) = std::env::var_os("SIMAGENT_FIGURE_DIR") else {
+        return Ok(());
+    };
+    let from_root = PathBuf::from(raw);
+    if !from_root.is_dir() {
+        return Ok(());
+    }
+    for relative in FIGURE_FILES {
+        let from = from_root.join(relative);
+        let bytes = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        add(&dist.join("figure").join(relative), &bytes)?;
+    }
+    Ok(())
+}
+
 /// Writes a file of `web/dist` that `tsc` must not have written.
 fn add(to: &Path, contents: &[u8]) -> Result {
     if to.exists() {
@@ -326,6 +396,13 @@ pub fn build(root: &Path) -> Result {
         let module = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
         add(&dist.join(to), &module)?;
     }
+    let addons = web.join("node_modules/three/examples/jsm");
+    for relative in THREE_ADDONS {
+        let from = addons.join(relative);
+        let module = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        add(&dist.join("vendor/three/addons").join(relative), &module)?;
+    }
+    copy_figure(&dist)?;
     let (package, test_dir) = (web.join("package.json"), web.join("test"));
     let tests: Vec<String> = (files(root, &test_dir)?.iter())
         .map(|file| crate::relative(&test_dir, file))
