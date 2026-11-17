@@ -106,3 +106,45 @@ export async function postJson(path: string, body: unknown, expected: Expected):
   }
   return accept(answer, expected);
 }
+
+/** A figure file under `./figure/` on this page. Anything else is not requested. */
+function figurePath(path: string): string {
+  const parts = path.split("/");
+  if (parts[0] !== "." || parts[1] !== "figure" || parts.includes("..") || parts.includes("")) {
+    throw new Error(`not a figure file: ${path}`);
+  }
+  return path;
+}
+
+async function figureResponse(path: string): Promise<Response> {
+  const response = await fetch(figurePath(path));
+  if (!response.ok) {
+    throw new Error(`${path}: ${response.status}`);
+  }
+  return response;
+}
+
+/** The bytes of one figure file. */
+export async function figureBytes(path: string): Promise<ArrayBuffer> {
+  return (await figureResponse(path)).arrayBuffer();
+}
+
+/** The text of one figure file. */
+export async function figureText(path: string): Promise<string> {
+  return (await figureResponse(path)).text();
+}
+
+/**
+ * A decoded figure image. A browser returns an `HTMLImageElement`: three r170 honors
+ * `flipY` for that and ignores it for an `ImageBitmap`. The blob URL is left in place
+ * because the texture uploads the image later, and dropping the URL first can clear it.
+ */
+export async function figureImage(path: string): Promise<ImageBitmap | HTMLImageElement> {
+  const blob = await (await figureResponse(path)).blob();
+  if (typeof Image === "undefined") return createImageBitmap(blob);
+  const url = URL.createObjectURL(blob);
+  const image = new Image();
+  image.src = url;
+  await image.decode();
+  return image;
+}

@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { Refused, UnknownAnswer, accept, getJson, postJson, refusal } from "../dist/api.js";
+import { Refused, UnknownAnswer, accept, figureBytes, figureImage, figureText, getJson, postJson, refusal } from "../dist/api.js";
 
 const SERVER = { format: "simagent.view.runs", version: 1 };
 const FILE = { format_version: 4 };
@@ -91,4 +91,39 @@ test("a write goes as JSON to a route of the server; a refusal is thrown", async
     message: "not a route of the server: https://example.org/api/runs",
   });
   assert.equal(sent.length, before, "nothing sent");
+});
+
+// Figure files are read here, from this page, and a path that leaves `./figure/` is not fetched.
+test("figure files are read from this page", async () => {
+  const calls = [];
+  const previousFetch = globalThis.fetch;
+  const previousBitmap = globalThis.createImageBitmap;
+  globalThis.fetch = async (path) => {
+    calls.push(String(path));
+    if (String(path).endsWith(".png")) return new Response(new Uint8Array([1, 2, 3, 4]));
+    if (String(path).endsWith(".json")) return new Response('{"ok":true}');
+    return new Response(new Uint8Array([9, 8, 7]));
+  };
+  globalThis.createImageBitmap = async () => ({ kind: "bitmap" });
+  try {
+    for (const path of ["https://example.org/a", "//example.org/a", "./figure/../a", "/figure/a", "./other/a"]) {
+      await assert.rejects(figureBytes(path), { message: `not a figure file: ${path}` });
+    }
+    assert.equal(calls.length, 0);
+    const bytes = await figureBytes("./figure/body.glb");
+    assert.deepEqual([...new Uint8Array(bytes)], [9, 8, 7]);
+    assert.equal(await figureText("./figure/proxies/proxies.json"), '{"ok":true}');
+    const image = await figureImage("./figure/proxies/brown_eye.png");
+    assert.deepEqual(image, { kind: "bitmap" });
+    assert.deepEqual(calls, [
+      "./figure/body.glb",
+      "./figure/proxies/proxies.json",
+      "./figure/proxies/brown_eye.png",
+    ]);
+    globalThis.fetch = async () => new Response("", { status: 404 });
+    await assert.rejects(figureText("./figure/proxies/proxies.json"), { message: "./figure/proxies/proxies.json: 404" });
+  } finally {
+    globalThis.fetch = previousFetch;
+    globalThis.createImageBitmap = previousBitmap;
+  }
 });
