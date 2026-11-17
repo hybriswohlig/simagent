@@ -239,7 +239,7 @@ def milestones(z: float, eff_before: int, eff_after: int) -> List[Tuple[int, int
 # ---------------------------------------------------------------------------------------
 # Section 7: habits and niche
 
-Key = Tuple[int, int]  # (offer, quarter of the day)
+Key = Tuple[int, int, int]  # (furniture kind data id, offer index, quarter of the day)
 Habits = Dict[Key, Tuple[int, int]]  # key -> (value, since second)
 
 
@@ -248,8 +248,9 @@ def habit_quarter(second: int) -> int:
     return (second % DAY) // (6 * 3600)
 
 
-def habit_key(offer: int, second: int) -> Key:
-    return (offer, habit_quarter(second))
+def habit_key(kind: int, offer: int, second: int) -> Key:
+    """Ordered by the furniture kind's data id, then the offer index, then the quarter."""
+    return (kind, offer, habit_quarter(second))
 
 
 def habit_strength(value: int, since: int, t: int) -> int:
@@ -472,8 +473,11 @@ def main() -> None:
     # Quarter of the day: 05:59:59 -> 0, 06:00 -> 1, 12:00 -> 2, 18:00 -> 3, 23:59:59 -> 3;
     # the second of day 3 at 07:00 is 86400 * 3 + 25200 -> quarter 1.
     assert [habit_quarter(s) for s in (0, 21_599, 21_600, 43_200, 64_800, 86_399, 3 * DAY + 25_200)] == [0, 0, 1, 2, 3, 3, 1]
-    key = habit_key(7, 25_200)  # offer 7 at 07:00 -> (7, 1)
-    assert key == (7, 1)
+    key = habit_key(7, 0, 25_200)  # kind 7, offer 0 at 07:00 -> (7, 0, 1)
+    assert key == (7, 0, 1)
+    # Two kinds with the same offer index are two habits: each completion gives 100.
+    two = habit_complete(habit_complete({}, (2, 0, 1), 0), (3, 0, 1), 0)
+    assert habits_at(two, 0) == {(2, 0, 1): 100, (3, 0, 1): 100}
     # Habit 0, then 100, after two days 60, after one more completion 160.
     t0 = 25_200
     h: Habits = {}
@@ -494,19 +498,21 @@ def main() -> None:
     # A strength reaching 0 disappears: 100 after 5 days -> 100 - 100 = 0.
     assert habits_at({key: (100, 0)}, 5 * DAY) == {}
     assert habits_at({key: (100, 0)}, 5 * DAY - 1) == {key: 1}
-    # At most 8: eight habits with strengths 100..800 for keys (1..8, 0); a ninth key (9, 0)
-    # drops the weakest, key (1, 0) at 100.
-    full: Habits = {(i, 0): (100 * i, 0) for i in range(1, 9)}
-    nine = habit_complete(full, (9, 0), 0)
-    assert len(nine) == 8 and (1, 0) not in nine and nine[(9, 0)] == (100, 0)
-    # Tie on strength: smallest key falls. All eight at 300; keys (5,2), (3,1), (3,0), ...
-    tie: Habits = {(3, 1): (300, 0), (3, 0): (300, 0), (5, 2): (300, 0), (6, 0): (300, 0),
-                   (7, 0): (300, 0), (8, 0): (300, 0), (9, 0): (300, 0), (4, 3): (300, 0)}
-    after_tie = habit_complete(tie, (10, 0), 0)
-    assert (3, 0) not in after_tie and (3, 1) in after_tie and len(after_tie) == 8
+    # At most 8: eight habits with strengths 100..800 for keys (1..8, 0, 0); a ninth key
+    # (9, 0, 0) drops the weakest, key (1, 0, 0) at 100.
+    full: Habits = {(i, 0, 0): (100 * i, 0) for i in range(1, 9)}
+    nine = habit_complete(full, (9, 0, 0), 0)
+    assert len(nine) == 8 and (1, 0, 0) not in nine and nine[(9, 0, 0)] == (100, 0)
+    # Tie on strength: the smallest key in (kind, offer, quarter) order falls. All eight at
+    # 300; (3, 0, 1) and (3, 1, 0) and (4, 0, 0): kind 3 first, then offer 0 before 1, so
+    # (3, 0, 1) falls although its quarter is larger than that of (3, 1, 0).
+    tie: Habits = {(3, 1, 0): (300, 0), (3, 0, 1): (300, 0), (5, 0, 2): (300, 0), (6, 0, 0): (300, 0),
+                   (7, 0, 0): (300, 0), (8, 0, 0): (300, 0), (9, 0, 0): (300, 0), (4, 0, 0): (300, 0)}
+    after_tie = habit_complete(tie, (10, 0, 0), 0)
+    assert (3, 0, 1) not in after_tie and (3, 1, 0) in after_tie and len(after_tie) == 8
     # Strengthening an existing key never evicts: nine entries cannot appear.
-    again = habit_complete(full, (8, 0), 0)
-    assert len(again) == 8 and again[(8, 0)] == (800 + 100, 0) and (1, 0) in again
+    again = habit_complete(full, (8, 0, 0), 0)
+    assert len(again) == 8 and again[(8, 0, 0)] == (800 + 100, 0) and (1, 0, 0) in again
     # Points: 15 * strength: 160 -> 2400; 1000 -> 15000.
     assert habit_points(160) == 2400 and habit_points(1000) == 15_000 and habit_points(0) == 0
     print("habit: 0 ->", 100, "-> two days later", habits_at(habit_complete({}, key, t0), t2)[key], "-> after completion", habits_at(h, t2)[key])
@@ -546,10 +552,10 @@ def main() -> None:
     assert int(big / 1) != big  # the float route loses digits
     # Only the completed habit is stored again: key A (100 at 0) and key B (100 at 0); B is
     # completed at 1.5 days (100 - 30 = 70, + 100 = 170 at that second); A keeps (100, 0).
-    pair = {(1, 0): (100, 0), (2, 0): (100, 0)}
-    after = habit_complete(pair, (2, 0), 129600)
-    assert after[(1, 0)] == (100, 0), after
-    assert after[(2, 0)] == (170, 129600), after
+    pair = {(1, 0, 0): (100, 0), (2, 0, 0): (100, 0)}
+    after = habit_complete(pair, (2, 0, 0), 129600)
+    assert after[(1, 0, 0)] == (100, 0), after
+    assert after[(2, 0, 0)] == (170, 129600), after
     print("all acceptance checks passed")
 
 
