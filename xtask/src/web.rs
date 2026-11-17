@@ -5,7 +5,7 @@
 //! with its import map there, copies the vendored Preact and Three modules beside it
 //! (Three's addons keep their relative paths under `vendor/three/addons/`), copies the
 //! figure files listed in [`FIGURE_FILES`] from `SIMAGENT_FIGURE_DIR` when that variable
-//! names a directory, and runs
+//! names a directory, refusing a symbolic link under it, and runs
 //! `web/test` with `node --test` on it. `tsc` and the tests run under Node's permission
 //! model with an empty environment: `tsc` reads `web/` and writes `web/dist`; the tests read
 //! only `web/package.json`, `web/dist` and `web/test`, write nothing, start no process or
@@ -321,23 +321,71 @@ pub(crate) fn run(dir: &Path, program: &str, args: &[&str]) -> Result {
     }
 }
 
-/// Copies [`FIGURE_FILES`] into `web/dist/figure` when `SIMAGENT_FIGURE_DIR` names a
-/// directory. An unset variable, or a path that is not a directory, copies nothing and the
-/// page keeps the portrait. A directory that lacks a listed file fails the build.
-fn copy_figure(dist: &Path) -> Result {
-    let Some(raw) = std::env::var_os("SIMAGENT_FIGURE_DIR") else {
-        return Ok(());
+/// The bytes of one [`FIGURE_FILES`] entry. Every component of `relative` under `root`
+/// must be a real directory or, at the end, a regular file. A symbolic link is an error.
+/// The canonical file must stay inside the canonical `root`.
+fn figure_file(root: &Path, relative: &str) -> Result<Vec<u8>> {
+    let path = Path::new(relative);
+    let mut cursor = root.to_path_buf();
+    let mut kind = None;
+    for component in path.components() {
+        let name = match component {
+            std::path::Component::Normal(name) => name,
+            _ => return Err(format!("{relative}: outside the figure directory")),
+        };
+        cursor.push(name);
+        let meta =
+            std::fs::symlink_metadata(&cursor).map_err(|e| format!("{}: {e}", cursor.display()))?;
+        if meta.is_symlink() {
+            return Err(format!(
+                "{}: a symbolic link in the figure directory",
+                cursor.display()
+            ));
+        }
+        kind = Some(meta);
+    }
+    let Some(meta) = kind else {
+        return Err(format!("{relative}: outside the figure directory"));
     };
-    let from_root = PathBuf::from(raw);
+    if !meta.is_file() {
+        return Err(format!("{}: not a regular file", cursor.display()));
+    }
+    let canonical_root =
+        std::fs::canonicalize(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let canonical_file =
+        std::fs::canonicalize(&cursor).map_err(|e| format!("{}: {e}", cursor.display()))?;
+    if !canonical_file.starts_with(&canonical_root) {
+        return Err(format!(
+            "{}: outside the figure directory",
+            canonical_file.display()
+        ));
+    }
+    std::fs::read(&cursor).map_err(|e| format!("{}: {e}", cursor.display()))
+}
+
+/// Copies [`FIGURE_FILES`] from `from_root` into `dist/figure`. A path that is not a
+/// directory copies nothing. A missing file, a non-file, or a symbolic link under that
+/// directory is an error.
+fn copy_figure_from(dist: &Path, from_root: &Path) -> Result {
     if !from_root.is_dir() {
         return Ok(());
     }
     for relative in FIGURE_FILES {
-        let from = from_root.join(relative);
-        let bytes = std::fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        let bytes = figure_file(from_root, relative)?;
         add(&dist.join("figure").join(relative), &bytes)?;
     }
     Ok(())
+}
+
+/// Copies [`FIGURE_FILES`] into `web/dist/figure` when `SIMAGENT_FIGURE_DIR` names a
+/// directory. An unset variable, or a path that is not a directory, copies nothing and the
+/// page keeps the portrait. A missing file, a non-file, or a symbolic link under that
+/// directory fails the build.
+fn copy_figure(dist: &Path) -> Result {
+    let Some(raw) = std::env::var_os("SIMAGENT_FIGURE_DIR") else {
+        return Ok(());
+    };
+    copy_figure_from(dist, &PathBuf::from(raw))
 }
 
 /// Writes a file of `web/dist` that `tsc` must not have written.
