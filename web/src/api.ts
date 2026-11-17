@@ -107,10 +107,13 @@ export async function postJson(path: string, body: unknown, expected: Expected):
   return accept(answer, expected);
 }
 
+/** Segments of a figure path: plain names that do not start with a dot, so no `..`, no
+ * percent escape and no backslash can leave `./figure/`. */
+const FIGURE_PATH = /^\.\/figure(\/[A-Za-z0-9_-][A-Za-z0-9_.-]*)+$/;
+
 /** A figure file under `./figure/` on this page. Anything else is not requested. */
-function figurePath(path: string): string {
-  const parts = path.split("/");
-  if (parts[0] !== "." || parts[1] !== "figure" || parts.includes("..") || parts.includes("")) {
+export function figurePath(path: string): string {
+  if (!FIGURE_PATH.test(path)) {
     throw new Error(`not a figure file: ${path}`);
   }
   return path;
@@ -145,6 +148,11 @@ export async function figureImage(path: string): Promise<ImageBitmap | HTMLImage
   const url = URL.createObjectURL(blob);
   const image = new Image();
   image.src = url;
-  await image.decode();
+  try {
+    await image.decode();
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
   return image;
 }

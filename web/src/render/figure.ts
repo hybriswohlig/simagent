@@ -56,6 +56,7 @@ import {
   wornHair,
   type Outfit,
 } from "./figure-map.js";
+import { selfContained } from "./glb.js";
 import type { Sex } from "./portrait.js";
 
 export const FIGURE_WIDTH = 260;
@@ -392,12 +393,16 @@ function loadAssets(): Promise<Assets> {
   return loading;
 }
 
+/** Set once a renderer could not be made on this page. */
+let noWebgl = false;
+
 async function loadAssetsOnce(): Promise<Assets> {
   const [bytes, pack, skin] = await Promise.all([
     figureBytes(`${FIGURE}/body.glb`),
     loadPack(),
     figureImage(`${FIGURE}/young_lightskinned_female_diffuse.png`),
   ]);
+  selfContained(bytes);
   const gltf = await new GLTFLoader().parseAsync(bytes, `${FIGURE}/`);
   const template = gltf.scene;
   const mesh = findSkinned(template);
@@ -1488,10 +1493,14 @@ export function mountFigure(
   return loadAssets().then((assets) => {
     if (cancel.cancelled) return () => {};
     const owned = freshOwned();
+    if (noWebgl) throw new Error("no WebGL");
     let renderer: WebGLRenderer;
     try {
       renderer = new WebGLRenderer({ canvas, antialias: true });
     } catch (error) {
+      // three registers its canvas listeners before it asks for a context; a second try
+      // would only add more of them, so this page stops trying.
+      noWebgl = true;
       throw error instanceof Error ? error : new Error("no WebGL");
     }
     let undo = () => {};

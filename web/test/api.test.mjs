@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { Refused, UnknownAnswer, accept, figureBytes, figureImage, figureText, getJson, postJson, refusal } from "../dist/api.js";
+import { Refused, UnknownAnswer, accept, figureBytes, figureImage, figurePath, figureText, getJson, postJson, refusal } from "../dist/api.js";
 
 const SERVER = { format: "simagent.view.runs", version: 1 };
 const FILE = { format_version: 4 };
@@ -125,5 +125,20 @@ test("figure files are read from this page", async () => {
   } finally {
     globalThis.fetch = previousFetch;
     globalThis.createImageBitmap = previousBitmap;
+  }
+});
+
+test("a figure path stays under ./figure/", () => {
+  assert.equal(figurePath("./figure/proxies/brown_eye.png"), "./figure/proxies/brown_eye.png");
+  for (const bad of [
+    "./figure/proxies/%2e%2e/%2e%2e/api/runs",
+    "./figure/../api/runs",
+    "./figure/proxies\\..\\x",
+    "./figure/.hidden",
+    "./figure/",
+    "/figure/body.glb",
+    "./api/runs",
+  ]) {
+    assert.throws(() => figurePath(bad), /not a figure file/, bad);
   }
 });
