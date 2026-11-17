@@ -1,0 +1,451 @@
+#!/usr/bin/env python3
+"""Load-time extension of the founder pool (ADR-0033 section 2, decisions 5 and 6).
+
+The frozen pool file is not rewritten. When the genome map declares the five temperament
+traits, every pool genome gains their 40 additive autosomal loci. A genome with no parent
+among the living pool members draws both copies independently (`POOL_ALLELE`, pool seed,
+subject the genome key, occasion `str_key` of the locus, detail the copy 0 or 1,
+`unit(key) < 0.5`). Otherwise each living parent transmits one copy by the same Mendelian
+draw as `assign_locus` (addressed by the child's genome key, the locus and the copy); a
+missing parent's copy is drawn independently at p = 0.5. Order: living members by
+`(born, lineage_key)`, then unborn children by the mother's pending birth (`birth_at`)
+and the child's lineage key. Identical twins share a genome key, so they draw the same
+alleles. Applying the extension twice changes nothing. Slots other than the 40 stay as
+they are.
+
+The reference values of each trait (`d_ref` 1, `sigma_ref` 2, `mean_ref` 0) are the exact
+parameters of the Hardy-Weinberg distribution at p = 0.5 (`Var(A) = 8 · 2p(1-p) = 4`), an
+exception to measuring them. This script does not measure.
+
+Usage:
+  python tools/pool_extension_reference.py fixture
+  python tools/pool_extension_reference.py real [POOL]
+"""
+
+import sys
+from pathlib import Path
+
+import pool_reference
+import world_reference
+from rng_reference import chacha_key, founder_key, str_key, unit, words
+
+ROOT = Path(__file__).resolve().parent.parent
+POOL_ALLELE = pool_reference.POOL_ALLELE
+MASK64 = (1 << 64) - 1
+# Precommitted before the real-pool frequency is known (ADR-0033 section 2). Relatedness
+# means the draws are not an independent binomial; this bound still rejects a systematic bias.
+FREQUENCY_BOUND = 0.01
+# The prior count in ADR-0033 section 2: genomes with at least one living pool parent.
+MENDELIAN_GENOMES = 29_942
+POOL_GENOMES = 40_418
+
+# Ordinal among the five new traits only (ascending data id). Locus i (from 0) goes to
+# segment (o * 3 + i) mod 8, at the smallest free slot of that segment. Each trait has
+# eight loci, so it hits every segment once and the min-distance branch never fires.
+TRAITS = (
+    "core:agreeableness",
+    "core:conscientiousness",
+    "core:extraversion",
+    "core:neuroticism",
+    "core:openness",
+)
+# (id, segment, slot), placement against data/genetics/genome_map.json of map 4.
+LOCI = (
+    ("core:agreeableness_01", 0, 12),
+    ("core:agreeableness_02", 1, 14),
+    ("core:agreeableness_03", 2, 14),
+    ("core:agreeableness_04", 3, 11),
+    ("core:agreeableness_05", 4, 16),
+    ("core:agreeableness_06", 5, 11),
+    ("core:agreeableness_07", 6, 10),
+    ("core:agreeableness_08", 7, 13),
+    ("core:conscientiousness_01", 3, 13),
+    ("core:conscientiousness_02", 4, 17),
+    ("core:conscientiousness_03", 5, 12),
+    ("core:conscientiousness_04", 6, 11),
+    ("core:conscientiousness_05", 7, 14),
+    ("core:conscientiousness_06", 0, 13),
+    ("core:conscientiousness_07", 1, 15),
+    ("core:conscientiousness_08", 2, 15),
+    ("core:extraversion_01", 6, 12),
+    ("core:extraversion_02", 7, 15),
+    ("core:extraversion_03", 0, 14),
+    ("core:extraversion_04", 1, 16),
+    ("core:extraversion_05", 2, 16),
+    ("core:extraversion_06", 3, 14),
+    ("core:extraversion_07", 4, 18),
+    ("core:extraversion_08", 5, 13),
+    ("core:neuroticism_01", 1, 17),
+    ("core:neuroticism_02", 2, 17),
+    ("core:neuroticism_03", 3, 15),
+    ("core:neuroticism_04", 4, 19),
+    ("core:neuroticism_05", 5, 14),
+    ("core:neuroticism_06", 6, 13),
+    ("core:neuroticism_07", 7, 16),
+    ("core:neuroticism_08", 0, 15),
+    ("core:openness_01", 4, 20),
+    ("core:openness_02", 5, 15),
+    ("core:openness_03", 6, 14),
+    ("core:openness_04", 7, 17),
+    ("core:openness_05", 0, 16),
+    ("core:openness_06", 1, 18),
+    ("core:openness_07", 2, 18),
+    ("core:openness_08", 3, 16),
+)
+OCCASION = {locus_id: str_key(locus_id) for locus_id, _, _ in LOCI}
+NEW_BITS = {(segment, slot) for _, segment, slot in LOCI}
+# Extended file bytes keyed by xxh3 of the raw file, so one process extends a pool once.
+_EXTENDED_BYTES = {}
+
+
+def declares_temperament(locus_ids) -> bool:
+    """True when every temperament locus id is present. `locus_ids` is a set of ids or a
+    dict keyed by id."""
+    return all(locus_id in locus_ids for locus_id, _, _ in LOCI)
+
+
+def extended_bytes(raw: bytes) -> bytes:
+    """The pool file with the temperament loci written, cached by the raw file's hash.
+
+    The file on disk is not rewritten. A second call with the same bytes returns the
+    cached encoding. The extension is idempotent, so extending an already extended
+    encoding yields the same bytes.
+    """
+    key = world_reference.hash64(raw)
+    found = _EXTENDED_BYTES.get(key)
+    if found is not None:
+        return found
+    pool = pool_reference.read_pool(raw)
+    extend_pool(pool)
+    encoded = pool_reference.encode_pool(pool)
+    _EXTENDED_BYTES[key] = encoded
+    return encoded
+
+
+def allele_at(words, segment, slot) -> int:
+    bit = segment * 24 + slot
+    return (words[bit // 64] >> (bit % 64)) & 1
+
+
+def with_allele(words, segment, slot, allele) -> tuple:
+    bit = segment * 24 + slot
+    word, shift = bit // 64, bit % 64
+    updated = list(words)
+    if allele:
+        updated[word] = (updated[word] | (1 << shift)) & MASK64
+    else:
+        updated[word] = (updated[word] & ~(1 << shift)) & MASK64
+    return tuple(updated)
+
+
+def copies_at(genome, segment, slot) -> tuple:
+    maternal, paternal, *_ = genome
+    return allele_at(maternal, segment, slot), allele_at(paternal, segment, slot)
+
+
+def write_copies(genome, segment, slot, pair) -> tuple:
+    maternal, paternal, x_maternal, paternal_sex, mt = genome
+    return (
+        with_allele(maternal, segment, slot, pair[0]),
+        with_allele(paternal, segment, slot, pair[1]),
+        x_maternal,
+        paternal_sex,
+        mt,
+    )
+
+
+def draw_unit(pool_seed: int, genome_key: int, locus_id: str, detail: int) -> float:
+    """`unit` of POOL_ALLELE (pool seed, genome key, str_key of the locus, copy)."""
+    key = chacha_key(pool_seed, POOL_ALLELE, genome_key, OCCASION[locus_id], detail)
+    return unit(words(key)[0])
+
+
+def blank_genome(sex: int) -> tuple:
+    """All reference alleles. Sex 0 is female (paternal X), 1 is male (paternal Y)."""
+    if sex == 0:
+        return ((0, 0, 0), (0, 0, 0), 0, (0, 0), 0)
+    if sex == 1:
+        return ((0, 0, 0), (0, 0, 0), 0, (1, 0), 0)
+    raise ValueError(sex)
+
+
+def iter_genomes(pool: dict):
+    """Living members by (born, lineage key), then unborn by (mother's birth_at, key).
+
+    Yields (person dict, mother key or None, father key or None). The person dict is the
+    one stored in the pool, so writing `person["genome"]` updates the pool.
+    """
+    living = []
+    for household in pool["households"]:
+        living.extend(household["members"])
+    living.sort(key=lambda person: (person["born"], person["lineage_key"]))
+    for person in living:
+        yield person, person["mother"], person["father"]
+    mothers = {person["lineage_key"]: person for person in living}
+    unborn = []
+    for household in pool["households"]:
+        for pregnancy in household["pregnancies"]:
+            due = mothers[pregnancy["mother"]]["birth_at"]
+            if due is None:
+                raise ValueError("a pregnancy whose mother has no pending birth")
+            for child in pregnancy["children"]:
+                unborn.append((due, child, pregnancy["mother"], pregnancy["father"]))
+    unborn.sort(key=lambda item: (item[0], item[1]["lineage_key"]))
+    for _, child, mother, father in unborn:
+        yield child, mother, father
+
+
+def extend_pool(pool: dict) -> dict:
+    """Writes the 40 loci into every genome. Returns counts for the report.
+
+    A parent transmits only when its lineage key is a living member already visited.
+    That is `assign_locus`: the assigned map holds the living people in birth order,
+    and a parent who is not among them (dead, emigrated, or not yet visited) is missing.
+    """
+    living = {person["lineage_key"] for household in pool["households"] for person in household["members"]}
+    assigned = {}
+    mendelian = 0
+    alt = 0
+    copies = 0
+    allele_bytes = bytearray()
+    for person, mother_key, father_key in iter_genomes(pool):
+        mother_genome = assigned.get(mother_key) if mother_key in living else None
+        father_genome = assigned.get(father_key) if father_key in living else None
+        if mother_genome is not None or father_genome is not None:
+            mendelian += 1
+        genome = person["genome"]
+        for locus_id, segment, slot in LOCI:
+            drawn = []
+            for detail, parent in ((0, mother_genome), (1, father_genome)):
+                u = draw_unit(pool["pool_seed"], person["genome_key"], locus_id, detail)
+                if parent is None:
+                    allele = 1 if u < 0.5 else 0
+                else:
+                    parent_copies = copies_at(parent, segment, slot)
+                    allele = parent_copies[0] if u < 0.5 else parent_copies[1]
+                drawn.append(allele)
+                allele_bytes.append(allele)
+                alt += allele
+                copies += 1
+            genome = write_copies(genome, segment, slot, drawn)
+        person["genome"] = genome
+        assigned[person["lineage_key"]] = genome
+    return {
+        "genomes": copies // (2 * len(LOCI)),
+        "mendelian": mendelian,
+        "alt": alt,
+        "copies": copies,
+        "frequency": alt / copies,
+        "allele_checksum": world_reference.hash64(bytes(allele_bytes)),
+    }
+
+
+def old_slots_unchanged(before: dict, after: dict) -> bool:
+    """Every autosome bit outside the 40 new slots is the same genome for genome."""
+    pairs = list(iter_genomes(before)), list(iter_genomes(after))
+    if len(pairs[0]) != len(pairs[1]):
+        return False
+    for (left, _, _), (right, _, _) in zip(*pairs):
+        for side in (0, 1):
+            for segment in range(8):
+                for slot in range(24):
+                    if (segment, slot) in NEW_BITS:
+                        continue
+                    if allele_at(left["genome"][side], segment, slot) != allele_at(right["genome"][side], segment, slot):
+                        return False
+        if left["genome"][2:] != right["genome"][2:]:
+            return False
+    return True
+
+
+def twin_genomes_match(pool: dict) -> bool:
+    """Genomes that share a genome key are identical, including the new slots."""
+    seen = {}
+    for person, _, _ in iter_genomes(pool):
+        previous = seen.get(person["genome_key"])
+        if previous is not None and previous != person["genome"]:
+            return False
+        seen[person["genome_key"]] = person["genome"]
+    return True
+
+
+def child_shares(pool: dict, child_key: int, mother_key: int, father_key: int) -> bool:
+    """Each new copy of the child equals the parent copy the draw selected."""
+    genomes = {person["lineage_key"]: person for person, _, _ in iter_genomes(pool)}
+    child = genomes[child_key]
+    mother = genomes[mother_key]["genome"]
+    father = genomes[father_key]["genome"]
+    for locus_id, segment, slot in LOCI:
+        maternal, paternal = copies_at(child["genome"], segment, slot)
+        u0 = draw_unit(pool["pool_seed"], child["genome_key"], locus_id, 0)
+        u1 = draw_unit(pool["pool_seed"], child["genome_key"], locus_id, 1)
+        mother_copies = copies_at(mother, segment, slot)
+        father_copies = copies_at(father, segment, slot)
+        if maternal != (mother_copies[0] if u0 < 0.5 else mother_copies[1]):
+            return False
+        if paternal != (father_copies[0] if u1 < 0.5 else father_copies[1]):
+            return False
+    return True
+
+
+def snapshot(pool: dict) -> dict:
+    """A deep copy of the genomes and the links the extension reads."""
+    import copy
+    return copy.deepcopy(pool)
+
+
+def fixture_pool() -> dict:
+    """Founders, a child of both, a child with one missing parent, identical twins, and
+    an unborn pair that shares a genome key. Keys are founders of `test:temperament`,
+    the same construction as `LineageKey::founder`."""
+    tag = "test:temperament"
+    keys = [founder_key(tag, index) for index in range(10)]
+    mother, father, child, half, twin_a, twin_b, unborn, unborn_twin, absent = keys[:9]
+
+    def person(key, sex, born, parents, genome_key=None, birth_at=None):
+        genome = blank_genome(sex)
+        return {
+            "lineage_key": key,
+            "genome_key": key if genome_key is None else genome_key,
+            "sex": sex,
+            "genome": genome,
+            "born": born,
+            "mother": parents[0] if parents else None,
+            "father": parents[1] if parents else None,
+            "birth_at": birth_at,
+        }
+
+    due = 5_000_000
+    members = [
+        person(mother, 0, 0, None, birth_at=due),
+        person(father, 1, 10, None),
+        person(child, 0, 100, (mother, father)),
+        person(half, 1, 110, (mother, absent)),
+        person(twin_a, 0, 200, (mother, father)),
+        person(twin_b, 0, 200, (mother, father), genome_key=twin_a),
+    ]
+    # An old slot (segment 0 slot 0, core:disease_ar) and a new slot preset to 1, so the
+    # extension must keep the old bit and overwrite the new one.
+    members[0]["genome"] = write_copies(members[0]["genome"], 0, 0, (1, 0))
+    members[0]["genome"] = write_copies(members[0]["genome"], 0, 12, (1, 0))
+    unborn_children = [
+        {"lineage_key": unborn, "genome_key": unborn, "sex": 0, "genome": blank_genome(0)},
+        {"lineage_key": unborn_twin, "genome_key": unborn, "sex": 0, "genome": blank_genome(0)},
+    ]
+    return {
+        "pool_seed": 0x5EED,
+        "households": [
+            {
+                "members": members,
+                "pregnancies": [
+                    {"mother": mother, "father": father, "children": unborn_children},
+                ],
+            }
+        ],
+        "_keys": {
+            "mother": mother,
+            "father": father,
+            "child": child,
+            "half": half,
+            "twin_a": twin_a,
+            "twin_b": twin_b,
+            "unborn": unborn,
+            "unborn_twin": unborn_twin,
+            "absent": absent,
+        },
+    }
+
+
+def alleles_of(person) -> str:
+    bits = []
+    for _, segment, slot in LOCI:
+        bits.extend(str(bit) for bit in copies_at(person["genome"], segment, slot))
+    return "".join(bits)
+
+
+def run_fixture() -> None:
+    pool = fixture_pool()
+    keys = pool.pop("_keys")
+    before = snapshot(pool)
+    report = extend_pool(pool)
+    again = snapshot(pool)
+    extend_pool(pool)
+    people = {person["lineage_key"]: person for person, _, _ in iter_genomes(pool)}
+    mother = people[keys["mother"]]
+    print(f"extension_version 1")
+    print(f"loci {len(LOCI)}")
+    print(f"fixture_seed {pool['pool_seed']:x}")
+    for name, key in keys.items():
+        print(f"fixture_key {name} {key:016x}")
+    for name in ("mother", "father", "child", "half", "twin_a", "twin_b", "unborn", "unborn_twin"):
+        print(f"fixture_alleles {name} {alleles_of(people[keys[name]])}")
+    print(f"fixture_checksum {report['allele_checksum']:016x}")
+    print(f"fixture_mendelian {report['mendelian']}")
+    print(f"fixture_genomes {report['genomes']}")
+    print(f"fixture_old_slot {copies_at(mother['genome'], 0, 0)[0]}")
+    print(f"fixture_old_slots_unchanged {int(old_slots_unchanged(before, pool))}")
+    print(f"fixture_idempotent {int(snapshot(pool)['households'] == again['households'])}")
+    print(f"fixture_twins_equal {int(people[keys['twin_a']]['genome'] == people[keys['twin_b']]['genome'])}")
+    print(f"fixture_unborn_twins_equal {int(people[keys['unborn']]['genome'] == people[keys['unborn_twin']]['genome'])}")
+    print(f"fixture_child_shares {int(child_shares(pool, keys['child'], keys['mother'], keys['father']))}")
+    # The half-orphan's paternal copy is the independent draw, not a parent's allele.
+    half = people[keys["half"]]
+    independent = True
+    for locus_id, segment, slot in LOCI:
+        u = draw_unit(pool["pool_seed"], half["genome_key"], locus_id, 1)
+        if copies_at(half["genome"], segment, slot)[1] != (1 if u < 0.5 else 0):
+            independent = False
+    print(f"fixture_half_father_independent {int(independent)}")
+    print(f"fixture_frequency_bound {FREQUENCY_BOUND}")
+
+
+def run_real(path: Path) -> None:
+    raw = path.read_bytes()
+    pool = pool_reference.read_pool(raw)
+    file_hash = world_reference.hash64(raw)
+    encoded = pool_reference.encode_pool(pool)
+    if encoded != raw:
+        raise SystemExit("the pool file does not round-trip through the reference encoder")
+    before = snapshot(pool)
+    report = extend_pool(pool)
+    second = snapshot(pool)
+    extend_pool(pool)
+    frequency_ok = abs(report["frequency"] - 0.5) < FREQUENCY_BOUND
+    print(f"file_hash {file_hash:016x}")
+    print(f"frozen_hash {pool['frozen_hash']:016x}")
+    print(f"pool_seed {pool['pool_seed']:016x}")
+    print(f"genomes {report['genomes']}")
+    print(f"mendelian {report['mendelian']}")
+    print(f"mendelian_expected {MENDELIAN_GENOMES}")
+    print(f"alt {report['alt']}")
+    print(f"copies {report['copies']}")
+    print(f"frequency {report['frequency']:.16f}")
+    print(f"frequency_within_bound {int(frequency_ok)}")
+    print(f"frequency_bound {FREQUENCY_BOUND}")
+    print(f"allele_checksum {report['allele_checksum']:016x}")
+    print(f"extended_hash {world_reference.hash64(pool_reference.encode_pool(pool)):016x}")
+    print(f"old_slots_unchanged {int(old_slots_unchanged(before, pool))}")
+    print(f"idempotent {int(pool['households'] == second['households'])}")
+    print(f"twins_match {int(twin_genomes_match(pool))}")
+    if report["genomes"] != POOL_GENOMES:
+        raise SystemExit(f"genome count {report['genomes']} is not {POOL_GENOMES}")
+    if report["mendelian"] != MENDELIAN_GENOMES:
+        raise SystemExit(
+            f"mendelian count {report['mendelian']} is not {MENDELIAN_GENOMES}; "
+            "check the living-parent definition before changing the assertion"
+        )
+
+
+def main() -> None:
+    command = sys.argv[1] if len(sys.argv) > 1 else "fixture"
+    if command == "fixture":
+        run_fixture()
+    elif command == "real":
+        path = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "data" / "pool" / "pool.bin"
+        run_real(path)
+    else:
+        raise SystemExit("usage: pool_extension_reference.py fixture | real [POOL]")
+
+
+if __name__ == "__main__":
+    main()

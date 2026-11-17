@@ -415,14 +415,17 @@ What the model knows:
     chromosome of the genome against the sex), `pool.locus` (one of the seven loci missing
     from the map), `pool.frozen_hash` (the pool's `frozen_hash` is not the data hash of
     these documents before the pool is appended; design note of the pool's records, section
-    6), then the frequencies the data carry with the pool (`Data(..., pool=bytes,
-    frequencies={locus: q})`, slice S2a of the switch to map 4): `pool.frequencies_loci`
-    (exactly the seven loci), `pool.frequency_range` (`0 < q < 1`), in this order
-    (`PoolDataRejected`). Without a pool the data hash stays and there are no frequencies;
-    with one it is xxh3 of the postcard of the definitions followed by the postcard of
-    `(pool_seed, pool_hash, frequencies)` (`pool_hash` = xxh3 of the file's bytes, the
-    frequencies a sequence of (locus ID, q as f64) ascending by ID;
-    `data_reference.pool_suffix`); `frozen_hash` stays the hash of the definitions alone.
+    6; map version 5 also accepts the hash of those documents with the temperament
+    extension removed, `data_reference.stripped_documents_hash`), then the frequencies the
+    data carry with the pool (`Data(..., pool=bytes, frequencies={locus: q})`, slice S2a of
+    the switch to map 4): `pool.frequencies_loci` (exactly the seven loci),
+    `pool.frequency_range` (`0 < q < 1`), in this order (`PoolDataRejected`). Without a
+    pool the data hash stays and there are no frequencies; with one it is xxh3 of the
+    postcard of the definitions followed by the postcard of `(pool_seed, pool_hash,
+    frequencies)` (`pool_hash` = xxh3 of the file's bytes, or of those bytes after the
+    load-time temperament extension when the map declares all forty loci; the frequencies
+    a sequence of (locus ID, q as f64) ascending by ID; `data_reference.pool_suffix`).
+    `frozen_hash` stays the hash of the definitions the pool was extracted from.
   - `Start` holds `pool: Option<PoolStart>` after `capacity` (`PoolStart { pool_hash: u64,
     n_start: u64, immigration: bool, households: Vec<PoolHousehold> }`, each household
     exactly as the file holds it, `pool_reference.encode_household`). Rejected after the
@@ -780,7 +783,13 @@ PROJECTION_VERSION = 24
 # Paternity at a birth in a moved-in household (ADR-0031, addendum of 2026-11-14). No new
 # state. A run without MoveIn keeps its log. A moved-in birth writes the sentences, and a
 # pool father is resolved by lineage key: the projection stays 24, core 72.
-CORE_VERSION = 72
+# The five temperament traits (ADR-0033 section 2) join map 5. The pool file stays
+# byte for byte. A load of a map that declares the forty loci extends every genome, so
+# the effective pool hash, the repository data hash, and every year hash and save of a
+# run that loads those genomes change. A run on a map without the loci keeps its
+# genomes, its year hashes and its log; a save of that run changes only the core
+# version byte. The projection stays 24, core 73.
+CORE_VERSION = 73
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1317,17 +1326,20 @@ class DataPool:
     `pool.sex` (the paternal sex chromosome of a member's or an unborn child's genome, X for
     a woman, Y for a man, differs from its sex), `pool.locus` (one of the seven loci missing
     from the map), `pool.frozen_hash` (the file's `frozen_hash` differs from `data_hash`, the
-    hash of the data's documents before the pool's bytes are appended; the file's `data_hash`
-    is not read), then the frequencies the data carry with the pool (S2a,
-    `data_reference.frequencies_rejection`): `pool.frequencies_loci` (not exactly the seven
-    loci), `pool.frequency_range` (a `q` not in (0, 1)). Holds the seed, `E_p`, the hash (xxh3
-    of the bytes), the frequencies {locus: q}, the households, each
+    hash of the data's documents before the pool's bytes are appended, and from `also_frozen`
+    when that is given; the file's `data_hash` is not read), then the frequencies the data
+    carry with the pool (S2a, `data_reference.frequencies_rejection`): `pool.frequencies_loci`
+    (not exactly the seven loci), `pool.frequency_range` (a `q` not in (0, 1)). When `loci`
+    contains every temperament locus, the genomes are then extended
+    (`pool_extension_reference.extended_bytes`) and the hash is xxh3 of that encoding; the
+    file's `frozen_hash` is unchanged. Otherwise the hash is xxh3 of the file's bytes. Holds
+    the seed, `E_p`, the hash, the frequencies {locus: q}, the households, each
     household's encoding (`pool_reference.encode_household`, what `Start` carries), its
     candidate (the smallest lineage key of a member of 18 or more at `E_p`, which the reader
     guarantees) and its number of members, and indices of the members, the unborn children
     and the records by lineage key."""
 
-    def __init__(self, data: bytes, loci: dict, data_hash: int, frequencies: dict):
+    def __init__(self, data: bytes, loci: dict, data_hash: int, frequencies: dict, also_frozen=None):
         import pool_reference
 
         self.bytes = data
@@ -1349,13 +1361,21 @@ class DataPool:
         missing = [locus for locus in POOL_LOCI if locus not in loci]
         if missing:
             raise PoolDataRejected("pool.locus", " ".join(missing))
-        if self.file["frozen_hash"] != data_hash:
-            raise PoolDataRejected("pool.frozen_hash", f"pool {self.file['frozen_hash']:016x} data {data_hash:016x}")
-        self.frozen_hash = self.file["frozen_hash"]
+        frozen = self.file["frozen_hash"]
+        if frozen != data_hash and frozen != also_frozen:
+            raise PoolDataRejected("pool.frozen_hash", f"pool {frozen:016x} data {data_hash:016x}")
+        self.frozen_hash = frozen
         code = data_reference.frequencies_rejection(frequencies)
         if code is not None:
             raise PoolDataRejected(code, " ".join(f"{locus}={q!r}" for locus, q in sorted(frequencies.items())))
         self.frequencies = {locus: float(frequencies[locus]) for locus in sorted(frequencies)}
+        import pool_extension_reference
+
+        if pool_extension_reference.declares_temperament(loci):
+            extended = pool_extension_reference.extended_bytes(data)
+            self.hash = hash64(extended)
+            self.file = pool_reference.read_pool(extended)
+            self.households = self.file["households"]
         self.encoded = [pool_reference.encode_household(household) for household in self.households]
         self.candidates = []
         self.sizes = []
@@ -1421,6 +1441,7 @@ class Data:
     the templates and the houses); a pool person keeps the extract's wish (`pool_wish`)."""
 
     def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None, social=None, game=None):
+        extract_demography = demography
         extract = data_reference.definitions_bytes(demography, calibration, genome_map)
         extract_wish = data_reference.strip(demography)
         if game is not None:
@@ -1437,7 +1458,10 @@ class Data:
         hashed = definitions
         if pool is not None:
             extract_hash = xxhash.xxh3_64_intdigest(extract, seed=0)
-            self.pool = DataPool(pool, self.loci, extract_hash, {} if frequencies is None else dict(frequencies))
+            also_frozen = None
+            if genome_map.get("map_version") == 5 and data_reference.declares_temperament(genome_map):
+                also_frozen = data_reference.stripped_documents_hash(extract_demography, calibration, genome_map)
+            self.pool = DataPool(pool, self.loci, extract_hash, {} if frequencies is None else dict(frequencies), also_frozen)
             self.pool_frequencies = self.pool.frequencies
             self.hash = data_reference.data_hash_with_pool(definitions, self.pool.seed, self.pool.hash, self.pool.frequencies)
             hashed += data_reference.pool_suffix(self.pool.seed, self.pool.hash, self.pool.frequencies)
@@ -1803,12 +1827,18 @@ def repository() -> Data:
     """The repository's data as the CLI builds them (`repository_data`), read once; their data
     hash is checked against their own reference (`data_reference.repository_hash`: the
     definitions, then the pool's seed and hash and the frequencies, then the shock
-    templates, then the houses, then the social data), and the definitions alone must hash to the pool's
-    `frozen_hash`."""
+    templates, then the houses, then the social data). The pool's `frozen_hash` equals the
+    definitions, or, on map version 5 with the temperament loci, the definitions with that
+    extension removed."""
     if not _REPOSITORY:
         data = repository_data()
         assert data.hash == data_reference.repository_hash(ROOT / "data")
-        assert data.pool.frozen_hash == data_reference.data_hash(ROOT / "data")
+        demography, calibration, genome_map = data_reference.documents(ROOT / "data")
+        frozen = data.pool.frozen_hash
+        matches = frozen == data_reference.documents_hash(demography, calibration, genome_map)
+        if genome_map.get("map_version") == 5 and data_reference.declares_temperament(genome_map):
+            matches = matches or frozen == data_reference.stripped_documents_hash(demography, calibration, genome_map)
+        assert matches, f"frozen_hash {frozen:016x}"
         _REPOSITORY.append(data)
     return _REPOSITORY[0]
 

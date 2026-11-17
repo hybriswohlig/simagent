@@ -83,15 +83,19 @@ With a pool (slice S2a of the switch to map 4, design note of the switch, sectio
 the data also carry the frequencies of the pool's seven loci (`frequencies_of`, the rules
 `frequencies_rejection`), and the data hash is xxh3-64 of the definitions' postcard followed
 by the postcard of `(pool_seed, pool_hash, frequencies)` (`pool_suffix`,
-`data_hash_with_pool`); `frozen_hash` stays the hash of the definitions alone.
+`data_hash_with_pool`). `pool_hash` is xxh3 of the pool file. When the map declares all
+forty temperament loci, that hash is of the genomes after the load-time extension
+(`effective_pool_bytes`); the file itself is not rewritten. `frozen_hash` stays the hash of
+the definitions the pool was extracted from. Map version 5 keeps that hash equal to the
+definitions with the five temperament traits, their loci, phenotype rows, sex differences
+and development values removed and `map_version` set back to 4 (`stripped_documents_hash`).
 
-The repository's data (slice S5 of the switch, design note section 14): data/ holds map 4,
-its calibration and the life course data, and under data/pool/ the pool `pool.bin` with its
-frequencies `pool_frequencies.json` (the wrapped form). The CLI builds its data with that
-pool and those frequencies, so the repository's data hash is `data_hash_with_pool`
-(`repository_hash`); the hash of the definitions alone is the pool's `frozen_hash`. A data
-directory without a `pool/` (every fixture, tests/golden/map3) has no pool: its data hash is
-that of its definitions, as before.
+The repository's data (slice S5 of the switch, design note section 14): data/ holds the
+genome map, its calibration and the life course data, and under data/pool/ the pool
+`pool.bin` with its frequencies `pool_frequencies.json` (the wrapped form). The CLI builds
+its data with that pool and those frequencies, so the repository's data hash is
+`data_hash_with_pool` (`repository_hash`). A data directory without a `pool/` (every
+fixture, tests/golden/map3) has no pool: its data hash is that of its definitions, as before.
 
 The shock templates (ADR-0023 section 3 and its addendum before S1b): data/shocks.json
 (`{"format": "simagent.shocks", "version": 1, "shocks": [{id, kind, years, index, source}]}`,
@@ -149,6 +153,7 @@ Usage: python3 tools/data_reference.py [DATA_DIR]
        (the definitions' hash and the data hash with the pool and its frequencies)
 """
 
+import copy
 import json
 import math
 import struct
@@ -800,13 +805,67 @@ def definitions_bytes(demography, calibration, genome_map) -> bytes:
 
 def documents_hash(demography, calibration, genome_map) -> int:
     """The data hash of the definitions without a pool (`definitions_bytes`), xxh3-64 with
-    seed 0. With a pool it is also the pool's `frozen_hash` (design note of the pool's
-    records, section 6)."""
+    seed 0. With a pool extracted from these documents it is also the pool's `frozen_hash`
+    (design note of the pool's records, section 6). Map version 5 is the exception in
+    `stripped_documents_hash`."""
     return xxhash.xxh3_64_intdigest(definitions_bytes(demography, calibration, genome_map), seed=0)
+
+
+# The five temperament traits, in data-id order (ADR-0033 section 2). Eight loci each.
+TEMPERAMENT_TRAITS = (
+    "core:agreeableness",
+    "core:conscientiousness",
+    "core:extraversion",
+    "core:neuroticism",
+    "core:openness",
+)
+
+
+def temperament_locus_ids() -> list:
+    """`core:{trait}_01` .. `_08` for each temperament trait, in data-id order."""
+    return [f"{trait}_{n:02d}" for trait in TEMPERAMENT_TRAITS for n in range(1, 9)]
+
+
+def declares_temperament(genome_map) -> bool:
+    """True when the map contains every temperament locus id."""
+    ids = {locus["id"] for locus in genome_map["loci"]}
+    return all(locus_id in ids for locus_id in temperament_locus_ids())
+
+
+def stripped_documents_hash(demography, calibration, genome_map) -> int:
+    """The definitions with the temperament extension removed and `map_version` set to 4.
+
+    A pool frozen on map 4 keeps this hash when the live documents are map version 5 and
+    declare all forty loci. The caller's documents are not modified.
+    """
+    traits = set(TEMPERAMENT_TRAITS)
+    loci = set(temperament_locus_ids())
+    calibration = copy.deepcopy(calibration)
+    genome_map = copy.deepcopy(genome_map)
+    genome_map["map_version"] = 4
+    genome_map["traits"] = [trait for trait in genome_map["traits"] if trait["id"] not in traits]
+    genome_map["loci"] = [locus for locus in genome_map["loci"] if locus["id"] not in loci]
+    calibration["traits"] = [row for row in calibration["traits"] if row["trait"] not in traits]
+    calibration["sex_differences"] = [row for row in calibration["sex_differences"] if row["trait"] not in traits]
+    for trait in traits:
+        calibration["values"].pop(f"{trait}_development_mean", None)
+        calibration["values"].pop(f"{trait}_development_sd", None)
+    return documents_hash(demography, calibration, genome_map)
 
 
 def data_hash(data_dir: Path) -> int:
     return documents_hash(*documents(data_dir))
+
+
+def effective_pool_bytes(pool: bytes, genome_map: dict) -> bytes:
+    """The pool bytes the data hash covers. A map that declares all forty temperament loci
+    uses the load-time extension (`pool_extension_reference.extended_bytes`, cached by the
+    file's hash). Any other map, including the golden fixtures, keeps the file bytes."""
+    import pool_extension_reference
+
+    if declares_temperament(genome_map):
+        return pool_extension_reference.extended_bytes(pool)
+    return pool
 
 
 # ---------------------------------------------------------------------------------------
@@ -1739,12 +1798,14 @@ def repository_hash(data_dir: Path) -> int:
     (`houses_suffix`, ADR-0025), and with a `social/social.json` followed by the social data
     (`social_suffix`, ADR-0030 section 6)."""
     files = pool_files(data_dir)
-    out = definitions_bytes(*game_documents(data_dir))
+    demography, calibration, genome_map = game_documents(data_dir)
+    out = definitions_bytes(demography, calibration, genome_map)
     if files is not None:
         pool, frequencies = files
         assert frequencies_rejection(frequencies) is None, frequencies_rejection(frequencies)
         head = pool_head(pool)
-        out += pool_suffix(head["pool_seed"], xxhash.xxh3_64_intdigest(pool, seed=0), frequencies)
+        identity = xxhash.xxh3_64_intdigest(effective_pool_bytes(pool, genome_map), seed=0)
+        out += pool_suffix(head["pool_seed"], identity, frequencies)
     out += shocks_suffix(shock_templates(data_dir))
     out += houses_suffix(house_files(data_dir))
     houses = house_files(data_dir)
@@ -1780,9 +1841,17 @@ def main(argv):
         # frequencies as the CLI builds them.
         pool, frequencies = files
         head = pool_head(pool)
-        pool_hash = xxhash.xxh3_64_intdigest(pool, seed=0)
+        _, _, genome_map = documents(data_dir)
+        pool_hash = xxhash.xxh3_64_intdigest(effective_pool_bytes(pool, genome_map), seed=0)
         definitions = data_hash(data_dir)
-        print(f"definitions_hash {definitions:016x} (the pool's frozen_hash {head['frozen_hash']:016x}: {'equal' if definitions == head['frozen_hash'] else 'DIFFERENT'})")
+        frozen = head["frozen_hash"]
+        if definitions == frozen:
+            relation = "equal"
+        elif genome_map["map_version"] == 5 and declares_temperament(genome_map) and stripped_documents_hash(*documents(data_dir)) == frozen:
+            relation = "equal to the definitions without the temperament extension"
+        else:
+            relation = "DIFFERENT"
+        print(f"definitions_hash {definitions:016x} (the pool's frozen_hash {frozen:016x}: {relation})")
         print(
             f"data_hash {repository_hash(data_dir):016x} pool_seed {head['pool_seed']:016x} pool_hash {pool_hash:016x} pool_bytes {len(pool)}"
             f" frozen_at {head['frozen_at']} run_data_hash {head['data_hash']:016x}"
