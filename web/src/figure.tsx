@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { BodyParams } from "./generated/body.js";
 import { Portrait } from "./portrait.js";
+import { clothes, wornHair } from "./render/figure-map.js";
 import { FAMILY_HEIGHT_PX, FAMILY_LIMIT, FAMILY_SLOT_PX, familyCanvasWidth, familyNamePercent, visualKey } from "./render/family-layout.js";
 import { FIGURE_HEIGHT, FIGURE_WIDTH, mountFamily, mountFigure, type FigureMember } from "./render/figure.js";
 import type { Sex } from "./render/portrait.js";
@@ -76,7 +77,14 @@ export type FamilyMember = {
  * keeps the same key. */
 function figureKey(members: readonly FamilyMember[]): string {
   const ids = members.map((member) => member.sim).join(",");
-  return `${ids}|${members.map((member) => visualKey(member.body)).join("|")}`;
+  // The hair and the outfit switch at thresholds (balding stage 1, age 13) that the
+  // rounding could hide, so their choice is part of the key itself.
+  const looks = members.map((member) => {
+    const sim = String(member.sim);
+    const outfit = clothes(member.sex, sim, member.body.body_form_age);
+    return `${visualKey(member.body)}/${wornHair(member.body, member.sex, sim)}/${JSON.stringify(outfit)}`;
+  });
+  return `${ids}|${looks.join("|")}`;
 }
 
 /**
