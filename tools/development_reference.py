@@ -268,26 +268,17 @@ def habits_at(habits: Habits, t: int) -> Dict[Key, int]:
     return out
 
 
-def habit_complete(habits: Habits, key: Key, t: int, newcomer_counts: bool = False) -> Habits:
+def habit_complete(habits: Habits, key: Key, t: int) -> Habits:
     """A completion (end with Done or Full, without a command) at second t: strength +100,
-    capped at 1000, stored with the value and the second t. A strength of 0 is removed first.
-    At most 8 habits: READING (7) with a full list (8 other keys) and a new key, the weakest
-    existing habit (smallest strength at t, tie smallest key) falls and the newcomer comes in
-    with 100. With `newcomer_counts` the newcomer takes part in the comparison instead (it
-    can then drop itself)."""
+    capped at 1000, the decayed value plus 100 stored with the second t. Only that entry is
+    stored again; every other entry keeps its own value and second, because integer decay
+    from two seconds is not the decay from one. Entries at strength 0 are removed first. At
+    most 8 habits: with a full list and a new key, the weakest existing habit (smallest
+    strength at t, tie smallest key) falls and the newcomer comes in with 100."""
     current = habits_at(habits, t)
-    new: Habits = {k: (s, t) for k, s in current.items()}
-    old = current.get(key, 0)
-    value = min(old + HABIT_STEP, HABIT_MAX)
+    new: Habits = {k: habits[k] for k in current}
+    value = min(current.get(key, 0) + HABIT_STEP, HABIT_MAX)
     if key not in new and len(new) >= HABIT_CAP:
-        if newcomer_counts:
-            pool = dict(current)
-            pool[key] = value
-            drop = min(pool, key=lambda k: (pool[k], k))
-            if drop != key:
-                del new[drop]
-                new[key] = (value, t)
-            return new
         drop = min(current, key=lambda k: (current[k], k))
         del new[drop]
     new[key] = (value, t)
@@ -553,6 +544,12 @@ def main() -> None:
     big = 10**30 + 1
     assert div0(big, 1) == big and div0(-big, 1) == -big and div0(-big, 3) == -(big // 3)
     assert int(big / 1) != big  # the float route loses digits
+    # Only the completed habit is stored again: key A (100 at 0) and key B (100 at 0); B is
+    # completed at 1.5 days (100 - 30 = 70, + 100 = 170 at that second); A keeps (100, 0).
+    pair = {(1, 0): (100, 0), (2, 0): (100, 0)}
+    after = habit_complete(pair, (2, 0), 129600)
+    assert after[(1, 0)] == (100, 0), after
+    assert after[(2, 0)] == (170, 129600), after
     print("all acceptance checks passed")
 
 
