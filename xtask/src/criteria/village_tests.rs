@@ -236,7 +236,7 @@ fn the_villages_are_the_adrs() {
 #[test]
 fn the_repository_data_are_the_clis() {
     let data = repository_data(&root()).expect("the repository's data");
-    assert_eq!(data.hash(), 0xf828_17a6_2fc9_315d);
+    assert_eq!(data.hash(), 0xa7e0_05c1_7113_a48a);
 }
 
 /// The text without the values of `z` and `gl`, which may differ in their last bits (the

@@ -614,7 +614,7 @@ mod tests {
         // The data hash of the built-in data, map 4 with the pool and its frequencies, the
         // shock templates and the houses, and the game's life course data, from
         // tools/data_reference.py (line `data_hash`).
-        assert_eq!(core_data().expect("data").hash(), 0xf828_17a6_2fc9_315d);
+        assert_eq!(core_data().expect("data").hash(), 0xa7e0_05c1_7113_a48a);
     }
 
     /// The base game is the extract with the game's overlay (ADR-0017, addendum of
