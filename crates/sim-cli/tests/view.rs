@@ -85,6 +85,7 @@ fn fixture(name: &str) -> (PathBuf, PathBuf) {
     write(&web.join("vendor/x.mjs"), b"export const x = 2;\n");
     write(&web.join("vendor/data.json"), b"{}\n");
     write(&web.join("vendor/x.png"), b"png");
+    write(&web.join("vendor/x.bin"), b"bin");
     write(&web.join("api/runs.json"), b"{}\n");
     write(&web.join("\u{e4}.js"), b"export const u = 3;\n");
     write(&web.join(".hidden.js"), b"export const h = 4;\n");
@@ -219,7 +220,8 @@ fn the_files_of_web_dist_and_nothing_else() {
             "text/javascript; charset=utf-8",
         ),
         ("/vendor/data.json", "vendor/data.json", "application/json"),
-        ("/vendor/x.png", "vendor/x.png", "application/octet-stream"),
+        ("/vendor/x.png", "vendor/x.png", "image/png"),
+        ("/vendor/x.bin", "vendor/x.bin", "application/octet-stream"),
     ] {
         let (status, head, body) = get(port, path);
         assert_eq!(status, 200, "{path}");
