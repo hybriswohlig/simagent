@@ -27,7 +27,7 @@ jobs:
         # macOS arm64 is the third supported target, the Mac the game is developed on.
         runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
     runs-on: ${{ matrix.runner }}
-    # macOS takes about 48 minutes since debug builds optimise sim-core (the load-time pool
+    # macOS takes an estimated 48 minutes since debug builds optimise sim-core (the load-time pool
     # extension): about seven minutes more to compile, fewer to test.
     timeout-minutes: 60
     steps:
