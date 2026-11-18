@@ -22,7 +22,8 @@ The genomes, by locus (B1 to B6):
 - `core:mc1r`: `[1, 1]` for red hair, `[0, 0]` otherwise (B3);
 - `core:herc2`: `[1, 1]` for a light iris, `[0, 0]` otherwise (B4).
 
-Checked: 121 additive autosomal loci, of them 8 liability loci, and the 7 others the map has
+Checked: 161 additive autosomal loci (40 of them the temperament loci), of them 8 liability
+loci, and the 7 others the map has
 (`core:disease_ar`, `core:mc1r`, `core:herc2`, `core:disease_ad_late`,
 `core:disease_ad_partial` on autosomes, `core:disease_xr` on the X, `core:disease_mt` on the
 mt); no Y locus.
@@ -63,7 +64,7 @@ def loci() -> list:
     ]
     additive = [lid for lid, chromosome, add in found if add and chromosome == "autosome"]
     others = {lid: chromosome for lid, chromosome, add in found if not add}
-    assert len(additive) == 121, len(additive)
+    assert len(additive) == 161, len(additive)
     assert set(LIABILITY) <= set(additive) and set(PUBERTY) <= set(additive)
     assert others == OTHERS, others
     assert all(chromosome in ("autosome", "x", "mt") for _, chromosome, _ in found), "no Y locus"
