@@ -88,8 +88,8 @@ impl Raised {
     pub fn fits(&self, born: SimTime) -> bool {
         let age = self.since.checked_since(born);
         let young = age.is_some_and(|age| age.as_secs() >= 0 && age < RAISED_UNTIL);
-        let bounded = (self.experience.iter())
-            .all(|d| (-EXPERIENCE_BOUND..=EXPERIENCE_BOUND).contains(d));
+        let bounded =
+            (self.experience.iter()).all(|d| (-EXPERIENCE_BOUND..=EXPERIENCE_BOUND).contains(d));
         young && bounded
     }
 }

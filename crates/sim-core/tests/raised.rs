@@ -154,7 +154,10 @@ fn lived_experience_takes_the_place_of_e_on_an_axis() {
         experience: [1000, 0, 0, 0, 0],
     };
     let openness = parts(&data, "core:openness", adult, raised);
-    assert!(close(openness.individual, sim_math::sqrt(0.45)), "{openness:?}");
+    assert!(
+        close(openness.individual, sim_math::sqrt(0.45)),
+        "{openness:?}"
+    );
     let plain = parts(&data, "core:openness", adult, Lived::NONE);
     assert_eq!(openness.genetic.to_bits(), plain.genetic.to_bits());
     assert_eq!(openness.shared.to_bits(), plain.shared.to_bits());
@@ -216,7 +219,10 @@ fn a_child_moving_in_is_raised_from_that_second() {
     let openness = id("core:openness");
     let at = t(DAY.as_secs() - 1);
     let age = |born: i64| at.checked_since(t(born)).expect("born before");
-    let before = run.world.state().phenotype(sim(3), &openness, age(FAMILY[2]));
+    let before = run
+        .world
+        .state()
+        .phenotype(sim(3), &openness, age(FAMILY[2]));
     run.submit(Input::MoveIn(MoveIn { household: home }));
     assert_eq!(moved_in_at(&run), at);
     let raised = &run.world.state().house().raised;
@@ -224,7 +230,10 @@ fn a_child_moving_in_is_raised_from_that_second() {
         raised.iter().collect::<Vec<_>>(),
         vec![(&sim(3), &Raised::new(at)), (&sim(4), &Raised::new(at))]
     );
-    let after = run.world.state().phenotype(sim(3), &openness, age(FAMILY[2]));
+    let after = run
+        .world
+        .state()
+        .phenotype(sim(3), &openness, age(FAMILY[2]));
     assert_eq!(before.map(f64::to_bits), after.map(f64::to_bits));
     assert!(before.is_some());
 }
@@ -262,7 +271,11 @@ fn a_child_born_in_the_house_is_raised_from_its_birth() {
     let mut late = Run::founded(life_data(), 7, "test:raised", &born);
     late.advance(BIRTH);
     assert!(late.world.state().house().raised.is_empty());
-    let home = late.world.state().household_of(sim(1)).expect("her household");
+    let home = late
+        .world
+        .state()
+        .household_of(sim(1))
+        .expect("her household");
     late.submit(Input::MoveIn(MoveIn { household: home }));
     let at = moved_in_at(&late);
     assert_eq!(
@@ -278,7 +291,10 @@ fn a_save_keeps_who_is_raised() {
     let (run, _) = Run::family(data.clone(), 7, "test:raised", &FAMILY, 0);
     let bytes = run.world.save(&run.out.year_hashes).expect("saves");
     let (loaded, _) = World::load(&bytes, data).expect("loads");
-    assert_eq!(loaded.state().house().raised, run.world.state().house().raised);
+    assert_eq!(
+        loaded.state().house().raised,
+        run.world.state().house().raised
+    );
     assert_eq!(loaded.save(&run.out.year_hashes).expect("saves"), bytes);
 }
 
@@ -328,7 +344,11 @@ fn each_axis_reads_its_own_development_values() {
     };
     for (axis, (_, _, want)) in Axis::ALL.into_iter().zip(calibrated) {
         let got = parts(&data, axis.trait_id(), years(1000), lived).individual;
-        let fits = if want == 0.0 { got == 0.0 } else { close(got, want) };
+        let fits = if want == 0.0 {
+            got == 0.0
+        } else {
+            close(got, want)
+        };
         assert!(fits, "{axis:?}: {got} {want}");
     }
 }
