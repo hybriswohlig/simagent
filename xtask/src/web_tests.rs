@@ -40,7 +40,9 @@ fn the_page_maps_exactly_the_vendored_modules() {
         serde_json::json!({"imports": {
             "preact": "./vendor/preact.mjs",
             "preact/hooks": "./vendor/hooks.mjs",
-            "preact/jsx-runtime": "./vendor/jsx-runtime.mjs"
+            "preact/jsx-runtime": "./vendor/jsx-runtime.mjs",
+            "three": "./vendor/three.module.js",
+            "three/addons/": "./vendor/three/addons/"
         }})
     );
     assert_eq!(page.matches("importmap").count(), 1);
@@ -226,6 +228,49 @@ fn the_scan_walks_the_tree_and_stops_the_build() {
     assert_eq!(scan(&root), Ok(vec![finding.to_owned()]));
     assert_eq!(build(&root), Err(format!("\n  {finding}")));
     assert!(!root.join("web/dist").exists());
+    std::fs::remove_dir_all(&root).expect("removed");
+}
+
+/// A listed figure file is copied only when it is a regular file under the figure directory.
+/// A symbolic link, as the file or as a directory on the way, is an error. So is a path
+/// that leaves that directory. The bytes of a real file are the file.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_figure_file_is_refused() {
+    let root = std::env::temp_dir().join(format!(
+        "simagent-figure-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("proxies")).expect("a directory");
+    let real = root.join("proxies/real.png");
+    std::fs::write(&real, b"png").expect("written");
+    assert_eq!(
+        figure_file(&root, "proxies/real.png").as_deref(),
+        Ok(&b"png"[..])
+    );
+    std::os::unix::fs::symlink(&real, root.join("proxies/brown_eye.png")).expect("a link");
+    let linked = figure_file(&root, "proxies/brown_eye.png").expect_err("a linked file");
+    assert!(linked.contains("symbolic link"), "{linked}");
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&outside).expect("a directory");
+    std::fs::write(outside.join("x.png"), b"x").expect("written");
+    std::os::unix::fs::symlink(&outside, root.join("linked")).expect("a linked directory");
+    let via = figure_file(&root, "linked/x.png").expect_err("a linked directory");
+    assert!(via.contains("symbolic link"), "{via}");
+    let escaped = figure_file(&root, "proxies/../../etc/passwd").expect_err("an escape");
+    assert!(escaped.contains("outside"), "{escaped}");
+    std::fs::write(root.join("body.glb"), b"glb").expect("written");
+    std::fs::rename(root.join("body.glb"), root.join("real.glb")).expect("moved");
+    std::os::unix::fs::symlink(root.join("real.glb"), root.join("body.glb")).expect("a link");
+    let copied = copy_figure_from(&root.join("dist"), &root);
+    let err = copied.expect_err("copy follows no link");
+    assert!(err.contains("symbolic link"), "{err}");
+    assert!(!root.join("dist/figure/body.glb").exists());
     std::fs::remove_dir_all(&root).expect("removed");
 }
 

@@ -65,7 +65,10 @@ if (browser !== undefined) {
       const where = message.location().url;
       const refusal = refusalAsked && where.endsWith("/api/runs/neu/input") && message.text().includes("409");
       const cut = silenced && message.text().includes("net::ERR_FAILED");
-      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal && !cut) {
+      // No figure files in this run: the card keeps the portrait, and the browser's line
+      // about the missing file is not an error of the page.
+      const figure = where.includes("/figure/") || message.text().includes("/figure/");
+      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal && !cut && !figure) {
         errors.push(message.text());
       }
     });

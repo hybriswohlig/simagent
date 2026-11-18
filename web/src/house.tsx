@@ -12,6 +12,7 @@ import { usePedigree } from "./person.js";
 import { usePeople } from "./peopleview.js";
 import { Portrait } from "./portrait.js";
 import { families } from "./families.js";
+import { FamilyFigures, type FamilyMember } from "./figure.js";
 import { SCROLLED } from "./lines.js";
 import { failureCode, inputFailureText, refusalText } from "./refusals.js";
 import { labels, plan, spots, timeOfDay } from "./render/plan.js";
@@ -618,10 +619,24 @@ function Needs({ person, name, comfort }: { person: HousePerson; name: string; c
   );
 }
 
+/** The living members that have a body in the people answer, in the order `members` already
+ * has. None, when the contract cannot be read or a member has no body: the row is the whole
+ * household or it is not drawn. */
+function livingFigures(members: readonly Person[], people: PeopleAnswer | null): readonly FamilyMember[] {
+  if (people === null || !readable(people.contract_version)) return [];
+  const row: FamilyMember[] = [];
+  for (const member of members) {
+    const body = people.people.find((person) => person.sim === member.sim)?.shown.body;
+    if (body === undefined) return [];
+    row.push({ sim: member.sim, firstName: member.first_name, sex: member.sex, body });
+  }
+  return row;
+}
+
 /** The house of a household (ADR-0021, addendum of 2026-11-03), named by the surnames of its
- * members: its plan with the people where they are, the clock in steps of minutes and hours,
- * each person with what it does and its needs, each child under 6 with where it is; before the
- * first morning the members moving in. */
+ * members: its plan with the people where they are, the household standing in one row, the
+ * clock in steps of minutes and hours, each person with what it does and its needs, each
+ * child under 6 with where it is; before the first morning the members moving in. */
 export function HousePage({ run, household, cheat }: { run: string; household: string; cheat: boolean }) {
   const [at, setAt] = useState(0);
   const loaded = useHouse(run, household, String(at));
@@ -716,6 +731,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
       ? []
       : persons.persons.filter((p) => p.household === house.household && p.died === null && p.emigrated === null);
   const family = surnames(members);
+  const figures = livingFigures(members, looks);
   // A command changed the house: read it again at the same clock.
   const reload = () => {
     if (live.current) {
@@ -763,6 +779,7 @@ export function HousePage({ run, household, cheat }: { run: string; household: s
       {pedigree.state === "failed" && <p role="alert">{TEXT[pedigree.text]}</p>}
       {!house.morning && <p>{TEXT.house_before_morning}</p>}
       <Plan house={house} names={names} />
+      {figures.length > 0 && <FamilyFigures run={run} members={figures} />}
       {!house.morning && members.length > 0 && (
         <>
           <h2>{TEXT.house_people}</h2>

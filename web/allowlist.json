@@ -4,6 +4,7 @@
   "packages": [
     {"name": "playwright-core", "license": "Apache-2.0"},
     {"name": "preact", "license": "MIT"},
+    {"name": "three", "license": "MIT"},
     {"name": "typescript", "license": "Apache-2.0"}
   ]
 }
