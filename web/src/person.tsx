@@ -21,6 +21,7 @@ import { found, NO_FILTER, type Filter } from "./people.js";
 import { FilterForm, PeopleList, traitsLine, usePeople } from "./peopleview.js";
 import { browserStorage, pin, pinnedKey, unpin } from "./pin.js";
 import { inputFailureText } from "./refusals.js";
+import { Figure } from "./figure.js";
 import { Portrait } from "./portrait.js";
 import { KIN_DY, layout, MARK_DY, NAME_DY, RADIUS } from "./render/tree.js";
 import { format } from "./router.js";
@@ -611,7 +612,7 @@ export function PersonPage({ run, sim, cheat }: { run: string; sim: string; chea
       <p>{person.sex === "female" ? TEXT.female : TEXT.male}</p>
       {shown !== null ? (
         <div>
-          <Portrait params={shown.shown.body} sex={person.sex} label={fullName(person)} />
+          <Figure params={shown.shown.body} sex={person.sex} sim={sim} label={fullName(person)} />
           <Life view={shown} />
           <Wish view={shown} person={fullName(person)} pedigree={pedigree} />
         </div>

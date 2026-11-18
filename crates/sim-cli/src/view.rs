@@ -230,6 +230,9 @@ fn content_type(path: &str) -> &'static str {
         Some("html") => "text/html; charset=utf-8",
         Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("json") => JSON,
+        Some("png") => "image/png",
+        Some("jpg") => "image/jpeg",
+        Some("glb") => "model/gltf-binary",
         _ => "application/octet-stream",
     }
 }
@@ -2001,5 +2004,25 @@ mod tests {
             step_target(before, Step::Year),
             SimTime::from_secs(MAX_ABS_SECS - 2 * year - 1)
         );
+    }
+
+    /// A figure file is served as an image, a binary glTF, or raw bytes. `.bin` and a name
+    /// with no extension stay `application/octet-stream`.
+    #[test]
+    fn a_figure_file_has_its_content_type() {
+        assert_eq!(content_type("index.html"), "text/html; charset=utf-8");
+        assert_eq!(
+            content_type("vendor/three.module.js"),
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(content_type("figure/proxies/proxies.json"), JSON);
+        assert_eq!(content_type("figure/skin.png"), "image/png");
+        assert_eq!(content_type("figure/room.jpg"), "image/jpeg");
+        assert_eq!(content_type("figure/body.glb"), "model/gltf-binary");
+        assert_eq!(
+            content_type("figure/proxies/proxies.bin"),
+            "application/octet-stream"
+        );
+        assert_eq!(content_type("figure/body"), "application/octet-stream");
     }
 }
