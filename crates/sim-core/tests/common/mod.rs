@@ -743,8 +743,8 @@ pub fn repository_data_with(change: impl FnOnce(&mut Value)) -> Data {
 
 /// A world that is `world` with `feelings` as the feelings of persons (ADR-0032), and every other
 /// byte its own: its save with the empty map at the end of the projection (the feelings are the
-/// last map of the house part, the house the last field of the projection) replaced by a map of
-/// them, loaded again on `data`. No input puts a feeling in a world, so the tests of what the
+/// last map of the house part but the raised ones, the house the last field of the projection)
+/// replaced by a map of them, loaded again on `data`. No input puts a feeling in a world, so the tests of what the
 /// feelings do, a contagion between values the occasions would need many days to reach, start
 /// from a state the loader accepts as it would a save. The loader's own checks apply.
 #[allow(dead_code, reason = "only the tests of the feelings need it")]
@@ -760,18 +760,21 @@ pub fn with_feelings(
     let at = (bytes.windows(projection.len()))
         .position(|window| window == projection)
         .expect("the projection stands in the save");
-    assert_eq!(
-        projection.last(),
-        Some(&0),
-        "the feelings are the last map and empty"
+    // The raised ones come after the feelings, and the world's own bytes of them stay.
+    let raised = postcard::to_allocvec(&world.state().house().raised).expect("the raised ones");
+    let tail = [vec![0], raised.clone()].concat();
+    assert!(
+        projection.ends_with(&tail),
+        "the feelings are empty and the raised ones the last map"
     );
     let map: std::collections::BTreeMap<SimId, sim_core::social::feeling::Feel> = feelings
         .iter()
         .map(|(who, feel)| (SimId::try_from(*who).expect("valid"), *feel))
         .collect();
     let end = at + projection.len();
-    let mut forged = bytes[..end - 1].to_vec();
+    let mut forged = bytes[..end - tail.len()].to_vec();
     forged.extend(postcard::to_allocvec(&map).expect("the map"));
+    forged.extend(&raised);
     forged.extend(&bytes[end..]);
     let (loaded, hashes) =
         sim_core::world::World::load(&forged, data.clone()).expect("the loader accepts it");
