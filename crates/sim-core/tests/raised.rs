@@ -352,3 +352,29 @@ fn each_axis_reads_its_own_development_values() {
         assert!(fits, "{axis:?}: {got} {want}");
     }
 }
+
+/// The loader asks for the record of every child living in a house: the same save with the
+/// girls' records dropped from the end of the projection does not load.
+#[test]
+fn a_save_without_a_housed_childs_record_does_not_load() {
+    use sim_core::world::LoadError;
+
+    let data = life_data();
+    let (run, _) = Run::family(data.clone(), 7, "test:raised", &FAMILY, 0);
+    let bytes = run.world.save(&run.out.year_hashes).expect("saves");
+    let projection = run.world.canonical_bytes();
+    let raised = postcard::to_allocvec(&run.world.state().house().raised).expect("bytes");
+    assert!(projection.ends_with(&raised));
+    let at = (bytes.windows(projection.len()))
+        .position(|window| window == projection)
+        .expect("the projection stands in the save");
+    let end = at + projection.len();
+    let mut forged = bytes[..end - raised.len()].to_vec();
+    forged.push(0);
+    forged.extend(&bytes[end..]);
+    assert!(World::load(&bytes, data.clone()).is_ok());
+    assert_eq!(
+        World::load(&forged, data).err(),
+        Some(LoadError::Inconsistent)
+    );
+}
