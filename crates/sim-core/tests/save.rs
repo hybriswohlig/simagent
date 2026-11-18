@@ -511,6 +511,25 @@ struct TestMovedIn {
     last_talk: Vec<((u64, u64), i64)>,
 }
 
+/// A person raised in a house (ADR-0033 section 3): the second it began and `D` per axis.
+#[derive(Clone, Serialize)]
+struct TestRaised {
+    since: i64,
+    experience: [i32; 5],
+}
+
+/// "tiny", born at 0, in a household that lives in a house since 0: raised from her birth
+/// with nothing lived (the loader asks for the record of each child in a house).
+fn tiny_raised() -> Vec<(u64, TestRaised)> {
+    vec![(
+        1,
+        TestRaised {
+            since: 0,
+            experience: [0; 5],
+        },
+    )]
+}
+
 fn moved_house(house: impl Into<String>, morning: bool) -> TestMovedIn {
     TestMovedIn {
         house: house.into(),
@@ -709,8 +728,9 @@ struct File {
     house_deeds: Vec<(u64, ())>,
     /// The feelings (ADR-0032 section 6, projection 24): nobody has any here.
     house_feelings: Vec<(u64, ())>,
-    /// Who is raised in a house (ADR-0033 section 3, projection 25): nobody here.
-    house_raised: Vec<(u64, ())>,
+    /// Who is raised in a house (ADR-0033 section 3, projection 25): "tiny" from her birth
+    /// once her household lives in a house, nobody otherwise.
+    house_raised: Vec<(u64, TestRaised)>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
     plan_refs: Vec<(u64, i64)>,
@@ -844,6 +864,7 @@ fn a_save_keeps_the_house() {
         move |f: &mut File| {
             f.data_hash = hash;
             f.house_households = vec![(household, moved_house(house, morning))];
+            f.house_raised = tiny_raised();
         }
     };
     // Her plan at the first 5:00 after the clock.
@@ -909,6 +930,7 @@ fn a_save_keeps_the_house() {
     // Without houses in the data nothing can be moved in.
     let without = File::tiny().with(|f| {
         f.house_households = vec![(1, moved_house("core:flat", true))];
+        f.house_raised = tiny_raised();
         plan_at(f, 5 * 3_600, Some(DAY));
     });
     assert_eq!(load_error(&without), Some(LoadError::Inconsistent));
@@ -1428,6 +1450,7 @@ fn flat_file(
     }
     f.year_hashes = (0..7).map(|year| (year, 7)).collect();
     f.house_households = vec![(1, moved_house("core:flat", true))];
+    f.house_raised = tiny_raised();
     let mut person = person;
     let mut events = events;
     if person.reserve == DERIVED {
@@ -1855,6 +1878,7 @@ fn a_save_keeps_the_plan_before_the_morning() {
             }
             f.year_hashes = (0..7).map(|year| (year, 7)).collect();
             f.house_households = vec![(1, moved_house("core:flat", false))];
+            f.house_raised = tiny_raised();
             let morning = Payload::HouseMorning { household: 1 };
             let mut events = vec![(SEVEN_SIX, 0, 0, morning, None)];
             if plan {
@@ -1898,6 +1922,7 @@ fn a_save_after_a_move_in_in_the_second_of_the_plan() {
         }
         f.year_hashes = (0..7).map(|year| (year, 7)).collect();
         f.house_households = vec![(1, moved_house("core:flat", false))];
+        f.house_raised = tiny_raised();
         let morning = Payload::HouseMorning { household: 1 };
         let series = (plan, 0, 0, Payload::DayPlan { sim: 1 }, Some(DAY));
         for mut entry in [(SEVEN_SIX, 0, 0, morning, None), series] {
