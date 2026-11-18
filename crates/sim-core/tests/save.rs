@@ -709,6 +709,8 @@ struct File {
     house_deeds: Vec<(u64, ())>,
     /// The feelings (ADR-0032 section 6, projection 24): nobody has any here.
     house_feelings: Vec<(u64, ())>,
+    /// Who is raised in a house (ADR-0033 section 3, projection 25): nobody here.
+    house_raised: Vec<(u64, ())>,
     // Exceptions (ADR-0006 section 2).
     /// (by, planned_at), one per queue entry.
     plan_refs: Vec<(u64, i64)>,
@@ -730,7 +732,7 @@ impl File {
             format_version: 2,
             core_version: CORE_VERSION,
             data_hash: DATA_HASH,
-            projection_version: 24,
+            projection_version: 25,
             world_seed: Some(0xff),
             world_params: Some(params(false)),
             closed_through: -1,
@@ -762,6 +764,7 @@ impl File {
             house_beliefs: Vec::new(),
             house_deeds: Vec::new(),
             house_feelings: Vec::new(),
+            house_raised: Vec::new(),
             plan_refs: vec![(2, 0), (1, 0), (2, 0), (2, 0), (2, 0)],
             next_event_id: 4,
             input_log: vec![(

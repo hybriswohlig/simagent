@@ -291,6 +291,7 @@ impl World {
             individual: &individual,
             shared: &shared,
             neutral: false,
+            lived: domain.lived(sim),
         };
         phenotype_parts(
             environment,
@@ -447,6 +448,7 @@ impl World {
             individual: &individual,
             shared: &shared,
             neutral: false,
+            lived: domain.lived(sim),
         };
         let lines = (data.diseases().iter())
             .filter_map(|disease| {

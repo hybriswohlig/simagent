@@ -419,6 +419,13 @@ const REPOSITORY_HOUSES: [&str; 3] = [
     include_str!("../../../../data/house/houses/terraced.json"),
 ];
 
+/// The calibration and the map of `data/` as JSON values without their text, to change
+/// further: map 5 with the temperament traits (ADR-0033 section 2).
+#[allow(dead_code, reason = "only the tests on the repository's map need them")]
+pub fn repository_files() -> (Value, Value) {
+    files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP)
+}
+
 /// The social data of `data/social/social.json` as sim-cli reads them (ADR-0030 section 6).
 #[allow(dead_code, reason = "only the tests on the social layer need them")]
 pub fn repository_social() -> sim_core::social::data::SocialData {

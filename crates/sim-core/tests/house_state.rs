@@ -137,6 +137,7 @@ fn legal() -> HouseState {
         waits: BTreeMap::from([((household(1), 1), vec![(t(NOW - 60), sim(1))])]),
         holds: BTreeMap::new(),
         social: Default::default(),
+        raised: BTreeMap::new(),
     }
 }
 
@@ -1542,6 +1543,7 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
             waits: BTreeMap::new(),
             holds: BTreeMap::new(),
             social: Default::default(),
+            raised: BTreeMap::new(),
         };
         fillers_consistent(&state, Some(&houses), 7, member)
     };

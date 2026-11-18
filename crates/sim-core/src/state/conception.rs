@@ -72,6 +72,8 @@ pub(crate) struct Person<'a> {
     pub(crate) parents: Option<Parents>,
     /// The seeds of its draws (design note of the arrival, section 6.2).
     pub(crate) seeds: super::Seeds,
+    /// What it lived through (ADR-0033 section 1).
+    pub(crate) lived: crate::development::Lived,
 }
 
 impl Person<'_> {
@@ -84,6 +86,7 @@ impl Person<'_> {
                 individual: &individual,
                 shared: &shared,
                 neutral: false,
+                lived: self.lived,
             },
             data,
             self.genome,
@@ -774,6 +777,7 @@ pub(crate) fn person<'a>(domain: &'a DomainState, data: &Data, id: SimId) -> Per
         genome: &sim.genome,
         parents: domain.parent_keys(id),
         seeds: domain.seeds(data, id),
+        lived: domain.lived(id),
     }
 }
 
@@ -1112,6 +1116,7 @@ mod tests {
             genome,
             parents: None,
             seeds: super::super::Seeds::one(0xff),
+            lived: crate::development::Lived::NONE,
         };
         let chance_at = |her: i64, him: i64| {
             let adult = data.demography().fertility.adult_rate;

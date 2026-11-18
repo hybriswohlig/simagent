@@ -65,6 +65,7 @@ impl World {
             individual: &none,
             shared: &none,
             neutral: true,
+            lived: crate::development::Lived::NONE,
         };
         let parents = Some(Parents {
             mother: her_key,

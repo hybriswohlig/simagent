@@ -1,9 +1,11 @@
 //! The phenotype of a trait (genetics specification 4.2, ADR-0009): the genetic value,
 //! the shared and the individual environment, weighted by the age. A pure function of the
-//! genome, the keys, the data, the seed and the age; nothing of it is state.
+//! genome, the keys, the data, the seed and the age; for the five temperament axes also of
+//! what the person lived through (ADR-0033 section 1), which the caller hands in.
 
 use crate::data::Data;
 use crate::data_id::{DataId, str_key};
+use crate::development::{self, Axis, Lived};
 use crate::genome::{Genome, Sex};
 use crate::lineage::LineageKey;
 use crate::rng::{DrawKey, Draws, SubjectKey, tags};
@@ -20,6 +22,9 @@ pub struct Environment<'a> {
     /// so the same genes in two persons give the same phenotype. A way of the presentation
     /// only; every run draws both environments.
     pub neutral: bool,
+    /// What the person lived through (ADR-0033 section 1); `Lived::NONE` where no run knows
+    /// it, so `w = 0`.
+    pub lived: Lived,
 }
 
 impl<'a> Environment<'a> {
@@ -29,6 +34,7 @@ impl<'a> Environment<'a> {
             individual: draws,
             shared: draws,
             neutral: false,
+            lived: Lived::NONE,
         }
     }
 
@@ -39,6 +45,7 @@ impl<'a> Environment<'a> {
             individual: draws,
             shared: draws,
             neutral: true,
+            lived: Lived::NONE,
         }
     }
 }
@@ -88,6 +95,24 @@ pub fn individual_environment(draws: &Draws, t: &DataId, own: LineageKey) -> f64
     )
 }
 
+/// The individual term of trait `t` at the age `age` (ADR-0033 section 1): `E` itself, or for
+/// a temperament axis of one raised in a house `U = (√(1 − w·w) · E) + (w · D̂)` with
+/// `D̂ = (D / 1000 − m_D) / s_D`, `1 − w·w` held in 0 to 1 before its root. One never raised
+/// has `w = 0` and so `U = E` exactly.
+fn lived_environment(data: &Data, t: &DataId, e: f64, lived: Lived, age: SimDuration) -> f64 {
+    let Some(axis) = Axis::of(t) else {
+        return e;
+    };
+    let (Some(values), Some(_)) = (data.genetics().development, lived.raised_at_age) else {
+        return e;
+    };
+    let w = development::weight(age, lived.raised_at_age);
+    let (m_d, s_d) = values[axis.index()];
+    let d = f64::from(lived.experience[axis.index()]);
+    let d_hat = (d / 1000.0 - m_d) / s_d;
+    (sim_math::sqrt(held(1.0 - w * w)) * e) + (w * d_hat)
+}
+
 /// A weight held in 0 to 1 before its root (ADR-0009 section 4): 0 unless greater than
 /// 0, so that `-0.0` becomes `+0.0`, and 1 above 1.
 fn held(weight: f64) -> f64 {
@@ -110,7 +135,8 @@ pub struct PhenotypeParts {
     pub genetic: f64,
     /// `√c² · C`, the shared environment.
     pub shared: f64,
-    /// `√e² · E`, the individual environment.
+    /// `√e² · E`, the individual environment; for a temperament axis `√e² · U` with
+    /// `U = √(1 − w²) · E + w · D̂` (ADR-0033 section 1).
     pub individual: f64,
 }
 
@@ -144,7 +170,13 @@ pub fn phenotype_parts(
     } else {
         (
             shared_environment(environment.shared, t, own, parents),
-            individual_environment(environment.individual, t, own),
+            lived_environment(
+                data,
+                t,
+                individual_environment(environment.individual, t, own),
+                environment.lived,
+                age,
+            ),
         )
     };
     let root_h2 = sim_math::sqrt(held(h2));

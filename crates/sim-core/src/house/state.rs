@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
+use crate::development::Raised;
 use crate::house::choice::{CRITICAL, next_choice_drag};
 use crate::house::data::{
     AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
@@ -115,8 +116,9 @@ pub struct Decisions {
 }
 
 /// The house part of the domain state, each map in the projection after `pool_used`, then the
-/// social part (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6, projection 24): in a
-/// run without `MoveIn` it is nine zero lengths. The talk's day counters and last-talk seconds live in
+/// social part (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6, projection 24), then
+/// who was raised in a house (ADR-0033 sections 3 and 4, projection 25): in a run without
+/// `MoveIn` it is ten zero lengths. The talk's day counters and last-talk seconds live in
 /// `InHouse` and `MovedIn`, and an open Talk lives in the queue.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HouseState {
@@ -129,6 +131,9 @@ pub struct HouseState {
     pub holds: BTreeMap<(HouseholdId, u16, u8), SimId>,
     /// What the persons remember and the bonds they hold (ADR-0030 sections 1 and 2).
     pub social: Social,
+    /// Each person ever raised in a house, living or not, with the second it began and what
+    /// it lived through (ADR-0033 sections 3 and 4).
+    pub raised: BTreeMap<SimId, Raised>,
 }
 
 impl HouseState {
@@ -139,6 +144,7 @@ impl HouseState {
             waits: BTreeMap::new(),
             holds: BTreeMap::new(),
             social: Social::new(),
+            raised: BTreeMap::new(),
         }
     }
 
@@ -148,6 +154,7 @@ impl HouseState {
             && self.waits.is_empty()
             && self.holds.is_empty()
             && self.social.is_empty()
+            && self.raised.is_empty()
     }
 }
 
