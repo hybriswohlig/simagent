@@ -1347,12 +1347,14 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
                     return Err(DataError::CalibrationRange);
                 }
             }
-            let of = |axis: Axis, what: &str| {
+            // `m_D` (`_development_mean`) or `s_D` (`_development_sd`) of an axis.
+            let of = |axis: Axis, mean: bool| {
+                let what = if mean { "mean" } else { "sd" };
                 let id = DataId::new(&format!("{}_development_{what}", axis.trait_id().as_str()))
                     .unwrap_or_else(|_| panic!("invariant data.temperament_id"));
                 calibration.values[&id].value.get()
             };
-            genetics.development = Some(Axis::ALL.map(|axis| (of(axis, "mean"), of(axis, "sd"))));
+            genetics.development = Some(Axis::ALL.map(|axis| (of(axis, true), of(axis, false))));
         }
         _ => return Err(DataError::CalibrationMissing),
     }
