@@ -240,13 +240,13 @@ const UNITS: [(u8, u64, i64, bool, u64, u64, u64); 22] = [
         0x3ff8000000000000,
     ),
 ];
-const START_INPUT_HASH: u64 = 0xa1c9d8dc290b704f;
-const BASE_STATE: u64 = 0x2487_ca64_f6db_69ac;
-const BASE_LOG: u64 = 0x3d1a4b389ba3bb5c;
-const FORK_STATE: u64 = 0x3de6_c51d_8ff0_484d;
-const FORK_LOG: u64 = 0x57046e8a7e59f579;
-const TWIN_LATE_STATE: u64 = 0x009f_ab77_8ff6_120a;
-const TWIN_LATE_LOG: u64 = 0x4949173d26bd0897;
+const START_INPUT_HASH: u64 = 0xd362bad5cb6d7b43;
+const BASE_STATE: u64 = 0x0f0a_a500_cead_d440;
+const BASE_LOG: u64 = 0x9e03e42e96d92342;
+const FORK_STATE: u64 = 0xe52d_6281_6034_755b;
+const FORK_LOG: u64 = 0x2dce840585765ea5;
+const TWIN_LATE_STATE: u64 = 0x2338_5cf2_885f_d156;
+const TWIN_LATE_LOG: u64 = 0x393ae20c12a386b7;
 const IDENTICAL: usize = 1021;
 const PERSONS: usize = 1300;
 

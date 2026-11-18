@@ -7,7 +7,8 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
-/// A process that holds the lock at `lock` until it is dropped.
+/// A process that holds the lock at `lock` until it is dropped. It waits on its input, so it
+/// holds as long as the test needs, and lets go when the test process ends.
 pub struct Holder(Child);
 
 impl Holder {
@@ -15,9 +16,10 @@ impl Holder {
         let mut child = Command::new("perl")
             .args([
                 "-e",
-                "use Fcntl qw(:flock); open(my $f, '>>', $ARGV[0]) or die; flock($f, LOCK_EX) or die; $| = 1; print qq(held\\n); sleep 60",
+                "use Fcntl qw(:flock); open(my $f, '>>', $ARGV[0]) or die; flock($f, LOCK_EX) or die; $| = 1; print qq(held\\n); <STDIN>",
             ])
             .arg(lock)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
             .expect("perl runs");

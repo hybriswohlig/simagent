@@ -1,7 +1,15 @@
 {
   "format_version": 2,
-  "map_version": 4,
+  "map_version": 5,
   "traits": [
+    {
+      "id": "core:agreeableness",
+      "sigma_ref": 2.0,
+      "mean_ref": 0.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Temperament trait with 8 own additive loci. d_ref 1 per locus, sigma_ref 2 and mean_ref 0 are the exact parameters of the Hardy-Weinberg distribution at p = 0.5 (Var(A) = 8 * 2p(1-p) = 4), an exception to measuring them."
+    },
     {
       "id": "core:androgen",
       "sigma_ref": 2.0091115153283217,
@@ -92,6 +100,14 @@
       "description": "Trait of the template of map 4 with 16 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
     },
     {
+      "id": "core:conscientiousness",
+      "sigma_ref": 2.0,
+      "mean_ref": 0.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Temperament trait with 8 own additive loci. d_ref 1 per locus, sigma_ref 2 and mean_ref 0 are the exact parameters of the Hardy-Weinberg distribution at p = 0.5 (Var(A) = 8 * 2p(1-p) = 4), an exception to measuring them."
+    },
+    {
       "id": "core:curl",
       "sigma_ref": 0.995738322623039,
       "mean_ref": -6.203452054880529e-6,
@@ -114,6 +130,14 @@
       "exclusive": false,
       "includes": [],
       "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:extraversion",
+      "sigma_ref": 2.0,
+      "mean_ref": 0.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Temperament trait with 8 own additive loci. d_ref 1 per locus, sigma_ref 2 and mean_ref 0 are the exact parameters of the Hardy-Weinberg distribution at p = 0.5 (Var(A) = 8 * 2p(1-p) = 4), an exception to measuring them."
     },
     {
       "id": "core:face_01",
@@ -383,6 +407,22 @@
         }
       ],
       "description": "Trait of the template of map 4 with 2 own additive loci, including core:androgen with weight 0.5; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:neuroticism",
+      "sigma_ref": 2.0,
+      "mean_ref": 0.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Temperament trait with 8 own additive loci. d_ref 1 per locus, sigma_ref 2 and mean_ref 0 are the exact parameters of the Hardy-Weinberg distribution at p = 0.5 (Var(A) = 8 * 2p(1-p) = 4), an exception to measuring them."
+    },
+    {
+      "id": "core:openness",
+      "sigma_ref": 2.0,
+      "mean_ref": 0.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Temperament trait with 8 own additive loci. d_ref 1 per locus, sigma_ref 2 and mean_ref 0 are the exact parameters of the Hardy-Weinberg distribution at p = 0.5 (Var(A) = 8 * 2p(1-p) = 4), an exception to measuring them."
     },
     {
       "id": "core:pigment",
@@ -663,6 +703,111 @@
       "mark": "small",
       "mutation": "both",
       "description": "Additive locus 2 of core:skin_age (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:agreeableness_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_06",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_03",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_08",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_05",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:openness (ADR-0020 section 1)."
     },
     {
       "id": "core:pigment_11",
@@ -1011,6 +1156,111 @@
       "description": "Additive locus 1 of core:puberty (ADR-0020 section 1)."
     },
     {
+      "id": "core:agreeableness_02",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_07",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_04",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_01",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 17,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_06",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:openness (ADR-0020 section 1)."
+    },
+    {
       "id": "core:pigment_12",
       "chromosome": "autosome",
       "segment": 1,
@@ -1357,6 +1607,111 @@
       "description": "Additive locus 2 of core:puberty (ADR-0020 section 1)."
     },
     {
+      "id": "core:agreeableness_03",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_08",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_05",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_02",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 17,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_07",
+      "chromosome": "autosome",
+      "segment": 2,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:openness (ADR-0020 section 1)."
+    },
+    {
       "id": "core:pigment_13",
       "chromosome": "autosome",
       "segment": 2,
@@ -1651,6 +2006,27 @@
       "description": "Additive locus 3 of core:puberty (ADR-0020 section 1)."
     },
     {
+      "id": "core:agreeableness_04",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
       "id": "core:herc2",
       "chromosome": "autosome",
       "segment": 3,
@@ -1659,6 +2035,90 @@
       "mark": "large",
       "mutation": "both",
       "description": "HERC2, a large recessive pigment locus (genetics specification 10.4, ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_01",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_06",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_03",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_08",
+      "chromosome": "autosome",
+      "segment": 3,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:openness (ADR-0020 section 1)."
     },
     {
       "id": "core:pigment_14",
@@ -2049,6 +2509,111 @@
       "description": "Additive locus 1 of core:shoulder_width (ADR-0020 section 1)."
     },
     {
+      "id": "core:agreeableness_05",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_02",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 17,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_07",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 18,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_04",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 19,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_01",
+      "chromosome": "autosome",
+      "segment": 4,
+      "slot": 20,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:openness (ADR-0020 section 1)."
+    },
+    {
       "id": "core:pigment_15",
       "chromosome": "autosome",
       "segment": 4,
@@ -2343,6 +2908,111 @@
       "description": "Additive locus 5 of core:puberty (ADR-0020 section 1)."
     },
     {
+      "id": "core:agreeableness_06",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_03",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_08",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_05",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_02",
+      "chromosome": "autosome",
+      "segment": 5,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:openness (ADR-0020 section 1)."
+    },
+    {
       "id": "core:pigment_16",
       "chromosome": "autosome",
       "segment": 5,
@@ -2614,6 +3284,111 @@
       "mark": "small",
       "mutation": "both",
       "description": "Additive locus 6 of core:puberty (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:agreeableness_07",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 10,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_04",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 11,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_01",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 12,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_06",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 6 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_03",
+      "chromosome": "autosome",
+      "segment": 6,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 3 of core:openness (ADR-0020 section 1)."
     },
     {
       "id": "core:pigment_09",
@@ -2950,6 +3725,111 @@
       "mark": "small",
       "mutation": "both",
       "description": "Additive locus 1 of core:skin_age (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:agreeableness_08",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 13,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:agreeableness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 8 of core:agreeableness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:conscientiousness_05",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 14,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:conscientiousness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 5 of core:conscientiousness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:extraversion_02",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 15,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:extraversion",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:extraversion (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:neuroticism_07",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 16,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:neuroticism",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 7 of core:neuroticism (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:openness_04",
+      "chromosome": "autosome",
+      "segment": 7,
+      "slot": 17,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:openness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 4 of core:openness (ADR-0020 section 1)."
     },
     {
       "id": "core:pigment_10",

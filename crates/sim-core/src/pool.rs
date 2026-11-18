@@ -31,6 +31,11 @@ use crate::world::World;
 /// The format of the pool file.
 pub const POOL_FORMAT: u64 = 2;
 
+/// The version of the load-time extension that writes the temperament loci into a pool
+/// whose map declares them. Applying one version twice writes the same alleles. The
+/// constant is not stored in the pool file.
+pub const TEMPERAMENT_POOL_EXTENSION: u32 = 1;
+
 /// The seven loci the pre-run leaves at the reference allele and the pool assigns
 /// (ADR-0020 section 4).
 pub fn pool_loci() -> [DataId; 7] {
@@ -1075,6 +1080,130 @@ fn ancestors(
     list
 }
 
+/// Where one genome sits in the pool, so the extension can sort first and write after.
+enum ExtensionPlace {
+    Member(usize, usize),
+    Unborn(usize, usize, usize),
+}
+
+/// Living members by `(born, lineage_key)`, then unborn children by the mother's pending
+/// birth and the child's lineage key. A pregnancy whose mother has no `birth_at` breaks
+/// the pool invariant `pool.birth_pending`.
+fn extension_visits(pool: &Pool) -> Vec<(LineageKey, ExtensionPlace)> {
+    let mut due_of = BTreeMap::new();
+    for household in &pool.households {
+        for member in &household.members {
+            if let Some(at) = member.birth_at {
+                due_of.insert(member.lineage_key, at);
+            }
+        }
+    }
+    let mut visits = Vec::new();
+    for (h, household) in pool.households.iter().enumerate() {
+        for (m, member) in household.members.iter().enumerate() {
+            visits.push((
+                0u8,
+                member.born,
+                member.lineage_key,
+                ExtensionPlace::Member(h, m),
+            ));
+        }
+        for (p, pregnancy) in household.pregnancies.iter().enumerate() {
+            let due = due_of
+                .get(&pregnancy.mother)
+                .copied()
+                .unwrap_or_else(|| panic!("invariant pool.birth_pending"));
+            for (c, child) in pregnancy.children.iter().enumerate() {
+                visits.push((1, due, child.lineage_key, ExtensionPlace::Unborn(h, p, c)));
+            }
+        }
+    }
+    visits.sort_by_key(|(kind, time, key, _)| (*kind, *time, *key));
+    visits
+        .into_iter()
+        .map(|(_, _, key, place)| (key, place))
+        .collect()
+}
+
+/// Writes `loci` into every pool genome. Only autosomal loci are written; any other
+/// chromosome in the slice is skipped. A living member who has already been visited
+/// transmits one copy through `assign_locus` at `q = 0.5`. A parent who is not a living
+/// member, or who has not been visited yet, is missing, and that copy is drawn
+/// independently at `p = 0.5`. Slots the slice does not name stay as they are. The same
+/// draws address a genome key, so identical twins stay identical, and a second call
+/// writes the same alleles.
+pub fn extend_temperament(pool: &mut Pool, loci: &[crate::data::Locus]) {
+    let loci: Vec<&crate::data::Locus> = loci
+        .iter()
+        .filter(|locus| locus.chromosome == Chromosome::Autosome)
+        .collect();
+    if loci.is_empty() {
+        return;
+    }
+    let living: BTreeSet<LineageKey> = pool
+        .households
+        .iter()
+        .flat_map(|household| household.members.iter().map(|member| member.lineage_key))
+        .collect();
+    let draws = Draws::new(WorldSeed::new(pool.pool_seed));
+    let mut assigned: BTreeMap<LineageKey, Genome> = BTreeMap::new();
+    let mut by_genome_key: BTreeMap<GenomeKey, Genome> = BTreeMap::new();
+    for (_, place) in extension_visits(pool) {
+        let (key, genome_key, sex, genome, mother, father) = match place {
+            ExtensionPlace::Member(h, m) => {
+                let member = &pool.households[h].members[m];
+                (
+                    member.lineage_key,
+                    member.genome_key,
+                    member.sex,
+                    member.genome,
+                    member.mother,
+                    member.father,
+                )
+            }
+            ExtensionPlace::Unborn(h, p, c) => {
+                let pregnancy = &pool.households[h].pregnancies[p];
+                let child = &pregnancy.children[c];
+                (
+                    child.lineage_key,
+                    child.genome_key,
+                    child.sex,
+                    child.genome,
+                    Some(pregnancy.mother),
+                    Some(pregnancy.father),
+                )
+            }
+        };
+        let person = Assigned {
+            key,
+            genome_key,
+            sex,
+            genome,
+            mother: mother.filter(|parent| living.contains(parent)),
+            father: father.filter(|parent| living.contains(parent)),
+        };
+        let mut written = person.genome;
+        // A genome key written before (an identical twin, whatever the order of birth
+        // seconds and keys) gives its new alleles unchanged.
+        let first = by_genome_key.get(&genome_key).copied();
+        for locus in &loci {
+            let copies = match first {
+                Some(twin) => twin.copies(locus),
+                None => assign_locus(&draws, &person, locus, 0.5, &assigned),
+            };
+            written.set_copies(locus, &copies);
+        }
+        by_genome_key.entry(genome_key).or_insert(written);
+        assigned.insert(key, written);
+        match place {
+            ExtensionPlace::Member(h, m) => pool.households[h].members[m].genome = written,
+            ExtensionPlace::Unborn(h, p, c) => {
+                pool.households[h].pregnancies[p].children[c].genome = written;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1189,5 +1318,546 @@ mod tests {
                 .map(key)
                 .collect();
         assert_eq!(records, expected);
+    }
+
+    use crate::data::{Action, Load, Locus, Mark, MutationDirection, Weights};
+    use crate::finite::FiniteF64;
+    use crate::hash::stable_hash64;
+    use crate::rng::{DrawKey, Draws, SubjectKey, WorldSeed};
+
+    /// The 40 temperament loci in the reference's order (trait id, then locus number).
+    /// Segment and slot are the free slots the map rule leaves on map 4.
+    fn temperament_loci() -> Vec<Locus> {
+        [
+            ("core:agreeableness_01", 0, 12),
+            ("core:agreeableness_02", 1, 14),
+            ("core:agreeableness_03", 2, 14),
+            ("core:agreeableness_04", 3, 11),
+            ("core:agreeableness_05", 4, 16),
+            ("core:agreeableness_06", 5, 11),
+            ("core:agreeableness_07", 6, 10),
+            ("core:agreeableness_08", 7, 13),
+            ("core:conscientiousness_01", 3, 13),
+            ("core:conscientiousness_02", 4, 17),
+            ("core:conscientiousness_03", 5, 12),
+            ("core:conscientiousness_04", 6, 11),
+            ("core:conscientiousness_05", 7, 14),
+            ("core:conscientiousness_06", 0, 13),
+            ("core:conscientiousness_07", 1, 15),
+            ("core:conscientiousness_08", 2, 15),
+            ("core:extraversion_01", 6, 12),
+            ("core:extraversion_02", 7, 15),
+            ("core:extraversion_03", 0, 14),
+            ("core:extraversion_04", 1, 16),
+            ("core:extraversion_05", 2, 16),
+            ("core:extraversion_06", 3, 14),
+            ("core:extraversion_07", 4, 18),
+            ("core:extraversion_08", 5, 13),
+            ("core:neuroticism_01", 1, 17),
+            ("core:neuroticism_02", 2, 17),
+            ("core:neuroticism_03", 3, 15),
+            ("core:neuroticism_04", 4, 19),
+            ("core:neuroticism_05", 5, 14),
+            ("core:neuroticism_06", 6, 13),
+            ("core:neuroticism_07", 7, 16),
+            ("core:neuroticism_08", 0, 15),
+            ("core:openness_01", 4, 20),
+            ("core:openness_02", 5, 15),
+            ("core:openness_03", 6, 14),
+            ("core:openness_04", 7, 17),
+            ("core:openness_05", 0, 16),
+            ("core:openness_06", 1, 18),
+            ("core:openness_07", 2, 18),
+            ("core:openness_08", 3, 16),
+        ]
+        .into_iter()
+        .map(|(id, segment, slot)| {
+            let trait_id = id.rsplit_once('_').expect("locus number").0;
+            Locus {
+                id: DataId::new(id).expect("id"),
+                chromosome: Chromosome::Autosome,
+                segment,
+                slot,
+                action: Action::Additive(Weights {
+                    effect: FiniteF64::try_new(1.0).expect("finite"),
+                    d_ref: FiniteF64::try_new(1.0).expect("finite"),
+                    loads: vec![Load {
+                        target: DataId::new(trait_id).expect("id"),
+                        weight: FiniteF64::try_new(1.0).expect("finite"),
+                    }],
+                }),
+                mark: Mark::Small,
+                mutation: MutationDirection::Both,
+            }
+        })
+        .collect()
+    }
+
+    fn founder(index: u64) -> LineageKey {
+        LineageKey::founder(&DataId::new("test:temperament").expect("id"), index)
+    }
+
+    fn blank_person(
+        key: LineageKey,
+        sex: Sex,
+        born: i64,
+        mother: Option<LineageKey>,
+        father: Option<LineageKey>,
+        genome_key: LineageKey,
+        birth_at: Option<i64>,
+    ) -> PoolPerson {
+        PoolPerson {
+            lineage_key: key,
+            genome_key: GenomeKey::of_zygote(genome_key),
+            sex,
+            genome: Genome::reference(sex),
+            born: SimTime::from_secs(born),
+            mother,
+            father,
+            conceptions: 0,
+            births: 0,
+            partnerships: 0,
+            moved_out: false,
+            carer: None,
+            social_parents: Vec::new(),
+            afflictions: Vec::new(),
+            conception_at: None,
+            separation_at: None,
+            leave_home_at: None,
+            birth_at: birth_at.map(SimTime::from_secs),
+        }
+    }
+
+    fn unborn(key: LineageKey, genome_key: LineageKey) -> PoolUnborn {
+        PoolUnborn {
+            lineage_key: key,
+            genome_key: GenomeKey::of_zygote(genome_key),
+            sex: Sex::Female,
+            genome: Genome::reference(Sex::Female),
+            afflictions: Vec::new(),
+        }
+    }
+
+    /// The fixture of tools/pool_extension_reference.py: two founders, a child of both, a
+    /// child whose father is not in the pool, identical twins, and an unborn pair that
+    /// shares a genome key. The mother's autosomes carry a 1 on an old slot and on a new one.
+    fn fixture() -> (Pool, [LineageKey; 9]) {
+        let keys: Vec<LineageKey> = (0..9).map(founder).collect();
+        let [
+            mother,
+            father,
+            child,
+            half,
+            twin_a,
+            twin_b,
+            unborn_key,
+            unborn_twin,
+            absent,
+        ] = keys[..]
+        else {
+            unreachable!("nine founders");
+        };
+        let due = 5_000_000;
+        let mut mother_person = blank_person(mother, Sex::Female, 0, None, None, mother, Some(due));
+        mother_person.genome.maternal.set(0, 0, 1);
+        mother_person.genome.maternal.set(0, 12, 1);
+        let members = vec![
+            mother_person,
+            blank_person(father, Sex::Male, 10, None, None, father, None),
+            blank_person(
+                child,
+                Sex::Female,
+                100,
+                Some(mother),
+                Some(father),
+                child,
+                None,
+            ),
+            blank_person(half, Sex::Male, 110, Some(mother), Some(absent), half, None),
+            blank_person(
+                twin_a,
+                Sex::Female,
+                200,
+                Some(mother),
+                Some(father),
+                twin_a,
+                None,
+            ),
+            blank_person(
+                twin_b,
+                Sex::Female,
+                200,
+                Some(mother),
+                Some(father),
+                twin_a,
+                None,
+            ),
+        ];
+        let pool = Pool {
+            pool_seed: 0x5EED,
+            frozen_at: SimTime::from_secs(0),
+            data_hash: 0,
+            frozen_hash: 0,
+            households: vec![PoolHousehold {
+                members,
+                partnership: None,
+                pregnancies: vec![PoolPregnancy {
+                    mother,
+                    father,
+                    conception: 1,
+                    conceived: SimTime::from_secs(0),
+                    children: vec![
+                        unborn(unborn_key, unborn_key),
+                        unborn(unborn_twin, unborn_key),
+                    ],
+                }],
+            }],
+            ancestors: Vec::new(),
+        };
+        (
+            pool,
+            [
+                mother,
+                father,
+                child,
+                half,
+                twin_a,
+                twin_b,
+                unborn_key,
+                unborn_twin,
+                absent,
+            ],
+        )
+    }
+
+    fn genome_of(pool: &Pool, key: LineageKey) -> Genome {
+        for household in &pool.households {
+            for member in &household.members {
+                if member.lineage_key == key {
+                    return member.genome;
+                }
+            }
+            for pregnancy in &household.pregnancies {
+                for child in &pregnancy.children {
+                    if child.lineage_key == key {
+                        return child.genome;
+                    }
+                }
+            }
+        }
+        panic!("missing genome");
+    }
+
+    fn assert_alleles(genome: Genome, loci: &[Locus], bits: &[u8]) {
+        let mut i = 0;
+        for locus in loci {
+            for bit in genome.copies(locus) {
+                assert_eq!(bit, bits[i] - b'0');
+                i += 1;
+            }
+        }
+        assert_eq!(i, bits.len());
+    }
+
+    fn draw_unit(seed: u64, genome_key: GenomeKey, locus: &Locus, detail: u64) -> f64 {
+        Draws::new(WorldSeed::new(seed)).unit(DrawKey {
+            tag: tags::POOL_ALLELE,
+            subject: SubjectKey::from(genome_key),
+            occasion: str_key(&locus.id),
+            detail,
+        })
+    }
+
+    fn clear_loci(mut genome: Genome, loci: &[Locus]) -> Genome {
+        for locus in loci {
+            genome.set_copies(locus, &[0, 0]);
+        }
+        genome
+    }
+
+    fn mendelian_genomes(pool: &Pool) -> u64 {
+        let living: BTreeSet<LineageKey> = pool
+            .households
+            .iter()
+            .flat_map(|household| household.members.iter().map(|member| member.lineage_key))
+            .collect();
+        let mut assigned = BTreeSet::new();
+        let mut count = 0;
+        for (key, place) in extension_visits(pool) {
+            let (mother, father) = match place {
+                ExtensionPlace::Member(h, m) => {
+                    let member = &pool.households[h].members[m];
+                    (member.mother, member.father)
+                }
+                ExtensionPlace::Unborn(h, p, _) => {
+                    let pregnancy = &pool.households[h].pregnancies[p];
+                    (Some(pregnancy.mother), Some(pregnancy.father))
+                }
+            };
+            let transmits = |parent: Option<LineageKey>| {
+                parent.is_some_and(|parent| living.contains(&parent) && assigned.contains(&parent))
+            };
+            if transmits(mother) || transmits(father) {
+                count += 1;
+            }
+            assigned.insert(key);
+        }
+        count
+    }
+
+    fn allele_checksum(pool: &Pool, loci: &[Locus]) -> u64 {
+        let mut bytes = Vec::new();
+        for (key, _) in extension_visits(pool) {
+            let genome = genome_of(pool, key);
+            for locus in loci {
+                bytes.extend(genome.copies(locus));
+            }
+        }
+        stable_hash64(&bytes)
+    }
+
+    fn child_shares(
+        pool: &Pool,
+        child: LineageKey,
+        mother: LineageKey,
+        father: LineageKey,
+        loci: &[Locus],
+    ) -> bool {
+        let child_genome = genome_of(pool, child);
+        let child_key = extension_visits(pool)
+            .into_iter()
+            .find_map(|(key, place)| {
+                if key != child {
+                    return None;
+                }
+                let genome_key = match place {
+                    ExtensionPlace::Member(h, m) => pool.households[h].members[m].genome_key,
+                    ExtensionPlace::Unborn(h, p, c) => {
+                        pool.households[h].pregnancies[p].children[c].genome_key
+                    }
+                };
+                Some(genome_key)
+            })
+            .expect("child");
+        let mother_genome = genome_of(pool, mother);
+        let father_genome = genome_of(pool, father);
+        loci.iter().all(|locus| {
+            let copies = child_genome.copies(locus);
+            let u0 = draw_unit(pool.pool_seed, child_key, locus, 0);
+            let u1 = draw_unit(pool.pool_seed, child_key, locus, 1);
+            let from = |genome: Genome, u: f64| {
+                let parent = genome.copies(locus);
+                if u < 0.5 { parent[0] } else { parent[1] }
+            };
+            copies[0] == from(mother_genome, u0) && copies[1] == from(father_genome, u1)
+        })
+    }
+
+    #[test]
+    fn the_temperament_extension_matches_the_fixture() {
+        assert_eq!(TEMPERAMENT_POOL_EXTENSION, 1);
+        let loci = temperament_loci();
+        let (mut pool, keys) = fixture();
+        let [
+            mother,
+            father,
+            child,
+            half,
+            twin_a,
+            twin_b,
+            unborn_key,
+            unborn_twin,
+            absent,
+        ] = keys;
+        assert_eq!(mother.get(), 0xd719_6d66_1927_2530);
+        assert_eq!(father.get(), 0x7409_46c5_6a17_38ab);
+        assert_eq!(child.get(), 0x0e13_bf73_a6e1_0635);
+        assert_eq!(half.get(), 0x14d2_3e17_9e9e_f8f6);
+        assert_eq!(twin_a.get(), 0x5764_d8fd_67ad_23a2);
+        assert_eq!(twin_b.get(), 0xfc5c_7d74_cd8a_4eb7);
+        assert_eq!(unborn_key.get(), 0xf293_6405_a524_4b28);
+        assert_eq!(unborn_twin.get(), 0x6e0c_6db4_f88a_57e2);
+        assert_eq!(absent.get(), 0x4162_142f_d46c_25be);
+        let before = pool.clone();
+        extend_temperament(&mut pool, &loci);
+        let once = pool.clone();
+        extend_temperament(&mut pool, &loci);
+        assert_eq!(pool, once);
+        let expected = [
+            (
+                mother,
+                b"01001010100111011111100111010001111010000111111111111101111111101100000000001100",
+            ),
+            (
+                father,
+                b"11001010101100000101001100010000011101011111011111111100001001010011010010010100",
+            ),
+            (
+                child,
+                b"11001100001110101110000110000000101100001111111111111100101110001001000000001000",
+            ),
+            (
+                half,
+                b"10001001011111001010101111110011100000000010111011101110101011101001000101001100",
+            ),
+            (
+                twin_a,
+                b"01000010110110001010100110100010111111001111101111111110101110011001010000011100",
+            ),
+            (
+                twin_b,
+                b"01000010110110001010100110100010111111001111101111111110101110011001010000011100",
+            ),
+            (
+                unborn_key,
+                b"11001001000110001111000110000010110110001111111111111100101110111001010001011100",
+            ),
+            (
+                unborn_twin,
+                b"11001001000110001111000110000010110110001111111111111100101110111001010001011100",
+            ),
+        ];
+        for (key, bits) in expected {
+            assert_alleles(genome_of(&pool, key), &loci, bits);
+        }
+        assert_eq!(allele_checksum(&pool, &loci), 0xf215_2566_5def_1e5f);
+        assert_eq!(mendelian_genomes(&pool), 6);
+        assert_eq!(extension_visits(&pool).len(), 8);
+        assert_eq!(genome_of(&pool, mother).maternal.allele(0, 0), 1);
+        assert_eq!(genome_of(&pool, mother).copies(&loci[0]), vec![0, 1]);
+        for (key, _) in extension_visits(&pool) {
+            assert_eq!(
+                clear_loci(genome_of(&before, key), &loci),
+                clear_loci(genome_of(&pool, key), &loci)
+            );
+        }
+        assert_eq!(genome_of(&pool, twin_a), genome_of(&pool, twin_b));
+        assert_eq!(genome_of(&pool, unborn_key), genome_of(&pool, unborn_twin));
+        assert!(child_shares(&pool, child, mother, father, &loci));
+        let half_genome = genome_of(&pool, half);
+        let half_key = pool.households[0].members[3].genome_key;
+        assert!(loci.iter().all(|locus| {
+            let u = draw_unit(pool.pool_seed, half_key, locus, 1);
+            half_genome.copies(locus)[1] == u8::from(u < 0.5)
+        }));
+    }
+
+    /// The mother born at the twins' second, so she may be visited between them: the
+    /// twins still get the same new alleles (tools/pool_extension_reference.py, line
+    /// `fixture_late_mother_twin_a`).
+    #[test]
+    fn twins_stay_equal_when_a_parent_shares_their_birth_second() {
+        let loci = temperament_loci();
+        let (mut pool, keys) = fixture();
+        let [mother, _, _, _, twin_a, twin_b, _, _, _] = keys;
+        pool.households[0].members[0].born = SimTime::from_secs(200);
+        assert_eq!(pool.households[0].members[0].lineage_key, mother);
+        extend_temperament(&mut pool, &loci);
+        assert_alleles(
+            genome_of(&pool, twin_a),
+            &loci,
+            b"11100010111100101000101100000000111111000101100101111100001100010001110000111100",
+        );
+        assert_eq!(genome_of(&pool, twin_a), genome_of(&pool, twin_b));
+    }
+
+    /// The repository pool file stays byte-identical. The extension's alleles, the
+    /// Mendelian count and the hash of the extended pool are the reference's.
+    #[test]
+    fn the_repository_pool_extension_matches_the_reference() {
+        let bytes = include_bytes!("../../../data/pool/pool.bin");
+        assert_eq!(stable_hash64(bytes), 0x5cc9_dc3e_b6db_8524);
+        let mut pool = Pool::from_bytes(bytes).expect("pool");
+        assert_eq!(pool.hash(), 0x5cc9_dc3e_b6db_8524);
+        let before = pool.clone();
+        let loci = temperament_loci();
+        extend_temperament(&mut pool, &loci);
+        let once = pool.clone();
+        extend_temperament(&mut pool, &loci);
+        assert_eq!(pool, once);
+        assert_eq!(pool.hash(), 0x12ec_62c5_7af2_a290);
+        assert_eq!(allele_checksum(&pool, &loci), 0x7151_a1c8_95a7_3f91);
+        assert_eq!(extension_visits(&pool).len(), 40_418);
+        assert_eq!(mendelian_genomes(&pool), 29_942);
+        let mut alt = 0u64;
+        let mut copies = 0u64;
+        for (key, _) in extension_visits(&pool) {
+            let genome = genome_of(&pool, key);
+            for locus in &loci {
+                for bit in genome.copies(locus) {
+                    alt += u64::from(bit);
+                    copies += 1;
+                }
+            }
+            assert_eq!(
+                clear_loci(genome_of(&before, key), &loci),
+                clear_loci(genome, &loci)
+            );
+        }
+        assert_eq!(alt, 1_615_810);
+        assert_eq!(copies, 3_233_440);
+        // |alt / copies - 1/2| < 1/100, in integers: |2 alt - copies| * 50 < copies.
+        let alt = u128::from(alt);
+        let copies = u128::from(copies);
+        assert!((alt * 2).abs_diff(copies) * 50 < copies);
+        let mut seen = BTreeMap::new();
+        for household in &pool.households {
+            for member in &household.members {
+                if let Some(previous) = seen.insert(member.genome_key, member.genome) {
+                    assert_eq!(previous, member.genome);
+                }
+            }
+            for pregnancy in &household.pregnancies {
+                for child in &pregnancy.children {
+                    if let Some(previous) = seen.insert(child.genome_key, child.genome) {
+                        assert_eq!(previous, child.genome);
+                    }
+                }
+            }
+        }
+        let living: BTreeSet<LineageKey> = pool
+            .households
+            .iter()
+            .flat_map(|household| household.members.iter().map(|member| member.lineage_key))
+            .collect();
+        let shared = pool.households.iter().find_map(|household| {
+            household.members.iter().find(|member| {
+                member.mother.is_some_and(|mother| living.contains(&mother))
+                    && member.father.is_some_and(|father| living.contains(&father))
+            })
+        });
+        let member = shared.expect("a child of two living pool parents");
+        assert!(child_shares(
+            &pool,
+            member.lineage_key,
+            member.mother.expect("mother"),
+            member.father.expect("father"),
+            &loci
+        ));
+    }
+
+    #[test]
+    fn the_genome_map_places_the_temperament_loci_in_the_reference_slots() {
+        let text = include_str!("../../../data/genetics/genome_map.json");
+        let value: serde_json::Value = serde_json::from_str(text).expect("json");
+        let loci = value["loci"].as_array().expect("loci");
+        for spec in temperament_loci() {
+            let locus = loci
+                .iter()
+                .find(|locus| locus["id"] == spec.id.as_str())
+                .unwrap_or_else(|| panic!("missing {}", spec.id.as_str()));
+            assert_eq!(locus["chromosome"], "autosome");
+            assert_eq!(locus["segment"], spec.segment);
+            assert_eq!(locus["slot"], spec.slot);
+            assert_eq!(locus["mark"], "small");
+            assert_eq!(locus["mutation"], "both");
+            assert_eq!(locus["action"]["additive"]["effect"], 1.0);
+            assert_eq!(locus["action"]["additive"]["d_ref"], 1.0);
+            let loads = locus["action"]["additive"]["loads"]
+                .as_array()
+                .expect("loads");
+            assert_eq!(loads.len(), 1);
+            assert_eq!(loads[0]["weight"], 1.0);
+        }
     }
 }

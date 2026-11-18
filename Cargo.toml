@@ -30,3 +30,9 @@ as_conversions = "forbid"
 # Debug and release must never differ in overflow behaviour (ADR-0000, B21).
 [profile.release]
 overflow-checks = true
+
+# Debug builds optimise the core: the pool extension at load makes about three million
+# ChaCha draws, and unoptimised a single load takes about a minute. Overflow checks and
+# debug assertions stay on; float results do not depend on the optimisation level.
+[profile.dev.package.sim-core]
+opt-level = 3
