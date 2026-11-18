@@ -297,3 +297,38 @@ fn a_raised_entry_fits_only_within_its_bounds() {
     lived.experience[2] = 3001;
     assert!(!lived.fits(born));
 }
+
+/// `m_D` and `s_D` differ on every axis, so a mixed-up axis or a calibration left unread
+/// shows: with `D = 1000`, `w = 1` and `G = C = 0` an adult has `z = √0.45 · (1 − m_D) / s_D`,
+/// the reference's `z_phenotype(0, 0, E, 1000, 1, 1000 years, m_D, s_D)` for any `E`.
+#[test]
+fn each_axis_reads_its_own_development_values() {
+    let calibrated: [(f64, f64, f64); 5] = [
+        (0.5, 2.0, 0.167_705_098_312_484_23),
+        (-0.25, 0.5, 1.677_050_983_124_842_4),
+        (1.0, 1.5, 0.0),
+        (0.0, 0.25, 2.683_281_572_999_747_7),
+        (-1.0, 4.0, 0.335_410_196_624_968_46),
+    ];
+    let (mut calibration, genome_map) = common::repository_files();
+    for (axis, (m_d, s_d, _)) in Axis::ALL.into_iter().zip(calibrated) {
+        let values = &mut calibration["values"];
+        values[format!("{}_development_mean", axis.trait_id())]["value"] = json!(m_d);
+        values[format!("{}_development_sd", axis.trait_id())]["value"] = json!(s_d);
+    }
+    let data = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
+        .expect("checked");
+    assert_eq!(
+        data.genetics().development,
+        Some(calibrated.map(|(m_d, s_d, _)| (m_d, s_d)))
+    );
+    let lived = Lived {
+        raised_at_age: Some(SimDuration::ZERO),
+        experience: [1000; 5],
+    };
+    for (axis, (_, _, want)) in Axis::ALL.into_iter().zip(calibrated) {
+        let got = parts(&data, axis.trait_id(), years(1000), lived).individual;
+        let fits = if want == 0.0 { got == 0.0 } else { close(got, want) };
+        assert!(fits, "{axis:?}: {got} {want}");
+    }
+}
