@@ -30,21 +30,28 @@ impl Axis {
     ];
 
     /// The trait of the axis in the genome map.
-    pub const fn trait_id(self) -> &'static str {
-        match self {
+    pub fn trait_id(self) -> DataId {
+        let id = match self {
             Axis::Openness => "core:openness",
             Axis::Conscientiousness => "core:conscientiousness",
             Axis::Extraversion => "core:extraversion",
             Axis::Agreeableness => "core:agreeableness",
             Axis::Neuroticism => "core:neuroticism",
-        }
+        };
+        DataId::new(id).unwrap_or_else(|_| panic!("invariant development.axis_id"))
     }
 
-    /// The axis of a trait; `None` for a trait that is no temperament axis.
+    /// The axis of a trait; `None` for a trait that is no temperament axis. The same names as
+    /// `trait_id`, compared without building an id for each phenotype.
     pub fn of(t: &DataId) -> Option<Axis> {
-        Axis::ALL
-            .into_iter()
-            .find(|axis| axis.trait_id() == t.as_str())
+        match t.as_str() {
+            "core:openness" => Some(Axis::Openness),
+            "core:conscientiousness" => Some(Axis::Conscientiousness),
+            "core:extraversion" => Some(Axis::Extraversion),
+            "core:agreeableness" => Some(Axis::Agreeableness),
+            "core:neuroticism" => Some(Axis::Neuroticism),
+            _ => None,
+        }
     }
 
     /// Its place in `Axis::ALL`.

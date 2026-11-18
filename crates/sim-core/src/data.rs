@@ -1348,7 +1348,7 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
                 }
             }
             let of = |axis: Axis, what: &str| {
-                let id = DataId::new(&format!("{}_development_{what}", axis.trait_id()))
+                let id = DataId::new(&format!("{}_development_{what}", axis.trait_id().as_str()))
                     .unwrap_or_else(|_| panic!("invariant data.temperament_id"));
                 calibration.values[&id].value.get()
             };

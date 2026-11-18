@@ -104,7 +104,8 @@ fn the_age_weight_is_the_references() {
 /// The axes in the order of ADR-0033 section 5 and their traits in the map.
 #[test]
 fn the_axes_name_the_temperament_traits_in_order() {
-    let names: Vec<&str> = Axis::ALL.iter().map(|axis| axis.trait_id()).collect();
+    let names: Vec<DataId> = Axis::ALL.iter().map(|axis| axis.trait_id()).collect();
+    let names: Vec<&str> = names.iter().map(DataId::as_str).collect();
     assert_eq!(
         names,
         [
@@ -117,7 +118,7 @@ fn the_axes_name_the_temperament_traits_in_order() {
     );
     for (n, axis) in Axis::ALL.into_iter().enumerate() {
         assert_eq!(axis.index(), n);
-        assert_eq!(Axis::of(&id(axis.trait_id())), Some(axis));
+        assert_eq!(Axis::of(&axis.trait_id()), Some(axis));
     }
     assert_eq!(Axis::of(&id("core:cognition")), None);
     // The repository's calibration holds `m_D = 0` and `s_D = 1` for every axis (ADR-0033
@@ -201,8 +202,8 @@ fn being_raised_from_now_changes_no_phenotype_now() {
             experience: [0; 5],
         };
         assert_eq!(
-            parts(&data, axis.trait_id(), years(10), now),
-            parts(&data, axis.trait_id(), years(10), Lived::NONE),
+            parts(&data, axis.trait_id().as_str(), years(10), now),
+            parts(&data, axis.trait_id().as_str(), years(10), Lived::NONE),
             "{axis:?}"
         );
     }
@@ -329,8 +330,8 @@ fn each_axis_reads_its_own_development_values() {
     let (mut calibration, genome_map) = common::repository_files();
     for (axis, (m_d, s_d, _)) in Axis::ALL.into_iter().zip(calibrated) {
         let values = &mut calibration["values"];
-        values[format!("{}_development_mean", axis.trait_id())]["value"] = json!(m_d);
-        values[format!("{}_development_sd", axis.trait_id())]["value"] = json!(s_d);
+        values[format!("{}_development_mean", axis.trait_id().as_str())]["value"] = json!(m_d);
+        values[format!("{}_development_sd", axis.trait_id().as_str())]["value"] = json!(s_d);
     }
     let data = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
         .expect("checked");
@@ -343,7 +344,7 @@ fn each_axis_reads_its_own_development_values() {
         experience: [1000; 5],
     };
     for (axis, (_, _, want)) in Axis::ALL.into_iter().zip(calibrated) {
-        let got = parts(&data, axis.trait_id(), years(1000), lived).individual;
+        let got = parts(&data, axis.trait_id().as_str(), years(1000), lived).individual;
         let fits = if want == 0.0 {
             got == 0.0
         } else {
