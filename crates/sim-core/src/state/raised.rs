@@ -42,12 +42,12 @@ impl DomainState {
 }
 
 /// The loader's check: each person raised is living or archived, was raised at an age of 0
-/// to under 18 and not after the clock, and each `D` lies within its bound.
-pub(crate) fn consistent(loaded: &LoadedState) -> bool {
-    let now = SimTime::from_secs(loaded.closed_through.as_secs().saturating_add(1));
+/// to under 18 and not after the second `now` the clock opens next, and each `D` lies within
+/// its bound. `now` stays a number of seconds: at the end of time it lies past the range.
+pub(crate) fn consistent(loaded: &LoadedState, now: i64) -> bool {
     loaded.house.raised.iter().all(|(sim, raised)| {
         let born = (loaded.sims.get(sim).map(|person| person.born))
             .or_else(|| loaded.archive.get(sim).map(|person| person.born));
-        born.is_some_and(|born| raised.fits(born, now))
+        born.is_some_and(|born| raised.fits(born)) && raised.since.as_secs() <= now
     })
 }

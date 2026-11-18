@@ -538,7 +538,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && state::bond::consistent(loaded, data)
         && state::feeling::consistent(loaded, data)
         && state::belief::consistent(loaded, data)
-        && state::raised::consistent(loaded)
+        && state::raised::consistent(loaded, now)
         && queue_consistent(loaded, now, &rules)
         && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)
         && exceptions.plan_refs.iter().all(|plan| {

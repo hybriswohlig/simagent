@@ -83,14 +83,14 @@ impl Raised {
         }
     }
 
-    /// Whether it fits a person born at `born` and the clock `now`: raised at an age of 0 to
-    /// under 18, not after `now`, and each `D` within its bound.
-    pub fn fits(&self, born: SimTime, now: SimTime) -> bool {
+    /// Whether it fits a person born at `born`: raised at an age of 0 to under 18, and each
+    /// `D` within its bound. That it lies before the clock the loader checks.
+    pub fn fits(&self, born: SimTime) -> bool {
         let age = self.since.checked_since(born);
         let young = age.is_some_and(|age| age.as_secs() >= 0 && age < RAISED_UNTIL);
         let bounded = (self.experience.iter())
             .all(|d| (-EXPERIENCE_BOUND..=EXPERIENCE_BOUND).contains(d));
-        young && self.since <= now && bounded
+        young && bounded
     }
 }
 

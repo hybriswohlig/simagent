@@ -282,21 +282,18 @@ fn a_save_keeps_who_is_raised() {
     assert_eq!(loaded.save(&run.out.year_hashes).expect("saves"), bytes);
 }
 
-/// The loader's bounds: raised at an age of 0 to under 18, not after the clock, `D` within
-/// −3000 to 3000.
+/// The loader's bounds: raised at an age of 0 to under 18, `D` within −3000 to 3000.
 #[test]
 fn a_raised_entry_fits_only_within_its_bounds() {
     let born = t(0);
-    let now = t(20 * YEAR.as_secs());
     let at = |secs: i64| Raised::new(t(secs));
-    assert!(at(0).fits(born, now));
-    assert!(at(18 * YEAR.as_secs() - 1).fits(born, now));
-    assert!(!at(18 * YEAR.as_secs()).fits(born, now));
-    assert!(!at(-1).fits(born, now));
-    assert!(!at(5).fits(born, t(4)));
+    assert!(at(0).fits(born));
+    assert!(at(18 * YEAR.as_secs() - 1).fits(born));
+    assert!(!at(18 * YEAR.as_secs()).fits(born));
+    assert!(!at(-1).fits(born));
     let mut lived = at(0);
     lived.experience = [3000, -3000, 0, 0, 0];
-    assert!(lived.fits(born, now));
+    assert!(lived.fits(born));
     lived.experience[2] = 3001;
-    assert!(!lived.fits(born, now));
+    assert!(!lived.fits(born));
 }
