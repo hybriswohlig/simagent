@@ -6935,6 +6935,10 @@ if __name__ == "__main__":
     # year 3 and one in its last second, and before the start; the bytes of the input and of
     # the entry of the shock.
     for shock_id, template in sorted(repository().shocks.items()):
+        # The boost of "Zeit zu zweit" has months, not years (ADR-0023, addendum of
+        # 2026-11-01), and no input triggers it as a shock.
+        if template["kind"] != "hunger":
+            continue
         for stamp in (-1, 3 * YEAR + 1000, 4 * YEAR - 1, 4 * YEAR):
             years = shock_years(stamp, template["years"])
             print(
