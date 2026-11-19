@@ -101,7 +101,9 @@ pub fn age_factor(step: i32, age: SimDuration) -> i32 {
 /// An occasion of the upbringing table (ADR-0033 section 5), a code in the data and the log:
 /// a parent praises the child; a parent or an older sibling teases it or apologizes to it; it
 /// came home from school; it took part in a talk from 6; it read or played to the end by its own
-/// choice; a need of it reached 0 with a parent at home, once per need and day.
+/// choice; a need of it reached 0 with a parent at home, once per need and day; under 6 it
+/// overheard a parent praise, tease or apologize to another adult in its room (the log's code
+/// only: it takes half of the topic's rows and has none of its own).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Upbringing {
@@ -112,6 +114,7 @@ pub enum Upbringing {
     Talk,
     Done,
     NeedEmpty,
+    Overheard,
 }
 
 /// A row of the table: an occasion and its step per axis, −1000 to 1000, an absent axis 0.
@@ -202,13 +205,41 @@ impl UpbringingTable {
     }
 }
 
+impl UpbringingTable {
+    /// The changes to `experience` of a child under 6 who overheard `topic` (ADR-0033 section
+    /// 5): per axis in order, the rows of `topic` in table order, each step halved toward 0
+    /// with age factor 1 and saturated; a step that changes nothing is left out.
+    pub fn overheard_steps(&self, topic: Upbringing, experience: &mut [i32; 5]) -> Vec<Stepped> {
+        let mut out = Vec::new();
+        for axis in Axis::ALL {
+            for row in (self.rows.iter()).filter(|row| row.occasion == topic) {
+                let step = i32::from(row.step(axis)) / 2;
+                let before = experience[axis.index()];
+                let after = saturate(before, step);
+                if after != before {
+                    experience[axis.index()] = after;
+                    out.push(Stepped {
+                        axis,
+                        before,
+                        after,
+                        step,
+                        by: 0,
+                    });
+                }
+            }
+        }
+        out
+    }
+}
+
 /// The most rows a table may have.
 pub const UPBRINGING_ROWS: usize = 32;
 
 /// The bound of a step in the table.
 pub const UPBRINGING_STEP: i16 = 1000;
 
-/// A table the core refuses: more than 32 rows, or a step outside −1000 to 1000.
+/// A table the core refuses: more than 32 rows, a step outside −1000 to 1000, or a row for
+/// overhearing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UpbringingError;
 
@@ -222,7 +253,10 @@ impl UpbringingTable {
     /// The table if it keeps its bounds.
     pub fn checked(self) -> Result<UpbringingTable, UpbringingError> {
         let bound = -UPBRINGING_STEP..=UPBRINGING_STEP;
-        let fits = |row: &UpbringingRow| Axis::ALL.iter().all(|a| bound.contains(&row.step(*a)));
+        let fits = |row: &UpbringingRow| {
+            row.occasion != Upbringing::Overheard
+                && Axis::ALL.iter().all(|a| bound.contains(&row.step(*a)))
+        };
         if self.rows.len() <= UPBRINGING_ROWS && self.rows.iter().all(fits) {
             Ok(self)
         } else {

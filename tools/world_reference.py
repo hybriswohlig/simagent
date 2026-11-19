@@ -799,7 +799,9 @@ PROJECTION_VERSION = 26
 # entries; the header's data hash and core version change: core 75.
 # Reading or playing to the end by one's own choice and a need at 0 with a parent at home step
 # `D` too: a running action keeps whether a command chose it, a raised person the day each need
-# last counted. Both live in the house part, empty without MoveIn: projection 26, core 76.
+# last counted. Both live in the house part, empty without MoveIn: projection 26, core 76. A child
+# under 6 overhears a parent's praise, tease or apology in its room (in the repository's houses
+# no one talks where a small child is).
 CORE_VERSION = 76
 
 FORMAT_VERSION = 2

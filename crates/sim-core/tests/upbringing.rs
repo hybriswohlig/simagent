@@ -11,6 +11,7 @@ use sim_core::data::Data;
 use sim_core::development::{
     Axis, Stepped, Upbringing, UpbringingRow, UpbringingTable, age_factor, saturate,
 };
+use sim_core::house::day::{YoungPlace, young_place};
 use sim_core::house::state::Duty;
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input};
@@ -127,9 +128,10 @@ fn the_table_keeps_its_bounds() {
         table(vec![one(1001)]).expect_err("refused").to_string(),
         "development.rows"
     );
+    // Overhearing takes half of the topic's rows and has none of its own.
+    assert!(table(vec![row(Upbringing::Overheard, [1, 0, 0, 0, 0])]).is_err());
     for wrong in [
         json!({"rows": [{"occasion": "hug", "openness": 1}]}),
-        json!({"rows": [{"occasion": "overheard", "openness": 1}]}),
         json!({"rows": [{"occasion": "talk", "humour": 1}]}),
         json!({"rows": [], "note": "x"}),
     ] {
@@ -686,4 +688,164 @@ fn need_at_0(houses: sim_core::house::data::HouseData) -> (usize, usize) {
         .collect();
     assert_eq!(got, want);
     (emptied, want.len())
+}
+
+/// Overhearing (`upbringing_reference.py`): half of praise (A 10, N −20), then half of tease
+/// (A −10 to 0, N 20 to 0), then half of apology (A 10, N −10); topics without rows nothing.
+#[test]
+fn the_steps_of_overhearing_are_the_references() {
+    use Axis::{Agreeableness, Neuroticism};
+    let table = adr_table();
+    let mut baby = [0; 5];
+    let got = table.overheard_steps(Upbringing::Praise, &mut baby);
+    assert_eq!(
+        got,
+        vec![
+            stepped(Agreeableness, 0, 10, 10, 0),
+            stepped(Neuroticism, 0, -20, -20, 0),
+        ]
+    );
+    let got = table.overheard_steps(Upbringing::Tease, &mut baby);
+    assert_eq!(
+        got,
+        vec![
+            stepped(Agreeableness, 10, 0, -10, 0),
+            stepped(Neuroticism, -20, 0, 20, 0),
+        ]
+    );
+    let got = table.overheard_steps(Upbringing::Apology, &mut baby);
+    assert_eq!(got.iter().map(|s| s.step).collect::<Vec<_>>(), [10, -10]);
+    assert!(
+        table
+            .overheard_steps(Upbringing::Overheard, &mut [0; 5])
+            .is_empty()
+    );
+}
+
+/// A couple in a house with their baby born there and the repository's talk furniture, for
+/// four months. In the repository's houses a small child spends day and night in the children's
+/// room, where no one talks, so here its day room is the living room. Each praise, tease or
+/// apology of one partner to the other at furniture in the room where the clock puts the baby
+/// (its night room in bed, its day room by day, nowhere at the kindergarten) writes the half
+/// rows for the baby, source the actor, by the talk; nothing else develops the baby.
+#[test]
+fn a_baby_overhears_its_parents_in_its_room() {
+    let houses = common::repository_houses_with_each(|house| {
+        house["child_day_room"] = json!("living");
+    });
+    let data = (life_data(true).with_houses(houses)).with_social(common::repository_social());
+    let couple = [FAMILY[0], FAMILY[1]];
+    let (mut run, home) = Run::family(data, 7, "test:upbringing", &couple, 0);
+    run.advance(4 * 28 * DAY.as_secs());
+    let baby = sim(3);
+    let born = (run.log.iter())
+        .find(|e| matches!(e.payload, LogPayload::Birth { .. }))
+        .expect("a birth")
+        .t;
+    let houses = run.world.data().houses().expect("houses");
+    let house = &run.world.state().house().households[&home].house;
+    let def = houses.house(house).expect("its house").def();
+    let table = adr_table();
+    let mut d = [0; 5];
+    let mut want = Vec::new();
+    for entry in &run.log {
+        let LogPayload::Talked {
+            object,
+            topic,
+            actor: Some(actor),
+            ..
+        } = entry.payload
+        else {
+            continue;
+        };
+        let occasion = match topic {
+            1 => Upbringing::Praise,
+            2 => Upbringing::Tease,
+            5 => Upbringing::Apology,
+            _ => continue,
+        };
+        let young = match young_place(houses.day(), entry.t) {
+            YoungPlace::Bed => Some(def.child_night_room),
+            YoungPlace::DayRoom => Some(def.child_day_room),
+            YoungPlace::Kita { .. } => None,
+        };
+        let room = def.objects[usize::from(object)].room;
+        if entry.t < born || young != Some(room) {
+            continue;
+        }
+        for s in table.overheard_steps(occasion, &mut d) {
+            want.push((
+                common::day::number(&entry.id),
+                actor,
+                s.axis,
+                s.before,
+                s.after,
+                s.step,
+            ));
+        }
+    }
+    let got: Vec<_> = (run.log.iter())
+        .filter(|e| e.subjects.first() == Some(&Subject::Sim(baby)))
+        .filter_map(
+            |e| match (&e.payload, e.causes.as_slice(), e.subjects.as_slice()) {
+                (
+                    LogPayload::Developed {
+                        axis,
+                        before,
+                        after,
+                        step,
+                        cause: Upbringing::Overheard,
+                    },
+                    [Cause::Event(by)],
+                    [_, Subject::Sim(source)],
+                ) => Some((
+                    common::day::number(by),
+                    *source,
+                    *axis,
+                    *before,
+                    *after,
+                    *step,
+                )),
+                _ => None,
+            },
+        )
+        .collect();
+    assert_eq!(got, want);
+    assert!(!want.is_empty(), "the baby overheard nothing");
+    let other = (run.log.iter()).any(|e| {
+        e.subjects.first() == Some(&Subject::Sim(baby))
+            && matches!(e.payload, LogPayload::Developed { cause, .. } if cause != Upbringing::Overheard)
+    });
+    assert!(!other);
+    assert_eq!(run.world.state().house().raised[&baby].experience, d);
+}
+
+/// In the repository's houses no one talks where a small child is: a baby overhears nothing.
+#[test]
+fn in_the_repositorys_houses_a_baby_overhears_nothing() {
+    let data = life_data(true).with_social(common::repository_social());
+    let couple = [FAMILY[0], FAMILY[1]];
+    let (mut run, _) = Run::family(data, 7, "test:upbringing", &couple, 0);
+    run.advance(4 * 28 * DAY.as_secs());
+    let talks = (run.log.iter())
+        .filter(|e| {
+            matches!(
+                e.payload,
+                LogPayload::Talked {
+                    topic: 1 | 2 | 5,
+                    ..
+                }
+            )
+        })
+        .count();
+    let overheard = (run.log.iter()).any(|e| {
+        matches!(
+            e.payload,
+            LogPayload::Developed {
+                cause: Upbringing::Overheard,
+                ..
+            }
+        )
+    });
+    assert!(talks > 20 && !overheard, "{talks} talks");
 }

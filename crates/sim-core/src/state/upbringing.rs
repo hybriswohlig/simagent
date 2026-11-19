@@ -9,8 +9,9 @@ use crate::data::Data;
 use crate::data_id::DataId;
 use crate::development::{RAISED_UNTIL, Upbringing};
 use crate::house::data::Need;
+use crate::house::day::{YoungPlace, young_place};
 use crate::house::state::{Duty, Place};
-use crate::ids::{EventId, SimId};
+use crate::ids::{EventId, HouseholdId, SimId};
 use crate::log::EndReason;
 use crate::log::{Cause, Causes, LogPayload, Subject};
 use crate::time::{SimTime, YEAR, day_index};
@@ -19,7 +20,7 @@ use crate::world::SimCtx;
 use super::DomainState;
 use super::action::need_index;
 
-/// A child takes part in the talk row from 6 (ADR-0033 section 5).
+/// A child takes part in the talk row from 6, and overhears under 6 (ADR-0033 section 5).
 const TALK_FROM: i64 = 6 * YEAR.as_secs();
 
 /// A talk of `a` and `b` on `topic`, `actor` the one who praises, teases or apologizes, logged
@@ -57,6 +58,76 @@ pub(super) fn talked(
             reached.push((Upbringing::Talk, child));
         }
         develop(domain, data, child, &reached, talked, ctx);
+    }
+}
+
+/// A talk of `a` and `b`, both 18 or older, at the furniture `object` of the house of `home`,
+/// logged as `talked`: if `actor` praised, teased or apologized, each child under 6 of `home`
+/// whose parent the actor is and who is in the furniture's room at this second (its night room
+/// in bed, its day room by day, at the kindergarten nowhere) overhears it, in the order of ids.
+pub(super) fn overheard(
+    domain: &mut DomainState,
+    data: &Data,
+    ((a, b), home, object): ((SimId, SimId), HouseholdId, u16),
+    (topic, actor): (&DataId, Option<SimId>),
+    talked: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let occasion = match topic.as_str() {
+        "core:praise" => Upbringing::Praise,
+        "core:tease" => Upbringing::Tease,
+        "core:apology" => Upbringing::Apology,
+        _ => return,
+    };
+    let adult = |sim| age(domain, sim, now).is_some_and(|secs| secs >= RAISED_UNTIL.as_secs());
+    let Some(actor) = actor.filter(|actor| [a, b].contains(actor)) else {
+        return;
+    };
+    let (Some(table), Some(houses)) = (data.upbringing(), data.houses()) else {
+        return;
+    };
+    let Some(moved) = domain.house.households.get(&home) else {
+        return;
+    };
+    if !adult(a) || !adult(b) {
+        return;
+    }
+    let def = (houses.house(&moved.house))
+        .unwrap_or_else(|| panic!("invariant upbringing.house"))
+        .def();
+    let room = (def.objects.get(usize::from(object)))
+        .unwrap_or_else(|| panic!("invariant upbringing.object"))
+        .room;
+    let young_room = match young_place(houses.day(), now) {
+        YoungPlace::Bed => Some(def.child_night_room),
+        YoungPlace::DayRoom => Some(def.child_day_room),
+        YoungPlace::Kita { .. } => None,
+    };
+    if young_room != Some(room) {
+        return;
+    }
+    let children: Vec<SimId> = (domain.sims.iter())
+        .filter(|(_, person)| person.household == home)
+        .map(|(sim, _)| *sim)
+        .filter(|sim| age(domain, *sim, now).is_some_and(|secs| secs < TALK_FROM))
+        .filter(|sim| parent_of(domain, actor, *sim) && develops(domain, *sim, now))
+        .collect();
+    for child in children {
+        let Some(raised) = domain.house.raised.get_mut(&child) else {
+            panic!("invariant upbringing.raised");
+        };
+        for stepped in table.overheard_steps(occasion, &mut raised.experience) {
+            let developed = LogPayload::Developed {
+                axis: stepped.axis,
+                before: stepped.before,
+                after: stepped.after,
+                step: stepped.step,
+                cause: Upbringing::Overheard,
+            };
+            let subjects = vec![Subject::Sim(child), Subject::Sim(actor)];
+            ctx.emit(developed, subjects, Causes::new(Cause::Event(talked)));
+        }
     }
 }
 
