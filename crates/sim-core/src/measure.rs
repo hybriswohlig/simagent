@@ -138,6 +138,7 @@ impl WorldState {
                 individual: &individual,
                 shared: &shared,
                 neutral: false,
+                lived: domain.lived(sim),
             },
             data,
             genome,

@@ -538,6 +538,7 @@ fn consistent(loaded: &LoadedState, exceptions: &Exceptions, data: &Data) -> boo
         && state::bond::consistent(loaded, data)
         && state::feeling::consistent(loaded, data)
         && state::belief::consistent(loaded, data)
+        && state::raised::consistent(loaded, now)
         && queue_consistent(loaded, now, &rules)
         && carried_plans_consistent(loaded, &exceptions.plan_refs, &rules, now)
         && exceptions.plan_refs.iter().all(|plan| {
@@ -1955,6 +1956,8 @@ struct Facts {
     parents: Option<Parents>,
     /// Where a pool person came from; `None` for a town person.
     pool: Option<state::PoolOrigin>,
+    /// What it lived through (ADR-0033 section 1).
+    lived: crate::development::Lived,
 }
 
 /// The facts of a sim in exactly one place, the living or the archive; `None` for an ID
@@ -1968,6 +1971,7 @@ fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
             genome: sim.genome,
             parents: sim.parents,
             pool: sim.pool.clone(),
+            lived: crate::development::Lived::of(loaded.house.raised.get(&id), sim.born),
         }),
         (None, Some(sim)) => Some(Facts {
             born: sim.born,
@@ -1976,6 +1980,7 @@ fn facts(loaded: &LoadedState, id: SimId) -> Option<Facts> {
             genome: sim.genome,
             parents: sim.parents,
             pool: sim.pool.clone(),
+            lived: crate::development::Lived::of(loaded.house.raised.get(&id), sim.born),
         }),
         (None, None) | (Some(_), Some(_)) => None,
     }
@@ -2277,6 +2282,7 @@ fn person<'a>(
                 .zip(from.father)
                 .map(|(mother, father)| crate::phenotype::Parents { mother, father }),
             seeds: state::Seeds::one(pool),
+            lived: sim.lived,
         });
     }
     let parents = match sim.parents {
@@ -2292,6 +2298,7 @@ fn person<'a>(
         genome: &sim.genome,
         parents,
         seeds: rules.town_seeds(loaded, sim.parents),
+        lived: sim.lived,
     })
 }
 
@@ -2356,6 +2363,8 @@ fn pregnancies_consistent(loaded: &LoadedState, now: i64, rules: &Rules<'_>) -> 
             genome: unborn.genome,
             parents: Some(parents),
             pool: None,
+            // Not born yet: it has lived through nothing.
+            lived: crate::development::Lived::NONE,
         };
         // All the children of the conception, in the order of their index.
         let complete = facts(loaded, *mother)

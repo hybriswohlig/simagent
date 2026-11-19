@@ -724,7 +724,7 @@ FOUNDER_ALLELE = 28
 # playtest) change the repository's day, kinds and houses (the weekend's end of the night, whom
 # a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
 # no year hash and no log hash of a run without one: core 57, the projection stays 19.
-PROJECTION_VERSION = 24
+PROJECTION_VERSION = 25
 # Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler)
 # change the repository's needs, day and kinds (each need's comfort, the longest time-filler,
 # the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
@@ -789,7 +789,12 @@ PROJECTION_VERSION = 24
 # run that loads those genomes change. A run on a map without the loci keeps its
 # genomes, its year hashes and its log; a save of that run changes only the core
 # version byte. The projection stays 24, core 73.
-CORE_VERSION = 73
+# Who is raised in a house (ADR-0033 sections 3 and 4) joins the house part after the social
+# part: per person the second it was raised from and `D` per axis, a tenth map, so the empty
+# house is ten zero lengths. The save format stays 2. A file of the previous projection does
+# not load (ADR-0006, no migration). A run without MoveIn keeps its log; every year hash
+# changes once: projection 25, core 74.
+CORE_VERSION = 74
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -6522,8 +6527,9 @@ def pool_origin_bytes(origin) -> bytes:
 # `house_holds`) and the five of the social part (memories, bonds, beliefs, deeds, feelings),
 # each a postcard length 0. The talk adds none: its counters and last-talk seconds live in those
 # records and an open Talk lives in the queue (ADR-0030 section 5, ADR-0031 section 7,
-# ADR-0032 section 6, projection 24).
-EMPTY_HOUSE = bytes([0, 0, 0, 0, 0, 0, 0, 0, 0])
+# ADR-0032 section 6, projection 24), then the map of who is raised (ADR-0033 section 3,
+# projection 25).
+EMPTY_HOUSE = bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
 
 def used_households_bytes(used: list) -> bytes:
@@ -6531,7 +6537,7 @@ def used_households_bytes(used: list) -> bytes:
     arrival order), the field of the projection before the house (`EMPTY_HOUSE` without
     `MoveIn`; decision of NOTES.md, projection 19, five maps from projection 20, six from
     projection 21, still six at projection 22, eight from projection 23, nine from
-    projection 24)."""
+    projection 24, ten from projection 25)."""
     return seq([varint(index) for index in used])
 
 
@@ -6571,7 +6577,7 @@ EMPTY_PROJECTION = (
     + seq([])  # pregnancies
     + seq([])  # archive
     + seq([])  # pool_used
-    + EMPTY_HOUSE  # the house (projection 24: nine zero lengths, talk state in the records)
+    + EMPTY_HOUSE  # the house (projection 25: ten zero lengths, talk state in the records)
 )
 
 
@@ -6929,6 +6935,10 @@ if __name__ == "__main__":
     # year 3 and one in its last second, and before the start; the bytes of the input and of
     # the entry of the shock.
     for shock_id, template in sorted(repository().shocks.items()):
+        # The boost of "Zeit zu zweit" has months, not years (ADR-0023, addendum of
+        # 2026-11-01), and no input triggers it as a shock.
+        if template["kind"] != "hunger":
+            continue
         for stamp in (-1, 3 * YEAR + 1000, 4 * YEAR - 1, 4 * YEAR):
             years = shock_years(stamp, template["years"])
             print(

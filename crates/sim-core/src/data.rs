@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::data_id::DataId;
 use crate::data_id::str_key;
 use crate::demography::{Demography, DemographyCalibration, read_demography};
+use crate::development::Axis;
 use crate::fertility::{Curves, Puberty};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
@@ -373,6 +374,9 @@ pub struct Genetics {
     pub longevity_sigma_g: f64,
     /// The curves of fertility (5.6).
     pub fertility: Curves,
+    /// `m_D` and `s_D` per temperament axis in the order of `development::Axis::ALL`
+    /// (ADR-0033 sections 1 and 2); `None` for a calibration without the temperament traits.
+    pub development: Option<[(f64, f64); 5]>,
 }
 
 /// The numbers of the mapping onto the body contract (genetics specification 10, ADR-0015
@@ -1234,7 +1238,7 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             1.0,
         )?,
     };
-    let genetics = Genetics {
+    let mut genetics = Genetics {
         map_length_autosome_female: Morgans(value(
             "core:map_length_autosome_female",
             Unit::Morgan,
@@ -1308,6 +1312,7 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         )?,
         longevity_sigma_g: value("core:longevity_sigma_g", Unit::Logit, MAX_SIGMA_G)?,
         fertility: read_fertility(&calibration.fertility)?,
+        development: None,
     };
     // Closed set: the 118 values, or those plus the ten development values of the five
     // temperament traits. A partial set of those ten is missing; any other extra key is
@@ -1342,6 +1347,14 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
                     return Err(DataError::CalibrationRange);
                 }
             }
+            // `m_D` (`_development_mean`) or `s_D` (`_development_sd`) of an axis.
+            let of = |axis: Axis, mean: bool| {
+                let what = if mean { "mean" } else { "sd" };
+                let id = DataId::new(&format!("{}_development_{what}", axis.trait_id().as_str()))
+                    .unwrap_or_else(|_| panic!("invariant data.temperament_id"));
+                calibration.values[&id].value.get()
+            };
+            genetics.development = Some(Axis::ALL.map(|axis| (of(axis, true), of(axis, false))));
         }
         _ => return Err(DataError::CalibrationMissing),
     }

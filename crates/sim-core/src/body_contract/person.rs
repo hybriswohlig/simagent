@@ -101,6 +101,8 @@ pub(crate) fn traits_of(
         individual: &individual,
         shared: &shared,
         neutral,
+        // The body reads no temperament axis, so nothing lived enters it.
+        lived: crate::development::Lived::NONE,
     };
     Some(BodyTraits::of_person(
         body,

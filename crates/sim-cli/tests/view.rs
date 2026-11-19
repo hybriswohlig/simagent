@@ -4869,7 +4869,13 @@ fn the_house_answer_names_the_feelings_at_its_second() {
         let start = (bytes.windows(projection.len()))
             .position(|window| window == projection)
             .expect("the projection");
-        assert_eq!(projection.last(), Some(&0), "the feelings map is empty");
+        // The feelings map is empty and the raised ones come after it: a run without a move-in
+        // (projection 25) ends with two zero lengths.
+        assert_eq!(
+            projection[projection.len() - 2..],
+            [0, 0],
+            "the feelings map is empty"
+        );
         let mut map = Vec::new();
         push_varint(&mut map, u64::try_from(feelings.len()).expect("a map"));
         for (who, feel) in feelings {
@@ -4882,9 +4888,9 @@ fn the_house_answer_names_the_feelings_at_its_second() {
             push_varint(&mut map, zigzag(feel.temper_since.as_secs()));
         }
         let end = start + projection.len();
-        let mut forged = bytes[..end - 1].to_vec();
+        let mut forged = bytes[..end - 2].to_vec();
         forged.extend(map);
-        forged.extend(&bytes[end..]);
+        forged.extend(&bytes[end - 1..]);
         let (loaded, hashes) = World::load(&forged, world.data().clone()).expect("loads");
         assert!(hashes.is_empty());
         loaded

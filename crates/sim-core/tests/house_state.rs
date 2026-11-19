@@ -137,6 +137,7 @@ fn legal() -> HouseState {
         waits: BTreeMap::from([((household(1), 1), vec![(t(NOW - 60), sim(1))])]),
         holds: BTreeMap::new(),
         social: Default::default(),
+        raised: BTreeMap::new(),
     }
 }
 
@@ -1542,6 +1543,7 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
             waits: BTreeMap::new(),
             holds: BTreeMap::new(),
             social: Default::default(),
+            raised: BTreeMap::new(),
         };
         fillers_consistent(&state, Some(&houses), 7, member)
     };
@@ -1552,8 +1554,8 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
 }
 
 /// The projection of the house part (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6,
-/// projection 24): its four maps as before, then the memories, the bonds, the beliefs, the deeds
-/// and the feelings, so a run without a move-in has nine zero lengths. The talk adds no map; its counters and last-talk
+/// projection 25): its four maps as before, then the memories, the bonds, the beliefs, the deeds
+/// the feelings and the raised ones, so a run without a move-in has ten zero lengths. The talk adds no map; its counters and last-talk
 /// seconds are fields of a person and a household, and an open Talk is a queue event. The bytes
 /// below are by hand from postcard's rules (varints, zigzag for the signed values, the array of
 /// two others as two options, no length in front).
@@ -1563,14 +1565,14 @@ fn the_house_part_ends_with_the_memories() {
     use sim_core::social::state::Social;
 
     let encoded = |state: &HouseState| postcard::to_allocvec(state).expect("bytes");
-    assert_eq!(encoded(&HouseState::default()), [0; 9]);
+    assert_eq!(encoded(&HouseState::default()), [0; 10]);
 
     let mut held = HouseState::default();
     held.holds.insert((household(1), 2, 3), sim(4));
     assert_eq!(
         encoded(&held),
-        [0, 0, 0, 1, 1, 2, 3, 4, 0, 0, 0, 0, 0],
-        "the holds as before, then the five empty social maps"
+        [0, 0, 0, 1, 1, 2, 3, 4, 0, 0, 0, 0, 0, 0],
+        "the holds as before, then the five empty social maps and the empty raised map"
     );
 
     let memory = Memory {
@@ -1605,6 +1607,7 @@ fn the_house_part_ends_with_the_memories() {
         0,  // beliefs: none
         0,  // deeds: none
         0,  // feelings: none
+        0,  // raised: none
     ];
     assert_eq!(encoded(&remembering), bytes);
     assert_eq!(
@@ -1666,6 +1669,7 @@ fn the_house_part_ends_with_the_memories() {
         0, 3, 2, // kind 0, other 3, day 1
         0, // dropped day: none
         0, // feelings: none
+        0, // raised: none
     ];
     assert_eq!(encoded(&holding), held_bytes);
 
@@ -1699,6 +1703,7 @@ fn the_house_part_ends_with_the_memories() {
         0xB0, 0x09, // since 600
         0x90, 0x03, // temper 200
         0xB0, 0x09, // temper_since 600
+        0,    // raised: none
     ];
     assert_eq!(encoded(&feeling), feeling_bytes);
     assert_eq!(

@@ -94,6 +94,8 @@ pub(crate) fn afflictions(
                         individual: &individual,
                         shared: &shared,
                         neutral: false,
+                        // At its origin no one has lived through anything yet.
+                        lived: crate::development::Lived::NONE,
                     },
                     data,
                     genome,

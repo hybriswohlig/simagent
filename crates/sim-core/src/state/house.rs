@@ -124,6 +124,10 @@ pub(crate) fn apply_move_in(
         last_talk: BTreeMap::new(),
     };
     domain.house.households.insert(household, moved);
+    // Each member under 18 is raised from now on (ADR-0033 section 3).
+    for &sim in &members {
+        super::raised::raise(domain, sim, ctx.now());
+    }
     // A morning beyond the end of time never comes.
     if let Some(at) = next_morning(ctx.now()) {
         let morning = ctx.schedule(at, EventPayload::HouseMorning { household }, entry);
@@ -445,6 +449,9 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
             && let Some(moved) = domain.house.households.get(&to)
         {
             let (house, morning) = (moved.house.clone(), moved.morning);
+            // Born into or joining a household in a house: raised from now on if under 18
+            // (ADR-0033 section 3).
+            super::raised::raise(domain, change.sim, ctx.now());
             let entry = ctx.emit(
                 LogPayload::MovedIn {
                     household: to,
