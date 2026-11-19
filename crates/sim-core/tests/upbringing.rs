@@ -11,6 +11,7 @@ use sim_core::data::Data;
 use sim_core::development::{
     Axis, Stepped, Upbringing, UpbringingRow, UpbringingTable, age_factor, saturate,
 };
+use sim_core::house::data::Need;
 use sim_core::house::day::{YoungPlace, young_place};
 use sim_core::house::state::Duty;
 use sim_core::ids::SimId;
@@ -628,6 +629,46 @@ fn a_need_at_0_counts_once_a_day_with_a_parent_at_home() {
     assert!(
         emptied >= 16 && counted == 0,
         "{emptied} at 0, {counted} counted"
+    );
+}
+
+/// Data whose accident leaves hygiene at 0, and a return that empties the bladder: each return
+/// from school is an accident that also puts hygiene at 0, so hygiene writes its own
+/// `core:need_empty` in that second after the bladder's, and both count with a parent at home
+/// (`need_at_0` compares every need at 0 with the rule).
+#[test]
+fn an_accident_that_empties_hygiene_counts_it_too() {
+    let houses = common::repository_houses_with_day(|day| {
+        day["return_jumps"]["bladder"] = json!(-1000);
+        day["zero"]["accident_hygiene_at_most"] = json!(0);
+    });
+    let data = life_data(true).with_houses(houses.clone());
+    let (mut run, _) = Run::family(data, 7, "test:upbringing", &FAMILY, 0);
+    run.advance(15 * DAY.as_secs());
+    let girl = Subject::Sim(sim(3));
+    let accidents: Vec<i64> = (run.log.iter())
+        .filter(|e| e.subjects == [girl] && matches!(e.payload, LogPayload::Accident { .. }))
+        .map(|e| e.t.as_secs())
+        .collect();
+    let hygiene: Vec<i64> = (run.log.iter())
+        .filter(|e| {
+            e.subjects == [girl]
+                && e.payload
+                    == LogPayload::NeedEmpty {
+                        need: Need::Hygiene,
+                    }
+        })
+        .map(|e| e.t.as_secs())
+        .collect();
+    assert!(accidents.len() >= 8, "{} accidents", accidents.len());
+    assert!(
+        accidents.iter().all(|t| hygiene.contains(t)),
+        "{accidents:?} {hygiene:?}"
+    );
+    let (emptied, counted) = need_at_0(houses);
+    assert!(
+        counted >= 2 * accidents.len() && emptied >= counted,
+        "{emptied} {counted}"
     );
 }
 

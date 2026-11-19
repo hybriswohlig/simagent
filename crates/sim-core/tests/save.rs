@@ -1120,7 +1120,8 @@ fn a_save_keeps_the_next_choice() {
 /// last and her bedtime at 20:00, and no departure on her Saturday; at 9:13:00 (where it ended
 /// before its length counted), at 7:45:01, missing or twice it is refused. As an ordinary choice
 /// the same action ends at 7:45:00 too, and 9:13:00 is refused; as a time-filler at the shower,
-/// which is none, the save is refused.
+/// which is none, the save is refused; as a commanded time-filler, which no command chooses,
+/// too.
 #[test]
 fn a_save_keeps_a_time_filler() {
     let data = common::data().with_houses(common::repository_houses_on_weekdays());
@@ -1184,6 +1185,19 @@ fn a_save_keeps_a_time_filler() {
     assert_eq!(saved(watching(false, 3), vec![ends(done)]), None);
     assert_eq!(saved(watching(false, 3), vec![ends(due)]), refused);
     assert_eq!(saved(watching(true, 6), vec![ends(done)]), refused);
+    // A command never chooses a time-filler: the same action as commanded loads, as a
+    // commanded time-filler it is refused.
+    let commanded = |filler: bool| {
+        let mut person = watching(filler, 3);
+        person.action = person
+            .action
+            .map(|TestAction(object, offer, slot, filler, _)| {
+                TestAction(object, offer, slot, filler, true)
+            });
+        person
+    };
+    assert_eq!(saved(commanded(false), vec![ends(done)]), None);
+    assert_eq!(saved(commanded(true), vec![ends(done)]), refused);
 }
 
 /// A time-filler no choice could have taken (ADR-0026, addendum of 2026-11-05 on the

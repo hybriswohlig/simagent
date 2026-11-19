@@ -803,6 +803,10 @@ fn person_consistent(
         if action.filler && !offer.fallback {
             return Err(Broken::Filler);
         }
+        // A command never chooses a time-filler (ADR-0033 section 9: `commanded`).
+        if action.filler && action.commanded {
+            return Err(Broken::Filler);
+        }
     }
     let dwelling = dwell_walk(person, home);
     let goal = match (person.action, dwelling) {
