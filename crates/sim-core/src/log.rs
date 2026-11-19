@@ -10,6 +10,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::{Code, DataId};
+use crate::development::{Axis, Upbringing};
 use crate::genome::SexChromosome;
 use crate::genome::meiosis::{Mutation, SegmentMeiosis};
 use crate::hash::StableHasher;
@@ -411,6 +412,18 @@ pub enum LogPayload {
         sadness: u16,
         fear: u16,
         temper: i16,
+    },
+    /// A child's lived experience `D` on `axis` changed from `before` to `after`, in
+    /// thousandths, by `step` (the table's step after the age factor) at an occasion of the
+    /// upbringing table, `cause` (ADR-0033 sections 4, 5 and 9). The subjects are the child and,
+    /// if another person was the source (who praised, teased or apologized), that person.
+    #[serde(rename = "core:developed")]
+    Developed {
+        axis: Axis,
+        before: i32,
+        after: i32,
+        step: i32,
+        cause: Upbringing,
     },
 }
 

@@ -1,0 +1,9 @@
+{
+  "rows": [
+    { "occasion": "praise", "neuroticism": -40, "agreeableness": 20 },
+    { "occasion": "tease", "neuroticism": 40, "agreeableness": -20 },
+    { "occasion": "apology", "neuroticism": -20, "agreeableness": 20 },
+    { "occasion": "school", "conscientiousness": 10 },
+    { "occasion": "talk", "extraversion": 10 }
+  ]
+}
