@@ -910,6 +910,7 @@ fn begin(
         offer,
         slot,
         filler,
+        commanded,
     });
     let handle = ctx.schedule(arrive, EventPayload::Arrive { sim }, entry);
     domain.pending.insert((sim, Slot::Arrive), handle);
@@ -1269,10 +1270,11 @@ fn end(
     };
     let offer = offer_of(house, houses, action);
     let needs = person.needs.map(|need| need.value_at(now));
+    let reason = reason(offer, needs);
     let ended = LogPayload::ActionEnded {
         object: action.object,
         offer: action.offer,
-        reason: reason(offer, needs),
+        reason,
         needs,
     };
     let entry = ctx.emit(ended, vec![Subject::Sim(sim)], causes);
@@ -1290,5 +1292,9 @@ fn end(
         Place::Away => panic!("invariant house.orphan_event"),
     }
     release(domain, household, (action.object, action.slot), entry, ctx);
+    // Reading or playing to the end by its own choice (ADR-0033 section 5).
+    let kind = &house.def().objects[usize::from(action.object)].kind;
+    let ended = (sim, kind, reason, action.commanded);
+    super::upbringing::finished(domain, data, ended, entry, ctx);
     entry
 }

@@ -1801,6 +1801,8 @@ fn log_codes_are_stable() {
         Upbringing::Apology,
         Upbringing::School,
         Upbringing::Talk,
+        Upbringing::Done,
+        Upbringing::NeedEmpty,
     ];
     for occasion in &occasions {
         match occasion {
@@ -1808,7 +1810,9 @@ fn log_codes_are_stable() {
             | Upbringing::Tease
             | Upbringing::Apology
             | Upbringing::School
-            | Upbringing::Talk => {}
+            | Upbringing::Talk
+            | Upbringing::Done
+            | Upbringing::NeedEmpty => {}
         }
     }
     actual.extend(occasions.iter().map(|o| line("upbringing", o)));

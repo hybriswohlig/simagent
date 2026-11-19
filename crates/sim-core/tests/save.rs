@@ -511,11 +511,13 @@ struct TestMovedIn {
     last_talk: Vec<((u64, u64), i64)>,
 }
 
-/// A person raised in a house (ADR-0033 section 3): the second it began and `D` per axis.
+/// A person raised in a house (ADR-0033 sections 3 to 5): the second it began, `D` per axis and
+/// per need the day a need at 0 last counted.
 #[derive(Clone, Serialize)]
 struct TestRaised {
     since: i64,
     experience: [i32; 5],
+    counted: [Option<i64>; 5],
 }
 
 /// "tiny", born at 0, in a household that lives in a house since 0: raised from her birth
@@ -526,6 +528,7 @@ fn tiny_raised() -> Vec<(u64, TestRaised)> {
         TestRaised {
             since: 0,
             experience: [0; 5],
+            counted: [None; 5],
         },
     )]
 }
@@ -562,7 +565,7 @@ fn derived(person: &TestInHouse, clock: i64) -> (TestReserve, Vec<(i64, u16)>) {
         (&person.place, person.action),
         (
             TestPlace::Room(_),
-            Some(TestAction(7 | 8, 0, _, _) | TestAction(2, 0, _, _))
+            Some(TestAction(7 | 8, 0, _, _, _) | TestAction(2, 0, _, _, _))
         )
     );
     // The second hunger reached 0, if it has by the clock.
@@ -597,13 +600,14 @@ fn derived(person: &TestInHouse, clock: i64) -> (TestReserve, Vec<(i64, u16)>) {
 }
 
 /// An action as (object, offer, place, whether it is a time-filler; ADR-0026, addendum of
-/// 2026-11-04 on comfort and the time-filler); from a triple, none.
+/// 2026-11-04 on comfort and the time-filler; whether a command chose it, ADR-0033 section 9);
+/// from a triple, neither.
 #[derive(Clone, Copy, Serialize)]
-struct TestAction(u16, u16, u8, bool);
+struct TestAction(u16, u16, u8, bool, bool);
 
 impl From<(u16, u16, u8)> for TestAction {
     fn from((object, offer, slot): (u16, u16, u8)) -> TestAction {
-        TestAction(object, offer, slot, false)
+        TestAction(object, offer, slot, false, false)
     }
 }
 
@@ -752,7 +756,7 @@ impl File {
             format_version: 2,
             core_version: CORE_VERSION,
             data_hash: DATA_HASH,
-            projection_version: 25,
+            projection_version: 26,
             world_seed: Some(0xff),
             world_params: Some(params(false)),
             closed_through: -1,
@@ -1138,7 +1142,7 @@ fn a_save_keeps_a_time_filler() {
     let values = [820, 1000, 1000, 1000, 1000];
     let watching = |filler: bool, object: u16| TestInHouse {
         needs: [0, 1, 2, 3, 4].map(|at| (values[at], seven_am, awake[at])),
-        action: Some(TestAction(object, 0, 0, filler)),
+        action: Some(TestAction(object, 0, 0, filler, false)),
         ..seven(TestPlace::Room(2), None, [0; 5], None)
     };
     let mut crossings = Vec::new();
@@ -1204,7 +1208,9 @@ fn a_save_keeps_only_a_time_filler_a_choice_could_take() {
     let filler = |mut person: TestInHouse| {
         person.action = person
             .action
-            .map(|TestAction(object, offer, slot, _)| TestAction(object, offer, slot, true));
+            .map(|TestAction(object, offer, slot, _, commanded)| {
+                TestAction(object, offer, slot, true, commanded)
+            });
         person
     };
     // Her school day: the departure at 7:40 and the return at 15:20 are due.

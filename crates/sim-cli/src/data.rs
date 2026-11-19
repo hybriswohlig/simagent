@@ -630,7 +630,10 @@ mod tests {
         assert!(upbringing_from(r#"{"rows":[{"occasion":"talk","humour":1}]}"#).is_err());
         let wide = r#"{"rows":[{"occasion":"talk","extraversion":1001}]}"#;
         let refused = upbringing_from(wide).expect_err("refused").to_string();
-        assert!(refused.contains("social/development.json: development.rows"), "{refused}");
+        assert!(
+            refused.contains("social/development.json: development.rows"),
+            "{refused}"
+        );
     }
 
     #[test]

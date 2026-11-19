@@ -9,7 +9,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::time::{SimDuration, SimTime, YEAR};
+use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
 /// The five temperament axes in the order of ADR-0033 section 5: openness,
 /// conscientiousness, extraversion, agreeableness, neuroticism. `D` and the development
@@ -100,7 +100,8 @@ pub fn age_factor(step: i32, age: SimDuration) -> i32 {
 
 /// An occasion of the upbringing table (ADR-0033 section 5), a code in the data and the log:
 /// a parent praises the child; a parent or an older sibling teases it or apologizes to it; it
-/// came home from school; it took part in a talk from 6.
+/// came home from school; it took part in a talk from 6; it read or played to the end by its own
+/// choice; a need of it reached 0 with a parent at home, once per need and day.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Upbringing {
@@ -109,6 +110,8 @@ pub enum Upbringing {
     Apology,
     School,
     Talk,
+    Done,
+    NeedEmpty,
 }
 
 /// A row of the table: an occasion and its step per axis, −1000 to 1000, an absent axis 0.
@@ -232,31 +235,37 @@ impl UpbringingTable {
 pub const RAISED_UNTIL: SimDuration = SimDuration::from_secs(18 * YEAR.as_secs());
 
 /// What a person has of growing up in a house (ADR-0033 sections 3 and 4): the first second
-/// in which it belonged, under 18, to a household living in a house, and `D` per axis in
-/// thousandths. Set once and kept, also after a later move or death.
+/// in which it belonged, under 18, to a household living in a house, `D` per axis in
+/// thousandths, and per need (in the order of the needs) the calendar day a need at 0 last
+/// counted (section 5). Set once and kept, also after a later move or death.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Raised {
     pub since: SimTime,
     pub experience: [i32; 5],
+    pub counted: [Option<i64>; 5],
 }
 
 impl Raised {
-    /// Raised from `since` on, with nothing lived yet (`D = 0`).
+    /// Raised from `since` on, with nothing lived yet (`D = 0`) and no need counted.
     pub const fn new(since: SimTime) -> Raised {
         Raised {
             since,
             experience: [0; 5],
+            counted: [None; 5],
         }
     }
 
-    /// Whether it fits a person born at `born`: raised at an age of 0 to under 18, and each
-    /// `D` within its bound. That it lies before the clock the loader checks.
+    /// Whether it fits a person born at `born`: raised at an age of 0 to under 18, each `D`
+    /// within its bound, and no need counted on a day before it was raised. That it lies before
+    /// the clock the loader checks.
     pub fn fits(&self, born: SimTime) -> bool {
         let age = self.since.checked_since(born);
         let young = age.is_some_and(|age| age.as_secs() >= 0 && age < RAISED_UNTIL);
         let bounded =
             (self.experience.iter()).all(|d| (-EXPERIENCE_BOUND..=EXPERIENCE_BOUND).contains(d));
-        young && bounded
+        let first = day_index(self.since);
+        let counted = (self.counted.iter().flatten()).all(|day| *day >= first);
+        young && bounded && counted
     }
 }
 

@@ -8,13 +8,16 @@ use alloc::vec::Vec;
 use crate::data::Data;
 use crate::data_id::DataId;
 use crate::development::{RAISED_UNTIL, Upbringing};
-use crate::house::state::Duty;
+use crate::house::data::Need;
+use crate::house::state::{Duty, Place};
 use crate::ids::{EventId, SimId};
+use crate::log::EndReason;
 use crate::log::{Cause, Causes, LogPayload, Subject};
-use crate::time::{SimTime, YEAR};
+use crate::time::{SimTime, YEAR, day_index};
 use crate::world::SimCtx;
 
 use super::DomainState;
+use super::action::need_index;
 
 /// A child takes part in the talk row from 6 (ADR-0033 section 5).
 const TALK_FROM: i64 = 6 * YEAR.as_secs();
@@ -70,6 +73,72 @@ pub(super) fn came_home(
     }
 }
 
+/// `sim` ended its action at furniture of `kind` for `reason`, logged as `ended`; `commanded` if
+/// a command chose it. Reading or playing to the end by its own choice: the done rows. The core
+/// keeps no names of offers, so reading is an offer of the bookshelf and playing one of the toy
+/// chest, the only offers of those kinds.
+pub(super) fn finished(
+    domain: &mut DomainState,
+    data: &Data,
+    (sim, kind, reason, commanded): (SimId, &DataId, EndReason, bool),
+    ended: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let own = matches!(kind.as_str(), "core:bookshelf" | "core:toy_chest");
+    if own && reason == EndReason::Done && !commanded {
+        develop(domain, data, sim, &[(Upbringing::Done, sim)], ended, ctx);
+    }
+}
+
+/// `need` of `sim` reached 0, logged as `empty`: the row of a need at 0 if a parent is at home
+/// (in the house and not away), once per need and calendar day. The day is kept when the row
+/// applies, whether or not `D` changed.
+pub(super) fn need_empty(
+    domain: &mut DomainState,
+    data: &Data,
+    (sim, need): (SimId, Need),
+    empty: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let now = ctx.now();
+    let at_home = |p: &SimId| {
+        (domain.house.sims.get(p)).is_some_and(|person| !matches!(person.place, Place::Away))
+    };
+    let home = (domain.sims.keys()).any(|p| parent_of(domain, *p, sim) && at_home(p));
+    if data.upbringing().is_none() || !home || !develops(domain, sim, now) {
+        return;
+    }
+    let today = day_index(now);
+    let Some(raised) = domain.house.raised.get_mut(&sim) else {
+        panic!("invariant upbringing.raised");
+    };
+    let counted = &mut raised.counted[need_index(need)];
+    if *counted == Some(today) {
+        return;
+    }
+    *counted = Some(today);
+    develop(
+        domain,
+        data,
+        sim,
+        &[(Upbringing::NeedEmpty, sim)],
+        empty,
+        ctx,
+    );
+}
+
+/// Whether `D` of `sim` can change at `now`: living, raised, under 18, its household in a house.
+fn develops(domain: &DomainState, sim: SimId, now: SimTime) -> bool {
+    let Some(person) = domain.sims.get(&sim) else {
+        return false;
+    };
+    let young = now
+        .checked_since(person.born)
+        .is_some_and(|age| age < RAISED_UNTIL);
+    let housed = domain.house.households.contains_key(&person.household);
+    young && housed && domain.house.raised.contains_key(&sim)
+}
+
 /// The age of a living person at `now` in seconds.
 fn age(domain: &DomainState, sim: SimId, now: SimTime) -> Option<i64> {
     let born = domain.sims.get(&sim)?.born;
@@ -116,19 +185,17 @@ fn develop(
     let (Some(table), false) = (data.upbringing(), reached.is_empty()) else {
         return;
     };
-    let Some(person) = domain.sims.get(&child) else {
-        return;
-    };
-    let housed = domain.house.households.contains_key(&person.household);
-    let Some(age) = ctx.now().checked_since(person.born) else {
-        return;
-    };
-    let Some(raised) = domain.house.raised.get_mut(&child) else {
-        return;
-    };
-    if !housed || age >= RAISED_UNTIL {
+    let now = ctx.now();
+    if !develops(domain, child, now) {
         return;
     }
+    let Some(age) = (domain.sims.get(&child)).and_then(|person| now.checked_since(person.born))
+    else {
+        panic!("invariant upbringing.age");
+    };
+    let Some(raised) = domain.house.raised.get_mut(&child) else {
+        panic!("invariant upbringing.raised");
+    };
     let occasions: Vec<Upbringing> = reached.iter().map(|(occasion, _)| *occasion).collect();
     for stepped in table.steps(&occasions, age, &mut raised.experience) {
         let (occasion, source) = reached[stepped.by];

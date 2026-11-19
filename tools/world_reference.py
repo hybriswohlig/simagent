@@ -724,7 +724,7 @@ FOUNDER_ALLELE = 28
 # playtest) change the repository's day, kinds and houses (the weekend's end of the night, whom
 # a bed is for, the rooms one stays in) and runs with a household in a house: a new data hash,
 # no year hash and no log hash of a run without one: core 57, the projection stays 19.
-PROJECTION_VERSION = 25
+PROJECTION_VERSION = 26
 # Comfort and the time-filler (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler)
 # change the repository's needs, day and kinds (each need's comfort, the longest time-filler,
 # the offers that are time-fillers and the sofa's `sit`) and runs with a household in a house: a
@@ -797,7 +797,10 @@ PROJECTION_VERSION = 25
 # The upbringing table (ADR-0033 section 5) steps `D` at a talk and at a return from school and
 # writes `core:developed`; the table joins the data hash. A run without MoveIn keeps its log
 # entries; the header's data hash and core version change: core 75.
-CORE_VERSION = 75
+# Reading or playing to the end by one's own choice and a need at 0 with a parent at home step
+# `D` too: a running action keeps whether a command chose it, a raised person the day each need
+# last counted. Both live in the house part, empty without MoveIn: projection 26, core 76.
+CORE_VERSION = 76
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.

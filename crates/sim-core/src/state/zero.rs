@@ -6,6 +6,7 @@
 //! is refused while it lasts (`state::command`).
 
 use alloc::vec;
+use alloc::vec::Vec;
 
 use super::action::{self, home, person_mut};
 use super::house::plan_crossings;
@@ -76,6 +77,8 @@ pub(super) fn settle(
     let mut last_empty = None;
     // A need written down after the crossings were planned last.
     let mut written = false;
+    // Each need at 0 with its entry, for the upbringing row (ADR-0033 section 5).
+    let mut emptied = Vec::new();
     for (at, need) in NEEDS.into_iter().enumerate() {
         if !reached[at] {
             continue;
@@ -87,6 +90,7 @@ pub(super) fn settle(
         let entry = ctx.emit(empty, vec![Subject::Sim(sim)], causes.clone());
         last = Some(entry);
         last_empty = Some(entry);
+        emptied.push((need, entry));
         match need {
             // Hunger at 0 starts the reserve's drain: a change of rates (ADR-0026, addendum of
             // 2026-11-06 on hunger at 0).
@@ -116,6 +120,10 @@ pub(super) fn settle(
     // However many needs reached 0 in this call, the row counts once.
     if let Some(empty) = last_empty {
         super::feeling::need_empty(domain, data, sim, empty, ctx);
+    }
+    // Each need at 0 of a child, after the feeling, in the order of the needs.
+    for (need, entry) in emptied {
+        super::upbringing::need_empty(domain, data, (sim, need), entry, ctx);
     }
     if written {
         plan_crossings(domain, data, sim, last, ctx);
