@@ -65,10 +65,10 @@ if (browser !== undefined) {
       const where = message.location().url;
       const refusal = refusalAsked && where.endsWith("/api/runs/neu/input") && message.text().includes("409");
       const cut = silenced && message.text().includes("net::ERR_FAILED");
-      // No figure files in this run: the card keeps the portrait, and the browser's line
-      // about the missing file is not an error of the page.
-      const figure = where.includes("/figure/") || message.text().includes("/figure/");
-      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal && !cut && !figure) {
+      // A machine without WebGL keeps the portrait; three's lines about the context it
+      // could not create are no error of the page. A missing figure file still is.
+      const noWebGL = /^THREE\.WebGLRenderer: (A WebGL context could not be created|Error creating WebGL context)/.test(message.text());
+      if (message.type() === "error" && !where.endsWith("/favicon.ico") && !refusal && !cut && !noWebGL) {
         errors.push(message.text());
       }
     });
@@ -157,7 +157,10 @@ if (browser !== undefined) {
     await step("with children", page.getByRole("checkbox", { name: "nur mit Kindern" }).waitFor());
     await step("the families counted", page.getByRole("status").filter({ hasText: /^\d+ Familien$/ }).waitFor());
     await step("back to the run", page.goBack());
+    // The card asks for the figure's files, and the server has them.
+    const body = page.waitForResponse((response) => response.url().endsWith("/figure/body.glb") && response.ok());
     await step("open sim 10", page.locator(`a[href="#/runs/${run}/persons/10"]`).first().click());
+    await step("its figure's files", body);
     await step("its card folds its hereditary diseases", page.locator("details > summary", { hasText: /^Erbkrankheiten$/ }).waitFor());
     await step("its family folded", page.locator("details > summary", { hasText: /^Ähnlichkeit in der Familie$/ }).click());
     await step("its family at one age", page.getByRole("heading", { level: 3, name: /^Eltern und Vollgeschwister, mit \d+$/ }).waitFor());
