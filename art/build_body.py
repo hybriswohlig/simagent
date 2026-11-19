@@ -43,7 +43,7 @@ except ImportError:
 
 DEFAULT_ASSETS = "/Users/dariushk/.cache/simagent-art/mpfb2"
 DEFAULT_OUT = "/Users/dariushk/.cache/simagent-art/body.glb"
-MORPH_LIMIT = 60
+MORPH_LIMIT = 62
 
 # (shape key, contract parameter, target paths relative to targets/, bidirectional)
 # Bilateral files are summed into one key. Incr targets only: a negative
@@ -67,6 +67,8 @@ def target_file(rel) -> tuple[str, float]:
 
 
 MORPHS = [
+    ("age_male_baby", "body_form_age, androgenic_development", age_targets("male", "baby"), False),
+    ("age_female_baby", "body_form_age, estrogenic_development", age_targets("female", "baby"), False),
     ("age_male_child", "body_form_age, androgenic_development", age_targets("male", "child"), False),
     ("age_male_young", "body_form_age, androgenic_development", age_targets("male", "young"), False),
     ("age_male_old", "body_form_age, androgenic_development", age_targets("male", "old"), False),

@@ -22,14 +22,18 @@ import struct
 import zipfile
 from pathlib import Path
 
+import os
+
 CACHE = Path("/Users/dariushk/.cache/simagent-art")
 ZIP_PATH = CACHE / "makehuman_system_assets_cc0.zip"
 EXTRACT = CACHE / "mh-system"
 MPFB = CACHE / "mpfb2"
 TARGETS = MPFB / "src/mpfb/data/targets"
 BASE_OBJ = MPFB / "src/mpfb/data/3dobjs/base.obj"
-BODY_GLB = CACHE / "body.glb"
-OUT_DIR = CACHE / "proxies"
+# SIMAGENT_ART_OUT moves the outputs (and the body.glb read back) out of the cache.
+OUT_ROOT = Path(os.environ.get("SIMAGENT_ART_OUT", str(CACHE)))
+BODY_GLB = OUT_ROOT / "body.glb"
+OUT_DIR = OUT_ROOT / "proxies"
 BODY_END = 13379
 
 # Same morph list as build_body.py. Age keys are the mean of three races.
@@ -47,6 +51,8 @@ def target_file(rel) -> tuple[str, float]:
 
 
 MORPHS = [
+    ("age_male_baby", age_targets("male", "baby"), True),
+    ("age_female_baby", age_targets("female", "baby"), True),
     ("age_male_child", age_targets("male", "child"), True),
     ("age_male_young", age_targets("male", "young"), True),
     ("age_male_old", age_targets("male", "old"), True),
