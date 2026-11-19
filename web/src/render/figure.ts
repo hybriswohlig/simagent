@@ -33,6 +33,7 @@ import {
   NoColorSpace,
   Object3D,
   PerspectiveCamera,
+  Quaternion,
   Scene,
   Skeleton,
   SkinnedMesh,
@@ -76,6 +77,15 @@ export const FIGURE_HEIGHT = 420;
 
 const SKIN_MEAN = new Vector3(0.616986, 0.356523, 0.236129);
 const CLEAR = 0xe7e2da;
+/** How far a hanging arm and a standing leg lean outward, as sideways per unit down. */
+const ARM_OUT = 0.08;
+/**
+ * A child's arms stay further out. The skeleton has adult joints and the child shape only
+ * moves the skin, so an arm turned far from its rest swings about the wrong shoulder and
+ * ends behind the back.
+ */
+const CHILD_ARM_OUT = 0.38;
+const LEG_OUT = 0.03;
 /** How far the eyeballs sit in front of their fitted place, in metres of the mesh. */
 const EYE_FORWARD = 0.002;
 const GROUND_SHIFT = 0.81676;
@@ -1360,29 +1370,56 @@ function deleteSet(pieces: (Proxy | null)[]): Set<number> {
   return set;
 }
 
-function hangArms(root: Object3D, child: number): void {
-  const origin = new Vector3();
-  const tip = new Vector3();
-  const target = new Vector3();
-  const out = 0.14 + 0.32 * Math.min(Math.max(child, 0), 1);
+const FRONT = new Vector3(0, 0, 1);
+
+/**
+ * Turns `bone` about the axis toward the viewer until the line from it to `tip`, seen
+ * from the front, points along (`outX`, -1). Returns the angle it turned by.
+ */
+function swing(bone: Bone, tip: Bone, outX: number): number {
+  const origin = bone.getWorldPosition(new Vector3());
+  const line = tip.getWorldPosition(new Vector3()).sub(origin);
+  line.z = 0;
+  if (line.lengthSq() < 1e-8) return 0;
+  line.normalize();
+  const target = new Vector3(outX, -1, 0).normalize();
+  const angle = Math.atan2(line.x * target.y - line.y * target.x, line.x * target.x + line.y * target.y);
+  turnFront(bone, angle);
+  return angle;
+}
+
+/** Turns `bone` by `angle` about the axis toward the viewer, whatever its own axes are. */
+function turnFront(bone: Bone, angle: number): void {
+  const parent = bone.parent;
+  if (parent === null) return;
+  const world = bone.getWorldQuaternion(new Quaternion()).premultiply(new Quaternion().setFromAxisAngle(FRONT, angle));
+  bone.quaternion.copy(parent.getWorldQuaternion(new Quaternion()).invert().multiply(world));
+  bone.updateWorldMatrix(true, true);
+}
+
+/**
+ * The relaxed stance: the arms hang beside the body with a slight bend at the elbow, and
+ * the feet stand under the hips. The mesh rests with arms and legs spread.
+ */
+function relax(root: Object3D, child: number): void {
+  const armOut = ARM_OUT + CHILD_ARM_OUT * Math.min(Math.max(child, 0), 1);
   root.updateWorldMatrix(true, true);
   for (const side of ["l", "r"]) {
     const sign = side === "l" ? 1 : -1;
     const upper = findBone(root, `upperarm_${side}`);
     const lower = findBone(root, `lowerarm_${side}`);
-    const hand = findBone(root, `hand_${side}`);
-    if (upper === null || lower === null || hand === null) continue;
-    upper.getWorldPosition(origin);
-    lower.getWorldPosition(tip);
-    tip.sub(origin);
-    tip.z = 0;
-    if (tip.lengthSq() < 1e-8) continue;
-    tip.normalize();
-    target.set(sign * out, -1, 0).normalize();
-    const angle = Math.atan2(tip.x * target.y - tip.y * target.x, tip.x * target.x + tip.y * target.y);
-    upper.rotateZ(angle);
-    lower.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), 0.22);
-    upper.updateWorldMatrix(true, true);
+    if (upper !== null && lower !== null) {
+      swing(upper, lower, sign * armOut);
+      lower.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), 0.22);
+      upper.updateWorldMatrix(true, true);
+    }
+    const thigh = findBone(root, `thigh_${side}`);
+    const calf = findBone(root, `calf_${side}`);
+    const foot = findBone(root, `foot_${side}`);
+    if (thigh !== null && calf !== null && foot !== null) {
+      // The foot turns back by the same angle, so the sole stays flat on the ground.
+      turnFront(foot, -swing(thigh, calf, sign * LEG_OUT));
+    }
   }
 }
 
@@ -1588,7 +1625,7 @@ function mountMembers(
         const wrapper = buildFigure(assets, member.body, member.sex, member.simId, keyDir, anisotropy, owned);
         wrapper.position.x = xs[i] ?? 0;
         scene.add(wrapper);
-        hangArms(wrapper, ageSlices(member.body.body_form_age)[0]);
+        relax(wrapper, ageSlices(member.body.body_form_age)[0]);
         standing.push(wrapper);
       }
       frame(camera);
