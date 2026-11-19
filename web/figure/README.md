@@ -20,6 +20,20 @@ Everything here is CC0 1.0 Universal, with no attribution duty.
 
 MakeHuman is a trademark of its owners; this project is not affiliated with them.
 
+## Building body.glb and the proxy pack
+
+The scripts are on the branch `art-baby` (commit `76ec59381b90398adc550fd411f1ed63b8371f97`), not on main. With the
+mpfb2 clone and the system-assets zip in a cache folder, and Blender 5.2.1 LTS:
+
+```
+Blender --background --python art/build_body.py -- --assets <cache>/mpfb2 --out <out>/body.glb
+SIMAGENT_ART_OUT=<out> python3 art/pack_proxies.py
+```
+
+The body has 61 shape keys: the baby, child, young and old shape per sex (each the mean of
+the three MakeHuman targets of that age), and the keys of build, face and proportions.
+`proxies/proxies.json` is the pack's file with the texture names below.
+
 ## Changes to the textures
 
 Textures are at most 1024 pixels wide. Those the page reads without alpha (skin, eyes,
