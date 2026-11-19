@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::data_id::DataId;
 use crate::data_id::str_key;
 use crate::demography::{Demography, DemographyCalibration, read_demography};
-use crate::development::Axis;
+use crate::development::{Axis, UpbringingTable};
 use crate::fertility::{Curves, Puberty};
 use crate::finite::FiniteF64;
 use crate::hash::stable_hash64;
@@ -563,6 +563,8 @@ pub struct Data {
     /// The social data: memory kinds, bonds, topics and the numbers of beliefs, if the data hold
     /// them (ADR-0030 section 6, ADR-0031).
     social: Option<Arc<SocialData>>,
+    /// The upbringing table, if the data hold it (ADR-0033 section 5).
+    upbringing: Option<Arc<UpbringingTable>>,
 }
 
 /// The kind of a shock template with its values (ADR-0023 section 3 and its addendum of
@@ -1950,6 +1952,7 @@ impl Data {
             shocks: Vec::new(),
             houses: None,
             social: None,
+            upbringing: None,
         })
     }
 
@@ -2118,8 +2121,16 @@ impl Data {
         self
     }
 
+    /// The data with a checked upbringing table (ADR-0033 section 5). It enters the data hash
+    /// after the social data as the postcard of the `UpbringingTable`.
+    pub fn with_upbringing(mut self, table: UpbringingTable) -> Data {
+        self.upbringing = Some(Arc::new(table));
+        self.hash = self.hashed();
+        self
+    }
+
     /// These data with another demography and genetics calibration. The genome map, the
-    /// pool, the shocks and the houses stay. The pool was checked against the definitions
+    /// pool, the shocks, the houses, the social data and the upbringing table stay. The pool was checked against the definitions
     /// these data already hold, and its persons keep the wish of those (ADR-0017, addendum of
     /// 2026-11-05). The data hash covers the replacement: the base game is the extract with
     /// the game's overlay, a settings file another replacement on top of the extract.
@@ -2135,11 +2146,13 @@ impl Data {
         let shocks = self.shocks.clone();
         let houses = self.houses.clone();
         let social = self.social.clone();
+        let upbringing = self.upbringing.clone();
         let mut data = Data::new(definitions)?;
         data.pool = pool;
         data.shocks = shocks;
         data.houses = houses;
         data.social = social;
+        data.upbringing = upbringing;
         data.hash = data.hashed();
         Ok(data)
     }
@@ -2152,6 +2165,11 @@ impl Data {
     /// The social data, if the data hold them. Without them nothing remembers.
     pub fn social(&self) -> Option<&SocialData> {
         self.social.as_deref()
+    }
+
+    /// The upbringing table, if the data hold it. Without it nothing steps `D`.
+    pub fn upbringing(&self) -> Option<&UpbringingTable> {
+        self.upbringing.as_deref()
     }
 
     /// The template with this id, if the data hold it.
@@ -2185,6 +2203,9 @@ impl Data {
         }
         if let Some(social) = &self.social {
             bytes.extend(encode(&**social));
+        }
+        if let Some(table) = &self.upbringing {
+            bytes.extend(encode(&**table));
         }
         stable_hash64(&bytes)
     }

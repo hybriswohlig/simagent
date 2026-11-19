@@ -101,9 +101,10 @@ pub fn repository_data(root: &Path) -> Result<Data> {
     let shocks = shocks(root)?;
     let houses = houses(root)?;
     let social = social(root)?;
+    let upbringing = upbringing(root)?;
     let data = Data::with_pool(definitions, &pool, frequencies)
         .and_then(|data| data.with_shocks(shocks))
-        .map(|data| data.with_houses(houses).with_social(social))
+        .map(|data| (data.with_houses(houses).with_social(social)).with_upbringing(upbringing))
         .map_err(|e| format!("the repository's data: {e}"))?;
     // The game's life course data in place of the extract's (ADR-0017, addendum of
     // 2026-11-05).
@@ -115,6 +116,17 @@ fn social(root: &Path) -> Result<sim_core::social::data::SocialData> {
     let path = root.join("data/social/social.json");
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let file: sim_core::social::data::SocialData =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    file.checked()
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The upbringing table of `data/social/development.json` as sim-cli reads it (ADR-0033
+/// section 5).
+fn upbringing(root: &Path) -> Result<sim_core::development::UpbringingTable> {
+    let path = root.join("data/social/development.json");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let file: sim_core::development::UpbringingTable =
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     file.checked()
         .map_err(|e| format!("{}: {e}", path.display()))
