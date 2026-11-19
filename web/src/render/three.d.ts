@@ -19,7 +19,10 @@ declare module "three" {
   }
 
   export class Quaternion {
+    constructor();
     copy(q: Quaternion): this;
+    multiply(q: Quaternion): this;
+    premultiply(q: Quaternion): this;
     invert(): this;
     setFromAxisAngle(axis: Vector3, angle: number): this;
   }
