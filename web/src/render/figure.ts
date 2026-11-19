@@ -808,7 +808,7 @@ const STRAND_FRAG = `
     }
     cover *= softA;
     float shade = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-    float lift = clamp(shade / 0.16, 0.35, 1.45);
+    float lift = clamp(shade / uMean, 0.6, 1.3);
     diffuseColor.rgb = uHair * lift;
     diffuseColor.a = 1.0;
   #endif
@@ -828,7 +828,7 @@ const STRAND_FRAG = `
   float edgeFill = fringe * partial * step(0.5, vKeep);
   float hole = max((1.0 - smoothstep(0.2, 0.45, hairA)) * fillMid * inMass * step(0.5, vKeep), edgeFill);
   if (uFill > 0.5 && hole > 0.4) {
-    diffuseColor.rgb = uHair * uFillLift;
+    diffuseColor.rgb = uHair;
     diffuseColor.a = 1.0;
   } else if (uSoft > 0.5) {
     float w = clamp(fwidth(cover), 0.02, 0.08);
@@ -875,23 +875,28 @@ function imageOf(texture: Texture): HTMLImageElement | HTMLCanvasElement | Image
   return null;
 }
 
-const fillLifts = new Map<CanvasImageSource, number>();
+const strandMeans = new Map<CanvasImageSource, number>();
 
 function srgbByteToLinear(byte: number): number {
   const value = byte / 255;
   return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
 }
 
-function hairFillLift(texture: Texture): number {
+/**
+ * The mean linear luminance of a strand texture where it is opaque. The shader divides
+ * the texture's shade by it, so the strands vary around the hair colour of the body
+ * values and a dark texture does not darken a light hair.
+ */
+function strandMean(texture: Texture): number {
   const image = imageOf(texture);
-  if (image === null || image.width === 0) return 0.55;
-  const cached = fillLifts.get(image);
+  if (image === null || image.width === 0) return 0.16;
+  const cached = strandMeans.get(image);
   if (cached !== undefined) return cached;
   const canvas = document.createElement("canvas");
   canvas.width = 64;
   canvas.height = 64;
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (context === null) return 0.55;
+  if (context === null) return 0.16;
   context.drawImage(image, 0, 0, 64, 64);
   const data = context.getImageData(0, 0, 64, 64).data;
   let sum = 0;
@@ -901,10 +906,9 @@ function hairFillLift(texture: Texture): number {
     sum += 0.299 * srgbByteToLinear(num(data, i)) + 0.587 * srgbByteToLinear(num(data, i + 1)) + 0.114 * srgbByteToLinear(num(data, i + 2));
     count += 1;
   }
-  const mean = count === 0 ? 0.16 : sum / count;
-  const lift = Math.min(1.45, Math.max(0.35, mean / 0.16));
-  fillLifts.set(image, lift);
-  return lift;
+  const mean = count === 0 ? 0.16 : Math.max(sum / count, 0.01);
+  strandMeans.set(image, mean);
+  return mean;
 }
 
 function strandMaterial(
@@ -936,7 +940,7 @@ function strandMaterial(
     uSoft: { value: softEdge ? 1 : 0 },
     uCap: { value: cap },
     uClip: { value: 0 },
-    uFillLift: { value: hairFillLift(texture) },
+    uMean: { value: strandMean(texture) },
   };
   bindShader(
     material,
@@ -944,7 +948,7 @@ function strandMaterial(
     uniforms,
     "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;\nuniform float uFill;",
     HAIR_VERTEX,
-    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uFillLift;\nuniform vec3 uCrown;",
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uMean;\nuniform vec3 uCrown;",
     STRAND_FRAG,
   );
   owned.materials.push(material);
