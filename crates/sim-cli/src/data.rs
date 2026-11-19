@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 use sim_core::data::{Calibrated, Data, Definitions, ShockKind, ShockTemplate, Unit};
 use sim_core::data_id::DataId;
+use sim_core::development::UpbringingTable;
 use sim_core::finite::FiniteF64;
 use sim_core::house::data::HouseData;
 use sim_core::social::data::SocialData;
@@ -28,6 +29,8 @@ const KINDS: &str = include_str!("../../../data/house/kinds.json");
 /// The social data (ADR-0030 section 6, ADR-0031): memory kinds, bonds, topics, the numbers of
 /// beliefs and the limits.
 const SOCIAL: &str = include_str!("../../../data/social/social.json");
+/// The upbringing table (ADR-0033 section 5).
+const DEVELOPMENT: &str = include_str!("../../../data/social/development.json");
 /// The houses with their names in the messages, in the order of the file names.
 const HOUSES: [(&str, &str); 3] = [
     (
@@ -160,9 +163,10 @@ fn assemble(demography: &str, calibration: &str) -> Result<Data, CliError> {
     let shocks = shocks_from(SHOCKS)?;
     let houses = house_data_from(NEEDS, DAY, KINDS, &HOUSES)?;
     let social = social_from(SOCIAL, &houses)?;
+    let upbringing = upbringing_from(DEVELOPMENT)?;
     Data::with_pool(definitions, POOL, frequencies_from(FREQUENCIES)?)
         .and_then(|data| data.with_shocks(shocks))
-        .map(|data| data.with_houses(houses).with_social(social))
+        .map(|data| (data.with_houses(houses).with_social(social)).with_upbringing(upbringing))
         .map_err(|error| rejected(&error.to_string()))
 }
 
@@ -175,6 +179,15 @@ pub fn social_from(text: &str, houses: &HouseData) -> Result<SocialData, CliErro
     let file = file.checked().map_err(|e| refused(&e))?;
     file.furniture_known(houses).map_err(|e| refused(&e))?;
     Ok(file)
+}
+
+/// The upbringing table of `social/development.json` (ADR-0033 section 5): unknown fields and
+/// wrong types are refused here, the number of rows and the bounds of the steps by the core.
+pub fn upbringing_from(text: &str) -> Result<UpbringingTable, CliError> {
+    let refused =
+        |error: &dyn std::fmt::Display| rejected(&format!("social/development.json: {error}"));
+    let file: UpbringingTable = serde_json::from_str(text).map_err(|e| refused(&e))?;
+    file.checked().map_err(|e| refused(&e))
 }
 
 /// The values of a `simagent.settings` document by name, as written: version 1, each value
@@ -607,6 +620,17 @@ mod tests {
         ] {
             assert!(shocks_from(&file(wrong)).is_err(), "{wrong}");
         }
+    }
+
+    /// The upbringing table: an unknown field does not parse; a step beyond ±1000 is refused by
+    /// the core with its rule, named after the file.
+    #[test]
+    fn the_upbringing_table_is_checked() {
+        assert!(upbringing_from(DEVELOPMENT).is_ok());
+        assert!(upbringing_from(r#"{"rows":[{"occasion":"talk","humour":1}]}"#).is_err());
+        let wide = r#"{"rows":[{"occasion":"talk","extraversion":1001}]}"#;
+        let refused = upbringing_from(wide).expect_err("refused").to_string();
+        assert!(refused.contains("social/development.json: development.rows"), "{refused}");
     }
 
     #[test]

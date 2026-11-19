@@ -676,6 +676,7 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Told { .. } => "core:told",
         LogPayload::Refuted { .. } => "core:refuted",
         LogPayload::Felt { .. } => "core:felt",
+        LogPayload::Developed { .. } => "core:developed",
     }
 }
 

@@ -794,7 +794,10 @@ PROJECTION_VERSION = 25
 # house is ten zero lengths. The save format stays 2. A file of the previous projection does
 # not load (ADR-0006, no migration). A run without MoveIn keeps its log; every year hash
 # changes once: projection 25, core 74.
-CORE_VERSION = 74
+# The upbringing table (ADR-0033 section 5) steps `D` at a talk and at a return from school and
+# writes `core:developed`; the table joins the data hash. A run without MoveIn keeps its log
+# entries; the header's data hash and core version change: core 75.
+CORE_VERSION = 75
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
