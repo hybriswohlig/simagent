@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Reference for the upbringing table of growing up (ADR-0033 sections 4, 5 and 9): the rows of
 a talk (praise, tease, apology, the talk itself), of coming home from school, of reading or
-playing to the end by one's own choice, and of a need at 0 with a parent at home.
+playing to the end by one's own choice, of a need at 0 with a parent at home, and of a child
+under 6 overhearing a parent praise, tease or apologize to another adult in its room.
 Written from the ADR alone; the core's tests take their expected values from here.
 
 What it implements:
@@ -20,6 +21,11 @@ or D already at its bound) writes no `core:developed`.
 READING (section 5, "mit einem Elternteil im Haus"): a parent (as `parent_of`) whose place in
 the house is not away (at work or school); a walk inside the house counts as at home.
 
+READING (section 5, overhearing): the half of each row of the topic, step / 2 toward zero, with
+age factor 1 (the child is under 6, where the factor is 1 anyway), saturated; the children in
+the order of their ids; the source is the actor. The table has no row for it; its code exists
+for the log only, and a row naming it is refused.
+
 READING (section 5, "einmal je Beduerfnis und Tag"): the calendar day of the second is stored
 per child and need when the row applies (the child develops and a parent is at home), whether or
 not D changed; a second need at 0 the same day counts again, the same need does not.
@@ -33,13 +39,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from data_reference import varint, zigzag
-from development_reference import YEAR, age_factor_step, saturate
+from development_reference import YEAR, age_factor_step, div0, saturate
 
 REPOSITORY_TABLE = Path(__file__).resolve().parent.parent / "data" / "social" / "development.json"
 
 AXES = ("openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism")
 # The occasions of the table in the order of the core's enum (its postcard index).
-OCCASIONS = ("praise", "tease", "apology", "school", "talk", "done", "need_empty")
+OCCASIONS = ("praise", "tease", "apology", "school", "talk", "done", "need_empty", "overheard")
 ROWS_MAX = 32
 STEP_BOUND = 1000
 
@@ -73,6 +79,7 @@ def table_checked(doc) -> List[Dict[str, int]]:
     for row in rows:
         assert isinstance(row, dict) and "occasion" in row and set(row) <= {"occasion", *AXES}, "development fields"
         assert row["occasion"] in OCCASIONS, "development fields"
+        assert row["occasion"] != "overheard", "development.rows"
         steps = {axis: row.get(axis, 0) for axis in AXES}
         assert all(isinstance(v, int) and not isinstance(v, bool) and -(2**15) <= v < 2**15 for v in steps.values()), "development fields"
         out.append({"occasion": row["occasion"], **steps})
@@ -110,6 +117,8 @@ class Person:
     raised_since: Optional[int] = None
     d: List[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     away: bool = False
+    # The room a child under 6 is in (its day room, its night room) or None (kindergarten).
+    room: Optional[int] = None
     # Per need (hunger, energy, bladder, hygiene, fun) the calendar day last counted.
     counted: List[Optional[int]] = field(default_factory=lambda: [None] * 5)
 
@@ -203,6 +212,33 @@ def came_home(people, table, k: int, place: str, now: int) -> List[Developed]:
 
 
 NEEDS = ("hunger", "energy", "bladder", "hygiene", "fun")
+
+YOUNG = 6 * YEAR
+
+
+def overheard(people, table, a: int, b: int, topic: str, actor: Optional[int], room: int, now: int) -> List[Developed]:
+    """A talk of `a` and `b`, both 18 or older, at furniture in `room`: each child under 6 in
+    `room` whose parent is the actor of praise, tease or apology gets half of that topic's rows."""
+    adults = all(now - people[x].born >= 18 * YEAR for x in (a, b))
+    if not adults or topic not in ("praise", "tease", "apology") or actor not in (a, b):
+        return []
+    out = []
+    for k in sorted(people):
+        child = people[k]
+        young = now - child.born < YOUNG
+        if not (young and child.room == room and parent_of(people, actor, k) and develops(people, k, now)):
+            continue
+        for index, axis in enumerate(AXES):
+            for row in table:
+                if row["occasion"] != topic or row[axis] == 0:
+                    continue
+                step = div0(row[axis], 2)
+                before = child.d[index]
+                after = saturate(before, step)
+                if after != before:
+                    child.d[index] = after
+                    out.append(Developed(k, actor, axis, before, after, step, "overheard"))
+    return out
 
 
 def finished(people, table, k: int, offer: str, reason: str, commanded: bool, now: int) -> List[Developed]:
@@ -371,6 +407,43 @@ def main() -> None:
     assert need_empty(people, table, 7, "hygiene", now) == []
     # At 16 a quarter: 10 / 4 = 2.
     assert [x.step for x in need_empty(family(now), table, 9, "fun", now)] == [2]
+
+    # Overhearing: a baby 10 (2 years) and a toddler 11 (5 years) of the mother and father, a
+    # baby 12 (1 year) of the neighbour; the talk at furniture in room 2.
+    people = family(now)
+    people[10] = Person(now - 2 * YEAR, 1, 1, 2, raised_since=now - 2 * YEAR, room=2)
+    people[11] = Person(now - 5 * YEAR, 1, 1, 2, raised_since=now - 5 * YEAR, room=2)
+    people[13] = Person(now - 3 * YEAR, 1, 1, 2, raised_since=now - 3 * YEAR, room=None)
+    # The father praises the mother: half of praise, A 20 / 2 = 10, N -40 / 2 = -20, for both in
+    # room 2, in id order; the child at the kindergarten (room None) hears nothing.
+    got = overheard(people, table, 2, 1, "praise", 2, 2, now)
+    assert got == [
+        Developed(10, 2, "agreeableness", 0, 10, 10, "overheard"),
+        Developed(10, 2, "neuroticism", 0, -20, -20, "overheard"),
+        Developed(11, 2, "agreeableness", 0, 10, 10, "overheard"),
+        Developed(11, 2, "neuroticism", 0, -20, -20, "overheard"),
+    ], got
+    # A tease: A -20 / 2 = -10, so 10 + (-10 * 3010) / 3000 = 10 - 10 = 0; N 40 / 2 = 20:
+    # -20 + 20 * 3020 / 3000 = -20 + 20 = 0. An apology: A 10, N -10.
+    got = overheard(people, table, 1, 2, "tease", 1, 2, now)
+    assert [(x.child, x.axis, x.after) for x in got] == [
+        (10, "agreeableness", 0), (10, "neuroticism", 0), (11, "agreeableness", 0), (11, "neuroticism", 0),
+    ], got
+    got = overheard(people, table, 1, 2, "apology", 1, 2, now)
+    assert [(x.child, x.step) for x in got] == [(10, 10), (10, -10), (11, 10), (11, -10)], got
+    # Another room, an everyday topic, no actor, or a talk with a child of 16 (the girl 9, not
+    # an adult): nothing.
+    assert overheard(people, table, 1, 2, "praise", 1, 3, now) == []
+    assert overheard(people, table, 1, 2, "everyday", None, 2, now) == []
+    assert overheard(people, table, 1, 9, "apology", 1, 2, now) == []
+    # The neighbour praises the mother: not the parent of the small children.
+    assert overheard(people, table, 8, 1, "praise", 8, 2, now) == []
+    # A row of its own is refused.
+    try:
+        table_checked({"rows": [{"occasion": "overheard", "openness": 1}]})
+        raise SystemExit("an overheard row was kept")
+    except AssertionError as error:
+        assert str(error) == "development.rows"
     print("upbringing: all worked values hold")
 
 
