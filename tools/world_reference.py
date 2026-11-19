@@ -1453,7 +1453,7 @@ class Data:
     included, reads the overlaid life course data (`Data::with_calibration` after the pool,
     the templates and the houses); a pool person keeps the extract's wish (`pool_wish`)."""
 
-    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None, social=None, game=None):
+    def __init__(self, demography: dict, calibration: dict, genome_map: dict, pool=None, frequencies=None, shocks=None, houses=None, social=None, game=None, development=None):
         extract_demography = demography
         extract = data_reference.definitions_bytes(demography, calibration, genome_map)
         extract_wish = data_reference.strip(demography)
@@ -1495,6 +1495,10 @@ class Data:
         # The social data (ADR-0030 section 6): checked and appended after the houses.
         if social is not None:
             hashed += data_reference.social_suffix(social, None if houses is None else houses[2])
+            self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
+        # The upbringing table (ADR-0033 section 5): appended after the social data.
+        if development is not None:
+            hashed += data_reference.development_suffix(development)
             self.hash = xxhash.xxh3_64_intdigest(hashed, seed=0)
         assert self.hash == xxhash.xxh3_64_intdigest(hashed, seed=0)
         # What the measurement reads (design note of the measurement, section 1): every trait
@@ -1679,7 +1683,8 @@ def repository_data() -> Data:
     houses = data_reference.house_files(ROOT / "data")
     social = data_reference.social_files(ROOT / "data")
     game = data_reference.game_overlay(ROOT / "data")
-    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, social=social, game=game)
+    development = data_reference.development_file(ROOT / "data")
+    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, social=social, game=game, development=development)
 
 
 # The map 3 fixture (design note of the switch, section 4): tests/golden/map3 holds the map 3

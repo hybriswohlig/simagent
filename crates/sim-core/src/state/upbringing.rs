@@ -217,15 +217,19 @@ fn age(domain: &DomainState, sim: SimId, now: SimTime) -> Option<i64> {
 }
 
 /// `p` is a parent of `k`: living, in the same household, and its mother or father from the
-/// birth or one of its social parents.
+/// birth (a pool person's resolved from its pool keys) or one of its social parents, taken in
+/// in the town or, for a pool person, in the pool run.
 fn parent_of(domain: &DomainState, p: SimId, k: SimId) -> bool {
     let (Some(parent), Some(child)) = (domain.sims.get(&p), domain.sims.get(&k)) else {
         return false;
     };
     let (mother, father) = domain.town_parents(k);
+    let social = child.social_parents.contains(&p)
+        || (child.pool.as_ref())
+            .is_some_and(|from| from.social_parents.contains(&parent.lineage_key));
     p != k
         && parent.household == child.household
-        && (mother == Some(p) || father == Some(p) || child.social_parents.contains(&p))
+        && (mother == Some(p) || father == Some(p) || social)
 }
 
 /// `s` is an older sibling of `k`: another living person under 18 in the same household, born
@@ -362,6 +366,55 @@ mod tests {
         moved.sims.get_mut(&sid(1)).expect("mother").household =
             HouseholdId::try_from(2).expect("valid");
         assert!(!parent_of(&moved, sid(1), sid(3)));
+    }
+
+    /// A pool person's parents (design note of the arrival, section 6.2): its foster mother from
+    /// the pool run is known only by her lineage key among its pool social parents, its mother
+    /// from the birth only by her key; both count as its parents, and two pool children who
+    /// share only that foster mother are siblings. A key of no one in the town counts as no one.
+    #[test]
+    fn a_pool_persons_parents_count_through_their_keys() {
+        use crate::lineage::GenomeKey;
+        use crate::state::PoolOrigin;
+
+        let mut domain = family();
+        let key = |n: u64| domain.sims[&sid(n)].lineage_key;
+        let (mother, foster) = (key(1), key(8));
+        let tag = DataId::new("test:upbringing").expect("tag");
+        let nobody = LineageKey::founder(&tag, 99);
+        let origin = |mother: Option<LineageKey>, social: Vec<LineageKey>| PoolOrigin {
+            genome_key: GenomeKey::of_zygote(nobody),
+            born_pool: None,
+            arrived: SimTime::from_secs(NOW),
+            arrival_year: 0,
+            mother,
+            father: Some(nobody),
+            social_parents: social,
+        };
+        // The neighbour 8 lives with the son 4 and the daughter 3 now; 3 came from the pool
+        // with 8 as foster mother, 4 with the mother 1 as his mother from the birth.
+        for n in [3, 4, 8] {
+            domain.sims.get_mut(&sid(n)).expect("living").household =
+                HouseholdId::try_from(3).expect("valid");
+        }
+        domain.sims.get_mut(&sid(1)).expect("mother").household =
+            HouseholdId::try_from(3).expect("valid");
+        for (n, from) in [
+            (3, origin(None, alloc::vec![foster])),
+            (4, origin(Some(mother), alloc::vec![foster, nobody])),
+        ] {
+            let child = domain.sims.get_mut(&sid(n)).expect("living");
+            child.parents = None;
+            child.pool = Some(from);
+        }
+        let now = SimTime::from_secs(NOW);
+        assert!(parent_of(&domain, sid(8), sid(3)) && parent_of(&domain, sid(8), sid(4)));
+        assert!(parent_of(&domain, sid(1), sid(4)) && !parent_of(&domain, sid(1), sid(3)));
+        assert!(!parent_of(&domain, sid(2), sid(4)));
+        assert!(older_sibling_of(&domain, sid(4), sid(3), now));
+        // Without the foster mother's key they share no parent.
+        domain.sims.get_mut(&sid(3)).expect("living").pool = Some(origin(None, alloc::vec![]));
+        assert!(!older_sibling_of(&domain, sid(4), sid(3), now));
     }
 
     /// Who is an older sibling: under 18, the same household, a shared parent, born strictly

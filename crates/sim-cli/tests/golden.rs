@@ -30,7 +30,7 @@ use sim_core::version::CORE_VERSION;
 
 /// The data hash of the repository's data, the definitions with the pool and its
 /// frequencies, from `tools/data_reference.py` (ADR-0007).
-const DATA_HASH: u64 = 0xa7e0_05c1_7113_a48a;
+const DATA_HASH: u64 = 0x85f0_658e_fccc_ac10;
 use sim_core::world::{EventPayload, World, YearOut};
 
 const SCENARIO: &str = include_str!("../../../tests/scenarios/dummy.json");
@@ -680,7 +680,7 @@ fn log_kind(payload: &LogPayload) -> &'static str {
     }
 }
 
-const LOG_KINDS: [&str; 46] = [
+const LOG_KINDS: [&str; 47] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -727,10 +727,11 @@ const LOG_KINDS: [&str; 46] = [
     "core:told",
     "core:refuted",
     "core:felt",
+    "core:developed",
 ];
 
 /// The entries of the house: no golden scenario moves in yet (ADR-0024).
-const HOUSE_LOGS: [&str; 29] = [
+const HOUSE_LOGS: [&str; 30] = [
     "core:moved_in",
     "core:moved_out",
     "core:day_started",
@@ -760,6 +761,7 @@ const HOUSE_LOGS: [&str; 29] = [
     "core:told",
     "core:refuted",
     "core:felt",
+    "core:developed",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -860,7 +862,8 @@ fn golden_scenarios_cover_every_kind() {
             "log core:unbelieved",
             "log core:told",
             "log core:refuted",
-            "log core:felt"
+            "log core:felt",
+            "log core:developed"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, no partnership ends by separation, and nobody \
@@ -916,7 +919,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 46);
+    assert_eq!(logs.len(), 47);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -1038,7 +1041,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:unbelieved",
             "log core:told",
             "log core:refuted",
-            "log core:felt"
+            "log core:felt",
+            "log core:developed"
         ]
     );
 }

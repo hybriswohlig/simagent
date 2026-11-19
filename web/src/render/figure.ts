@@ -270,9 +270,10 @@ async function loadPack(): Promise<Pack> {
     const proxy = asRecord(listed[key], key);
     if (typeof proxy["texture"] !== "string" || typeof proxy["count"] !== "number") fail(`${key} is incomplete`);
     const scale = asRecord(proxy["scale"], `${key} scale`);
-    const image = await figureImage(`${FIGURE}/proxies/${proxy["texture"]}`);
     const aoName = proxy["ao"];
     const aoImage = typeof aoName === "string" && aoName !== "" ? await figureImage(`${FIGURE}/proxies/${aoName}`) : null;
+    // A suit is dyed over its occlusion map, so its colour texture is not requested.
+    const image = aoImage ?? (await figureImage(`${FIGURE}/proxies/${proxy["texture"]}`));
     const skin = proxy["skin_index"];
     proxies[key] = {
       kind: typeof proxy["kind"] === "string" ? proxy["kind"] : "groom",
@@ -414,7 +415,7 @@ async function loadAssetsOnce(): Promise<Assets> {
   const [bytes, pack, skin] = await Promise.all([
     figureBytes(`${FIGURE}/body.glb`),
     loadPack(),
-    figureImage(`${FIGURE}/young_lightskinned_female_diffuse.png`),
+    figureImage(`${FIGURE}/young_lightskinned_female_diffuse.jpg`),
   ]);
   selfContained(bytes);
   const gltf = await new GLTFLoader().parseAsync(bytes, `${FIGURE}/`);
