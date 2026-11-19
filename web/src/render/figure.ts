@@ -76,6 +76,8 @@ export const FIGURE_HEIGHT = 420;
 
 const SKIN_MEAN = new Vector3(0.616986, 0.356523, 0.236129);
 const CLEAR = 0xe7e2da;
+/** How far the eyeballs sit in front of their fitted place, in metres of the mesh. */
+const EYE_FORWARD = 0.002;
 const GROUND_SHIFT = 0.81676;
 
 const MEASURE_KEYS = new Set([
@@ -1328,7 +1330,9 @@ function addGrooming(
   }
   const eyes = proxyOf(pack, "eyes");
   if (eyes !== null) {
-    addFitted(mesh, head, eyes, eyes.faces, humanPos, eyeMaterial(textureOf(eyes.image, true, SRGBColorSpace, owned), irisHex, skinHex, owned), 1, 0.0075, null, owned);
+    // The eyeballs stay in their sockets, so the lids cover the upper and lower white.
+    // Pushed further forward they stand in front of the lids and stare.
+    addFitted(mesh, head, eyes, eyes.faces, humanPos, eyeMaterial(textureOf(eyes.image, true, SRGBColorSpace, owned), irisHex, skinHex, owned), 1, EYE_FORWARD, null, owned);
   }
 }
 
