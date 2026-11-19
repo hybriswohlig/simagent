@@ -9,6 +9,7 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use sim_core::development::{Axis, Upbringing};
 mod common;
 
 use sim_core::data_id::{Code, DataId};
@@ -1215,6 +1216,13 @@ fn all_payloads() -> Vec<LogPayload> {
             fear: 300,
             temper: -325,
         },
+        LogPayload::Developed {
+            axis: Axis::Neuroticism,
+            before: -40,
+            after: 0,
+            step: 40,
+            cause: Upbringing::Tease,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1264,7 +1272,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Unbelieved { .. }
             | LogPayload::Told { .. }
             | LogPayload::Refuted { .. }
-            | LogPayload::Felt { .. } => {}
+            | LogPayload::Felt { .. }
+            | LogPayload::Developed { .. } => {}
         }
     }
     payloads
@@ -1775,6 +1784,34 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(forgets.iter().map(|r| line("forget_reason", r)));
+    // The temperament axes and the occasions of the upbringing table (ADR-0033 sections 2 and 5).
+    for axis in &Axis::ALL {
+        match axis {
+            Axis::Openness
+            | Axis::Conscientiousness
+            | Axis::Extraversion
+            | Axis::Agreeableness
+            | Axis::Neuroticism => {}
+        }
+    }
+    actual.extend(Axis::ALL.iter().map(|a| line("axis", a)));
+    let occasions = [
+        Upbringing::Praise,
+        Upbringing::Tease,
+        Upbringing::Apology,
+        Upbringing::School,
+        Upbringing::Talk,
+    ];
+    for occasion in &occasions {
+        match occasion {
+            Upbringing::Praise
+            | Upbringing::Tease
+            | Upbringing::Apology
+            | Upbringing::School
+            | Upbringing::Talk => {}
+        }
+    }
+    actual.extend(occasions.iter().map(|o| line("upbringing", o)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden

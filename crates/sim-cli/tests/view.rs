@@ -2185,7 +2185,7 @@ fn settings_file(values: &str) -> String {
 
 /// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
 /// `the_base_game_loads`).
-const BASE_HASH: &str = "a7e005c17113a48a";
+const BASE_HASH: &str = "85f0658efcccac10";
 
 /// The data hash in the manifest of the run in `dir`.
 fn data_hash(dir: &Path) -> String {
