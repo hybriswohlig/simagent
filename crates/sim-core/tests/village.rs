@@ -89,7 +89,10 @@ fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(common::repository_shocks()))
     .map(|data| data.with_houses(common::repository_houses()))
-    .map(|data| data.with_social(common::repository_social()).with_upbringing(common::repository_upbringing()))
+    .map(|data| {
+        data.with_social(common::repository_social())
+            .with_upbringing(common::repository_upbringing())
+    })
     .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }

@@ -728,7 +728,10 @@ pub fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(repository_shocks()))
     .map(|data| data.with_houses(repository_houses()))
-    .map(|data| data.with_social(repository_social()).with_upbringing(repository_upbringing()))
+    .map(|data| {
+        data.with_social(repository_social())
+            .with_upbringing(repository_upbringing())
+    })
     .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }
