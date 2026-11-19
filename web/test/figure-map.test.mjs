@@ -76,11 +76,13 @@ const Z_DRIVEN = [
   "lip_ratio",
 ];
 
-test("age slices at 8, 18.5, 47.5 and 80", () => {
-  assert.deepEqual(ageSlices(8), [1, 0, 0]);
-  assert.deepEqual(ageSlices(18.5), [0.5, 0.5, 0]);
-  assert.deepEqual(ageSlices(47.5), [0, 0.5, 0.5]);
-  assert.deepEqual(ageSlices(80), [0, 0, 1]);
+test("age slices at 0.5, 5.5, 11, 18.5, 47.5 and 80", () => {
+  assert.deepEqual(ageSlices(0.5), [1, 0, 0, 0]);
+  assert.deepEqual(ageSlices(5.5), [0.5, 0.5, 0, 0]);
+  assert.deepEqual(ageSlices(11), [0, 1, 0, 0]);
+  assert.deepEqual(ageSlices(18.5), [0, 0.5, 0.5, 0]);
+  assert.deepEqual(ageSlices(47.5), [0, 0, 0.5, 0.5]);
+  assert.deepEqual(ageSlices(80), [0, 0, 0, 1]);
 });
 
 test("branch shares are the identity at the three corners", () => {

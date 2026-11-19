@@ -82,11 +82,15 @@ const ARM_OUT = 0.08;
 /** A child's arms hang a little further out, clear of the rounder belly. */
 const CHILD_ARM_OUT = 0.05;
 const LEG_OUT = 0.03;
+/** The baby shape rests with the thighs splayed; its knees are brought in by this much more. */
+const BABY_KNEE_IN = 0.2;
 /** How far the eyeballs sit in front of their fitted place, in metres of the mesh. */
 const EYE_FORWARD = 0.002;
 const GROUND_SHIFT = 0.81676;
 
 const MEASURE_KEYS = new Set([
+  "age_male_baby",
+  "age_female_baby",
   "age_male_child",
   "age_male_young",
   "age_male_old",
@@ -1475,7 +1479,7 @@ function turnFront(bone: Bone, angle: number): void {
  * The relaxed stance: the arms hang beside the body with a slight bend at the elbow, and
  * the feet stand under the hips. The mesh rests with arms and legs spread.
  */
-function relax(root: Object3D, child: number): void {
+function relax(root: Object3D, child: number, baby: number): void {
   const armOut = ARM_OUT + CHILD_ARM_OUT * Math.min(Math.max(child, 0), 1);
   root.updateWorldMatrix(true, true);
   for (const side of ["l", "r"]) {
@@ -1491,8 +1495,11 @@ function relax(root: Object3D, child: number): void {
     const calf = findBone(root, `calf_${side}`);
     const foot = findBone(root, `foot_${side}`);
     if (thigh !== null && calf !== null && foot !== null) {
-      // The foot turns back by the same angle, so the sole stays flat on the ground.
-      turnFront(foot, -swing(thigh, calf, sign * LEG_OUT));
+      // Thigh and lower leg are straightened each (a small child's legs rest bowed), and
+      // the foot turns back by both angles, so the sole stays flat on the ground.
+      const upperTurn = swing(thigh, calf, sign * (LEG_OUT - BABY_KNEE_IN * baby));
+      const lowerTurn = swing(calf, foot, sign * LEG_OUT);
+      turnFront(foot, -upperTurn - lowerTurn);
     }
   }
 }
@@ -1700,7 +1707,8 @@ function mountMembers(
         const wrapper = buildFigure(assets, member.body, member.sex, member.simId, keyDir, anisotropy, owned);
         wrapper.position.x = xs[i] ?? 0;
         scene.add(wrapper);
-        relax(wrapper, ageSlices(member.body.body_form_age)[0]);
+        const [baby, child] = ageSlices(member.body.body_form_age);
+        relax(wrapper, baby + child, baby);
         standing.push(wrapper);
       }
       frame(camera);
