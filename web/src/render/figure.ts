@@ -79,12 +79,8 @@ const SKIN_MEAN = new Vector3(0.616986, 0.356523, 0.236129);
 const CLEAR = 0xe7e2da;
 /** How far a hanging arm and a standing leg lean outward, as sideways per unit down. */
 const ARM_OUT = 0.08;
-/**
- * A child's arms stay further out. The skeleton has adult joints and the child shape only
- * moves the skin, so an arm turned far from its rest swings about the wrong shoulder and
- * ends behind the back.
- */
-const CHILD_ARM_OUT = 0.38;
+/** A child's arms hang a little further out, clear of the rounder belly. */
+const CHILD_ARM_OUT = 0.05;
 const LEG_OUT = 0.03;
 /** How far the eyeballs sit in front of their fitted place, in metres of the mesh. */
 const EYE_FORWARD = 0.002;
@@ -182,6 +178,7 @@ type NormalGroups = { groupOf: Int32Array; count: number };
 type Assets = {
   template: Group;
   groups: NormalGroups;
+  rings: Int32Array[];
   restIndex: Int32Array;
   pack: Pack;
   skin: FigureImage;
@@ -436,10 +433,87 @@ async function loadAssetsOnce(): Promise<Assets> {
   return {
     template,
     groups: buildNormalGroups(mesh.geometry),
+    rings: jointRings(mesh),
     restIndex: buildRestIndex(pack.bodyRest, mesh.geometry),
     pack,
     skin,
   };
+}
+
+/** A vertex belongs to a joint when the bone and its parent each hold this much of it. */
+const RING_WEIGHT = 0.15;
+
+/**
+ * For each bone of the skeleton, the body vertices around its joint with the parent bone:
+ * those both bones pull on. A bone without a parent bone, or without such vertices, has none.
+ */
+function jointRings(mesh: SkinnedMesh): Int32Array[] {
+  const bones = mesh.skeleton.bones;
+  const index = mesh.geometry.getAttribute("skinIndex") ?? fail("body has no skin indices");
+  const weight = mesh.geometry.getAttribute("skinWeight") ?? fail("body has no skin weights");
+  const parentOf = bones.map((bone) => bones.findIndex((other) => other === bone.parent));
+  const rings: number[][] = bones.map(() => []);
+  for (let vertex = 0; vertex < index.count; vertex += 1) {
+    const o = vertex * 4;
+    for (let a = 0; a < 4; a += 1) {
+      const bone = num(index.array, o + a);
+      const parent = parentOf[bone] ?? -1;
+      if (parent < 0 || num(weight.array, o + a) < RING_WEIGHT) continue;
+      let held = 0;
+      for (let b = 0; b < 4; b += 1) {
+        if (num(index.array, o + b) === parent) held += num(weight.array, o + b);
+      }
+      if (held >= RING_WEIGHT) rings[bone]?.push(vertex);
+    }
+  }
+  return rings.map((ring) => Int32Array.from(ring));
+}
+
+/**
+ * Moves each joint with the skin around it. The skeleton comes with the joints of the
+ * unshaped body, and a shape key moves only the skin, so on a child or a heavy body a
+ * limb would turn about a point that is no longer its joint. A joint moves by as much as
+ * the middle of its ring of vertices moved; a bone without a ring moves with its parent.
+ * The bones' inverses follow, so the body at rest is drawn exactly as before.
+ */
+function fitJoints(root: Object3D, mesh: SkinnedMesh, cloud: { xyz: Float32Array }, rings: readonly Int32Array[]): void {
+  root.updateWorldMatrix(true, true);
+  const skeleton = mesh.skeleton;
+  const bones = skeleton.bones;
+  const rest = mesh.geometry.getAttribute("position") ?? fail("body has no positions");
+  const bound = bones.map((bone, i) => bone.matrixWorld.clone().multiply(skeleton.boneInverses[i] ?? fail("a bone has no inverse")));
+  const places = bones.map((bone) => bone.getWorldPosition(new Vector3()));
+  const shifts: Vector3[] = [];
+  for (let i = 0; i < bones.length; i += 1) {
+    const ring = rings[i];
+    const parent = bones.findIndex((other) => other === bones[i]?.parent);
+    if (ring === undefined || ring.length < 3) {
+      shifts.push((shifts[parent] ?? new Vector3(0, 0, 0)).clone());
+      continue;
+    }
+    const before = new Vector3(0, 0, 0);
+    const after = new Vector3(0, 0, 0);
+    for (let k = 0; k < ring.length; k += 1) {
+      const vertex = num(ring, k);
+      before.add(new Vector3(rest.getX(vertex), rest.getY(vertex), rest.getZ(vertex)));
+      after.add(new Vector3(num(cloud.xyz, vertex * 3), num(cloud.xyz, vertex * 3 + 1), num(cloud.xyz, vertex * 3 + 2)));
+    }
+    const toWorld = (bound[i] ?? fail("a bone is missing")).clone().multiply(mesh.bindMatrix);
+    before.multiplyScalar(1 / ring.length).applyMatrix4(toWorld);
+    after.multiplyScalar(1 / ring.length).applyMatrix4(toWorld);
+    shifts.push(after.sub(before));
+  }
+  // The skeleton lists a parent before its children, so each parent is in place first.
+  for (let i = 0; i < bones.length; i += 1) {
+    const bone = bones[i];
+    const place = places[i];
+    const shift = shifts[i];
+    if (bone === undefined || place === undefined || shift === undefined || bone.parent === null) continue;
+    bone.parent.updateWorldMatrix(true, false);
+    bone.position.copy(bone.parent.worldToLocal(place.add(shift)));
+  }
+  root.updateWorldMatrix(true, true);
+  skeleton.boneInverses = bones.map((bone, i) => bone.matrixWorld.clone().invert().multiply(bound[i] ?? fail("a bone is missing")));
 }
 
 function takeOwnership(mesh: SkinnedMesh, owned: Owned): void {
@@ -1507,6 +1581,8 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
   const weights = morphWeights(body, sex);
   applyWeights(mesh, weights);
   smoothSkinNormals(mesh, assets.groups);
+  const cloud = morphedCloud(mesh, weights);
+  fitJoints(root, mesh, cloud, assets.rings);
   const measured = morphedYSpan(mesh, weights);
   const standingCm = measured.span * 100;
   const scale = standingCm > 1 ? body.height_cm / standingCm : 1;
@@ -1517,7 +1593,6 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
   const wrapper = new Group();
   wrapper.add(root);
   wrapper.position.y = -pivot * (1 - scale);
-  const cloud = morphedCloud(mesh, weights);
   const marks = landmarks(cloud);
   const skin = skinColor(body);
   const hair = hairColor(body);
