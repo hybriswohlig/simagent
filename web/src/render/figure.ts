@@ -52,6 +52,7 @@ import {
   ageSlices,
   clothes,
   hairColor,
+  hairCover,
   irisColor,
   morphWeights,
   skinColor,
@@ -1405,7 +1406,7 @@ function addGrooming(
 ): void {
   const hairName = wornHair(body, sex, simId);
   const hair = proxyOf(pack, hairName);
-  const density = Math.min(1, Math.max(0, body.hair_density));
+  const density = hairCover(body);
   if (density > 0.02 && hair !== null) {
     const bald = hairName === "hair_short" ? Math.min(1, Math.max(0, body.balding_stage) / 7) : 0;
     const threshold = MathUtils.lerp(0.9, 0.2, density);

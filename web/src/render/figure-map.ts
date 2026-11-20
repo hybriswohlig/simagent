@@ -187,10 +187,23 @@ export function hairStyle(simId: string): string {
   return HAIR_STYLES[index] ?? "hair_short";
 }
 
-/** The cut that is worn: a balding male is forced onto the short proxy. */
+/** A child under this body-form age wears the short cut. */
+const SHORT_HAIR_UNTIL = 3;
+
+/** How much of the hair's cover the baby shape takes away: a baby's hair is fine. */
+const BABY_HAIR_THIN = 0.45;
+
+/** The cut that is worn: a small child and a balding male are forced onto the short proxy. */
 export function wornHair(body: BodyParams, sex: Sex, simId: string): string {
+  if (body.body_form_age < SHORT_HAIR_UNTIL) return "hair_short";
   if (sex === "male" && body.balding_stage >= 1) return "hair_short";
   return hairStyle(simId);
+}
+
+/** The share of the scalp the hair covers: the density, thinned by the baby share of the shape. */
+export function hairCover(body: BodyParams): number {
+  const [baby] = ageSlices(body.body_form_age);
+  return clamp(body.hair_density, 0, 1) * (1 - BABY_HAIR_THIN * baby);
 }
 
 function dyeAt(table: readonly (readonly [string, string])[], index: number): readonly [string, string] {

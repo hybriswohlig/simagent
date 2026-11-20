@@ -13,6 +13,7 @@ import {
   branchShares,
   clothes,
   hairColor,
+  hairCover,
   hairStyle,
   irisColor,
   morphWeights,
@@ -180,6 +181,16 @@ test("hair and iris colours are the table ends, and grey hair is the grey", () =
   assert.equal(hairColor(params({ hair_eumelanin: 0, hair_pheomelanin: 0, hair_grey_fraction: 1 })), "#c4c4c4");
   assert.equal(irisColor(params({ iris_melanin: 0 })), "#8fb3d9");
   assert.equal(irisColor(params({ iris_melanin: 1 })), "#2e1a0e");
+});
+
+test("a small child wears the short cut and a baby's hair is fine", () => {
+  assert.equal(wornHair(params({ body_form_age: 2 }), "female", "1"), "hair_short");
+  assert.equal(wornHair(params({ body_form_age: 3 }), "female", "1"), "hair_braid");
+  const close = (got, want) => assert.ok(Math.abs(got - want) < 1e-12, `${got} is not ${want}`);
+  close(hairCover(params({ body_form_age: 0.5, hair_density: 0.8 })), 0.44);
+  close(hairCover(params({ body_form_age: 5.5, hair_density: 0.8 })), 0.62);
+  close(hairCover(params({ body_form_age: 30, hair_density: 0.8 })), 0.8);
+  close(hairCover(params({ body_form_age: 30, hair_density: 1.4 })), 1);
 });
 
 test("hair style and clothes follow the sim id", () => {
