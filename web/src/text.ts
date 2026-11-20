@@ -737,6 +737,7 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:refuted": "{0} wird widerlegt",
   "payload core:felt": "{0} fühlt etwas",
   "payload core:developed": "{0} wächst daran",
+  "payload core:practiced": "{0} wird geübter",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
   "cause event": "Folge eines Ereignisses",
@@ -917,4 +918,7 @@ export const CODES: { readonly [code: string]: string } = {
   "upbringing done": "zu Ende gespielt oder gelesen",
   "upbringing need_empty": "Bedürfnis leer",
   "upbringing overheard": "mitgehört",
+  "skill language": "Sprache",
+  "skill reading": "Lesen",
+  "skill play": "Spiel",
 };

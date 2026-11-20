@@ -294,6 +294,7 @@ fn the_first_morning_gives_the_needs() {
             slot: 0,
             filler: false,
             commanded: false,
+            reached: None,
         }),
         due: None,
         decisions: Decisions {

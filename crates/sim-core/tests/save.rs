@@ -487,8 +487,10 @@ type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
 /// that waits as (place, depart, back), the choices of a day as (day, count), whether it lies on
 /// the floor (ADR-0026, addendum of 2026-11-04 on a need at 0), the reserve as (capacity, value,
 /// at, rate, energy extra; the addendum of 2026-11-06 on hunger at 0), `DERIVED` for the one her
-/// needs and what she does give (`derived`).
-#[derive(Clone, Serialize)]
+/// needs and what she does give (`derived`). An action at its object reached it at the first second
+/// a need was written down, the latest the loader allows for the needs its offer sets; one on
+/// the way has not reached it (`Action::reached`, ADR-0033 section 6).
+#[derive(Clone)]
 struct TestInHouse {
     needs: [(u16, i64, i32); 5],
     place: TestPlace,
@@ -500,6 +502,48 @@ struct TestInHouse {
     talk_day: i64,
     talks: u16,
     entries: u16,
+}
+
+/// [`TestInHouse`] in the field order of [`sim_core::house::state::InHouse`], the action with the
+/// second it reached its object.
+#[derive(Serialize)]
+struct WireInHouse<'a> {
+    needs: &'a [(u16, i64, i32); 5],
+    place: &'a TestPlace,
+    action: Option<(u16, u16, u8, bool, bool, Option<i64>)>,
+    due: &'a Option<(u8, i64, i64)>,
+    decisions: &'a (i64, u16),
+    collapsed: bool,
+    reserve: &'a TestReserve,
+    talk_day: i64,
+    talks: u16,
+    entries: u16,
+}
+
+impl Serialize for TestInHouse {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let first = self.needs.iter().map(|need| need.1).min();
+        let reached = match self.place {
+            TestPlace::Room(_) => first,
+            _ => None,
+        };
+        let action = (self.action.as_ref()).map(|TestAction(object, offer, slot, filler, told)| {
+            (*object, *offer, *slot, *filler, *told, reached)
+        });
+        WireInHouse {
+            needs: &self.needs,
+            place: &self.place,
+            action,
+            due: &self.due,
+            decisions: &self.decisions,
+            collapsed: self.collapsed,
+            reserve: &self.reserve,
+            talk_day: self.talk_day,
+            talks: self.talks,
+            entries: self.entries,
+        }
+        .serialize(serializer)
+    }
 }
 
 /// A household in its house, in the field order of [`sim_core::house::state::MovedIn`].
@@ -518,6 +562,7 @@ struct TestRaised {
     since: i64,
     experience: [i32; 5],
     counted: [Option<i64>; 5],
+    practice: [u64; 3],
 }
 
 /// "tiny", born at 0, in a household that lives in a house since 0: raised from her birth
@@ -529,6 +574,7 @@ fn tiny_raised() -> Vec<(u64, TestRaised)> {
             since: 0,
             experience: [0; 5],
             counted: [None; 5],
+            practice: [0; 3],
         },
     )]
 }

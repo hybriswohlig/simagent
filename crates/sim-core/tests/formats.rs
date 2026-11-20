@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sim_core::development::{Axis, Upbringing};
+use sim_core::skill::Skill;
 mod common;
 
 use sim_core::data_id::{Code, DataId};
@@ -1223,6 +1224,11 @@ fn all_payloads() -> Vec<LogPayload> {
             step: 40,
             cause: Upbringing::Tease,
         },
+        LogPayload::Practiced {
+            skill: Skill::Reading,
+            hours: 20,
+            level_milli: 19,
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1273,7 +1279,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Told { .. }
             | LogPayload::Refuted { .. }
             | LogPayload::Felt { .. }
-            | LogPayload::Developed { .. } => {}
+            | LogPayload::Developed { .. }
+            | LogPayload::Practiced { .. } => {}
         }
     }
     payloads
@@ -1818,6 +1825,13 @@ fn log_codes_are_stable() {
         }
     }
     actual.extend(occasions.iter().map(|o| line("upbringing", o)));
+    // The skills of growing up (ADR-0033 section 6).
+    for skill in &Skill::ALL {
+        match skill {
+            Skill::Language | Skill::Reading | Skill::Play => {}
+        }
+    }
+    actual.extend(Skill::ALL.iter().map(|s| line("skill", s)));
 
     let golden = include_str!("../../../tests/golden/log_codes.txt");
     let pinned: String = golden
