@@ -58,12 +58,18 @@ export function hashSim(id: string): number {
   return hash >>> 0;
 }
 
-/** Child, young and old shares of `age`. The ends are one slice; 12 to 25 and 25 to 70 blend. */
-export function ageSlices(age: number): readonly [number, number, number] {
-  if (age <= 12) return [1, 0, 0];
-  if (age <= 25) return [(25 - age) / 13, (age - 12) / 13, 0];
-  if (age <= 70) return [0, (70 - age) / 45, (age - 25) / 45];
-  return [0, 0, 1];
+/**
+ * Baby, child, young and old shares of `age`, the body-form age in years. Up to 1 it is
+ * the baby shape, at 10 to 12 the child shape, at 25 the young one, from 70 the old one;
+ * between them two neighbours blend.
+ */
+export function ageSlices(age: number): readonly [number, number, number, number] {
+  if (age <= 1) return [1, 0, 0, 0];
+  if (age <= 10) return [(10 - age) / 9, (age - 1) / 9, 0, 0];
+  if (age <= 12) return [0, 1, 0, 0];
+  if (age <= 25) return [0, (25 - age) / 13, (age - 12) / 13, 0];
+  if (age <= 70) return [0, 0, (70 - age) / 45, (age - 25) / 45];
+  return [0, 0, 0, 1];
 }
 
 /** Male and female shares of the androgenic and estrogenic development, each clamped to [0, 1]. */
@@ -101,11 +107,11 @@ function zeroKeys(weights: Record<string, number>): void {
 
 /** Shape-key name to weight. A male keeps both breast weights at 0. Provisional keys stay 0. */
 export function morphWeights(body: BodyParams, sex: Sex): Record<string, number> {
-  const [child, young, old] = ageSlices(body.body_form_age);
+  const [baby, child, young, old] = ageSlices(body.body_form_age);
   const { male, female } = branchShares(body);
   const weights: Record<string, number> = {};
-  const slices = [child, young, old];
-  const names = ["child", "young", "old"] as const;
+  const slices = [baby, child, young, old];
+  const names = ["baby", "child", "young", "old"] as const;
   for (let index = 0; index < names.length; index += 1) {
     const name = names[index];
     const slice = slices[index];
@@ -201,7 +207,8 @@ export function clothes(sex: Sex, simId: string, ageYears = 30): Outfit {
   let suit: string;
   let shoes: string;
   if (child) {
-    suit = hash % 2 === 1 ? "cloth_f_tee" : "cloth_shorts";
+    // A baby sits, and the legs of the shorts tear on a seated thigh.
+    suit = hash % 2 === 1 || ageYears <= 1 ? "cloth_f_tee" : "cloth_shorts";
     shoes = "shoes_sneaker";
   } else if (sex === "female") {
     const slot = hash % 3;
