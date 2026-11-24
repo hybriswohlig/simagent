@@ -427,6 +427,62 @@ pub fn repository_files() -> (Value, Value) {
     files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP)
 }
 
+/// The entries the hair extension adds to map 5 (ADR-0034 section 1), as
+/// `tools/data_reference.py` prints them between `map6_patch_begin` and `map6_patch_end`.
+#[allow(dead_code, reason = "only the tests on map 6 need it")]
+const MAP6_PATCH: &str = include_str!("map6_patch.json");
+
+/// Map 6 in memory (ADR-0034 section 1), as `tools/data_reference.py` builds it from the
+/// repository's map 5 (`with_hair`): the patch's traits, loci and phenotype rows added and
+/// sorted (traits and rows by id, loci by chromosome, segment and slot), its values added,
+/// `map_version` 6; then without text like `repository_files`.
+#[allow(dead_code, reason = "only the tests on map 6 need them")]
+pub fn map6_files() -> (Value, Value) {
+    let read = |text: &str| serde_json::from_str::<Value>(text).expect("json");
+    let patch = read(MAP6_PATCH);
+    let (mut calibration, mut genome_map) =
+        (read(REPOSITORY_CALIBRATION), read(REPOSITORY_GENOME_MAP));
+    assert_eq!(genome_map["map_version"], 5, "the repository holds map 5");
+    genome_map["map_version"] = patch["map_version"].clone();
+    let joined = |list: &Value, more: &Value| -> Vec<Value> {
+        let mut all = list.as_array().expect("list").clone();
+        all.extend(more.as_array().expect("list").iter().cloned());
+        all
+    };
+    let mut traits = joined(&genome_map["traits"], &patch["traits"]);
+    traits.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    genome_map["traits"] = Value::Array(traits);
+    let place = |locus: &Value| {
+        let chromosome = ["autosome", "x", "y", "mt"]
+            .iter()
+            .position(|name| locus["chromosome"] == *name)
+            .expect("a chromosome");
+        let number = |name: &str| locus[name].as_u64().expect("a number");
+        (chromosome, number("segment"), number("slot"))
+    };
+    let mut loci = joined(&genome_map["loci"], &patch["loci"]);
+    loci.sort_by_key(place);
+    genome_map["loci"] = Value::Array(loci);
+    let mut rows = joined(&calibration["traits"], &patch["calibration_traits"]);
+    rows.sort_by(|a, b| a["trait"].as_str().cmp(&b["trait"].as_str()));
+    calibration["traits"] = Value::Array(rows);
+    let sex_rows = joined(&calibration["sex_differences"], &patch["sex_differences"]);
+    calibration["sex_differences"] = Value::Array(sex_rows);
+    for (key, entry) in patch["values"].as_object().expect("values") {
+        let values = calibration["values"].as_object_mut().expect("values");
+        assert!(values.insert(key.clone(), entry.clone()).is_none(), "{key}");
+    }
+    files_from(&calibration.to_string(), &genome_map.to_string())
+}
+
+/// The repository's data on map 6 (`map6_files`) as the CLI would build them, the pool
+/// extended with the 42 loci of temperament and hair.
+#[allow(dead_code, reason = "only the tests on map 6 need them")]
+pub fn map6_data() -> Data {
+    let (calibration, genome_map) = map6_files();
+    repository_data_on(calibration, genome_map)
+}
+
 /// The upbringing table of `data/social/development.json`, checked (ADR-0033 section 5).
 #[allow(dead_code, reason = "only the tests on growing up need it")]
 pub fn repository_upbringing() -> sim_core::development::UpbringingTable {
@@ -735,6 +791,16 @@ pub fn repository_frequencies()
 )]
 pub fn repository_data() -> Data {
     let (calibration, genome_map) = files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP);
+    repository_data_on(calibration, genome_map)
+}
+
+/// The repository's data as the CLI builds them (`repository_data`) on another calibration
+/// and map, both without their text.
+#[allow(
+    dead_code,
+    reason = "only the tests on the repository's data need them"
+)]
+pub fn repository_data_on(calibration: Value, genome_map: Value) -> Data {
     let game = definitions_with(game(demography()), calibration.clone(), genome_map.clone())
         .expect("definitions");
     Data::with_pool(
