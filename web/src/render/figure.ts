@@ -52,6 +52,7 @@ import {
   ageSlices,
   clothes,
   hairColor,
+  hairCover,
   irisColor,
   morphWeights,
   skinColor,
@@ -888,24 +889,39 @@ const HAIR_VERTEX = `
     transformed.y -= 0.006 * hem;
     transformed.z += 0.003 * hem;
   }
+  if (uCurl > 0.01) {
+    // Curls stand away from the head in uneven tufts and draw the length up.
+    float curlBelow = max(uCrown.y - aMesh.y, 0.0);
+    float grow = smoothstep(0.0, 0.05, curlBelow);
+    vec3 tuftAt = aMesh * 140.0;
+    float bump = sin(tuftAt.x + 1.7 * sin(tuftAt.y * 0.6)) * sin(tuftAt.y * 1.1 + 1.3 * sin(tuftAt.z * 0.7)) * sin(tuftAt.z + 0.5);
+    transformed += objectNormal * uCurl * (0.002 + 0.006 * grow + 0.003 * bump * grow);
+    transformed.y += uCurl * 0.1 * curlBelow;
+  }
 `;
 
 const STRAND_FRAG = `
   float cover = vKeep;
   float hairA = 1.0;
   #ifdef USE_MAP
-    hairA = sampledDiffuseColor.a;
+    // A curl bends the strands: the texture is read along a wave that grows with the curl.
+    float lock = 3.0 * sin(vMapUv.x * 40.0) + 2.0 * sin(vMapUv.x * 17.0 + 1.3);
+    float along = vMapUv.y * (CURL_FREQ + CURL_TIGHT * uCurl) * (1.0 + 0.25 * sin(vMapUv.x * 23.0));
+    float wave = 0.75 * sin(along + lock) + 0.25 * sin(along * 2.3 + lock * 1.7);
+    vec2 strandUv = vMapUv + vec2(wave * CURL_BEND * uCurl, 0.0);
+    vec4 strand = uCurl > 0.01 ? texture(map, strandUv) : sampledDiffuseColor;
+    hairA = strand.a;
     float softA = hairA;
     if (uSoft > 0.5) {
       vec2 texel = vec2(0.0045);
-      softA = max(softA, texture(map, vMapUv + vec2(texel.x, 0.0)).a);
-      softA = max(softA, texture(map, vMapUv - vec2(texel.x, 0.0)).a);
-      softA = max(softA, texture(map, vMapUv + vec2(0.0, texel.y)).a);
-      softA = max(softA, texture(map, vMapUv - vec2(0.0, texel.y)).a);
+      softA = max(softA, texture(map, strandUv + vec2(texel.x, 0.0)).a);
+      softA = max(softA, texture(map, strandUv - vec2(texel.x, 0.0)).a);
+      softA = max(softA, texture(map, strandUv + vec2(0.0, texel.y)).a);
+      softA = max(softA, texture(map, strandUv - vec2(0.0, texel.y)).a);
     }
     cover *= softA;
-    float shade = dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-    float lift = clamp(shade / uMean, 0.6, 1.3);
+    float shade = dot(strand.rgb, vec3(0.299, 0.587, 0.114));
+    float lift = clamp(shade / uMean, 0.6, 1.3) * (1.0 + CURL_SHADE * uCurl * wave);
     diffuseColor.rgb = uHair * lift;
     diffuseColor.a = 1.0;
   #endif
@@ -1018,6 +1034,7 @@ function strandMaterial(
   fillPart: boolean,
   softEdge: boolean,
   cap: number,
+  curl: number,
   owned: Owned,
 ): Material {
   const material = new MeshStandardMaterial({ roughness: 0.84, metalness: 0 });
@@ -1038,14 +1055,15 @@ function strandMaterial(
     uCap: { value: cap },
     uClip: { value: 0 },
     uMean: { value: strandMean(texture) },
+    uCurl: { value: curl },
   };
   bindShader(
     material,
     `strand-${fillPart ? "part" : "cut"}-${softEdge ? "soft" : "hard"}`,
     uniforms,
-    "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;\nuniform float uFill;",
+    "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;\nuniform float uFill;\nuniform float uCurl;",
     HAIR_VERTEX,
-    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uMean;\nuniform vec3 uCrown;",
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uMean;\nuniform float uCurl;\nuniform vec3 uCrown;\nconst float CURL_FREQ = 45.0;\nconst float CURL_TIGHT = 70.0;\nconst float CURL_BEND = 0.007;\nconst float CURL_SHADE = 0.18;",
     STRAND_FRAG,
   );
   owned.materials.push(material);
@@ -1388,7 +1406,7 @@ function addGrooming(
 ): void {
   const hairName = wornHair(body, sex, simId);
   const hair = proxyOf(pack, hairName);
-  const density = Math.min(1, Math.max(0, body.hair_density));
+  const density = hairCover(body);
   if (density > 0.02 && hair !== null) {
     const bald = hairName === "hair_short" ? Math.min(1, Math.max(0, body.balding_stage) / 7) : 0;
     const threshold = MathUtils.lerp(0.9, 0.2, density);
@@ -1399,7 +1417,7 @@ function addGrooming(
       hair,
       hair.faces,
       humanPos,
-      strandMaterial(textureOf(hair.image, true, SRGBColorSpace, owned), hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, owned),
+      strandMaterial(textureOf(hair.image, true, SRGBColorSpace, owned), hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, Math.min(1, Math.max(0, body.hair_curl)), owned),
       2,
       0,
       null,
@@ -1416,7 +1434,7 @@ function addGrooming(
       brows,
       browFaces(brows, humanPos),
       humanPos,
-      strandMaterial(textureOf(brows.image, true, SRGBColorSpace, owned), hairHex, browCut, 0, marks.crown, -8, false, false, 0, owned),
+      strandMaterial(textureOf(brows.image, true, SRGBColorSpace, owned), hairHex, browCut, 0, marks.crown, -8, false, false, 0, 0, owned),
       3,
       0.003,
       thickenBrows,
