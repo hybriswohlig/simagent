@@ -207,7 +207,8 @@ export function clothes(sex: Sex, simId: string, ageYears = 30): Outfit {
   let suit: string;
   let shoes: string;
   if (child) {
-    suit = hash % 2 === 1 ? "cloth_f_tee" : "cloth_shorts";
+    // A baby sits, and the legs of the shorts tear on a seated thigh.
+    suit = hash % 2 === 1 || ageYears <= 1 ? "cloth_f_tee" : "cloth_shorts";
     shoes = "shoes_sneaker";
   } else if (sex === "female") {
     const slot = hash % 3;

@@ -82,6 +82,13 @@ const ARM_OUT = 0.08;
 /** A child's arms hang a little further out, clear of the rounder belly. */
 const CHILD_ARM_OUT = 0.05;
 const LEG_OUT = 0.03;
+/** The seated pose: the thighs' turn forward, their turn apart and the knees' bend, in radians. */
+const SIT_THIGH = 1.45;
+const SIT_SPREAD = 0.12;
+const SIT_KNEE = 0.35;
+const SIT_ARM = 0.7;
+/** How far the seat lies below the hip joints, as a share of the thigh's length. */
+const SIT_SEAT = 0.55;
 /** The baby shape rests with the thighs splayed; its knees are brought in by this much more. */
 const BABY_KNEE_IN = 0.2;
 /** How far the eyeballs sit in front of their fitted place, in metres of the mesh. */
@@ -1468,9 +1475,14 @@ function swing(bone: Bone, tip: Bone, outX: number): number {
 
 /** Turns `bone` by `angle` about the axis toward the viewer, whatever its own axes are. */
 function turnFront(bone: Bone, angle: number): void {
+  turnAbout(bone, FRONT, angle);
+}
+
+/** Turns `bone` by `angle` about `axis` of the scene, whatever its own axes are. */
+function turnAbout(bone: Bone, axis: Vector3, angle: number): void {
   const parent = bone.parent;
   if (parent === null) return;
-  const world = bone.getWorldQuaternion(new Quaternion()).premultiply(new Quaternion().setFromAxisAngle(FRONT, angle));
+  const world = bone.getWorldQuaternion(new Quaternion()).premultiply(new Quaternion().setFromAxisAngle(axis, angle));
   bone.quaternion.copy(parent.getWorldQuaternion(new Quaternion()).invert().multiply(world));
   bone.updateWorldMatrix(true, true);
 }
@@ -1502,6 +1514,37 @@ function relax(root: Object3D, child: number, baby: number): void {
       turnFront(foot, -upperTurn - lowerTurn);
     }
   }
+}
+
+const SIDE = new Vector3(1, 0, 0);
+const UP = new Vector3(0, 1, 0);
+
+/**
+ * Seats a relaxed figure on the ground: the thighs point forward and a little apart,
+ * the knees bend so the feet rest, and the whole figure comes down until its seat is on
+ * the ground. `wrapper` is the figure's outer group.
+ */
+function sit(wrapper: Object3D): void {
+  let hip = 0;
+  let sides = 0;
+  for (const side of ["l", "r"]) {
+    const sign = side === "l" ? 1 : -1;
+    const thigh = findBone(wrapper, `thigh_${side}`);
+    const calf = findBone(wrapper, `calf_${side}`);
+    const upper = findBone(wrapper, `upperarm_${side}`);
+    // The arms come forward, so the hands rest on the thighs and not below the ground.
+    if (upper !== null) turnAbout(upper, SIDE, -SIT_ARM);
+    if (thigh === null || calf === null) continue;
+    turnAbout(thigh, SIDE, -SIT_THIGH);
+    turnAbout(thigh, UP, sign * SIT_SPREAD);
+    turnAbout(calf, SIDE, SIT_KNEE);
+    const place = thigh.getWorldPosition(new Vector3());
+    const knee = calf.getWorldPosition(new Vector3());
+    hip += place.y - SIT_SEAT * place.sub(knee).length();
+    sides += 1;
+  }
+  if (sides > 0) wrapper.position.y -= hip / sides;
+  wrapper.updateWorldMatrix(true, true);
 }
 
 /** Every card frames the same height, so a child stands smaller than its parents. */
@@ -1709,6 +1752,8 @@ function mountMembers(
         scene.add(wrapper);
         const [baby, child] = ageSlices(member.body.body_form_age);
         relax(wrapper, baby + child, baby);
+        // A baby does not stand yet.
+        if (baby === 1) sit(wrapper);
         standing.push(wrapper);
       }
       frame(camera);

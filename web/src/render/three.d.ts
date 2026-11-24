@@ -14,6 +14,7 @@ declare module "three" {
     multiplyScalar(scalar: number): this;
     normalize(): this;
     lengthSq(): number;
+    length(): number;
     applyMatrix4(m: Matrix4): this;
     applyQuaternion(q: Quaternion): this;
     transformDirection(m: Matrix4): this;
