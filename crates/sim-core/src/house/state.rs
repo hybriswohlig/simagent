@@ -90,6 +90,8 @@ pub struct Action {
     pub slot: u8,
     pub filler: bool,
     pub commanded: bool,
+    /// The second it reached its object and the action began to run; `None` on the way.
+    pub reached: Option<SimTime>,
 }
 
 /// A departure that waits for the end of an action for a critical need (ADR-0024 section
@@ -342,6 +344,7 @@ pub fn filler_end_if(
         slot,
         filler: true,
         commanded: false,
+        reached: Some(arrive),
     });
     for (sample, need) in there.needs.iter_mut().zip(NEEDS) {
         if offered.sets(need) {
@@ -547,6 +550,10 @@ pub enum Broken {
     SlotUnknown,
     /// A place of two actions, or taken and held at once.
     SlotTaken,
+    /// An action on the way with a second it reached its object, or at it without one or with
+    /// one other than the second the first need its offer sets was written down (ADR-0033
+    /// section 6).
+    Reached,
     /// Away or on the way out with a rate, an action or a duty.
     AwayBusy,
     /// Away or on the way out with needs not all written down at one second, on the way out
@@ -806,6 +813,22 @@ fn person_consistent(
         // A command never chooses a time-filler (ADR-0033 section 9: `commanded`).
         if action.filler && action.commanded {
             return Err(Broken::Filler);
+        }
+        // It runs from the second it reached its object (ADR-0033 section 6): on the way it has
+        // none; at its object the second the first need its offer sets was written down, which
+        // its arrival did and nothing rewrites while it goes on (`action_end` begins there too).
+        let written = (NEEDS.into_iter().zip(&person.needs))
+            .find(|(need, _)| offer.sets(*need))
+            .map(|(_, sample)| sample.at());
+        let reached = match (person.place, action.reached) {
+            (Place::Walking { .. }, None) => true,
+            (Place::Room(_), Some(at)) => written == Some(at),
+            // Away no action runs at all (`Broken::AwayBusy` below).
+            (Place::Away, _) => true,
+            _ => false,
+        };
+        if !reached {
+            return Err(Broken::Reached);
         }
     }
     let dwelling = dwell_walk(person, home);

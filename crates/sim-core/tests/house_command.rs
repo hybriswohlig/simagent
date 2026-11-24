@@ -288,6 +288,7 @@ fn command_rejections_and_effect() {
                 slot: 0,
                 filler: false,
                 commanded: true,
+                reached: None,
             })
         )
     );

@@ -268,24 +268,28 @@ impl UpbringingTable {
 /// The age up to which a person is raised and `D` can change: 18 years.
 pub const RAISED_UNTIL: SimDuration = SimDuration::from_secs(18 * YEAR.as_secs());
 
-/// What a person has of growing up in a house (ADR-0033 sections 3 and 4): the first second
+/// What a person has of growing up in a house (ADR-0033 sections 3, 4 and 6): the first second
 /// in which it belonged, under 18, to a household living in a house, `D` per axis in
-/// thousandths, and per need (in the order of the needs) the calendar day a need at 0 last
-/// counted (section 5). Set once and kept, also after a later move or death.
+/// thousandths, per need (in the order of the needs) the calendar day a need at 0 last
+/// counted (section 5), and per skill (in the order of [`crate::skill::Skill::ALL`]) its
+/// effective practice seconds. Set once and kept, also after a later move or death.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Raised {
     pub since: SimTime,
     pub experience: [i32; 5],
     pub counted: [Option<i64>; 5],
+    pub practice: [u64; 3],
 }
 
 impl Raised {
-    /// Raised from `since` on, with nothing lived yet (`D = 0`) and no need counted.
+    /// Raised from `since` on, with nothing lived yet (`D = 0`), no need counted and nothing
+    /// practised.
     pub const fn new(since: SimTime) -> Raised {
         Raised {
             since,
             experience: [0; 5],
             counted: [None; 5],
+            practice: [0; 3],
         }
     }
 
