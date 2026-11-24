@@ -221,6 +221,7 @@ declare module "three" {
 
   export const MathUtils: {
     degToRad(degrees: number): number;
+    radToDeg(radians: number): number;
     lerp(x: number, y: number, t: number): number;
   };
 }

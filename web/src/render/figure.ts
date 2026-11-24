@@ -96,30 +96,6 @@ const BABY_KNEE_IN = 0.2;
 const EYE_FORWARD = 0.002;
 const GROUND_SHIFT = 0.81676;
 
-const MEASURE_KEYS = new Set([
-  "age_male_baby",
-  "age_female_baby",
-  "age_male_child",
-  "age_male_young",
-  "age_male_old",
-  "age_female_child",
-  "age_female_young",
-  "age_female_old",
-  "fat_male_max",
-  "fat_male_min",
-  "fat_female_max",
-  "fat_female_min",
-  "muscle_male_max",
-  "muscle_male_min",
-  "muscle_female_max",
-  "muscle_female_min",
-  "fat_belly",
-  "fat_upperarm",
-  "muscle_arm",
-  "muscle_shoulder",
-  "muscle_chest",
-]);
-
 const HAIR_CAP: Record<string, number> = {
   hair_short: 0.042,
   hair_medium: 0.048,
@@ -622,6 +598,10 @@ function smoothSkinNormals(mesh: SkinnedMesh, groups: NormalGroups): void {
   geometry.setAttribute("normal", new BufferAttribute(normal, 3));
 }
 
+/**
+ * The lowest point and the standing height of the body under all its shape keys. The leg
+ * and head keys move the soles and the crown too, so every key counts.
+ */
 function morphedYSpan(mesh: SkinnedMesh, weights: Record<string, number>): { minY: number; span: number } {
   const position = mesh.geometry.getAttribute("position");
   if (position === undefined) return { minY: 0, span: 1 };
@@ -632,7 +612,6 @@ function morphedYSpan(mesh: SkinnedMesh, weights: Record<string, number>): { min
   for (let vertex = 0; vertex < position.count; vertex += 1) {
     let y = position.getY(vertex);
     for (const name of Object.keys(dict)) {
-      if (!MEASURE_KEYS.has(name)) continue;
       const index = dict[name];
       const morph = index === undefined ? undefined : morphs[index];
       const weight = weights[name] ?? 0;
@@ -1612,6 +1591,9 @@ function frameCamera(camera: PerspectiveCamera, heightCm: number): void {
   camera.updateMatrixWorld(true);
 }
 
+/** Half of the row's horizontal angle of view, in degrees. */
+const ROW_HALF_ANGLE = 7;
+
 /**
  * The row frames {@link FRAME_CM} the way the card does, and steps back when the
  * members side by side need more width than that frame already shows.
@@ -1622,7 +1604,9 @@ function frameFamily(camera: PerspectiveCamera, count: number): void {
   const viewW = familyViewWidthM(count);
   const aspect = width / height;
   const viewH = viewW / aspect;
-  camera.fov = 26;
+  // A long lens: the outer members are seen from the front like the middle ones.
+  const narrow = MathUtils.radToDeg(2 * Math.atan(Math.tan(MathUtils.degToRad(ROW_HALF_ANGLE)) / aspect));
+  camera.fov = Math.min(26, narrow);
   camera.aspect = aspect;
   camera.near = 0.05;
   camera.far = 80;
@@ -1687,7 +1671,8 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
   if (bone !== null) bone.scale.set(scale, scale, scale);
   const wrapper = new Group();
   wrapper.add(root);
-  wrapper.position.y = -pivot * (1 - scale);
+  // The shape keys move the soles off the mesh's ground, so the lowest point is put back on it.
+  wrapper.position.y = -pivot * (1 - scale) - measured.minY * scale;
   const marks = landmarks(cloud);
   const skin = skinColor(body);
   const hair = hairColor(body);
