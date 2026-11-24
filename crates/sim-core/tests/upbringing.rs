@@ -764,8 +764,8 @@ fn the_steps_of_overhearing_are_the_references() {
 }
 
 /// A couple in a house with their baby born there and the repository's talk furniture, for
-/// four months. In the repository's houses a small child spends day and night in the children's
-/// room, where no one talks, so here its day room is the living room. Each praise, tease or
+/// four months. Its day room is set to the living room, as in the repository's houses, so the test
+/// does not depend on their files; its night room stays the children's room. Each praise, tease or
 /// apology of one partner to the other at furniture in the room where the clock puts the baby
 /// (its night room in bed, its day room by day, nowhere at the kindergarten) writes the half
 /// rows for the baby, source the actor, by the talk; nothing else develops the baby.

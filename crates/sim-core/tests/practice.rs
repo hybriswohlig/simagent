@@ -336,7 +336,8 @@ fn reading_play_school_and_talks_practise_as_the_reference() {
 }
 
 /// A baby whose day room is the living room hears the couple talk there in full: language under 6
-/// counts each talk's 600 seconds by its diligence alone.
+/// counts each talk's 600 seconds by its diligence alone. The day room is set here, as in the
+/// repository's houses, so the test does not depend on their files.
 #[test]
 fn a_baby_hears_its_parents_in_the_living_room() {
     let data = || {
