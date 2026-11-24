@@ -26,7 +26,8 @@ too). A person never raised has no practice.
 
 READING (section 6, "Abbruch durch ... Auszug"): leaving the house in the middle of reading or
 play (the household moving out, or the person leaving it) ends the action with reason left; the
-seconds it ran at the object count, whatever household the person belongs to afterwards.
+seconds it ran at the object count, whatever household the person belongs to afterwards. The
+same for a death or an emigration in the middle: the seconds count, with the record kept.
 
 READING (sections 6 and 9, the second the action runs from): the arrival at the object, which
 writes down the needs its offer sets; the loader asks the stored second to be exactly that of the

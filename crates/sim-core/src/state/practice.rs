@@ -19,7 +19,7 @@ use crate::time::SimDuration;
 use crate::world::SimCtx;
 
 use super::DomainState;
-use super::conception::person;
+use super::conception::{Person, person};
 
 /// The raw seconds of reading a day at school counts (ADR-0033 section 6).
 const SCHOOL_SECONDS: u64 = 3600;
@@ -160,10 +160,12 @@ fn practise(
     if raw == 0 || !practises(domain, sim) {
         return;
     }
-    let Some(age) = (domain.sims.get(&sim)).and_then(|p| now.checked_since(p.born)) else {
+    let Some(who) = facts(domain, data, sim) else {
+        panic!("invariant practice.person");
+    };
+    let Some(age) = now.checked_since(who.born) else {
         panic!("invariant practice.age");
     };
-    let who = person(domain, data, sim);
     let z = |t: &DataId, at: SimDuration| who.phenotype(data, t, at).unwrap_or(0.0);
     let f = diligence(z(&Axis::Conscientiousness.trait_id(), age));
     let talent = z(&skill.talent(), TALENT_AGE);
@@ -189,7 +191,25 @@ fn practise(
     }
 }
 
-/// Whether `sim` practises: living and raised.
+/// Whether `sim` practises: raised, and living or, for the last seconds of an action its death or
+/// emigration ended, archived in this second.
 fn practises(domain: &DomainState, sim: SimId) -> bool {
-    domain.sims.contains_key(&sim) && domain.house.raised.contains_key(&sim)
+    let known = domain.sims.contains_key(&sim) || domain.archive.contains_key(&sim);
+    known && domain.house.raised.contains_key(&sim)
+}
+
+/// What the phenotype reads of `sim`, living or archived.
+fn facts<'a>(domain: &'a DomainState, data: &Data, sim: SimId) -> Option<Person<'a>> {
+    if domain.sims.contains_key(&sim) {
+        return Some(person(domain, data, sim));
+    }
+    let gone = domain.archive.get(&sim)?;
+    Some(Person {
+        born: gone.born,
+        lineage_key: gone.lineage_key,
+        genome: &gone.genome,
+        parents: domain.parent_keys(sim),
+        seeds: domain.seeds(data, sim),
+        lived: domain.lived(sim),
+    })
 }

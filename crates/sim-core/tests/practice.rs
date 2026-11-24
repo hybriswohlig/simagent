@@ -27,10 +27,15 @@ fn sim(id: u64) -> SimId {
 }
 
 fn life_data(houses: Option<sim_core::house::data::HouseData>) -> Data {
+    dying_data(houses, 1e-9)
+}
+
+/// The life data with the yearly accident rate `accident` for everyone.
+fn dying_data(houses: Option<sim_core::house::data::HouseData>, accident: f64) -> Data {
     let (mut calibration, genome_map) = common::repository_files();
     let values = &mut calibration["values"];
     for sex in ["female", "male"] {
-        values[format!("core:accident_{sex}")]["value"] = json!(1e-9);
+        values[format!("core:accident_{sex}")]["value"] = json!(accident);
         values[format!("core:senescence_a_{sex}")]["value"] = json!(1e-15);
         values[format!("core:senescence_b_{sex}")]["value"] = json!(0.001);
     }
@@ -490,4 +495,94 @@ fn kind_skill(kind: &str) -> Skill {
         "core:bookshelf" => Skill::Reading,
         _ => Skill::Play,
     }
+}
+
+/// Dying in the middle of reading or play counts the seconds so far (ADR-0033 section 6: every
+/// end but a command): with accidents frequent, the first seed in which a girl dies at the
+/// bookshelf or the toy chest; her action ends with reason left in the second of her death, and
+/// her practice, kept with her record, grows by the seconds since she reached it, by her window
+/// and diligence then.
+#[test]
+fn dying_in_the_middle_counts_the_seconds_so_far() {
+    for seed in 1..60 {
+        let data = || dying_data(None, 4.0);
+        // As `Run::family`, but a seed in which someone dies before moving in is skipped.
+        let family = || {
+            let mut run = Run::founded(data(), seed, "test:practice", &FAMILY);
+            run.advance(DAY.as_secs() - 2);
+            let home = run.together(FAMILY.len())?;
+            run.submit(Input::MoveIn(sim_core::input::MoveIn { household: home }));
+            Some((run, home))
+        };
+        let Some((mut first, _)) = family() else {
+            continue;
+        };
+        first.advance(40 * DAY.as_secs());
+        let mut at_it: BTreeMap<SimId, (i64, u16)> = BTreeMap::new();
+        let mut found = None;
+        for entry in &first.log {
+            let who = subject(entry);
+            match entry.payload {
+                LogPayload::Reached { object } => {
+                    at_it.insert(who.expect("one"), (entry.t.as_secs(), object));
+                }
+                LogPayload::ActionEnded { .. } => {
+                    at_it.remove(&who.expect("one"));
+                }
+                LogPayload::Death { .. } => {
+                    let Some(girl) = who.filter(|s| [sim(3), sim(4)].contains(s)) else {
+                        continue;
+                    };
+                    if let Some(&(reached, object)) = at_it.get(&girl) {
+                        found = Some((girl, reached, object, entry.t.as_secs()));
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some((girl, reached, object, died)) = found else {
+            continue;
+        };
+        let (mut run, home) = family().expect("as the first");
+        let houses = run.world.data().houses().expect("houses");
+        let house = &run.world.state().house().households[&home].house;
+        let kind = houses.house(house).expect("its house").def().objects[usize::from(object)]
+            .kind
+            .clone();
+        let skill = match kind.as_str() {
+            "core:bookshelf" => Skill::Reading,
+            "core:toy_chest" => Skill::Play,
+            _ => continue,
+        };
+        run.advance(died - 1);
+        let before = run.world.state().house().raised[&girl].practice;
+        run.advance(died);
+        let ended = (run.log.iter().rev())
+            .find(|e| {
+                subject(e) == Some(girl) && matches!(e.payload, LogPayload::ActionEnded { .. })
+            })
+            .expect("her action ends");
+        assert_eq!(ended.t.as_secs(), died);
+        assert!(matches!(
+            ended.payload,
+            LogPayload::ActionEnded {
+                reason: EndReason::Left,
+                ..
+            }
+        ));
+        let state = run.world.state();
+        assert!(state.household_of(girl).is_none(), "archived");
+        let age = SimTime::from_secs(died).checked_since(state.born(girl).expect("born"));
+        let age = age.expect("born before");
+        let z_c =
+            (state.phenotype(girl, &Axis::Conscientiousness.trait_id(), age)).expect("a trait");
+        let raw = u64::try_from(died - reached).expect("after");
+        let mut want = before;
+        want[skill.index()] += effective(raw, skill.window(age), diligence(z_c));
+        assert!(want != before, "seconds at it");
+        assert_eq!(state.house().raised[&girl].practice, want);
+        return;
+    }
+    panic!("no girl died at the bookshelf or the toy chest");
 }
