@@ -413,6 +413,7 @@ const REPOSITORY_NEEDS: &str = include_str!("../../../../data/house/needs.json")
 const REPOSITORY_DAY: &str = include_str!("../../../../data/house/day.json");
 const REPOSITORY_KINDS: &str = include_str!("../../../../data/house/kinds.json");
 const REPOSITORY_SOCIAL: &str = include_str!("../../../../data/social/social.json");
+const REPOSITORY_UPBRINGING: &str = include_str!("../../../../data/social/development.json");
 const REPOSITORY_HOUSES: [&str; 3] = [
     include_str!("../../../../data/house/houses/flat.json"),
     include_str!("../../../../data/house/houses/house.json"),
@@ -424,6 +425,14 @@ const REPOSITORY_HOUSES: [&str; 3] = [
 #[allow(dead_code, reason = "only the tests on the repository's map need them")]
 pub fn repository_files() -> (Value, Value) {
     files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP)
+}
+
+/// The upbringing table of `data/social/development.json`, checked (ADR-0033 section 5).
+#[allow(dead_code, reason = "only the tests on growing up need it")]
+pub fn repository_upbringing() -> sim_core::development::UpbringingTable {
+    let table: sim_core::development::UpbringingTable =
+        serde_json::from_str(REPOSITORY_UPBRINGING).expect("the upbringing table");
+    table.checked().expect("checked")
 }
 
 /// The social data of `data/social/social.json` as sim-cli reads them (ADR-0030 section 6).
@@ -719,7 +728,10 @@ pub fn repository_data() -> Data {
     )
     .and_then(|data| data.with_shocks(repository_shocks()))
     .map(|data| data.with_houses(repository_houses()))
-    .map(|data| data.with_social(repository_social()))
+    .map(|data| {
+        data.with_social(repository_social())
+            .with_upbringing(repository_upbringing())
+    })
     .and_then(|data| data.with_calibration(game.demography, game.calibration))
     .expect("data")
 }

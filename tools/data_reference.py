@@ -1795,8 +1795,9 @@ def repository_hash(data_dir: Path) -> int:
     checked by `frequencies_rejection`), with a `shocks.json` followed by its templates
     (`shocks_suffix`, ADR-0023 section 3); xxh3-64 with seed 0 of the concatenation. Without
     either it is the definitions alone (`data_hash`); with a `house/` followed by the houses
-    (`houses_suffix`, ADR-0025), and with a `social/social.json` followed by the social data
-    (`social_suffix`, ADR-0030 section 6)."""
+    (`houses_suffix`, ADR-0025), with a `social/social.json` followed by the social data
+    (`social_suffix`, ADR-0030 section 6), and with a `social/development.json` followed by the
+    upbringing table (`development_suffix`, ADR-0033 section 5)."""
     files = pool_files(data_dir)
     demography, calibration, genome_map = game_documents(data_dir)
     out = definitions_bytes(demography, calibration, genome_map)
@@ -1810,7 +1811,21 @@ def repository_hash(data_dir: Path) -> int:
     out += houses_suffix(house_files(data_dir))
     houses = house_files(data_dir)
     out += social_suffix(social_files(data_dir), None if houses is None else houses[2])
+    out += development_suffix(development_file(data_dir))
     return xxhash.xxh3_64_intdigest(out, seed=0)
+
+
+def development_file(data_dir: Path):
+    """The parsed `social/development.json` of `data_dir`, or None without it (every fixture)."""
+    path = Path(data_dir) / "social" / "development.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+def development_suffix(doc) -> bytes:
+    """The upbringing table's bytes after the social data (`upbringing_reference`)."""
+    import upbringing_reference
+
+    return upbringing_reference.development_suffix(doc)
 
 
 def main(argv):
