@@ -1401,11 +1401,14 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
 /// what it owns: its traits, each with the autosomal segments and slots of its own loci
 /// `{trait}_01`, `_02`, ..., the phenotype row of each trait, the sex-difference row of each
 /// trait if `sex_rows`, and its calibration keys. Each locus is additive with exactly one
-/// load, on its own trait.
+/// load, on its own trait. `mirror` names a trait without loci that is the negation of
+/// another bit for bit: its only include is that trait with weight −1, its `sigma_ref` is
+/// that trait's and its `mean_ref` that trait's negated.
 struct Extension {
     traits: &'static [(&'static str, &'static [u8], &'static [u8])],
     sex_rows: bool,
     values: &'static [&'static str],
+    mirror: Option<(&'static str, &'static str)>,
 }
 
 /// The calibration values of a map without extension (map 4).
@@ -1446,6 +1449,7 @@ const EXTENSIONS: [Extension; 2] = [
             ),
         ],
         sex_rows: true,
+        mirror: None,
         values: &[
             "core:agreeableness_development_mean",
             "core:agreeableness_development_sd",
@@ -1465,6 +1469,7 @@ const EXTENSIONS: [Extension; 2] = [
             ("core:hair_thickness", &[0, 1], &[17, 19]),
         ],
         sex_rows: false,
+        mirror: Some(("core:hair_dryness", "core:androgen")),
         values: &[
             "core:body_dryness_offset",
             "core:body_dryness_curl",
@@ -1504,7 +1509,7 @@ impl Extension {
 /// How many extensions the map declares, recognised by their loci: a prefix of the table,
 /// each extension with all its loci on their declared places, and `map_version` 4 + count.
 /// A map with none keeps any version. Some but not all loci of an extension, or an
-/// extension after a missing one, are unknown.
+/// extension after a missing one, are missing.
 fn declared_extensions(map: &GenomeMap) -> Result<usize, DataError> {
     let mut declared = 0;
     for (index, extension) in EXTENSIONS.iter().enumerate() {
@@ -1516,7 +1521,7 @@ fn declared_extensions(map: &GenomeMap) -> Result<usize, DataError> {
             continue;
         }
         if found.len() != loci.len() || declared != index {
-            return Err(DataError::CalibrationUnknown);
+            return Err(DataError::CalibrationMissing);
         }
         for (locus, (_, _, segment, slot)) in found.iter().zip(&loci) {
             if locus.position() != (Chromosome::Autosome, *segment, *slot) {
@@ -1546,14 +1551,19 @@ fn declared_loci(map: &GenomeMap) -> Vec<Locus> {
     .collect()
 }
 
-/// The rules of the extensions (ADR-0034 section 2) beyond the declared prefix: each
-/// declared extension wholly there, each other one wholly absent (its traits and keys are
-/// unknown without its loci); each own locus additive with one load on its own trait, and
-/// no other locus loading on an extension's trait; no trait including an extension's trait.
+/// The rules of the extensions (ADR-0034 section 2) beyond the declared prefix, in this
+/// order: an undeclared extension has none of its traits, rows and keys (missing: the
+/// extension is incomplete); a declared one has all its keys and traits (missing); each own
+/// locus is additive with one load, on its own trait (unknown); each trait has its phenotype
+/// row and, if the extension has them, its sex row (missing; an extra sex row is unknown);
+/// no other locus loads on an extension's trait (`LocusLoad`); the mirror trait is the exact
+/// negation (`TraitInclude` for its include, `TraitSigma` for its references); no trait
+/// includes an extension's trait.
 fn check_extensions(definitions: &Definitions) -> Result<(), DataError> {
     let (map, calibration) = (&definitions.genome_map, &definitions.calibration);
     let declared = declared_extensions(map)?;
     let has_key = |key: &&str| calibration.values.contains_key(&extension_id(key));
+    let has_trait = |id: &DataId| find(&map.traits, id).is_some();
     let rows = |id: &DataId| {
         (calibration.traits.iter())
             .filter(|r| &r.target == id)
@@ -1564,50 +1574,80 @@ fn check_extensions(definitions: &Definitions) -> Result<(), DataError> {
         all.filter(|row| &row.target == id).count()
     };
     for (index, extension) in EXTENSIONS.iter().enumerate() {
-        let has_trait = |id: &DataId| map.traits.iter().any(|t| &t.id == id);
         if index >= declared {
             let mut traits = extension.trait_ids();
-            if traits.any(|id| has_trait(&id) || rows(&id) > 0)
+            let any_row = |id: &DataId| rows(id) > 0 || sex_rows(id) > 0;
+            if traits.any(|id| has_trait(&id) || any_row(&id))
                 || extension.values.iter().any(has_key)
             {
-                return Err(DataError::CalibrationUnknown);
+                return Err(DataError::CalibrationMissing);
             }
             continue;
         }
-        if !extension.values.iter().all(has_key) {
+        if !extension.values.iter().all(has_key) || !extension.trait_ids().all(|id| has_trait(&id))
+        {
             return Err(DataError::CalibrationMissing);
         }
         let own = extension.loci();
-        for id in extension.trait_ids() {
-            if !has_trait(&id) {
+        for (locus_id, trait_id, ..) in &own {
+            let locus = map.loci.iter().find(|locus| &locus.id == locus_id);
+            let locus = locus.unwrap_or_else(|| panic!("invariant data.extension_locus"));
+            let Action::Additive(weights) = &locus.action else {
+                return Err(DataError::CalibrationUnknown);
+            };
+            if weights.loads.len() != 1 || &weights.loads[0].target != trait_id {
                 return Err(DataError::CalibrationUnknown);
             }
-            if rows(&id) != 1 || sex_rows(&id) != usize::from(extension.sex_rows) {
+        }
+        for id in extension.trait_ids() {
+            let wanted = usize::from(extension.sex_rows);
+            if sex_rows(&id) > wanted {
+                return Err(DataError::CalibrationUnknown);
+            }
+            if rows(&id) != 1 || sex_rows(&id) != wanted {
                 return Err(DataError::CalibrationMissing);
             }
+        }
+        for id in extension.trait_ids() {
             // The own loci are the only loads: the stripped hash drops them whole.
             let loaded = (map.loci.iter().filter_map(|locus| locus.action.weights()))
                 .filter(|weights| weights.loads.iter().any(|load| load.target == id))
                 .count();
             if loaded != own.iter().filter(|(_, of, ..)| *of == id).count() {
-                return Err(DataError::CalibrationUnknown);
+                return Err(DataError::LocusLoad);
             }
         }
-        for (locus_id, trait_id, ..) in own {
-            let locus = map.loci.iter().find(|locus| locus.id == locus_id);
-            let locus = locus.unwrap_or_else(|| panic!("invariant data.extension_locus"));
-            let Action::Additive(weights) = &locus.action else {
-                return Err(DataError::CalibrationUnknown);
-            };
-            if weights.loads.len() != 1 || weights.loads[0].target != trait_id {
-                return Err(DataError::CalibrationUnknown);
-            }
+        if let Some((mirror, of)) = extension.mirror {
+            check_mirror(map, &extension_id(mirror), &extension_id(of))?;
         }
     }
     let owned: BTreeSet<DataId> = EXTENSIONS.iter().flat_map(Extension::trait_ids).collect();
     let mut includes = map.traits.iter().flat_map(|t| t.includes.iter());
     if includes.any(|include| owned.contains(&include.target)) {
         return Err(DataError::TraitInclude);
+    }
+    Ok(())
+}
+
+/// `mirror` is `−of` bit for bit (ADR-0034 section 1): its only include is `of` with weight
+/// −1, its `sigma_ref` is that of `of` and its `mean_ref` the negated one of `of`.
+fn check_mirror(map: &GenomeMap, mirror: &DataId, of: &DataId) -> Result<(), DataError> {
+    let mirror = find(&map.traits, mirror).unwrap_or_else(|| panic!("invariant data.mirror"));
+    let Some(of) = find(&map.traits, of) else {
+        return Err(DataError::TraitInclude);
+    };
+    let [include] = &mirror.includes[..] else {
+        return Err(DataError::TraitInclude);
+    };
+    if include.target != of.id || include.weight.get().to_bits() != (-1.0_f64).to_bits() {
+        return Err(DataError::TraitInclude);
+    }
+    let bits = |x: Option<f64>| x.map(f64::to_bits);
+    let negated = of.mean_ref.map(|mean| -mean.get());
+    if mirror.sigma_ref.get().to_bits() != of.sigma_ref.get().to_bits()
+        || bits(mirror.mean_ref.map(FiniteF64::get)) != bits(negated)
+    {
+        return Err(DataError::TraitSigma);
     }
     Ok(())
 }
@@ -2566,6 +2606,26 @@ mod tests {
         let locus = openness_01(&mut definitions);
         let weights = locus.action.weights().expect("weights").clone();
         locus.action = Action::Threshold(weights);
+        assert_eq!(
+            check_extensions(&definitions),
+            Err(DataError::CalibrationUnknown)
+        );
+    }
+
+    /// The locus checks come before the row checks, as before the table of extensions: a
+    /// threshold action on a temperament locus is unknown even with the axis's rows gone.
+    #[test]
+    fn a_threshold_temperament_locus_is_unknown_before_its_missing_rows() {
+        let openness = DataId::new("core:openness").expect("id");
+        let mut definitions = repository_definitions();
+        let locus = openness_01(&mut definitions);
+        let weights = locus.action.weights().expect("weights").clone();
+        locus.action = Action::Threshold(weights);
+        let calibration = &mut definitions.calibration;
+        calibration.traits.retain(|row| row.target != openness);
+        calibration
+            .sex_differences
+            .retain(|row| row.target != openness);
         assert_eq!(
             check_extensions(&definitions),
             Err(DataError::CalibrationUnknown)

@@ -128,7 +128,7 @@ fn every_rejection_case_of_the_reference_is_rejected() {
     // half extension (one hair locus)
     assert_eq!(
         changed(|_, m| retain(&mut m["loci"], |l| l["id"] != "core:hair_thickness_02")).err(),
-        Some(DataError::CalibrationUnknown)
+        Some(DataError::CalibrationMissing)
     );
     // hair without temperament: map 5 stripped of the temperament extension, version 5
     assert_eq!(
@@ -152,7 +152,7 @@ fn every_rejection_case_of_the_reference_is_rejected() {
                 .retain(|key, _| !of_temperament(key));
         })
         .err(),
-        Some(DataError::CalibrationUnknown)
+        Some(DataError::CalibrationMissing)
     );
     // map_version 5 with both extensions
     assert_eq!(
@@ -179,7 +179,7 @@ fn every_rejection_case_of_the_reference_is_rejected() {
             loci.insert(at, extra);
         })
         .err(),
-        Some(DataError::CalibrationUnknown)
+        Some(DataError::LocusLoad)
     );
     // an include of an extension trait
     assert_eq!(
@@ -312,8 +312,8 @@ fn the_hair_model_reads_the_seven_dryness_values() {
 }
 
 /// `G_dry = -G_androgen` bit for bit (ADR-0034 section 1): the include with weight -1 negates
-/// every term, `mean_ref` is androgen's negated and `sigma_ref` androgen's. On pool genomes
-/// and on genomes with every androgen locus at dose 0, 1 and 2.
+/// every term, `mean_ref` is androgen's negated and `sigma_ref` androgen's. On pool genomes,
+/// on genomes with every androgen locus at dose 0, at 1 and at 2, and on three mixed ones.
 #[test]
 fn hair_dryness_is_minus_androgen_bit_for_bit() {
     let data = map6_definitions_data();
@@ -345,7 +345,18 @@ fn hair_dryness_is_minus_androgen_bit_for_bit() {
         .map(|locus| locus.id.clone())
         .collect();
     assert!(!androgen_loci.is_empty());
-    for pattern in 0..9u32 {
+    for dose in 0..3u8 {
+        let alleles: Vec<LocusAlleles> = (androgen_loci.iter())
+            .map(|locus| LocusAlleles {
+                locus: locus.clone(),
+                copies: vec![u8::from(dose >= 1), u8::from(dose == 2)],
+            })
+            .collect();
+        for sex in [Sex::Female, Sex::Male] {
+            check(&Genome::with_alleles(sex, &alleles, &data).expect("fits"));
+        }
+    }
+    for pattern in 0..3u32 {
         let alleles: Vec<LocusAlleles> = (androgen_loci.iter().enumerate())
             .map(|(n, locus)| {
                 let dose = (pattern + u32::try_from(n).expect("few")) % 3;
@@ -359,4 +370,114 @@ fn hair_dryness_is_minus_androgen_bit_for_bit() {
             check(&Genome::with_alleles(sex, &alleles, &data).expect("fits"));
         }
     }
+}
+
+/// The trait of `genome_map` with this id.
+fn trait_mut<'a>(genome_map: &'a mut Value, trait_id: &str) -> &'a mut Value {
+    genome_map["traits"]
+        .as_array_mut()
+        .expect("traits")
+        .iter_mut()
+        .find(|entry| entry["id"] == trait_id)
+        .expect("the trait")
+}
+
+/// The loader enforces `G_dry = -G_androgen` (ADR-0034 section 1): the dryness's only include
+/// is `core:androgen` with weight -1 (`data.trait_include`), its `sigma_ref` is androgen's and
+/// its `mean_ref` androgen's negated, bit for bit (`data.trait_sigma`).
+#[test]
+fn the_dryness_must_be_the_negated_androgen() {
+    let dryness =
+        |change: fn(&mut Value)| changed(|_, m| change(trait_mut(m, "core:hair_dryness"))).err();
+    assert_eq!(
+        dryness(|t| t["includes"][0]["weight"] = json!(-0.5)),
+        Some(DataError::TraitInclude)
+    );
+    assert_eq!(
+        dryness(|t| {
+            let includes = t["includes"].as_array_mut().expect("includes");
+            includes.push(json!({"trait": "core:curl", "weight": 0.5}));
+        }),
+        Some(DataError::TraitInclude)
+    );
+    assert_eq!(
+        dryness(|t| t["includes"][0]["trait"] = json!("core:estrogen")),
+        Some(DataError::TraitInclude)
+    );
+    assert_eq!(
+        dryness(|t| t["sigma_ref"] = json!(2.0)),
+        Some(DataError::TraitSigma)
+    );
+    assert_eq!(
+        dryness(|t| t["mean_ref"] = json!(0.011_102_035_190_670_132)),
+        Some(DataError::TraitSigma)
+    );
+}
+
+/// Map 5 changed by `change`.
+fn changed5(change: impl FnOnce(&mut Value, &mut Value)) -> Result<Data, DataError> {
+    let (mut calibration, mut genome_map) = common::repository_files();
+    change(&mut calibration, &mut genome_map);
+    Data::new(common::definitions(calibration, genome_map).expect("definitions"))
+}
+
+/// A sex row for `trait_id` (shift 0, variance ratio 1), inserted in the order of the rows.
+fn add_sex_row(calibration: &mut Value, trait_id: &str) {
+    let rows = calibration["sex_differences"].as_array_mut().expect("rows");
+    let mut row = rows[0].clone();
+    row["trait"] = json!(trait_id);
+    row["shift"]["value"] = json!(0.0);
+    row["variance_ratio"]["value"] = json!(1.0);
+    rows.push(row);
+    rows.sort_by(|a, b| a["trait"].as_str().cmp(&b["trait"].as_str()));
+}
+
+/// Parts of the hair extension without its loci, and an extra sex row on map 6.
+#[test]
+fn a_part_of_the_hair_extension_alone_is_rejected() {
+    let (patched, _) = common::map6_files();
+    let (_, map6) = common::map6_files();
+    let traits = map6["traits"].as_array().expect("traits").clone();
+    let hair_trait = |trait_id: &str| {
+        let found = traits.iter().find(|t| t["id"] == trait_id);
+        found.expect("a hair trait").clone()
+    };
+    let with_traits = |m: &mut Value, ids: &[&str]| {
+        let list = m["traits"].as_array_mut().expect("traits");
+        list.extend(ids.iter().map(|id| hair_trait(id)));
+        list.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    };
+    // Only the dryness trait (it includes androgen, so it is used): incomplete.
+    assert_eq!(
+        changed5(|_, m| with_traits(m, &["core:hair_dryness"])).err(),
+        Some(DataError::CalibrationMissing)
+    );
+    // Both hair traits: the thickness without loci is unused before the extension rules.
+    assert_eq!(
+        changed5(|_, m| with_traits(m, &["core:hair_dryness", "core:hair_thickness"])).err(),
+        Some(DataError::TraitUnused)
+    );
+    // Only the seven values: incomplete.
+    assert_eq!(
+        changed5(|c, _| {
+            let values = c["values"].as_object_mut().expect("values");
+            for (key, entry) in patched["values"].as_object().expect("values") {
+                if key.starts_with("core:body_dryness_") {
+                    values.insert(key.clone(), entry.clone());
+                }
+            }
+        })
+        .err(),
+        Some(DataError::CalibrationMissing)
+    );
+    // Only a sex row: a sex row without a phenotype row is unknown (ADR-0014 section 1).
+    assert_eq!(
+        changed5(|c, _| add_sex_row(c, "core:hair_dryness")).err(),
+        Some(DataError::CalibrationUnknown)
+    );
+    // Map 6 with a sex row for a hair trait, which has none: unknown.
+    assert_eq!(
+        changed(|c, _| add_sex_row(c, "core:hair_thickness")).err(),
+        Some(DataError::CalibrationUnknown)
+    );
 }
