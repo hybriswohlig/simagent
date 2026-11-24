@@ -22,6 +22,7 @@ pub(crate) mod memory;
 pub(crate) mod onset;
 pub(crate) mod params;
 pub(crate) mod partnership;
+pub(crate) mod practice;
 pub(crate) mod raised;
 pub(crate) mod reserve;
 pub(crate) mod start;
