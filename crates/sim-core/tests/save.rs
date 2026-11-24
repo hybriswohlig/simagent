@@ -487,9 +487,9 @@ type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
 /// that waits as (place, depart, back), the choices of a day as (day, count), whether it lies on
 /// the floor (ADR-0026, addendum of 2026-11-04 on a need at 0), the reserve as (capacity, value,
 /// at, rate, energy extra; the addendum of 2026-11-06 on hunger at 0), `DERIVED` for the one her
-/// needs and what she does give (`derived`). An action at its object reached it at the first second
-/// a need was written down, the latest the loader allows for the needs its offer sets; one on
-/// the way has not reached it (`Action::reached`, ADR-0033 section 6).
+/// needs and what she does give (`derived`). An action at its object reached it when the first
+/// need its offer sets was written down (`Action::reached`, ADR-0033 section 6): in these saves
+/// the last second a need was written down; one on the way has not reached it.
 #[derive(Clone)]
 struct TestInHouse {
     needs: [(u16, i64, i32); 5],
@@ -522,9 +522,11 @@ struct WireInHouse<'a> {
 
 impl Serialize for TestInHouse {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let first = self.needs.iter().map(|need| need.1).max();
+        // In these saves the needs an action's offer sets are the last written down (at its
+        // arrival), or all needs share one second.
+        let last = self.needs.iter().map(|need| need.1).max();
         let reached = match self.place {
-            TestPlace::Room(_) => first,
+            TestPlace::Room(_) => last,
             _ => None,
         };
         let action = (self.action.as_ref()).map(|TestAction(object, offer, slot, filler, told)| {
