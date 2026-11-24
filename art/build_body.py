@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import os
 import json
 import struct
 import sys
@@ -44,6 +45,11 @@ except ImportError:
 DEFAULT_ASSETS = "/Users/dariushk/.cache/simagent-art/mpfb2"
 DEFAULT_OUT = "/Users/dariushk/.cache/simagent-art/body.glb"
 MORPH_LIMIT = 62
+
+# Targets baked into the base mesh, so every shape key keeps its meaning and a
+# weight of 0 stays the base: the resting mouth, whose corners the bare base
+# turns down.
+REST_TARGETS = (("mouth/mouth-angles-up.target.gz", float(os.environ.get("SIMAGENT_REST_MOUTH", "0.6"))),)
 
 # (shape key, contract parameter, target paths relative to targets/, bidirectional)
 # Bilateral files are summed into one key. Incr targets only: a negative
@@ -396,6 +402,13 @@ def add_shape_keys(mesh, targets: Path, delta_scale: float) -> list[str]:
     count = len(mesh.data.vertices)
     if mesh.data.shape_keys is not None:
         fail("Imported mesh already has shape keys")
+    rest = coords_of(mesh.data.vertices).astype(np.float64).reshape(count, 3)
+    for rel_path, weight in REST_TARGETS:
+        path = targets / rel_path
+        if not path.is_file():
+            fail(f"Missing target {path}")
+        rest = rest + load_target(path, count) * weight * delta_scale
+    set_coords(mesh.data.vertices, rest.reshape(-1).astype(np.float32))
     basis = mesh.shape_key_add(name="Basis", from_mix=False)
     basis.interpolation = "KEY_LINEAR"
     base = coords_of(mesh.data.vertices).astype(np.float64)
