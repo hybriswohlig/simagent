@@ -932,6 +932,9 @@ const STRAND_FRAG = `
   float clipMid = 1.0 - smoothstep(0.002, 0.007, abs(vMesh.x));
   float tuft = clipMid * step(0.08, below) * step(0.085, forward);
   if (uClip > 0.5 && tuft > 0.5) discard;
+  // The fringe ends above the brows in an uneven line, so no cut hangs over an eye.
+  float fringeEnd = uBrow.y + 0.005 + 0.002 * sin(vMesh.x * 180.0) * sin(vMesh.x * 67.0 + 1.0);
+  if (vMesh.z > uBrow.z - 0.03 && abs(vMesh.x - uCrown.x) < 0.075 && vMesh.y < fringeEnd) discard;
   float inMass = step(-0.004, below) * (1.0 - smoothstep(uCap - 0.01, uCap, below));
   float lineSide = abs(vMesh.x - uCrown.x);
   float fringe = smoothstep(0.02, 0.045, below) * (1.0 - smoothstep(0.095, 0.12, below));
@@ -1035,6 +1038,7 @@ function strandMaterial(
   softEdge: boolean,
   cap: number,
   curl: number,
+  brow: readonly [number, number],
   owned: Owned,
 ): Material {
   const material = new MeshStandardMaterial({ roughness: 0.84, metalness: 0 });
@@ -1056,6 +1060,7 @@ function strandMaterial(
     uClip: { value: 0 },
     uMean: { value: strandMean(texture) },
     uCurl: { value: curl },
+    uBrow: { value: new Vector3(0, brow[0], brow[1]) },
   };
   bindShader(
     material,
@@ -1063,7 +1068,7 @@ function strandMaterial(
     uniforms,
     "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;\nuniform float uFill;\nuniform float uCurl;",
     HAIR_VERTEX,
-    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uMean;\nuniform float uCurl;\nuniform vec3 uCrown;\nconst float CURL_FREQ = 45.0;\nconst float CURL_TIGHT = 70.0;\nconst float CURL_BEND = 0.007;\nconst float CURL_SHADE = 0.18;",
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uMean;\nuniform float uCurl;\nuniform vec3 uBrow;\nuniform vec3 uCrown;\nconst float CURL_FREQ = 45.0;\nconst float CURL_TIGHT = 70.0;\nconst float CURL_BEND = 0.007;\nconst float CURL_SHADE = 0.18;",
     STRAND_FRAG,
   );
   owned.materials.push(material);
@@ -1390,6 +1395,20 @@ function hairCrown(proxy: Proxy, humanPos: Float32Array): [number, number, numbe
   return [num(fitted, best), num(fitted, best + 1), num(fitted, best + 2)];
 }
 
+/** No fringe line: far below and in front of any head, so nothing is cut. */
+const NO_FRINGE: readonly [number, number] = [-1000, 1000];
+
+/** The height of the brows' upper edge and their front, in mesh space. */
+function browTop(fitted: Float32Array): readonly [number, number] {
+  let top = -Infinity;
+  let front = -Infinity;
+  for (let i = 0; i < fitted.length; i += 3) {
+    top = Math.max(top, num(fitted, i + 1));
+    front = Math.max(front, num(fitted, i + 2));
+  }
+  return [top, front];
+}
+
 function addGrooming(
   mesh: SkinnedMesh,
   head: Bone,
@@ -1406,6 +1425,8 @@ function addGrooming(
 ): void {
   const hairName = wornHair(body, sex, simId);
   const hair = proxyOf(pack, hairName);
+  const brows = proxyOf(pack, "brows");
+  const browLine = brows === null ? NO_FRINGE : browTop(fitProxy(brows, humanPos));
   const density = hairCover(body);
   if (density > 0.02 && hair !== null) {
     const bald = hairName === "hair_short" ? Math.min(1, Math.max(0, body.balding_stage) / 7) : 0;
@@ -1417,14 +1438,13 @@ function addGrooming(
       hair,
       hair.faces,
       humanPos,
-      strandMaterial(textureOf(hair.image, true, SRGBColorSpace, owned), hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, Math.min(1, Math.max(0, body.hair_curl)), owned),
+      strandMaterial(textureOf(hair.image, true, SRGBColorSpace, owned), hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, Math.min(1, Math.max(0, body.hair_curl)), browLine, owned),
       2,
       0,
       null,
       owned,
     );
   }
-  const brows = proxyOf(pack, "brows");
   const browDensity = Math.min(1, Math.max(0, body.eyebrow_density));
   if (brows !== null && browDensity > 0.02) {
     const browCut = MathUtils.lerp(0.38, 0.15, browDensity);
@@ -1434,7 +1454,7 @@ function addGrooming(
       brows,
       browFaces(brows, humanPos),
       humanPos,
-      strandMaterial(textureOf(brows.image, true, SRGBColorSpace, owned), hairHex, browCut, 0, marks.crown, -8, false, false, 0, 0, owned),
+      strandMaterial(textureOf(brows.image, true, SRGBColorSpace, owned), hairHex, browCut, 0, marks.crown, -8, false, false, 0, 0, NO_FRINGE, owned),
       3,
       0.003,
       thickenBrows,
