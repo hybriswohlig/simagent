@@ -914,4 +914,7 @@ export const CODES: { readonly [code: string]: string } = {
   "upbringing apology": "Entschuldigung",
   "upbringing school": "Schule",
   "upbringing talk": "Gespräch",
+  "upbringing done": "zu Ende gespielt oder gelesen",
+  "upbringing need_empty": "Bedürfnis leer",
+  "upbringing overheard": "mitgehört",
 };

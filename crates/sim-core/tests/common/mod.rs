@@ -545,6 +545,22 @@ pub fn repository_houses_with(change: impl FnOnce(&mut Value)) -> sim_core::hous
     )
 }
 
+/// The houses of `data/house/` with each house file changed by `change` first.
+#[allow(dead_code, reason = "only the tests of overhearing change the houses")]
+pub fn repository_houses_with_each(
+    change: impl Fn(&mut Value),
+) -> sim_core::house::data::HouseData {
+    let houses: Vec<String> = (REPOSITORY_HOUSES.iter())
+        .map(|text| {
+            let mut house: Value = serde_json::from_str(text).expect("json");
+            change(&mut house);
+            house.to_string()
+        })
+        .collect();
+    let houses: Vec<&str> = houses.iter().map(String::as_str).collect();
+    houses_from(REPOSITORY_NEEDS, REPOSITORY_DAY, REPOSITORY_KINDS, &houses)
+}
+
 /// The houses of `data/house/` with their `day.json` changed by `change` first.
 #[allow(
     dead_code,
