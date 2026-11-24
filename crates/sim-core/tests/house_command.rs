@@ -287,6 +287,7 @@ fn command_rejections_and_effect() {
                 offer: 0,
                 slot: 0,
                 filler: false,
+                commanded: true,
             })
         )
     );

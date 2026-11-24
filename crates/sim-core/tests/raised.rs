@@ -299,7 +299,8 @@ fn a_save_keeps_who_is_raised() {
     assert_eq!(loaded.save(&run.out.year_hashes).expect("saves"), bytes);
 }
 
-/// The loader's bounds: raised at an age of 0 to under 18, `D` within −3000 to 3000.
+/// The loader's bounds: raised at an age of 0 to under 18, `D` within −3000 to 3000, no need
+/// counted on a day before it was raised.
 #[test]
 fn a_raised_entry_fits_only_within_its_bounds() {
     let born = t(0);
@@ -313,6 +314,12 @@ fn a_raised_entry_fits_only_within_its_bounds() {
     assert!(lived.fits(born));
     lived.experience[2] = 3001;
     assert!(!lived.fits(born));
+    // A need counted on the day it was raised or later fits; on a day before, not.
+    let mut counted = at(3 * DAY.as_secs() + 5);
+    counted.counted = [None, Some(3), None, None, Some(9)];
+    assert!(counted.fits(born));
+    counted.counted[1] = Some(2);
+    assert!(!counted.fits(born));
 }
 
 /// `m_D` and `s_D` differ on every axis, so a mixed-up axis or a calibration left unread
@@ -376,6 +383,40 @@ fn a_save_without_a_housed_childs_record_does_not_load() {
     assert!(World::load(&bytes, data.clone()).is_ok());
     assert_eq!(
         World::load(&forged, data).err(),
+        Some(LoadError::Inconsistent)
+    );
+}
+
+/// The loader refuses a need counted on a day after that of the second the clock opens next: the
+/// same save with the girl of
+/// 12's day of hunger set to that day loads, set to the next day it does not.
+#[test]
+fn a_save_with_a_need_counted_after_the_clock_does_not_load() {
+    use sim_core::world::LoadError;
+
+    let data = life_data();
+    let (run, _) = Run::family(data.clone(), 7, "test:raised", &FAMILY, 0);
+    let bytes = run.world.save(&run.out.year_hashes).expect("saves");
+    let projection = run.world.canonical_bytes();
+    let raised = run.world.state().house().raised.clone();
+    let old = postcard::to_allocvec(&raised).expect("bytes");
+    assert!(projection.ends_with(&old));
+    let at = (bytes.windows(projection.len()))
+        .position(|window| window == projection)
+        .expect("the projection stands in the save");
+    let end = at + projection.len();
+    let today = (run.world.closed_through().as_secs() + 1).div_euclid(DAY.as_secs());
+    let forge = |day: i64| {
+        let mut changed = raised.clone();
+        changed.get_mut(&sim(3)).expect("raised").counted[0] = Some(day);
+        let mut forged = bytes[..end - old.len()].to_vec();
+        forged.extend(postcard::to_allocvec(&changed).expect("bytes"));
+        forged.extend(&bytes[end..]);
+        forged
+    };
+    assert!(World::load(&forge(today), data.clone()).is_ok());
+    assert_eq!(
+        World::load(&forge(today + 1), data).err(),
         Some(LoadError::Inconsistent)
     );
 }
