@@ -51,6 +51,7 @@ payload 43 core:told
 payload 44 core:refuted
 payload 45 core:felt
 payload 46 core:developed
+payload 47 core:practiced
 cause 0 event
 cause 1 plan
 cause 2 input
@@ -229,3 +230,6 @@ upbringing 4 talk
 upbringing 5 done
 upbringing 6 need_empty
 upbringing 7 overheard
+skill 0 language
+skill 1 reading
+skill 2 play

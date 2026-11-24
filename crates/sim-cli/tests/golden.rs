@@ -1046,7 +1046,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:told",
             "log core:refuted",
             "log core:felt",
-            "log core:developed"
+            "log core:developed",
+            "log core:practiced"
         ]
     );
 }

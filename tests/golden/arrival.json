@@ -1,62 +1,62 @@
 {
-  "core_version": 76,
+  "core_version": 77,
   "data_hash": "5fc9e48e4e7307db",
   "year_hashes": [
     {
       "year": 0,
-      "hash": "a9ccef14af4dc047"
+      "hash": "6db99416974819a7"
     },
     {
       "year": 1,
-      "hash": "23d5a85be6334c70"
+      "hash": "bc805661b4b1f669"
     },
     {
       "year": 2,
-      "hash": "59dd7c5e84ab4b33"
+      "hash": "e4ffcddc32f3babe"
     },
     {
       "year": 3,
-      "hash": "7a9a1fa4a91806c9"
+      "hash": "31ef043b045b14a9"
     },
     {
       "year": 4,
-      "hash": "dfabe2b42701610a"
+      "hash": "b99b8d4ea8528463"
     },
     {
       "year": 5,
-      "hash": "384b90d1f596aba6"
+      "hash": "44a84d265c0d2e00"
     },
     {
       "year": 6,
-      "hash": "005328a901186497"
+      "hash": "5387f836cef33852"
     },
     {
       "year": 7,
-      "hash": "8f5ac92fc3bf6a6e"
+      "hash": "7922421ac1014236"
     },
     {
       "year": 8,
-      "hash": "edaa3e51cec98ad7"
+      "hash": "d734b4895a820ed8"
     },
     {
       "year": 9,
-      "hash": "93553b50121cfbb8"
+      "hash": "da27896aa1f09513"
     },
     {
       "year": 10,
-      "hash": "2710bd91c967c355"
+      "hash": "d30c2ba5068b06e0"
     },
     {
       "year": 11,
-      "hash": "5fb2cfa94d78282f"
+      "hash": "462cf55f56591760"
     },
     {
       "year": 12,
-      "hash": "39011cb61d03d132"
+      "hash": "05455ffee25b2bde"
     },
     {
       "year": 13,
-      "hash": "d8e01187e93136ea"
+      "hash": "c89f0616fd9d7bcc"
     }
   ],
   "log_hash": "0512a03c7e1f9868"
