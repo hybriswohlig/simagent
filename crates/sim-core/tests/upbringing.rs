@@ -861,9 +861,10 @@ fn a_baby_overhears_its_parents_in_its_room() {
     assert_eq!(run.world.state().house().raised[&baby].experience, d);
 }
 
-/// In the repository's houses no one talks where a small child is: a baby overhears nothing.
+/// In the repository's houses a small child spends the day in the living room, where the
+/// parents talk (ADR-0024 section 4): the baby overhears them.
 #[test]
-fn in_the_repositorys_houses_a_baby_overhears_nothing() {
+fn in_the_repositorys_houses_a_baby_overhears_its_parents() {
     let data = life_data(true).with_social(common::repository_social());
     let couple = [FAMILY[0], FAMILY[1]];
     let (mut run, _) = Run::family(data, 7, "test:upbringing", &couple, 0);
@@ -888,5 +889,5 @@ fn in_the_repositorys_houses_a_baby_overhears_nothing() {
             }
         )
     });
-    assert!(talks > 20 && !overheard, "{talks} talks");
+    assert!(talks > 20 && overheard, "{talks} talks");
 }
