@@ -83,12 +83,22 @@ With a pool (slice S2a of the switch to map 4, design note of the switch, sectio
 the data also carry the frequencies of the pool's seven loci (`frequencies_of`, the rules
 `frequencies_rejection`), and the data hash is xxh3-64 of the definitions' postcard followed
 by the postcard of `(pool_seed, pool_hash, frequencies)` (`pool_suffix`,
-`data_hash_with_pool`). `pool_hash` is xxh3 of the pool file. When the map declares all
-forty temperament loci, that hash is of the genomes after the load-time extension
-(`effective_pool_bytes`); the file itself is not rewritten. `frozen_hash` stays the hash of
-the definitions the pool was extracted from. Map version 5 keeps that hash equal to the
-definitions with the five temperament traits, their loci, phenotype rows, sex differences
-and development values removed and `map_version` set back to 4 (`stripped_documents_hash`).
+`data_hash_with_pool`). `pool_hash` is xxh3 of the pool file. When the map declares
+load-time extensions (`EXTENSIONS`, ADR-0033 section 2 and ADR-0034 section 2: temperament for
+map 5, then hair for map 6, as a prefix of the table in that order, `map_version = 4 +
+count`, recognised by the declared loci), that hash is of the genomes after the extension
+with their loci (`effective_pool_bytes`); the file itself is not rewritten. `frozen_hash`
+stays the hash of the definitions the pool was extracted from (map 4): a map with extensions
+keeps it equal to the definitions with everything every declared extension owns removed
+(traits, loci, phenotype rows, sex differences, calibration values) and `map_version` set back
+to 4 (`stripped_documents_hash`). The calibration holds 118 values plus 10 with temperament
+plus 7 with hair (`extension_rejection`).
+
+Map 6 (ADR-0034 section 1) is built in memory from the repository's map 5 until the data
+files carry it (`map6_documents`, `hair_patch`): the two hair traits, their two loci at
+segment 0 slot 17 and segment 1 slot 19 (the rule of ADR-0020 section 1, `placement`), the two
+phenotype rows and the seven values of the dryness. The output prints its hashes and the
+patch as JSON.
 
 The repository's data (slice S5 of the switch, design note section 14): data/ holds the
 genome map, its calibration and the life course data, and under data/pool/ the pool
@@ -811,6 +821,15 @@ def documents_hash(demography, calibration, genome_map) -> int:
     return xxhash.xxh3_64_intdigest(definitions_bytes(demography, calibration, genome_map), seed=0)
 
 
+# ---------------------------------------------------------------------------------------
+# The load-time extensions of the frozen pool (ADR-0033 section 2, ADR-0034 section 2): an
+# ordered table. Each extension owns its traits, its loci with their placement (chromosome,
+# segment, slot), its phenotype rows, its rows of sex differences and its calibration keys.
+# A map with extensions carries them as a prefix of this table, in this order, and has
+# `map_version = 4 + count`; it is recognised by the declared loci, not by the number. A map
+# without extension (a test map) keeps any valid version. An extension holds wholly or not at
+# all, and its loci lie exactly on the declared places.
+
 # The five temperament traits, in data-id order (ADR-0033 section 2). Eight loci each.
 TEMPERAMENT_TRAITS = (
     "core:agreeableness",
@@ -819,11 +838,202 @@ TEMPERAMENT_TRAITS = (
     "core:neuroticism",
     "core:openness",
 )
+# (id, chromosome, segment, slot) of the forty temperament loci, placed by the rule of
+# ADR-0020 section 1 against map 4 (`placement`, asserted below), in data-id order.
+TEMPERAMENT_LOCI = (
+    ("core:agreeableness_01", "autosome", 0, 12),
+    ("core:agreeableness_02", "autosome", 1, 14),
+    ("core:agreeableness_03", "autosome", 2, 14),
+    ("core:agreeableness_04", "autosome", 3, 11),
+    ("core:agreeableness_05", "autosome", 4, 16),
+    ("core:agreeableness_06", "autosome", 5, 11),
+    ("core:agreeableness_07", "autosome", 6, 10),
+    ("core:agreeableness_08", "autosome", 7, 13),
+    ("core:conscientiousness_01", "autosome", 3, 13),
+    ("core:conscientiousness_02", "autosome", 4, 17),
+    ("core:conscientiousness_03", "autosome", 5, 12),
+    ("core:conscientiousness_04", "autosome", 6, 11),
+    ("core:conscientiousness_05", "autosome", 7, 14),
+    ("core:conscientiousness_06", "autosome", 0, 13),
+    ("core:conscientiousness_07", "autosome", 1, 15),
+    ("core:conscientiousness_08", "autosome", 2, 15),
+    ("core:extraversion_01", "autosome", 6, 12),
+    ("core:extraversion_02", "autosome", 7, 15),
+    ("core:extraversion_03", "autosome", 0, 14),
+    ("core:extraversion_04", "autosome", 1, 16),
+    ("core:extraversion_05", "autosome", 2, 16),
+    ("core:extraversion_06", "autosome", 3, 14),
+    ("core:extraversion_07", "autosome", 4, 18),
+    ("core:extraversion_08", "autosome", 5, 13),
+    ("core:neuroticism_01", "autosome", 1, 17),
+    ("core:neuroticism_02", "autosome", 2, 17),
+    ("core:neuroticism_03", "autosome", 3, 15),
+    ("core:neuroticism_04", "autosome", 4, 19),
+    ("core:neuroticism_05", "autosome", 5, 14),
+    ("core:neuroticism_06", "autosome", 6, 13),
+    ("core:neuroticism_07", "autosome", 7, 16),
+    ("core:neuroticism_08", "autosome", 0, 15),
+    ("core:openness_01", "autosome", 4, 20),
+    ("core:openness_02", "autosome", 5, 15),
+    ("core:openness_03", "autosome", 6, 14),
+    ("core:openness_04", "autosome", 7, 17),
+    ("core:openness_05", "autosome", 0, 16),
+    ("core:openness_06", "autosome", 1, 18),
+    ("core:openness_07", "autosome", 2, 18),
+    ("core:openness_08", "autosome", 3, 16),
+)
+# Hair (ADR-0034 section 1): `core:hair_thickness` with two own additive loci and
+# `core:hair_dryness` without loci (it includes `core:androgen` with weight -1), in data-id
+# order. The two loci by the rule of ADR-0020 section 1 against map 5: segment 0 slot 17 and
+# segment 1 slot 19 (asserted below); 24 free autosomal places remain.
+HAIR_THICKNESS = "core:hair_thickness"
+HAIR_DRYNESS = "core:hair_dryness"
+HAIR_TRAITS = (HAIR_DRYNESS, HAIR_THICKNESS)
+HAIR_LOCI = (
+    ("core:hair_thickness_01", "autosome", 0, 17),
+    ("core:hair_thickness_02", "autosome", 1, 19),
+)
+# The seven play values of the dryness (ADR-0034 section 3, Grok 2026-11-20), in the order of
+# the formula: key, value, unit. `_male` is stored with its sign and added.
+HAIR_VALUES = (
+    ("core:body_dryness_offset", -0.942, "logit"),
+    ("core:body_dryness_curl", 0.75, "logit"),
+    ("core:body_dryness_slope", 1.30, "logit"),
+    ("core:body_dryness_age", 2.0, "logit"),
+    ("core:body_dryness_male", -0.35, "logit"),
+    ("core:body_dryness_center", 55.0, "year"),
+    ("core:body_dryness_tempo", 10.0, "year"),
+)
+# The phenotype rows (ADR-0034 section 1): h2, c2, child and adult the same.
+HAIR_WEIGHTS = {HAIR_THICKNESS: (0.60, 0.0), HAIR_DRYNESS: (0.15, 0.0)}
+# The references of the dryness (ADR-0034 section 1, addendum of 2026-11-24 of the decision):
+# `sigma_ref` copied from `core:androgen`, `mean_ref` its negation, so `G_dry = -G_androgen`
+# bit for bit. The literals of the decision, checked against the map.
+ANDROGEN = "core:androgen"
+ANDROGEN_SIGMA_REF = 2.0091115153283217
+DRYNESS_MEAN_REF = -0.011102035190670132
+
+
+class Extension:
+    """One declared extension: what it owns. `version` is the map version of a map whose
+    prefix ends with it (4 + its position + 1)."""
+
+    def __init__(self, name, traits, loci, rows, sex_rows, values):
+        self.name = name
+        self.traits = tuple(traits)
+        self.loci = tuple(loci)
+        self.rows = tuple(rows)
+        self.sex_rows = tuple(sex_rows)
+        self.values = tuple(values)
+
+    def locus_ids(self) -> list:
+        return [locus_id for locus_id, _, _, _ in self.loci]
+
+
+EXTENSIONS = (
+    Extension(
+        "temperament",
+        TEMPERAMENT_TRAITS,
+        TEMPERAMENT_LOCI,
+        TEMPERAMENT_TRAITS,
+        TEMPERAMENT_TRAITS,
+        [f"{trait}_development_{what}" for trait in TEMPERAMENT_TRAITS for what in ("mean", "sd")],
+    ),
+    Extension("hair", HAIR_TRAITS, HAIR_LOCI, HAIR_TRAITS, (), [key for key, _, _ in HAIR_VALUES]),
+)
+# The map version without any extension (map 4) and the calibration's value count there
+# (`data.calibration_unknown` in the core): 118, plus each declared extension's keys.
+BASE_MAP_VERSION = 4
+BASE_GENETICS_VALUES = 118
+assert [len(extension.values) for extension in EXTENSIONS] == [10, 7]
+assert [len(extension.loci) for extension in EXTENSIONS] == [40, 2]
+
+
+class ExtensionRejected(Exception):
+    """A map whose extensions break the rules of ADR-0034 section 2."""
 
 
 def temperament_locus_ids() -> list:
     """`core:{trait}_01` .. `_08` for each temperament trait, in data-id order."""
     return [f"{trait}_{n:02d}" for trait in TEMPERAMENT_TRAITS for n in range(1, 9)]
+
+
+assert temperament_locus_ids() == EXTENSIONS[0].locus_ids()
+
+
+def declared_extensions(genome_map) -> list:
+    """The extensions the map declares, recognised by their loci: a prefix of `EXTENSIONS`
+    in order. An extension with some but not all of its loci, an extension after a missing
+    one, a declared locus off its place, or a map version other than 4 + count is rejected
+    (`ExtensionRejected`). A map without any declared locus has none and keeps its version."""
+    loci = {locus["id"]: locus for locus in genome_map["loci"]}
+    found = []
+    missing = None
+    for extension in EXTENSIONS:
+        present = [locus_id for locus_id in extension.locus_ids() if locus_id in loci]
+        if not present:
+            if missing is None:
+                missing = extension.name
+            continue
+        if len(present) != len(extension.loci):
+            raise ExtensionRejected(f"half extension {extension.name}: {len(present)} of {len(extension.loci)} loci")
+        if missing is not None:
+            raise ExtensionRejected(f"extension {extension.name} without {missing} before it")
+        for locus_id, chromosome, segment, slot in extension.loci:
+            locus = loci[locus_id]
+            if (locus["chromosome"], locus["segment"], locus["slot"]) != (chromosome, segment, slot):
+                raise ExtensionRejected(f"{locus_id} off its declared place {chromosome} {segment}.{slot}")
+        found.append(extension)
+    if found and genome_map["map_version"] != BASE_MAP_VERSION + len(found):
+        raise ExtensionRejected(f"map_version {genome_map['map_version']} with {len(found)} extensions")
+    return found
+
+
+def extension_rejection(calibration, genome_map) -> "str | None":
+    """The rules of ADR-0034 section 2 on the whole definitions, None if they hold: the
+    declared prefix (`declared_extensions`); each declared extension wholly there (its traits,
+    phenotype rows, sex rows and calibration keys), each undeclared one wholly absent; no
+    other locus loads on an extension's trait; no trait includes an extension's trait; the
+    calibration's value count 118 plus the keys of the declared extensions."""
+    try:
+        declared = declared_extensions(genome_map)
+    except ExtensionRejected as error:
+        return str(error)
+    traits = {entry["id"]: entry for entry in genome_map["traits"]}
+    rows = {row["trait"] for row in calibration["traits"]}
+    sex_rows = {row["trait"] for row in calibration["sex_differences"]}
+    values = calibration["values"]
+    owned_loci, owned_traits = set(), set()
+    for extension in EXTENSIONS:
+        wanted = extension in declared
+        parts = (
+            [trait in traits for trait in extension.traits]
+            + [trait in rows for trait in extension.rows]
+            + [trait in sex_rows for trait in extension.sex_rows]
+            + [key in values for key in extension.values]
+        )
+        if wanted and not all(parts):
+            return f"half extension {extension.name}: a trait, row or value is missing"
+        if not wanted and any(parts):
+            return f"half extension {extension.name}: a trait, row or value without its loci"
+        owned_loci |= set(extension.locus_ids())
+        owned_traits |= set(extension.traits)
+    for locus in genome_map["loci"]:
+        action = locus["action"]
+        if isinstance(action, str) or locus["id"] in owned_loci:
+            continue
+        ((_, weights),) = action.items()
+        for load in weights["loads"]:
+            if load["trait"] in owned_traits:
+                return f"{locus['id']} loads on the extension trait {load['trait']}"
+    for entry in genome_map["traits"]:
+        for include in entry["includes"]:
+            if include["trait"] in owned_traits:
+                return f"{entry['id']} includes the extension trait {include['trait']}"
+    expected = BASE_GENETICS_VALUES + sum(len(extension.values) for extension in declared)
+    if len(values) != expected:
+        return f"{len(values)} calibration values, expected {expected}"
+    return None
 
 
 def declares_temperament(genome_map) -> bool:
@@ -832,25 +1042,48 @@ def declares_temperament(genome_map) -> bool:
     return all(locus_id in ids for locus_id in temperament_locus_ids())
 
 
-def stripped_documents_hash(demography, calibration, genome_map) -> int:
-    """The definitions with the temperament extension removed and `map_version` set to 4.
-
-    A pool frozen on map 4 keeps this hash when the live documents are map version 5 and
-    declare all forty loci. The caller's documents are not modified.
-    """
-    traits = set(TEMPERAMENT_TRAITS)
-    loci = set(temperament_locus_ids())
+def strip_extensions(calibration, genome_map, extensions=EXTENSIONS) -> tuple:
+    """Copies of the documents without everything `extensions` own (traits, loci, phenotype
+    rows, sex rows, calibration keys) and with `map_version` set to 4 when anything was
+    declared. The caller's documents are not modified."""
     calibration = copy.deepcopy(calibration)
     genome_map = copy.deepcopy(genome_map)
-    genome_map["map_version"] = 4
+    traits = {trait for extension in extensions for trait in extension.traits}
+    loci = {locus_id for extension in extensions for locus_id in extension.locus_ids()}
+    rows = {trait for extension in extensions for trait in extension.rows}
+    sex_rows = {trait for extension in extensions for trait in extension.sex_rows}
+    keys = [key for extension in extensions for key in extension.values]
+    genome_map["map_version"] = BASE_MAP_VERSION
     genome_map["traits"] = [trait for trait in genome_map["traits"] if trait["id"] not in traits]
     genome_map["loci"] = [locus for locus in genome_map["loci"] if locus["id"] not in loci]
-    calibration["traits"] = [row for row in calibration["traits"] if row["trait"] not in traits]
-    calibration["sex_differences"] = [row for row in calibration["sex_differences"] if row["trait"] not in traits]
-    for trait in traits:
-        calibration["values"].pop(f"{trait}_development_mean", None)
-        calibration["values"].pop(f"{trait}_development_sd", None)
+    calibration["traits"] = [row for row in calibration["traits"] if row["trait"] not in rows]
+    calibration["sex_differences"] = [row for row in calibration["sex_differences"] if row["trait"] not in sex_rows]
+    for key in keys:
+        calibration["values"].pop(key, None)
+    return calibration, genome_map
+
+
+def stripped_documents_hash(demography, calibration, genome_map) -> int:
+    """The definitions with every declared extension removed (`strip_extensions`, back to
+    map 4): the hash a pool frozen on map 4 keeps as its `frozen_hash` (ADR-0034 section 2).
+    The caller's documents are not modified."""
+    calibration, genome_map = strip_extensions(calibration, genome_map)
     return documents_hash(demography, calibration, genome_map)
+
+
+def also_frozen_hash(demography, calibration, genome_map) -> "int | None":
+    """The second hash a pool's `frozen_hash` may equal: the stripped definitions when the
+    map declares at least one extension (a valid prefix, `map_version = 4 + count`), else
+    None. A map that breaks the rules raises `ExtensionRejected`."""
+    if not declared_extensions(genome_map):
+        return None
+    return stripped_documents_hash(demography, calibration, genome_map)
+
+
+def declared_loci(genome_map) -> tuple:
+    """(id, chromosome, segment, slot) of every locus of the declared extensions, in the order
+    of the table: the loci the load writes into each pool genome."""
+    return tuple(locus for extension in declared_extensions(genome_map) for locus in extension.loci)
 
 
 def data_hash(data_dir: Path) -> int:
@@ -858,14 +1091,182 @@ def data_hash(data_dir: Path) -> int:
 
 
 def effective_pool_bytes(pool: bytes, genome_map: dict) -> bytes:
-    """The pool bytes the data hash covers. A map that declares all forty temperament loci
-    uses the load-time extension (`pool_extension_reference.extended_bytes`, cached by the
-    file's hash). Any other map, including the golden fixtures, keeps the file bytes."""
+    """The pool bytes the data hash covers. A map that declares extensions uses the load-time
+    extension with their loci (`pool_extension_reference.extended_bytes`, cached by the file's
+    hash and the loci with their places). Any other map, including the golden fixtures, keeps
+    the file bytes."""
     import pool_extension_reference
 
-    if declares_temperament(genome_map):
-        return pool_extension_reference.extended_bytes(pool)
+    loci = declared_loci(genome_map)
+    if loci:
+        return pool_extension_reference.extended_bytes(pool, loci)
     return pool
+
+
+# ---------------------------------------------------------------------------------------
+# The placement of new additive loci (ADR-0020 section 1), applied to an extension.
+
+SEGMENTS, SLOTS = 8, 24
+
+
+def placement(genome_map, new_loci: list) -> list:
+    """Places `new_loci` ((trait, count) per trait with new additive loci) on the free
+    autosomal places of `genome_map` by the rule of ADR-0020 section 1: the trait's ordinal
+    `o` (from 0, ascending data ID among the new traits), locus `i` (from 0) to segment
+    `(o * 3 + i) mod 8`; there the free slot with the largest smallest distance to the
+    trait's loci already placed in that segment, the smallest free slot when none is there,
+    the smaller one on a tie. Placed trait by trait, each by `i`. Returns [(locus id,
+    "autosome", segment, slot)] with ids `{trait}_{i + 1:02d}`."""
+    taken = {(locus["segment"], locus["slot"]) for locus in genome_map["loci"] if locus["chromosome"] == "autosome"}
+    out = []
+    for o, (trait, count) in enumerate(sorted(new_loci)):
+        mine = []
+        for i in range(count):
+            segment = (o * 3 + i) % SEGMENTS
+            free = [slot for slot in range(SLOTS) if (segment, slot) not in taken]
+            assert free, f"segment {segment} is full"
+            here = [slot for seg, slot in mine if seg == segment]
+            if here:
+                slot = max(free, key=lambda s: (min(abs(s - other) for other in here), -s))
+            else:
+                slot = free[0]
+            taken.add((segment, slot))
+            mine.append((segment, slot))
+            out.append((f"{trait}_{i + 1:02d}", "autosome", segment, slot))
+    return out
+
+
+def free_places(genome_map) -> int:
+    taken = {(locus["segment"], locus["slot"]) for locus in genome_map["loci"] if locus["chromosome"] == "autosome"}
+    return SEGMENTS * SLOTS - len(taken)
+
+
+# ---------------------------------------------------------------------------------------
+# Map 6 built in memory from map 5 (ADR-0034 section 1): the hair extension applied exactly
+# as the ADR declares it, until the data files carry it.
+
+HAIR_SOURCE = "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)"
+HAIR_AS_OF = "2026-11-20"
+HAIR_FORMULA = (
+    "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male),"
+    " s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+)
+
+
+def position(locus) -> tuple:
+    return (CHROMOSOMES.index(locus["chromosome"]), locus["segment"], locus["slot"])
+
+
+def hair_patch(genome_map) -> dict:
+    """The entries the hair extension adds (ADR-0034 section 1), with their texts: the two
+    traits, the two loci with their placement, the two phenotype rows, no sex rows, the seven
+    calibration values. `genome_map` is map 5 (it gives androgen's references, checked against
+    the decision's literals)."""
+    androgen = {entry["id"]: entry for entry in genome_map["traits"]}[ANDROGEN]
+    sigma, mean = float(androgen["sigma_ref"]), mean_ref_of(androgen)
+    assert f64_bits(sigma) == f64_bits(ANDROGEN_SIGMA_REF), sigma
+    assert f64_bits(-mean) == f64_bits(DRYNESS_MEAN_REF), mean
+    assert androgen["includes"] == []
+    traits = [
+        {
+            "id": HAIR_DRYNESS,
+            "sigma_ref": sigma,
+            "mean_ref": -mean,
+            "exclusive": False,
+            "includes": [{"trait": ANDROGEN, "weight": -1.0}],
+            "description": (
+                "Hair dryness without own loci; includes core:androgen with weight -1, sigma_ref is"
+                " core:androgen's and mean_ref its negation, so G = -G of core:androgen bit for bit"
+                " (ADR-0034 section 1)."
+            ),
+        },
+        {
+            "id": HAIR_THICKNESS,
+            "sigma_ref": 1.0,
+            "mean_ref": 0.0,
+            "exclusive": False,
+            "includes": [],
+            "description": (
+                "Hair thickness with 2 own additive loci. d_ref 1 per locus, sigma_ref 1 and mean_ref 0"
+                " are the exact parameters of the Hardy-Weinberg distribution at p = 0.5"
+                " (Var(A) = 2 * 2p(1-p) = 1), an exception to measuring them (ADR-0034 section 1)."
+            ),
+        },
+    ]
+    loci = [
+        {
+            "id": locus_id,
+            "chromosome": chromosome,
+            "segment": segment,
+            "slot": slot,
+            "action": {"additive": {"effect": 1.0, "d_ref": 1.0, "loads": [{"trait": HAIR_THICKNESS, "weight": 1.0}]}},
+            "mark": "small",
+            "mutation": "both",
+            "description": f"Additive locus {n} of {HAIR_THICKNESS} (ADR-0020 section 1, ADR-0034 section 1).",
+        }
+        for n, (locus_id, chromosome, segment, slot) in enumerate(HAIR_LOCI, start=1)
+    ]
+    rows = []
+    for trait in HAIR_TRAITS:
+        h2, c2 = HAIR_WEIGHTS[trait]
+        row = {"trait": trait}
+        for name, value in (("h2_child", h2), ("c2_child", c2), ("h2_adult", h2), ("c2_adult", c2)):
+            what, age = name.split("_")
+            row[name] = {"value": value, "unit": "fraction", "source": HAIR_SOURCE, "as_of": HAIR_AS_OF, "note": f"{what} of the {age} (ADR-0034 section 1)"}
+        rows.append(row)
+    values = {
+        key: {"value": value, "unit": unit, "source": HAIR_SOURCE, "as_of": HAIR_AS_OF, "note": HAIR_FORMULA}
+        for key, value, unit in HAIR_VALUES
+    }
+    return {"map_version": 6, "traits": traits, "loci": loci, "calibration_traits": rows, "sex_differences": [], "values": values}
+
+
+def with_hair(calibration, genome_map) -> tuple:
+    """Map 6 and its calibration from map 5 (`hair_patch` applied): the traits in data-id
+    order, the loci in the map's order of places (map 5 is in that order), the phenotype rows
+    in data-id order, the values added, `map_version` 6. The caller's documents are not
+    modified."""
+    assert [extension.name for extension in declared_extensions(genome_map)] == ["temperament"], "map 5 expected"
+    patch = hair_patch(genome_map)
+    calibration = copy.deepcopy(calibration)
+    genome_map = copy.deepcopy(genome_map)
+    assert [position(locus) for locus in genome_map["loci"]] == sorted(position(locus) for locus in genome_map["loci"])
+    genome_map["map_version"] = patch["map_version"]
+    genome_map["traits"] = sorted(genome_map["traits"] + patch["traits"], key=lambda entry: entry["id"])
+    genome_map["loci"] = sorted(genome_map["loci"] + patch["loci"], key=position)
+    calibration["traits"] = sorted(calibration["traits"] + patch["calibration_traits"], key=lambda row: row["trait"])
+    for key, entry in patch["values"].items():
+        assert key not in calibration["values"], key
+        calibration["values"][key] = entry
+    return calibration, genome_map
+
+
+def map6_documents(data_dir: Path = None) -> tuple:
+    """The documents of map 6: those of `data_dir` (the repository's by default), with the hair
+    extension applied in memory when they are map 5, as they are when they are map 6."""
+    demography, calibration, genome_map = documents(REPOSITORY_DATA if data_dir is None else data_dir)
+    if len(declared_extensions(genome_map)) == 1:
+        calibration, genome_map = with_hair(calibration, genome_map)
+    assert [extension.name for extension in declared_extensions(genome_map)] == ["temperament", "hair"]
+    return demography, calibration, genome_map
+
+
+def check_placements() -> None:
+    """Each extension's declared places are those of the rule of ADR-0020 section 1 against
+    the map before it, and the hair loci are the smallest free places of map 5 (segment 0 and
+    segment 1)."""
+    _, calibration, map5 = documents(REPOSITORY_DATA)
+    if len(declared_extensions(map5)) != 1:
+        _, map5 = strip_extensions(calibration, map5, EXTENSIONS[1:])
+        map5["map_version"] = 5
+    _, map4 = strip_extensions(calibration, map5)
+    assert placement(map4, [(trait, 8) for trait in TEMPERAMENT_TRAITS]) == sorted(TEMPERAMENT_LOCI, key=lambda locus: locus[0])
+    assert placement(map5, [(HAIR_THICKNESS, 2)]) == list(HAIR_LOCI)
+    taken = {(locus["segment"], locus["slot"]) for locus in map5["loci"] if locus["chromosome"] == "autosome"}
+    for _, _, segment, slot in HAIR_LOCI:
+        assert slot == min(s for s in range(SLOTS) if (segment, s) not in taken), (segment, slot)
+    assert free_places(map4) == 66 and free_places(map5) == 26
+    assert len(map5["loci"]) == 168 and len(map5["traits"]) == 43
 
 
 # ---------------------------------------------------------------------------------------
@@ -1789,7 +2190,7 @@ def pool_files(data_dir: Path):
     return pool_path.read_bytes(), frequencies_file(frequencies_path)
 
 
-def repository_hash(data_dir: Path) -> int:
+def repository_hash(data_dir: Path, definitions=None) -> int:
     """The data hash of a data directory as the CLI builds its data: the definitions, with a
     `pool/` followed by `(pool_seed, pool_hash, frequencies)` (`pool_suffix`, the frequencies
     checked by `frequencies_rejection`), with a `shocks.json` followed by its templates
@@ -1797,9 +2198,13 @@ def repository_hash(data_dir: Path) -> int:
     either it is the definitions alone (`data_hash`); with a `house/` followed by the houses
     (`houses_suffix`, ADR-0025), with a `social/social.json` followed by the social data
     (`social_suffix`, ADR-0030 section 6), and with a `social/development.json` followed by the
-    upbringing table (`development_suffix`, ADR-0033 section 5)."""
+    upbringing table (`development_suffix`, ADR-0033 section 5). `definitions` (calibration,
+    genome map) replace the directory's two files (map 6 built in memory); the life course
+    data stay the directory's with the game's overlay."""
     files = pool_files(data_dir)
     demography, calibration, genome_map = game_documents(data_dir)
+    if definitions is not None:
+        calibration, genome_map = definitions
     out = definitions_bytes(demography, calibration, genome_map)
     if files is not None:
         pool, frequencies = files
@@ -1862,8 +2267,9 @@ def main(argv):
         frozen = head["frozen_hash"]
         if definitions == frozen:
             relation = "equal"
-        elif genome_map["map_version"] == 5 and declares_temperament(genome_map) and stripped_documents_hash(*documents(data_dir)) == frozen:
-            relation = "equal to the definitions without the temperament extension"
+        elif also_frozen_hash(*documents(data_dir)) == frozen:
+            names = " and ".join(extension.name for extension in declared_extensions(genome_map))
+            relation = f"equal to the definitions without the {names} extension"
         else:
             relation = "DIFFERENT"
         print(f"definitions_hash {definitions:016x} (the pool's frozen_hash {frozen:016x}: {relation})")
@@ -1924,6 +2330,112 @@ def main(argv):
             f"threshold {code} liability {trait} heritability {heritability!r} prevalence {prevalence!r}"
             f" 1-K bits {f64_bits(1.0 - prevalence)} T {value!r} bits {f64_bits(value)}"
         )
+    if files is not None and "--no-map6" not in argv:
+        map6_rows(data_dir)
+
+
+def rejection_cases(calibration, genome_map) -> list:
+    """(case, reason) of map 6 altered against each rule of ADR-0034 section 2
+    (`extension_rejection`): every case is rejected."""
+
+    def altered(change):
+        c, m = copy.deepcopy(calibration), copy.deepcopy(genome_map)
+        change(c, m)
+        return extension_rejection(c, m)
+
+    def drop_locus(c, m):
+        m["loci"] = [locus for locus in m["loci"] if locus["id"] != HAIR_LOCI[1][0]]
+
+    def hair_alone(c, m):
+        c2, m2 = strip_extensions(c, m, EXTENSIONS[:1])
+        m2["map_version"] = 5
+        c.update(c2)
+        m.update(m2)
+
+    def version(c, m):
+        m["map_version"] = 5
+
+    def moved(c, m):
+        for locus in m["loci"]:
+            if locus["id"] == HAIR_LOCI[1][0]:
+                locus["slot"] = 20
+
+    def third_locus(c, m):
+        extra = copy.deepcopy(next(locus for locus in m["loci"] if locus["id"] == HAIR_LOCI[0][0]))
+        extra["id"], extra["segment"], extra["slot"] = f"{HAIR_THICKNESS}_03", 2, 19
+        m["loci"] = sorted(m["loci"] + [extra], key=position)
+
+    def include(c, m):
+        for entry in m["traits"]:
+            if entry["id"] == "core:bald":
+                entry["includes"].append({"trait": HAIR_THICKNESS, "weight": 0.5})
+
+    def value(c, m):
+        c["values"].pop("core:body_dryness_tempo")
+
+    def row(c, m):
+        c["traits"] = [r for r in c["traits"] if r["trait"] != HAIR_DRYNESS]
+
+    def extra_value(c, m):
+        c["values"]["core:body_dryness_extra"] = copy.deepcopy(c["values"]["core:body_dryness_tempo"])
+
+    cases = [
+        ("half extension (one hair locus)", drop_locus),
+        ("hair without temperament", hair_alone),
+        ("map_version 5 with both extensions", version),
+        ("hair locus off its place", moved),
+        ("a second load locus (a third locus on core:hair_thickness)", third_locus),
+        ("an include of an extension trait", include),
+        ("a dryness value missing", value),
+        ("a phenotype row missing", row),
+        ("one calibration value too many", extra_value),
+    ]
+    out = []
+    for name, change in cases:
+        reason = altered(change)
+        assert reason is not None, name
+        out.append((name, reason))
+    return out
+
+
+def map6_rows(data_dir: Path) -> None:
+    """Map 6 (ADR-0034) next to the rows above: the documents of `map6_documents`, their
+    definitions' hash, the stripped hash against the pool's `frozen_hash`, the extended pool's
+    hash (42 loci), the data hash as the CLI would build it, the counts, and the JSON patch."""
+    check_placements()
+    demography, calibration, genome_map = map6_documents(data_dir)
+    _, calibration5, map5 = documents(data_dir)
+    assert extension_rejection(calibration, genome_map) is None, extension_rejection(calibration, genome_map)
+    assert extension_rejection(calibration5, map5) is None, extension_rejection(calibration5, map5)
+    pool, frequencies = pool_files(data_dir)
+    head = pool_head(pool)
+    definitions = documents_hash(demography, calibration, genome_map)
+    stripped = stripped_documents_hash(demography, calibration, genome_map)
+    assert stripped == head["frozen_hash"] == stripped_documents_hash(demography, calibration5, map5)
+    pool_hash = xxhash.xxh3_64_intdigest(effective_pool_bytes(pool, genome_map), seed=0)
+    repository = repository_hash(data_dir, (calibration, genome_map))
+    game = game_documents(data_dir)
+    print(
+        f"map6 map_version {genome_map['map_version']} traits {len(genome_map['traits'])} loci {len(genome_map['loci'])}"
+        f" additive_autosomal {sum(1 for locus in genome_map['loci'] if isinstance(locus['action'], dict) and 'additive' in locus['action'] and locus['chromosome'] == 'autosome')}"
+        f" free_places {free_places(genome_map)} calibration_values {len(calibration['values'])} rows {len(calibration['traits'])}"
+        f" sex_rows {len(calibration['sex_differences'])} extensions {' '.join(extension.name for extension in declared_extensions(genome_map))}"
+    )
+    print(
+        f"map6 definitions_hash {definitions:016x} (the pool's frozen_hash {head['frozen_hash']:016x}: equal to the definitions"
+        f" without the temperament and hair extensions {stripped:016x}) game_definitions_hash {documents_hash(game[0], calibration, genome_map):016x}"
+    )
+    print(
+        f"map6 data_hash {repository:016x} pool_seed {head['pool_seed']:016x} pool_hash {pool_hash:016x}"
+        f" suffix {pool_suffix(head['pool_seed'], pool_hash, frequencies).hex()}"
+    )
+    print("map6 placement " + " ".join(f"{locus_id}@{chromosome[0]}{segment}.{slot}" for locus_id, chromosome, segment, slot in HAIR_LOCI))
+    for name, reason in rejection_cases(calibration, genome_map):
+        print(f"map6_rejection {name}: {reason}")
+    patch = hair_patch(map5)
+    print("map6_patch_begin")
+    print(json.dumps(patch, indent=2, ensure_ascii=False))
+    print("map6_patch_end")
 
 
 if __name__ == "__main__":
