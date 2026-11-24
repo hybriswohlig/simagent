@@ -11,7 +11,7 @@ use crate::data::Data;
 use crate::data_id::DataId;
 use crate::development::{Axis, RAISED_UNTIL};
 use crate::house::day::{YoungPlace, young_place};
-use crate::house::state::{Duty, Place};
+use crate::house::state::{Action, Duty, Place};
 use crate::ids::{EventId, HouseholdId, SimId};
 use crate::log::{Cause, Causes, EndReason, LogPayload, Subject};
 use crate::skill::{Skill, TALENT_AGE, diligence, effective, milestones};
@@ -120,9 +120,35 @@ pub(super) fn finished(
     practise(domain, data, (sim, skill, raw), ended, ctx);
 }
 
-/// `sim` practises `skill` for `raw` seconds at this second, by `cause`: if it is living and
-/// raised and its household lives in a house, its practice grows by the effective seconds, and
-/// each 10 effective hours crossed write a `core:practiced` with the level of its talent there.
+/// `sim` left the house of `home` doing `action`, its end (reason left) logged as `ended`: as
+/// any other end, the seconds it ran at its object practise, by the furniture of that house.
+pub(super) fn left(
+    domain: &mut DomainState,
+    data: &Data,
+    (sim, home, action): (SimId, HouseholdId, Action),
+    ended: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
+    let (Some(houses), Some(moved)) = (data.houses(), domain.house.households.get(&home)) else {
+        panic!("invariant practice.house");
+    };
+    let def = (houses.house(&moved.house))
+        .unwrap_or_else(|| panic!("invariant practice.house"))
+        .def();
+    let kind = (def.objects.get(usize::from(action.object)))
+        .unwrap_or_else(|| panic!("invariant practice.object"))
+        .kind
+        .clone();
+    let ran = (action.reached).map(|reached| ctx.now() - reached);
+    let done = (sim, &kind, EndReason::Left, action.commanded, ran);
+    finished(domain, data, done, ended, ctx);
+}
+
+/// `sim` practises `skill` for `raw` seconds at this second, by `cause`, an occasion in its house:
+/// if it is living and raised, its practice grows by the effective seconds, and each 10 effective
+/// hours crossed write a `core:practiced` with the level of its talent there. Only an occasion in
+/// a house reaches here (a talk, a return home, an action's end there, leaving it in the middle of
+/// one), so practice happens only while its household lives in a house.
 fn practise(
     domain: &mut DomainState,
     data: &Data,
@@ -163,11 +189,7 @@ fn practise(
     }
 }
 
-/// Whether `sim` practises: living, raised, its household in a house.
+/// Whether `sim` practises: living and raised.
 fn practises(domain: &DomainState, sim: SimId) -> bool {
-    let Some(person) = domain.sims.get(&sim) else {
-        return false;
-    };
-    let housed = domain.house.households.contains_key(&person.household);
-    housed && domain.house.raised.contains_key(&sim)
+    domain.sims.contains_key(&sim) && domain.house.raised.contains_key(&sim)
 }

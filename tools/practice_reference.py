@@ -20,9 +20,17 @@ What it implements:
   with the talent of that skill.
 
 READING (section 6, "Zustand je Person"): practice lives with `raised_since`, so only a raised
-person practises, and only while its household lives in a house; it practises at every age
-(the window factor outside the window applies to adults too). A person never raised has no
-practice.
+person practises, and only at an occasion in a house (a talk there, a return home, an action's
+end there); it practises at every age (the window factor outside the window applies to adults
+too). A person never raised has no practice.
+
+READING (section 6, "Abbruch durch ... Auszug"): leaving the house in the middle of reading or
+play (the household moving out, or the person leaving it) ends the action with reason left; the
+seconds it ran at the object count, whatever household the person belongs to afterwards.
+
+READING (sections 6 and 9, the second the action runs from): the arrival at the object, which
+writes down the needs its offer sets; the loader asks the stored second to be exactly that of the
+first need the offer sets.
 
 READING (section 6, "jedes Gespraech zweier Erwachsener im Raum des Kindes"): the hearers are
 the living, raised persons under 18 of the household whose house it is, other than the two
@@ -86,6 +94,8 @@ class Practiced:
 
 
 def practises(people: Dict[int, Person], k: int, housed: set) -> bool:
+    """Living and raised; `housed` the households in a house, for the occasions of talks and
+    returns, which happen only there (an action's end in a house passes its household)."""
     person = people.get(k)
     return person is not None and person.raised_since is not None and person.household in housed
 
@@ -203,6 +213,11 @@ def main() -> None:
     ended(people, housed, 8, "core:toy_chest", "done", False, now - 3601, now)
     ended(people, housed, 3, "core:sofa", "done", False, now - 3601, now)
     assert people[3].practice[2] == 3601 and people[8].practice[2] == 1800
+    # Leaving in the middle (reason left) after 10 minutes at the bookshelf: 600 s at 8. The
+    # household's house is the occasion's even if the person belongs elsewhere afterwards.
+    people = family()
+    ended(people, housed, 3, "core:bookshelf", "left", False, now - 600, now)
+    assert people[3].practice[1] == 600
     # Two milestones in one long play (20 h at the chest, 8 y, z = 0): 10 h and 20 h,
     # L(0, 10) -> 9, L(0, 20) -> 19.
     people = family()

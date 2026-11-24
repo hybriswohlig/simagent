@@ -16,7 +16,7 @@ use sim_core::development::{Axis, RAISED_UNTIL};
 use sim_core::house::day::{YoungPlace, young_place};
 use sim_core::house::state::{Duty, Place};
 use sim_core::ids::SimId;
-use sim_core::input::{Command, Input};
+use sim_core::input::{Command, Input, MoveOut};
 use sim_core::log::{Cause, EndReason, LogEntry, LogPayload, Subject};
 use sim_core::skill::{MILESTONE_SECONDS, Skill, TALENT_AGE, diligence, effective, milestones};
 use sim_core::time::{DAY, SimDuration, SimTime, YEAR};
@@ -406,4 +406,88 @@ fn reading_on_command_practises_nothing() {
         after[Skill::Reading.index()],
         before[Skill::Reading.index()]
     );
+}
+
+/// Leaving the house in the middle of reading or play counts the seconds it ran (ADR-0033
+/// section 6): the girl of 12 at the bookshelf or the toy chest for some minutes when the
+/// household moves out; her action ends with reason left and her practice grows by those seconds
+/// at its end, by her window and diligence then.
+#[test]
+fn moving_out_in_the_middle_counts_the_seconds_so_far() {
+    let (mut first, _) = Run::family(life_data(None), 7, "test:practice", &FAMILY, 0);
+    first.advance(15 * DAY.as_secs());
+    let girl = sim(3);
+    // A long reading or play of hers to the end: its arrival and end.
+    let mut reached = None;
+    let mut long = None;
+    for entry in &first.log {
+        if subject(entry) != Some(girl) {
+            continue;
+        }
+        match entry.payload {
+            LogPayload::Reached { object } => reached = Some((entry.t.as_secs(), object)),
+            LogPayload::ActionEnded {
+                object,
+                reason: EndReason::Done,
+                ..
+            } => {
+                let kind = first.world.data().houses().map(|houses| {
+                    let state = first.world.state();
+                    let home = state.household_of(girl).expect("living");
+                    let house = &state.house().households[&home].house;
+                    houses.house(house).expect("its house").def().objects[usize::from(object)]
+                        .kind
+                        .clone()
+                });
+                let own = kind.as_ref().is_some_and(|kind| {
+                    matches!(kind.as_str(), "core:bookshelf" | "core:toy_chest")
+                });
+                if let Some((at, _)) = reached.filter(|_| own)
+                    && entry.t.as_secs() - at > 1_200
+                {
+                    long = Some((at, kind_skill(kind.expect("a kind").as_str())));
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let (at, skill) = long.expect("a long reading or play");
+    let (mut run, home) = Run::family(life_data(None), 7, "test:practice", &FAMILY, 0);
+    run.advance(at + 600);
+    let before = run.world.state().house().raised[&girl].practice;
+    let doing = run.world.state().house().sims[&girl].action.expect("at it");
+    assert_eq!(doing.reached, Some(SimTime::from_secs(at)));
+    let start = run.log.len();
+    run.submit(Input::MoveOut(MoveOut { household: home }));
+    let ended = (run.log[start..].iter())
+        .find(|e| subject(e) == Some(girl) && matches!(e.payload, LogPayload::ActionEnded { .. }))
+        .expect("her action ends");
+    assert!(matches!(
+        ended.payload,
+        LogPayload::ActionEnded {
+            reason: EndReason::Left,
+            ..
+        }
+    ));
+    let t = ended.t.as_secs();
+    let raw = u64::try_from(t - at).expect("after");
+    assert!(raw >= 600);
+    let age = SimTime::from_secs(t).checked_since(run.world.state().born(girl).expect("born"));
+    let age = age.expect("born before");
+    let z_c = (run.world.state())
+        .phenotype(girl, &Axis::Conscientiousness.trait_id(), age)
+        .expect("a trait");
+    let added = effective(raw, skill.window(age), diligence(z_c));
+    let after = run.world.state().house().raised[&girl].practice;
+    let mut want = before;
+    want[skill.index()] += added;
+    assert_eq!(after, want);
+}
+
+fn kind_skill(kind: &str) -> Skill {
+    match kind {
+        "core:bookshelf" => Skill::Reading,
+        _ => Skill::Play,
+    }
 }

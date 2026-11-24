@@ -550,8 +550,9 @@ pub enum Broken {
     SlotUnknown,
     /// A place of two actions, or taken and held at once.
     SlotTaken,
-    /// An action on the way with a second it reached its object, or at it without one, after
-    /// the clock or after a need its offer sets was written down (ADR-0033 section 6).
+    /// An action on the way with a second it reached its object, or at it without one or with
+    /// one other than the second the first need its offer sets was written down (ADR-0033
+    /// section 6).
     Reached,
     /// Away or on the way out with a rate, an action or a duty.
     AwayBusy,
@@ -814,15 +815,16 @@ fn person_consistent(
             return Err(Broken::Filler);
         }
         // It runs from the second it reached its object (ADR-0033 section 6): on the way it has
-        // none, at its object one not after the clock and not after any need its offer sets was
-        // last written down, which its arrival did.
+        // none; at its object the second the first need its offer sets was written down, which
+        // its arrival did and nothing rewrites while it goes on (`action_end` begins there too).
         let written = (NEEDS.into_iter().zip(&person.needs))
-            .filter(|(need, _)| offer.sets(*need))
-            .map(|(_, sample)| sample.at())
-            .min();
+            .find(|(need, _)| offer.sets(*need))
+            .map(|(_, sample)| sample.at());
         let reached = match (person.place, action.reached) {
             (Place::Walking { .. }, None) => true,
-            (Place::Room(_), Some(at)) => at <= now && written.is_none_or(|last| at <= last),
+            (Place::Room(_), Some(at)) => written == Some(at),
+            // Away no action runs at all (`Broken::AwayBusy` below).
+            (Place::Away, _) => true,
             _ => false,
         };
         if !reached {

@@ -468,6 +468,7 @@ fn house_entry(payload: &LogPayload) -> bool {
             | LogPayload::LeftHome { .. }
             | LogPayload::CameHome { .. }
             | LogPayload::Missed { .. }
+            | LogPayload::Practiced { .. }
     )
 }
 
