@@ -177,7 +177,7 @@ pub(crate) fn apply_move_out(
     );
     for sim in members {
         let doing = forget(domain, data, sim, ctx);
-        left(sim, doing, out, ctx);
+        left(domain, data, (sim, household), doing, out, ctx);
     }
     end_house(domain, household, ctx);
 }
@@ -392,9 +392,17 @@ fn forget(
     person.and_then(|person| Some((person.action?, person.needs.map(|need| need.value_at(now)))))
 }
 
-/// What a person who left the house was doing ends, caused by its `core:moved_out` (ADR-0026
-/// section 4, reason `left`).
-fn left(sim: SimId, doing: Option<(Action, [u16; 5])>, out: EventId, ctx: &mut SimCtx<'_, '_>) {
+/// What a person who left the house of `home` was doing ends, caused by its `core:moved_out`
+/// (ADR-0026 section 4, reason `left`); the seconds it read or played there practise (ADR-0033
+/// section 6).
+fn left(
+    domain: &mut DomainState,
+    data: &Data,
+    (sim, home): (SimId, HouseholdId),
+    doing: Option<(Action, [u16; 5])>,
+    out: EventId,
+    ctx: &mut SimCtx<'_, '_>,
+) {
     if let Some((action, needs)) = doing {
         let ended = LogPayload::ActionEnded {
             object: action.object,
@@ -402,11 +410,12 @@ fn left(sim: SimId, doing: Option<(Action, [u16; 5])>, out: EventId, ctx: &mut S
             reason: EndReason::Left,
             needs,
         };
-        ctx.emit(
+        let entry = ctx.emit(
             ended,
             alloc::vec![Subject::Sim(sim)],
             Causes::new(Cause::Event(out)),
         );
+        super::practice::left(domain, data, (sim, home, action), entry, ctx);
     }
 }
 
@@ -439,7 +448,7 @@ pub(crate) fn settle(domain: &mut DomainState, data: &Data, ctx: &mut SimCtx<'_,
                 because(),
             );
             let used = doing.map(|(action, _)| (action.object, action.slot));
-            left(change.sim, doing, out, ctx);
+            left(domain, data, (change.sim, from), doing, out, ctx);
             // The places it used or held go to the next who waits (ADR-0026 section 5).
             for place in used.into_iter().chain(held) {
                 super::action::release(domain, from, place, out, ctx);

@@ -911,6 +911,7 @@ fn begin(
         slot,
         filler,
         commanded,
+        reached: None,
     });
     let handle = ctx.schedule(arrive, EventPayload::Arrive { sim }, entry);
     domain.pending.insert((sim, Slot::Arrive), handle);
@@ -1183,6 +1184,10 @@ pub(crate) fn on_arrive(
     };
     let entry = ctx.emit(reached, vec![Subject::Sim(sim)], Causes::new(ctx.trigger()));
     person.place = Place::Room(to);
+    person.action = Some(Action {
+        reached: Some(now),
+        ..action
+    });
     for (sample, need) in person.needs.iter_mut().zip(NEEDS) {
         if offer.sets(need) {
             *sample = sample.with_rate(now, offer.rate(houses.rates(), need, band));
@@ -1292,8 +1297,12 @@ fn end(
         Place::Away => panic!("invariant house.orphan_event"),
     }
     release(domain, household, (action.object, action.slot), entry, ctx);
-    // Reading or playing to the end by its own choice (ADR-0033 section 5).
+    // The seconds it read or played practise (ADR-0033 section 6), before reading or playing to
+    // the end by its own choice steps `D` (section 5).
     let kind = &house.def().objects[usize::from(action.object)].kind;
+    let ran = (action.reached).map(|reached| now - reached);
+    let practised = (sim, kind, reason, action.commanded, ran);
+    super::practice::finished(domain, data, practised, entry, ctx);
     let ended = (sim, kind, reason, action.commanded);
     super::upbringing::finished(domain, data, ended, entry, ctx);
     entry

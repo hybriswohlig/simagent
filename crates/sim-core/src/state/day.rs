@@ -381,8 +381,9 @@ pub(crate) fn on_return(
     // (ADR-0032 section 4).
     // Coming home is from outside, so it is an entering (ADR-0032 section 4).
     super::feeling::arrived(domain, data, sim, None, entry, ctx);
-    // A child back from school steps its conscientiousness (ADR-0033 section 5), after the
-    // feelings of its return read what they read.
+    // A child back from school practised an hour of reading (ADR-0033 section 6) and steps its
+    // conscientiousness (section 5), after the feelings of its return read what they read.
+    super::practice::came_home(domain, data, (sim, place), entry, ctx);
     super::upbringing::came_home(domain, data, (sim, place), entry, ctx);
     let causes = Causes::new(Cause::Event(entry));
     if emptied.contains(&true) {

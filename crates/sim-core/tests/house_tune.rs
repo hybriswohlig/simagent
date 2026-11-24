@@ -413,6 +413,7 @@ fn a_time_filler_ends_at_its_length_the_departure_bedtime_or_after_four_hours() 
             slot: 0,
             filler: true,
             commanded: false,
+            reached: Some(t(begun)),
         }),
         due: None,
         decisions: sim_core::house::state::Decisions { day: 1, count: 1 },
@@ -742,6 +743,7 @@ fn the_departure_closes_a_toilet_by_its_end_after_the_walk() {
             slot: 0,
             filler: false,
             commanded: false,
+            reached: Some(arrived),
         }),
         due: None,
         decisions: sim_core::house::state::Decisions { day: 1, count: 1 },
@@ -1425,12 +1427,14 @@ fn a_time_filler_at_an_offer_that_is_none_is_refused() {
     );
     let woman = house.sims.get_mut(&sim(1)).expect("her");
     assert_eq!(woman.action.map(|action| action.filler), Some(true));
+    let first = woman.needs.iter().map(|need| need.at()).min();
     woman.action = Some(Action {
         object: LOO,
         offer: 0,
         slot: 0,
         filler: true,
         commanded: false,
+        reached: first,
     });
     woman.place = Place::Room(0);
     let refused = consistent(&house, data.houses(), now, None, alive, member);

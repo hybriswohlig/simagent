@@ -833,7 +833,9 @@ pub(crate) fn run(
             let _ = feeling::feel(domain, data, sim, &own, Cause::Event(talked), ctx);
         }
     }
-    // The upbringing rows of the talk, after the feelings (ADR-0033 section 5).
+    // The children who hear it practise language (ADR-0033 section 6), before the upbringing rows
+    // of the talk, after the feelings (section 5).
+    super::practice::talked(domain, data, ((a, b), home, object), talked, ctx);
     if let Some(row) = social.topics.get(topic) {
         super::upbringing::talked(domain, data, (a, b), (&row.id, actor), talked, ctx);
         let place = ((a, b), home, object);

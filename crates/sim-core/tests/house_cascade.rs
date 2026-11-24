@@ -217,6 +217,13 @@ fn an_idle_choice_does_not_schedule_itself_again() {
     assert!(her.action.is_none());
     let him = run.world.state().house().sims.get(&sim(2)).expect("him");
     assert!(matches!(him.place, Place::Room(_)));
+    // At the table since his arrival there.
+    let reached = (run.log.iter().rev())
+        .find(|e| {
+            e.subjects == [Subject::Sim(sim(2))] && matches!(e.payload, LogPayload::Reached { .. })
+        })
+        .map(|e| e.t);
+    assert!(reached.is_some());
     assert_eq!(
         him.action,
         Some(Action {
@@ -225,6 +232,7 @@ fn an_idle_choice_does_not_schedule_itself_again() {
             slot: 0,
             filler: false,
             commanded: true,
+            reached,
         })
     );
 
