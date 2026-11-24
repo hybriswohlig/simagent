@@ -7,12 +7,12 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sim_core::data_id::DataId;
-use sim_core::house::data::{HouseData, Need};
+use sim_core::house::data::{HouseData, NEEDS, Need};
 use sim_core::house::need::NeedSample;
 use sim_core::house::reserve::Reserve;
 use sim_core::house::state::{
     Action, Broken, Decisions, Due, Duty, HouseState, InHouse, MovedIn, Place, children_consistent,
-    consistent, crossings,
+    consistent as house_consistent, crossings,
 };
 use sim_core::ids::{HouseholdId, SimId};
 use sim_core::time::{SimTime, YEAR, day_index};
@@ -34,6 +34,59 @@ fn household(id: u64) -> HouseholdId {
 
 fn houses() -> HouseData {
     common::repository_houses()
+}
+
+/// An action as a run keeps it (ADR-0033 section 6): at its object reached at the second the
+/// first need its offer sets was written down, on the way not yet. `house` the house it is in.
+fn arrived(person: &mut InHouse, house: &DataId) {
+    let data = houses();
+    let Some(def) = data.house(house).map(|house| house.def()) else {
+        return;
+    };
+    let needs = person.needs;
+    if let Some(action) = person.action.as_mut() {
+        let offer = (def.objects.get(usize::from(action.object)))
+            .and_then(|object| data.kind(&object.kind))
+            .and_then(|kind| kind.offers.get(usize::from(action.offer)));
+        let first = offer.and_then(|offer| {
+            (NEEDS.into_iter().zip(needs))
+                .find(|(need, _)| offer.sets(*need))
+                .map(|(_, sample)| sample.at())
+        });
+        action.reached = match person.place {
+            Place::Room(_) => first,
+            _ => None,
+        };
+    }
+}
+
+/// Each action of `state` as a run keeps it ([`arrived`]), in the house of its household by
+/// [`member`].
+fn arrive_all(state: &mut HouseState) {
+    let houses: BTreeMap<HouseholdId, DataId> = (state.households.iter())
+        .map(|(id, moved)| (*id, moved.house.clone()))
+        .collect();
+    for (sim, person) in &mut state.sims {
+        let home = member(*sim).and_then(|(household, _)| houses.get(&household));
+        if let Some(house) = home {
+            arrived(person, house);
+        }
+    }
+}
+
+/// The loader's check of `house` with each action's arrival second set by [`arrived`];
+/// `a_running_action_keeps_the_second_it_reached_its_object` checks that second itself.
+fn consistent(
+    house: &HouseState,
+    data: Option<&HouseData>,
+    now: SimTime,
+    choices: Option<&BTreeSet<SimId>>,
+    alive: impl Fn(HouseholdId) -> bool,
+    member: impl Fn(SimId) -> Option<(HouseholdId, SimTime)>,
+) -> Result<(), Broken> {
+    let mut house = house.clone();
+    arrive_all(&mut house);
+    house_consistent(&house, data, now, choices, alive, member)
 }
 
 /// Sims 1, 2 and 6 (adults), 3 (8 years) and 5 (5 years) in household 1, sim 4 (an adult) in
@@ -102,6 +155,7 @@ fn legal() -> HouseState {
         slot: 0,
         filler: false,
         commanded: false,
+        reached: None,
     };
     let fridge = Action {
         object: 1,
@@ -109,6 +163,7 @@ fn legal() -> HouseState {
         slot: 0,
         filler: false,
         commanded: false,
+        reached: None,
     };
     let walk = Place::Walking {
         from: 2,
@@ -402,6 +457,7 @@ fn places_and_actions_are_checked() {
                 slot,
                 filler: false,
                 commanded: false,
+                reached: None,
             });
             one.needs[4] = fun_since(if object == 3 { 400 } else { 300 });
             s.waits.clear();
@@ -502,6 +558,7 @@ fn walks_and_rates_are_checked() {
             slot: 0,
             filler: false,
             commanded: false,
+            reached: None,
         });
         let rates = [-40, 85, -40, -10, 0];
         for (at, need) in one.needs.iter_mut().enumerate() {
@@ -531,6 +588,7 @@ fn walks_and_rates_are_checked() {
             slot: 0,
             filler: false,
             commanded: false,
+            reached: None,
         });
         drained_by(&mut state, depart + 3);
         consistent(&state, Some(&houses()), t(depart + 3), None, alive, member)
@@ -564,6 +622,7 @@ fn away_due_and_decisions_are_checked() {
             slot: 0,
             filler: false,
             commanded: false,
+            reached: None,
         });
     });
     assert_eq!(busy, Err(Broken::AwayBusy));
@@ -707,6 +766,7 @@ fn one_lying_is_checked() {
             slot: 1,
             filler: false,
             commanded: false,
+            reached: None,
         });
     });
     assert_eq!(busy, Err(Broken::Collapse));
@@ -757,6 +817,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 slot: 0,
                 filler: false,
                 commanded: false,
+                reached: None,
             });
             one.needs[3] = NeedSample::new(140, t(NOW - 600), -30);
             // Hunger 100 now: her hunger at 0 now would drain the reserve from a change of rates
@@ -807,6 +868,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 slot: 0,
                 filler: false,
                 commanded: false,
+                reached: None,
             });
             one.needs[3] = NeedSample::new(100, t(NOW - 300), 2_800);
             one.needs[0] = NeedSample::new(700, t(NOW - 6 * 3_600), -100);
@@ -1097,6 +1159,7 @@ fn a_bed_a_young_child_holds_is_checked() {
         slot: 0,
         filler: false,
         commanded: false,
+        reached: None,
     });
     let houses = houses();
     let check = |now: i64, young: usize| {
@@ -1248,6 +1311,7 @@ fn the_reserve_is_written_when_a_run_writes_it() {
                 slot: 0,
                 filler: false,
                 commanded: false,
+                reached: None,
             });
             two.needs = needs();
             two.needs[0] = NeedSample::new(300, t(NOW - 60), 1_800);
@@ -1528,6 +1592,7 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
                 slot: 0,
                 filler: true,
                 commanded: false,
+                reached: None,
             }),
             due: None,
             decisions: Decisions {
@@ -1729,4 +1794,31 @@ fn the_house_part_ends_with_the_memories() {
         serde_json::from_value::<HouseState>(value).expect("back"),
         remembering
     );
+}
+
+/// A running action keeps the second it reached its object (ADR-0033 section 6). Sim 2 watches
+/// television since its fun (the only need the offer sets) was written down at 11:50: reached
+/// then, it loads; reached a second earlier or later, at 6:00 (when its other needs were written
+/// down), or without a second, it is refused. Sim 3 on its way to the fridge has reached nothing;
+/// a second there is refused.
+#[test]
+fn a_running_action_keeps_the_second_it_reached_its_object() {
+    // Only this action's second is set; the others as a run keeps them.
+    let with = |id: u64, reached: Option<i64>| {
+        let mut state = legal();
+        arrive_all(&mut state);
+        let person = in_house(&mut state, id);
+        person.action = person.action.map(|action| Action {
+            reached: reached.map(t),
+            ..action
+        });
+        house_consistent(&state, Some(&houses()), t(NOW), None, alive, member)
+    };
+    assert_eq!(with(2, Some(NOW - 600)), Ok(()));
+    assert_eq!(with(2, Some(NOW - 601)), Err(Broken::Reached));
+    assert_eq!(with(2, Some(NOW - 6 * 3_600)), Err(Broken::Reached));
+    assert_eq!(with(2, Some(NOW - 599)), Err(Broken::Reached));
+    assert_eq!(with(2, None), Err(Broken::Reached));
+    assert_eq!(with(3, None), Ok(()));
+    assert_eq!(with(3, Some(NOW - 3)), Err(Broken::Reached));
 }

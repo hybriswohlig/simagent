@@ -530,17 +530,17 @@ fn a_save_in_the_middle_of_the_week_runs_on_and_the_loader_checks_it() {
     child.extend(&bytes[at + from.len()..]);
     assert_eq!(load(&child), inconsistent);
     // A save of the previous projection, and of the previous core, is refused.
-    assert_eq!(PROJECTION_VERSION, 26);
-    assert_eq!(CORE_VERSION, 76);
+    assert_eq!(PROJECTION_VERSION, 27);
+    assert_eq!(CORE_VERSION, 77);
     let rest = bytes.strip_prefix(b"SIMAGENT").expect("magic");
     let (_, rest) = postcard::take_from_bytes::<u32>(rest).expect("format");
     let (_, rest) =
         postcard::take_from_bytes::<u64>(postcard::take_from_bytes::<u32>(rest).expect("core").1)
             .expect("hash");
     let proj_at = bytes.len() - rest.len();
-    assert_eq!(bytes[proj_at], 26);
+    assert_eq!(bytes[proj_at], 27);
     let mut old = bytes.clone();
-    old[proj_at] = 25;
+    old[proj_at] = 26;
     assert_eq!(load(&old), Some(LoadError::ForeignProjectionVersion));
     assert!(load(&bytes).is_none());
 }

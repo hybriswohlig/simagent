@@ -239,17 +239,23 @@ fn a_child_moving_in_is_raised_from_that_second() {
     assert!(before.is_some());
 }
 
-/// A later move out and in again changes nothing: the first second stays.
+/// A later move out and in again changes nothing: the first second stays. (What the girls
+/// practised in the three days in the house stays too, ADR-0033 section 6.)
 #[test]
 fn a_later_move_keeps_the_first_second() {
     let (mut run, home) = Run::family(life_data(), 7, "test:raised", &FAMILY, 0);
     let first = moved_in_at(&run);
     run.advance(3 * DAY.as_secs());
     run.submit(Input::MoveOut(MoveOut { household: home }));
+    let practised = run.world.state().house().raised[&sim(3)].practice;
     run.advance(5 * DAY.as_secs());
     run.submit(Input::MoveIn(MoveIn { household: home }));
     let raised = &run.world.state().house().raised;
-    assert_eq!(raised.get(&sim(3)), Some(&Raised::new(first)));
+    let want = Raised {
+        practice: practised,
+        ..Raised::new(first)
+    };
+    assert_eq!(raised.get(&sim(3)), Some(&want));
     assert_eq!(raised.len(), 2);
 }
 
