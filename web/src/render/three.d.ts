@@ -10,8 +10,11 @@ declare module "three" {
     copy(v: Vector3): this;
     add(v: Vector3): this;
     sub(v: Vector3): this;
+    clone(): Vector3;
+    multiplyScalar(scalar: number): this;
     normalize(): this;
     lengthSq(): number;
+    length(): number;
     applyMatrix4(m: Matrix4): this;
     applyQuaternion(q: Quaternion): this;
     transformDirection(m: Matrix4): this;
@@ -19,13 +22,19 @@ declare module "three" {
   }
 
   export class Quaternion {
+    constructor();
     copy(q: Quaternion): this;
+    multiply(q: Quaternion): this;
+    premultiply(q: Quaternion): this;
     invert(): this;
     setFromAxisAngle(axis: Vector3, angle: number): this;
   }
 
   export class Matrix4 {
     copy(m: Matrix4): this;
+    clone(): Matrix4;
+    invert(): this;
+    multiply(m: Matrix4): this;
     multiplyMatrices(a: Matrix4, b: Matrix4): this;
   }
 
@@ -127,6 +136,7 @@ declare module "three" {
     updateMatrixWorld(force?: boolean): void;
     add(...objects: Object3D[]): this;
     getWorldPosition(target: Vector3): Vector3;
+    worldToLocal(vector: Vector3): Vector3;
     getWorldQuaternion(target: Quaternion): Quaternion;
     rotateZ(angle: number): this;
   }

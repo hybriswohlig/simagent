@@ -33,6 +33,7 @@ import {
   NoColorSpace,
   Object3D,
   PerspectiveCamera,
+  Quaternion,
   Scene,
   Skeleton,
   SkinnedMesh,
@@ -76,11 +77,27 @@ export const FIGURE_HEIGHT = 420;
 
 const SKIN_MEAN = new Vector3(0.616986, 0.356523, 0.236129);
 const CLEAR = 0xe7e2da;
+/** How far a hanging arm and a standing leg lean outward, as sideways per unit down. */
+const ARM_OUT = 0.08;
+/** A child's arms hang a little further out, clear of the rounder belly. */
+const CHILD_ARM_OUT = 0.05;
+const LEG_OUT = 0.03;
+/** The seated pose: the thighs' turn forward, their turn apart and the knees' bend, in radians. */
+const SIT_THIGH = 1.45;
+const SIT_SPREAD = 0.12;
+const SIT_KNEE = 0.35;
+const SIT_ARM = 0.7;
+/** How far the seat lies below the hip joints, as a share of the thigh's length. */
+const SIT_SEAT = 0.55;
+/** The baby shape rests with the thighs splayed; its knees are brought in by this much more. */
+const BABY_KNEE_IN = 0.2;
 /** How far the eyeballs sit in front of their fitted place, in metres of the mesh. */
 const EYE_FORWARD = 0.002;
 const GROUND_SHIFT = 0.81676;
 
 const MEASURE_KEYS = new Set([
+  "age_male_baby",
+  "age_female_baby",
   "age_male_child",
   "age_male_young",
   "age_male_old",
@@ -172,6 +189,7 @@ type NormalGroups = { groupOf: Int32Array; count: number };
 type Assets = {
   template: Group;
   groups: NormalGroups;
+  rings: Int32Array[];
   restIndex: Int32Array;
   pack: Pack;
   skin: FigureImage;
@@ -426,10 +444,87 @@ async function loadAssetsOnce(): Promise<Assets> {
   return {
     template,
     groups: buildNormalGroups(mesh.geometry),
+    rings: jointRings(mesh),
     restIndex: buildRestIndex(pack.bodyRest, mesh.geometry),
     pack,
     skin,
   };
+}
+
+/** A vertex belongs to a joint when the bone and its parent each hold this much of it. */
+const RING_WEIGHT = 0.15;
+
+/**
+ * For each bone of the skeleton, the body vertices around its joint with the parent bone:
+ * those both bones pull on. A bone without a parent bone, or without such vertices, has none.
+ */
+function jointRings(mesh: SkinnedMesh): Int32Array[] {
+  const bones = mesh.skeleton.bones;
+  const index = mesh.geometry.getAttribute("skinIndex") ?? fail("body has no skin indices");
+  const weight = mesh.geometry.getAttribute("skinWeight") ?? fail("body has no skin weights");
+  const parentOf = bones.map((bone) => bones.findIndex((other) => other === bone.parent));
+  const rings: number[][] = bones.map(() => []);
+  for (let vertex = 0; vertex < index.count; vertex += 1) {
+    const o = vertex * 4;
+    for (let a = 0; a < 4; a += 1) {
+      const bone = num(index.array, o + a);
+      const parent = parentOf[bone] ?? -1;
+      if (parent < 0 || num(weight.array, o + a) < RING_WEIGHT) continue;
+      let held = 0;
+      for (let b = 0; b < 4; b += 1) {
+        if (num(index.array, o + b) === parent) held += num(weight.array, o + b);
+      }
+      if (held >= RING_WEIGHT) rings[bone]?.push(vertex);
+    }
+  }
+  return rings.map((ring) => Int32Array.from(ring));
+}
+
+/**
+ * Moves each joint with the skin around it. The skeleton comes with the joints of the
+ * unshaped body, and a shape key moves only the skin, so on a child or a heavy body a
+ * limb would turn about a point that is no longer its joint. A joint moves by as much as
+ * the middle of its ring of vertices moved; a bone without a ring moves with its parent.
+ * The bones' inverses follow, so the body at rest is drawn exactly as before.
+ */
+function fitJoints(root: Object3D, mesh: SkinnedMesh, cloud: { xyz: Float32Array }, rings: readonly Int32Array[]): void {
+  root.updateWorldMatrix(true, true);
+  const skeleton = mesh.skeleton;
+  const bones = skeleton.bones;
+  const rest = mesh.geometry.getAttribute("position") ?? fail("body has no positions");
+  const bound = bones.map((bone, i) => bone.matrixWorld.clone().multiply(skeleton.boneInverses[i] ?? fail("a bone has no inverse")));
+  const places = bones.map((bone) => bone.getWorldPosition(new Vector3()));
+  const shifts: Vector3[] = [];
+  for (let i = 0; i < bones.length; i += 1) {
+    const ring = rings[i];
+    const parent = bones.findIndex((other) => other === bones[i]?.parent);
+    if (ring === undefined || ring.length < 3) {
+      shifts.push((shifts[parent] ?? new Vector3(0, 0, 0)).clone());
+      continue;
+    }
+    const before = new Vector3(0, 0, 0);
+    const after = new Vector3(0, 0, 0);
+    for (let k = 0; k < ring.length; k += 1) {
+      const vertex = num(ring, k);
+      before.add(new Vector3(rest.getX(vertex), rest.getY(vertex), rest.getZ(vertex)));
+      after.add(new Vector3(num(cloud.xyz, vertex * 3), num(cloud.xyz, vertex * 3 + 1), num(cloud.xyz, vertex * 3 + 2)));
+    }
+    const toWorld = (bound[i] ?? fail("a bone is missing")).clone().multiply(mesh.bindMatrix);
+    before.multiplyScalar(1 / ring.length).applyMatrix4(toWorld);
+    after.multiplyScalar(1 / ring.length).applyMatrix4(toWorld);
+    shifts.push(after.sub(before));
+  }
+  // The skeleton lists a parent before its children, so each parent is in place first.
+  for (let i = 0; i < bones.length; i += 1) {
+    const bone = bones[i];
+    const place = places[i];
+    const shift = shifts[i];
+    if (bone === undefined || place === undefined || shift === undefined || bone.parent === null) continue;
+    bone.parent.updateWorldMatrix(true, false);
+    bone.position.copy(bone.parent.worldToLocal(place.add(shift)));
+  }
+  root.updateWorldMatrix(true, true);
+  skeleton.boneInverses = bones.map((bone, i) => bone.matrixWorld.clone().invert().multiply(bound[i] ?? fail("a bone is missing")));
 }
 
 function takeOwnership(mesh: SkinnedMesh, owned: Owned): void {
@@ -1360,30 +1455,96 @@ function deleteSet(pieces: (Proxy | null)[]): Set<number> {
   return set;
 }
 
-function hangArms(root: Object3D, child: number): void {
-  const origin = new Vector3();
-  const tip = new Vector3();
-  const target = new Vector3();
-  const out = 0.14 + 0.32 * Math.min(Math.max(child, 0), 1);
+const FRONT = new Vector3(0, 0, 1);
+
+/**
+ * Turns `bone` about the axis toward the viewer until the line from it to `tip`, seen
+ * from the front, points along (`outX`, -1). Returns the angle it turned by.
+ */
+function swing(bone: Bone, tip: Bone, outX: number): number {
+  const origin = bone.getWorldPosition(new Vector3());
+  const line = tip.getWorldPosition(new Vector3()).sub(origin);
+  line.z = 0;
+  if (line.lengthSq() < 1e-8) return 0;
+  line.normalize();
+  const target = new Vector3(outX, -1, 0).normalize();
+  const angle = Math.atan2(line.x * target.y - line.y * target.x, line.x * target.x + line.y * target.y);
+  turnFront(bone, angle);
+  return angle;
+}
+
+/** Turns `bone` by `angle` about the axis toward the viewer, whatever its own axes are. */
+function turnFront(bone: Bone, angle: number): void {
+  turnAbout(bone, FRONT, angle);
+}
+
+/** Turns `bone` by `angle` about `axis` of the scene, whatever its own axes are. */
+function turnAbout(bone: Bone, axis: Vector3, angle: number): void {
+  const parent = bone.parent;
+  if (parent === null) return;
+  const world = bone.getWorldQuaternion(new Quaternion()).premultiply(new Quaternion().setFromAxisAngle(axis, angle));
+  bone.quaternion.copy(parent.getWorldQuaternion(new Quaternion()).invert().multiply(world));
+  bone.updateWorldMatrix(true, true);
+}
+
+/**
+ * The relaxed stance: the arms hang beside the body with a slight bend at the elbow, and
+ * the feet stand under the hips. The mesh rests with arms and legs spread.
+ */
+function relax(root: Object3D, child: number, baby: number): void {
+  const armOut = ARM_OUT + CHILD_ARM_OUT * Math.min(Math.max(child, 0), 1);
   root.updateWorldMatrix(true, true);
   for (const side of ["l", "r"]) {
     const sign = side === "l" ? 1 : -1;
     const upper = findBone(root, `upperarm_${side}`);
     const lower = findBone(root, `lowerarm_${side}`);
-    const hand = findBone(root, `hand_${side}`);
-    if (upper === null || lower === null || hand === null) continue;
-    upper.getWorldPosition(origin);
-    lower.getWorldPosition(tip);
-    tip.sub(origin);
-    tip.z = 0;
-    if (tip.lengthSq() < 1e-8) continue;
-    tip.normalize();
-    target.set(sign * out, -1, 0).normalize();
-    const angle = Math.atan2(tip.x * target.y - tip.y * target.x, tip.x * target.x + tip.y * target.y);
-    upper.rotateZ(angle);
-    lower.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), 0.22);
-    upper.updateWorldMatrix(true, true);
+    if (upper !== null && lower !== null) {
+      swing(upper, lower, sign * armOut);
+      lower.quaternion.setFromAxisAngle(new Vector3(1, 0, 0), 0.22);
+      upper.updateWorldMatrix(true, true);
+    }
+    const thigh = findBone(root, `thigh_${side}`);
+    const calf = findBone(root, `calf_${side}`);
+    const foot = findBone(root, `foot_${side}`);
+    if (thigh !== null && calf !== null && foot !== null) {
+      // Thigh and lower leg are straightened each (a small child's legs rest bowed), and
+      // the foot turns back by both angles, so the sole stays flat on the ground.
+      const upperTurn = swing(thigh, calf, sign * (LEG_OUT - BABY_KNEE_IN * baby));
+      const lowerTurn = swing(calf, foot, sign * LEG_OUT);
+      turnFront(foot, -upperTurn - lowerTurn);
+    }
   }
+}
+
+const SIDE = new Vector3(1, 0, 0);
+const UP = new Vector3(0, 1, 0);
+
+/**
+ * Seats a relaxed figure on the ground: the thighs point forward and a little apart,
+ * the knees bend so the feet rest, and the whole figure comes down until its seat is on
+ * the ground. `wrapper` is the figure's outer group.
+ */
+function sit(wrapper: Object3D): void {
+  let hip = 0;
+  let sides = 0;
+  for (const side of ["l", "r"]) {
+    const sign = side === "l" ? 1 : -1;
+    const thigh = findBone(wrapper, `thigh_${side}`);
+    const calf = findBone(wrapper, `calf_${side}`);
+    const upper = findBone(wrapper, `upperarm_${side}`);
+    // The arms come forward, so the hands rest on the thighs and not below the ground.
+    if (upper !== null) turnAbout(upper, SIDE, -SIT_ARM);
+    if (thigh === null || calf === null) continue;
+    turnAbout(thigh, SIDE, -SIT_THIGH);
+    turnAbout(thigh, UP, sign * SIT_SPREAD);
+    turnAbout(calf, SIDE, SIT_KNEE);
+    const place = thigh.getWorldPosition(new Vector3());
+    const knee = calf.getWorldPosition(new Vector3());
+    hip += place.y - SIT_SEAT * place.sub(knee).length();
+    sides += 1;
+  }
+  if (sides > 0) wrapper.position.y -= hip / sides;
+  wrapper.updateWorldMatrix(true, true);
 }
 
 /** Every card frames the same height, so a child stands smaller than its parents. */
@@ -1470,6 +1631,8 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
   const weights = morphWeights(body, sex);
   applyWeights(mesh, weights);
   smoothSkinNormals(mesh, assets.groups);
+  const cloud = morphedCloud(mesh, weights);
+  fitJoints(root, mesh, cloud, assets.rings);
   const measured = morphedYSpan(mesh, weights);
   const standingCm = measured.span * 100;
   const scale = standingCm > 1 ? body.height_cm / standingCm : 1;
@@ -1480,7 +1643,6 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
   const wrapper = new Group();
   wrapper.add(root);
   wrapper.position.y = -pivot * (1 - scale);
-  const cloud = morphedCloud(mesh, weights);
   const marks = landmarks(cloud);
   const skin = skinColor(body);
   const hair = hairColor(body);
@@ -1588,7 +1750,10 @@ function mountMembers(
         const wrapper = buildFigure(assets, member.body, member.sex, member.simId, keyDir, anisotropy, owned);
         wrapper.position.x = xs[i] ?? 0;
         scene.add(wrapper);
-        hangArms(wrapper, ageSlices(member.body.body_form_age)[0]);
+        const [baby, child] = ageSlices(member.body.body_form_age);
+        relax(wrapper, baby + child, baby);
+        // A baby does not stand yet.
+        if (baby === 1) sit(wrapper);
         standing.push(wrapper);
       }
       frame(camera);
