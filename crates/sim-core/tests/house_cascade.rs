@@ -224,6 +224,7 @@ fn an_idle_choice_does_not_schedule_itself_again() {
             offer: 0,
             slot: 0,
             filler: false,
+            commanded: true,
         })
     );
 

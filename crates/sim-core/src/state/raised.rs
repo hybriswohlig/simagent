@@ -6,7 +6,7 @@
 use crate::canonical::LoadedState;
 use crate::development::{Lived, RAISED_UNTIL, Raised};
 use crate::ids::SimId;
-use crate::time::SimTime;
+use crate::time::{DAY, SimTime};
 
 use super::DomainState;
 
@@ -42,8 +42,8 @@ impl DomainState {
 }
 
 /// The loader's check: each person raised is living or archived, was raised at an age of 0
-/// to under 18 and not after the second `now` the clock opens next, and each `D` lies within
-/// its bound. `now` stays a number of seconds: at the end of time it lies past the range.
+/// to under 18 and not after the second `now` the clock opens next, each `D` lies within its
+/// bound, and no need was counted on a day after that of `now`. `now` stays a number of seconds: at the end of time it lies past the range.
 ///
 /// And the converse: each living person under 18 at `now` whose household lives in a house has
 /// been raised, for it was under 18 when it first belonged there.
@@ -51,7 +51,9 @@ pub(crate) fn consistent(loaded: &LoadedState, now: i64) -> bool {
     let fitting = loaded.house.raised.iter().all(|(sim, raised)| {
         let born = (loaded.sims.get(sim).map(|person| person.born))
             .or_else(|| loaded.archive.get(sim).map(|person| person.born));
-        born.is_some_and(|born| raised.fits(born)) && raised.since.as_secs() <= now
+        let today = now.div_euclid(DAY.as_secs());
+        let counted = (raised.counted.iter().flatten()).all(|day| *day <= today);
+        born.is_some_and(|born| raised.fits(born)) && raised.since.as_secs() <= now && counted
     });
     let complete = loaded.sims.iter().all(|(sim, person)| {
         let young = now.saturating_sub(person.born.as_secs()) < RAISED_UNTIL.as_secs();

@@ -81,13 +81,15 @@ pub enum Place {
 /// The offer a person chose, on the way or doing it; it holds the place `slot` of the
 /// object (ADR-0026 sections 4 and 5). A time-filler, `filler`, ends at the person's next
 /// choice (ADR-0026, addendum of 2026-11-04 on comfort and the time-filler), at the latest after
-/// its length (its addendum of 2026-11-05 on the time-filler's length).
+/// its length (its addendum of 2026-11-05 on the time-filler's length). `commanded` if a command
+/// chose it: its end by its own choice is not one (ADR-0033 sections 5 and 9).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Action {
     pub object: u16,
     pub offer: u16,
     pub slot: u8,
     pub filler: bool,
+    pub commanded: bool,
 }
 
 /// A departure that waits for the end of an action for a critical need (ADR-0024 section
@@ -117,7 +119,8 @@ pub struct Decisions {
 
 /// The house part of the domain state, each map in the projection after `pool_used`, then the
 /// social part (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6, projection 24), then
-/// who was raised in a house (ADR-0033 sections 3 and 4, projection 25): in a run without
+/// who was raised in a house (ADR-0033 sections 3 to 5, projection 25; its days of a need at 0
+/// and a running action's `commanded`, projection 26): in a run without
 /// `MoveIn` it is ten zero lengths. The talk's day counters and last-talk seconds live in
 /// `InHouse` and `MovedIn`, and an open Talk lives in the queue.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -338,6 +341,7 @@ pub fn filler_end_if(
         offer,
         slot,
         filler: true,
+        commanded: false,
     });
     for (sample, need) in there.needs.iter_mut().zip(NEEDS) {
         if offered.sets(need) {
@@ -797,6 +801,10 @@ fn person_consistent(
         // Only an offer the data name a time-filler is one (ADR-0026, addendum of 2026-11-04 on
         // comfort and the time-filler).
         if action.filler && !offer.fallback {
+            return Err(Broken::Filler);
+        }
+        // A command never chooses a time-filler (ADR-0033 section 9: `commanded`).
+        if action.filler && action.commanded {
             return Err(Broken::Filler);
         }
     }

@@ -574,6 +574,7 @@ fn partners_in_the_evening_sit_together() {
             offer: 0,
             slot: 0,
             filler: false,
+            commanded: true,
         })
     );
     assert!(

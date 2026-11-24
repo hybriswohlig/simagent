@@ -836,6 +836,8 @@ pub(crate) fn run(
     // The upbringing rows of the talk, after the feelings (ADR-0033 section 5).
     if let Some(row) = social.topics.get(topic) {
         super::upbringing::talked(domain, data, (a, b), (&row.id, actor), talked, ctx);
+        let place = ((a, b), home, object);
+        super::upbringing::overheard(domain, data, place, (&row.id, actor), talked, ctx);
     }
     add_entries(domain, a, day, entries_a);
     add_entries(domain, b, day, entries_b);

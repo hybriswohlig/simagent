@@ -293,6 +293,7 @@ fn the_first_morning_gives_the_needs() {
             offer: 0,
             slot: 0,
             filler: false,
+            commanded: false,
         }),
         due: None,
         decisions: Decisions {

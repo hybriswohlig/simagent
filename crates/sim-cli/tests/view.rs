@@ -2185,7 +2185,7 @@ fn settings_file(values: &str) -> String {
 
 /// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
 /// `the_base_game_loads`).
-const BASE_HASH: &str = "85f0658efcccac10";
+const BASE_HASH: &str = "f5c60bfeb2f1cceb";
 
 /// The data hash in the manifest of the run in `dir`.
 fn data_hash(dir: &Path) -> String {
@@ -4870,7 +4870,7 @@ fn the_house_answer_names_the_feelings_at_its_second() {
             .position(|window| window == projection)
             .expect("the projection");
         // The feelings map is empty and the raised ones come after it: a run without a move-in
-        // (projection 25) ends with two zero lengths.
+        // (projection 26) ends with two zero lengths.
         assert_eq!(
             projection[projection.len() - 2..],
             [0, 0],

@@ -9,7 +9,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
-use crate::time::{SimDuration, SimTime, YEAR};
+use crate::time::{SimDuration, SimTime, YEAR, day_index};
 
 /// The five temperament axes in the order of ADR-0033 section 5: openness,
 /// conscientiousness, extraversion, agreeableness, neuroticism. `D` and the development
@@ -100,7 +100,10 @@ pub fn age_factor(step: i32, age: SimDuration) -> i32 {
 
 /// An occasion of the upbringing table (ADR-0033 section 5), a code in the data and the log:
 /// a parent praises the child; a parent or an older sibling teases it or apologizes to it; it
-/// came home from school; it took part in a talk from 6.
+/// came home from school; it took part in a talk from 6; it read or played to the end by its own
+/// choice; a need of it reached 0 with a parent at home, once per need and day; under 6 it
+/// overheard a parent praise, tease or apologize to another adult in its room (the log's code
+/// only: it takes half of the topic's rows and has none of its own).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Upbringing {
@@ -109,6 +112,9 @@ pub enum Upbringing {
     Apology,
     School,
     Talk,
+    Done,
+    NeedEmpty,
+    Overheard,
 }
 
 /// A row of the table: an occasion and its step per axis, −1000 to 1000, an absent axis 0.
@@ -199,13 +205,41 @@ impl UpbringingTable {
     }
 }
 
+impl UpbringingTable {
+    /// The changes to `experience` of a child under 6 who overheard `topic` (ADR-0033 section
+    /// 5): per axis in order, the rows of `topic` in table order, each step halved toward 0
+    /// with age factor 1 and saturated; a step that changes nothing is left out.
+    pub fn overheard_steps(&self, topic: Upbringing, experience: &mut [i32; 5]) -> Vec<Stepped> {
+        let mut out = Vec::new();
+        for axis in Axis::ALL {
+            for row in (self.rows.iter()).filter(|row| row.occasion == topic) {
+                let step = i32::from(row.step(axis)) / 2;
+                let before = experience[axis.index()];
+                let after = saturate(before, step);
+                if after != before {
+                    experience[axis.index()] = after;
+                    out.push(Stepped {
+                        axis,
+                        before,
+                        after,
+                        step,
+                        by: 0,
+                    });
+                }
+            }
+        }
+        out
+    }
+}
+
 /// The most rows a table may have.
 pub const UPBRINGING_ROWS: usize = 32;
 
 /// The bound of a step in the table.
 pub const UPBRINGING_STEP: i16 = 1000;
 
-/// A table the core refuses: more than 32 rows, or a step outside −1000 to 1000.
+/// A table the core refuses: more than 32 rows, a step outside −1000 to 1000, or a row for
+/// overhearing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UpbringingError;
 
@@ -219,7 +253,10 @@ impl UpbringingTable {
     /// The table if it keeps its bounds.
     pub fn checked(self) -> Result<UpbringingTable, UpbringingError> {
         let bound = -UPBRINGING_STEP..=UPBRINGING_STEP;
-        let fits = |row: &UpbringingRow| Axis::ALL.iter().all(|a| bound.contains(&row.step(*a)));
+        let fits = |row: &UpbringingRow| {
+            row.occasion != Upbringing::Overheard
+                && Axis::ALL.iter().all(|a| bound.contains(&row.step(*a)))
+        };
         if self.rows.len() <= UPBRINGING_ROWS && self.rows.iter().all(fits) {
             Ok(self)
         } else {
@@ -232,31 +269,37 @@ impl UpbringingTable {
 pub const RAISED_UNTIL: SimDuration = SimDuration::from_secs(18 * YEAR.as_secs());
 
 /// What a person has of growing up in a house (ADR-0033 sections 3 and 4): the first second
-/// in which it belonged, under 18, to a household living in a house, and `D` per axis in
-/// thousandths. Set once and kept, also after a later move or death.
+/// in which it belonged, under 18, to a household living in a house, `D` per axis in
+/// thousandths, and per need (in the order of the needs) the calendar day a need at 0 last
+/// counted (section 5). Set once and kept, also after a later move or death.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Raised {
     pub since: SimTime,
     pub experience: [i32; 5],
+    pub counted: [Option<i64>; 5],
 }
 
 impl Raised {
-    /// Raised from `since` on, with nothing lived yet (`D = 0`).
+    /// Raised from `since` on, with nothing lived yet (`D = 0`) and no need counted.
     pub const fn new(since: SimTime) -> Raised {
         Raised {
             since,
             experience: [0; 5],
+            counted: [None; 5],
         }
     }
 
-    /// Whether it fits a person born at `born`: raised at an age of 0 to under 18, and each
-    /// `D` within its bound. That it lies before the clock the loader checks.
+    /// Whether it fits a person born at `born`: raised at an age of 0 to under 18, each `D`
+    /// within its bound, and no need counted on a day before it was raised. That it lies before
+    /// the clock the loader checks.
     pub fn fits(&self, born: SimTime) -> bool {
         let age = self.since.checked_since(born);
         let young = age.is_some_and(|age| age.as_secs() >= 0 && age < RAISED_UNTIL);
         let bounded =
             (self.experience.iter()).all(|d| (-EXPERIENCE_BOUND..=EXPERIENCE_BOUND).contains(d));
-        young && bounded
+        let first = day_index(self.since);
+        let counted = (self.counted.iter().flatten()).all(|day| *day >= first);
+        young && bounded && counted
     }
 }
 
