@@ -3,7 +3,10 @@
     { "occasion": "praise", "neuroticism": -40, "agreeableness": 20 },
     { "occasion": "tease", "neuroticism": 40, "agreeableness": -20 },
     { "occasion": "apology", "neuroticism": -20, "agreeableness": 20 },
+    { "occasion": "done", "conscientiousness": 10 },
     { "occasion": "school", "conscientiousness": 10 },
-    { "occasion": "talk", "extraversion": 10 }
+    { "occasion": "talk", "extraversion": 10 },
+    { "occasion": "done", "openness": 10 },
+    { "occasion": "need_empty", "neuroticism": 10 }
   ]
 }

@@ -6,6 +6,7 @@
 //! is refused while it lasts (`state::command`).
 
 use alloc::vec;
+use alloc::vec::Vec;
 
 use super::action::{self, home, person_mut};
 use super::house::plan_crossings;
@@ -76,6 +77,8 @@ pub(super) fn settle(
     let mut last_empty = None;
     // A need written down after the crossings were planned last.
     let mut written = false;
+    // Each need at 0 with its entry, for the upbringing row (ADR-0033 section 5).
+    let mut emptied = Vec::new();
     for (at, need) in NEEDS.into_iter().enumerate() {
         if !reached[at] {
             continue;
@@ -87,6 +90,7 @@ pub(super) fn settle(
         let entry = ctx.emit(empty, vec![Subject::Sim(sim)], causes.clone());
         last = Some(entry);
         last_empty = Some(entry);
+        emptied.push((need, entry));
         match need {
             // Hunger at 0 starts the reserve's drain: a change of rates (ADR-0026, addendum of
             // 2026-11-06 on hunger at 0).
@@ -97,8 +101,11 @@ pub(super) fn settle(
                 written = true;
             }
             Need::Bladder => {
-                let (after, ended) = accident(domain, data, sim, entry, ctx);
+                let (after, ended, soiled) = accident(domain, data, sim, entry, ctx);
                 last = Some(after);
+                // Hygiene put at 0 by the accident is settled after it, in the order of the
+                // needs: a sample at 0 has no crossing left to do it.
+                reached[action::need_index(Need::Hygiene)] |= soiled;
                 // An action that ended planned the crossings with what the accident wrote.
                 written = written || !ended;
             }
@@ -116,6 +123,10 @@ pub(super) fn settle(
     // However many needs reached 0 in this call, the row counts once.
     if let Some(empty) = last_empty {
         super::feeling::need_empty(domain, data, sim, empty, ctx);
+    }
+    // Each need at 0 of a child, after the feeling, in the order of the needs.
+    for (need, entry) in emptied {
+        super::upbringing::need_empty(domain, data, (sim, need), entry, ctx);
     }
     if written {
         plan_crossings(domain, data, sim, last, ctx);
@@ -204,14 +215,15 @@ fn collapse(
 /// The bladder at 0, with `empty` its entry: the bladder is full at once and hygiene at most the
 /// data's value, its entry `core:accident` with the needs after; then, for one not lying whose
 /// walk or action does not raise hygiene, what it does ends with reason `critical`, as at 150.
-/// Returns the last entry and whether an action ended.
+/// Returns the last entry, whether an action ended and whether the accident put hygiene at 0
+/// from above it (data whose hygiene after an accident is at most 0).
 fn accident(
     domain: &mut DomainState,
     data: &Data,
     sim: SimId,
     empty: EventId,
     ctx: &mut SimCtx<'_, '_>,
-) -> (EventId, bool) {
+) -> (EventId, bool, bool) {
     let now = ctx.now();
     let (_, houses, house) = home(domain, data, sim);
     let band = action::band(domain, sim, now);
@@ -229,9 +241,11 @@ fn accident(
     if written(Need::Bladder) {
         needs[bladder] = FULL;
     }
+    let hygiene_before = needs[hygiene];
     if written(Need::Hygiene) {
         needs[hygiene] = needs[hygiene].min(houses.day().zero.accident_hygiene_at_most);
     }
+    let soiled = hygiene_before > EMPTY && needs[hygiene] == EMPTY;
     let rates = [Need::Bladder, Need::Hygiene].map(|need| rate_now(person, houses, need, band));
     let ends = person.action.is_some() && !person.collapsed && !goes_on;
     let payload = LogPayload::Accident { needs };
@@ -250,11 +264,11 @@ fn accident(
         }
     }
     if !ends {
-        return (entry, false);
+        return (entry, false, soiled);
     }
     let causes = Causes::new(Cause::Event(entry));
     let ended = action::interrupt(domain, data, sim, EndReason::Critical, causes, ctx);
-    (ended, true)
+    (ended, true, soiled)
 }
 
 /// Hygiene at 0: fun changes once by the data's value, held at 0, and both are written down in
