@@ -13,6 +13,7 @@ import {
   branchShares,
   clothes,
   hairColor,
+  hairCover,
   hairStyle,
   irisColor,
   morphWeights,
@@ -182,6 +183,16 @@ test("hair and iris colours are the table ends, and grey hair is the grey", () =
   assert.equal(irisColor(params({ iris_melanin: 1 })), "#2e1a0e");
 });
 
+test("a small child wears the short cut and a baby's hair is fine", () => {
+  assert.equal(wornHair(params({ body_form_age: 2 }), "female", "1"), "hair_short");
+  assert.equal(wornHair(params({ body_form_age: 3 }), "female", "1"), "hair_braid");
+  const close = (got, want) => assert.ok(Math.abs(got - want) < 1e-12, `${got} is not ${want}`);
+  close(hairCover(params({ body_form_age: 0.5, hair_density: 0.8 })), 0.44);
+  close(hairCover(params({ body_form_age: 5.5, hair_density: 0.8 })), 0.62);
+  close(hairCover(params({ body_form_age: 30, hair_density: 0.8 })), 0.8);
+  close(hairCover(params({ body_form_age: 30, hair_density: 1.4 })), 1);
+});
+
 test("hair style and clothes follow the sim id", () => {
   assert.equal(hairStyle("0"), "hair_tied");
   assert.equal(hairStyle("1"), "hair_braid");
@@ -207,8 +218,8 @@ test("hair style and clothes follow the sim id", () => {
   assert.deepEqual(clothes("male", "1", 10), {
     suit: "cloth_shorts",
     shoes: "shoes_sneaker",
-    top: "#6e7f8c",
-    bottom: "#35423e",
+    top: "#e9b23f",
+    bottom: "#4a5d78",
     child: true,
   });
 });
