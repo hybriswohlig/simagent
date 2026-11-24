@@ -897,6 +897,9 @@ const HAIR_VERTEX = `
     float bump = sin(tuftAt.x + 1.7 * sin(tuftAt.y * 0.6)) * sin(tuftAt.y * 1.1 + 1.3 * sin(tuftAt.z * 0.7)) * sin(tuftAt.z + 0.5);
     transformed += objectNormal * uCurl * (0.002 + 0.006 * grow + 0.003 * bump * grow);
     transformed.y += uCurl * 0.1 * curlBelow;
+    // In the lengths a curl swings in and out.
+    float lengths = smoothstep(0.08, 0.2, curlBelow);
+    transformed += objectNormal * uCurl * 0.011 * lengths * sin(curlBelow * 120.0 + aMesh.x * 55.0 + aMesh.z * 35.0);
   }
 `;
 
@@ -908,7 +911,8 @@ const STRAND_FRAG = `
     float lock = 3.0 * sin(vMapUv.x * 40.0) + 2.0 * sin(vMapUv.x * 17.0 + 1.3);
     float along = vMapUv.y * (CURL_FREQ + CURL_TIGHT * uCurl) * (1.0 + 0.25 * sin(vMapUv.x * 23.0));
     float wave = 0.75 * sin(along + lock) + 0.25 * sin(along * 2.3 + lock * 1.7);
-    vec2 strandUv = vMapUv + vec2(wave * CURL_BEND * uCurl, 0.0);
+    float inLengths = smoothstep(0.08, 0.2, uCrown.y - vMesh.y);
+    vec2 strandUv = vMapUv + vec2(wave * CURL_BEND * uCurl * (1.0 + 1.5 * inLengths), 0.0);
     vec4 strand = uCurl > 0.01 ? texture(map, strandUv) : sampledDiffuseColor;
     hairA = strand.a;
     float softA = hairA;
@@ -921,7 +925,7 @@ const STRAND_FRAG = `
     }
     cover *= softA;
     float shade = dot(strand.rgb, vec3(0.299, 0.587, 0.114));
-    float lift = clamp(shade / uMean, 0.6, 1.3) * (1.0 + CURL_SHADE * uCurl * wave);
+    float lift = clamp(shade / uMean, 0.6, 1.3) * (1.0 + CURL_SHADE * uCurl * wave * (1.0 + inLengths));
     diffuseColor.rgb = uHair * lift;
     diffuseColor.a = 1.0;
   #endif
