@@ -42,6 +42,7 @@ pub mod phenotype;
 pub mod pool;
 pub mod presentation;
 pub mod rng;
+pub mod skill;
 pub mod social;
 mod state;
 pub mod time;

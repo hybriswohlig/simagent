@@ -20,6 +20,7 @@ use crate::ids::{EventId, HouseholdId, InputSeq, PartnershipId, SimId};
 use crate::lineage::{GenomeKey, LineageKey};
 use crate::params::ParamChange;
 use crate::rng::DrawKey;
+use crate::skill::Skill;
 use crate::social::belief::{Basis, Statement};
 use crate::time::SimTime;
 
@@ -424,6 +425,15 @@ pub enum LogPayload {
         after: i32,
         step: i32,
         cause: Upbringing,
+    },
+    /// A person's practice of `skill` crossed `hours` effective hours (10, 20, …), its level
+    /// there `level_milli` thousandths (ADR-0033 section 6). The subject is the person; the cause
+    /// the talk it heard, its return from school or the end of its action.
+    #[serde(rename = "core:practiced")]
+    Practiced {
+        skill: Skill,
+        hours: u64,
+        level_milli: i64,
     },
 }
 

@@ -4870,7 +4870,7 @@ fn the_house_answer_names_the_feelings_at_its_second() {
             .position(|window| window == projection)
             .expect("the projection");
         // The feelings map is empty and the raised ones come after it: a run without a move-in
-        // (projection 26) ends with two zero lengths.
+        // (projection 27) ends with two zero lengths.
         assert_eq!(
             projection[projection.len() - 2..],
             [0, 0],
