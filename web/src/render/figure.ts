@@ -932,9 +932,12 @@ const STRAND_FRAG = `
   float clipMid = 1.0 - smoothstep(0.002, 0.007, abs(vMesh.x));
   float tuft = clipMid * step(0.08, below) * step(0.085, forward);
   if (uClip > 0.5 && tuft > 0.5) discard;
-  // The fringe ends above the brows in an uneven line, so no cut hangs over an eye.
-  float fringeEnd = uBrow.y + 0.005 + 0.002 * sin(vMesh.x * 180.0) * sin(vMesh.x * 67.0 + 1.0);
-  if (vMesh.z > uBrow.z - 0.03 && abs(vMesh.x - uCrown.x) < 0.075 && vMesh.y < fringeEnd) discard;
+  // The fringe ends above the brows in an uneven line, so no cut hangs over an eye. Beside
+  // the eyes the line falls away, so the hair at the temples frames the face.
+  float fringeSide = abs(vMesh.x - uCrown.x);
+  float fringeEnd = uBrow.y + 0.005 + 0.002 * sin(vMesh.x * 180.0) * sin(vMesh.x * 67.0 + 1.0)
+    - 0.16 * smoothstep(0.042, 0.078, fringeSide);
+  if (vMesh.z > uBrow.z - 0.03 && vMesh.y < fringeEnd) discard;
   float inMass = step(-0.004, below) * (1.0 - smoothstep(uCap - 0.01, uCap, below));
   float lineSide = abs(vMesh.x - uCrown.x);
   float fringe = smoothstep(0.02, 0.045, below) * (1.0 - smoothstep(0.095, 0.12, below));
