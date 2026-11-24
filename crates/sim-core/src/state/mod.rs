@@ -27,6 +27,7 @@ pub(crate) mod reserve;
 pub(crate) mod start;
 pub(crate) mod talk;
 pub(crate) mod together;
+pub(crate) mod upbringing;
 pub(crate) mod zero;
 
 use alloc::collections::{BTreeMap, BTreeSet};
