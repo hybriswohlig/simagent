@@ -15,6 +15,8 @@ declare module "three" {
     normalize(): this;
     lengthSq(): number;
     length(): number;
+    dot(v: Vector3): number;
+    crossVectors(a: Vector3, b: Vector3): this;
     applyMatrix4(m: Matrix4): this;
     applyQuaternion(q: Quaternion): this;
     transformDirection(m: Matrix4): this;

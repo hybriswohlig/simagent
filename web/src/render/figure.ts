@@ -1220,9 +1220,125 @@ function conformHips(fitted: Float32Array, rest: Float32Array, human: Human, hum
   }
 }
 
+/** Height bands of the lower skirt move as one: a vertex bound between the legs must not hang out of the hem. */
+const HEM_BAND = 0.015;
+const HEM_SLACK = 0.005;
+
+function levelHem(fitted: Float32Array, rest: Float32Array, split: number): void {
+  const { minY, span } = ySpan(rest);
+  const top = minY + span * (split - 0.05);
+  const bands = new Map<number, number[]>();
+  const count = (fitted.length / 3) | 0;
+  for (let i = 0; i < count; i += 1) {
+    const y = num(rest, i * 3 + 1);
+    if (y > top) continue;
+    const band = Math.floor((y - minY) / HEM_BAND);
+    const list = bands.get(band) ?? [];
+    list.push(num(fitted, i * 3 + 1) - y);
+    bands.set(band, list);
+  }
+  for (let i = 0; i < count; i += 1) {
+    const y = num(rest, i * 3 + 1);
+    if (y > top) continue;
+    const moved = bands.get(Math.floor((y - minY) / HEM_BAND));
+    if (moved === undefined) continue;
+    const middle = sortedAt(moved, 0.5);
+    const own = num(fitted, i * 3 + 1) - y;
+    fitted[i * 3 + 1] = y + Math.min(middle + HEM_SLACK, Math.max(middle - HEM_SLACK, own));
+  }
+}
+
+const UNDER_CELL = 0.03;
+const UNDER_BEHIND = 0.012;
+const UNDER_AHEAD = 0.035;
+
+/**
+ * A body face stays drawn while one of its corners is off the garment's delete list, and
+ * its listed corners can then push through the cloth. So the unlisted corners of such rim
+ * faces join `deleted` when they lie right under a cloth face. `skin` holds the shaped
+ * body, one point per drawn vertex, `hm` its index in the delete lists, `index` the faces.
+ */
+function hideUnder(fitted: Float32Array, faces: Uint32Array, skin: Float32Array, hm: Int32Array, index: ArrayLike<number>, deleted: Set<number>): void {
+  const rim = new Uint8Array(hm.length);
+  for (let t = 0; t < index.length; t += 3) {
+    const a = num(index, t);
+    const b = num(index, t + 1);
+    const c = num(index, t + 2);
+    if (deleted.has(num(hm, a)) || deleted.has(num(hm, b)) || deleted.has(num(hm, c))) {
+      rim[a] = 1;
+      rim[b] = 1;
+      rim[c] = 1;
+    }
+  }
+  const cells = new Map<number, number[]>();
+  const cellOf = (v: number): number => Math.floor(v / UNDER_CELL) + 512;
+  const keyOf = (cx: number, cy: number, cz: number): number => cx * 1048576 + cy * 1024 + cz;
+  for (let t = 0; t < faces.length; t += 3) {
+    const a = num(faces, t) * 3;
+    const b = num(faces, t + 1) * 3;
+    const c = num(faces, t + 2) * 3;
+    const lo = [0, 0, 0];
+    const hi = [0, 0, 0];
+    for (let k = 0; k < 3; k += 1) {
+      const va = num(fitted, a + k);
+      const vb = num(fitted, b + k);
+      const vc = num(fitted, c + k);
+      lo[k] = cellOf(Math.min(va, vb, vc) - UNDER_AHEAD);
+      hi[k] = cellOf(Math.max(va, vb, vc) + UNDER_AHEAD);
+    }
+    for (let x = num(lo, 0); x <= num(hi, 0); x += 1) {
+      for (let y = num(lo, 1); y <= num(hi, 1); y += 1) {
+        for (let z = num(lo, 2); z <= num(hi, 2); z += 1) {
+          const key = keyOf(x, y, z);
+          const list = cells.get(key) ?? [];
+          list.push(t);
+          cells.set(key, list);
+        }
+      }
+    }
+  }
+  const e1 = new Vector3();
+  const e2 = new Vector3();
+  const normal = new Vector3();
+  const to = new Vector3();
+  const cross = new Vector3();
+  for (let g = 0; g < hm.length; g += 1) {
+    const h = num(hm, g);
+    if (num(rim, g) === 0 || h < 0 || deleted.has(h)) continue;
+    const px = num(skin, g * 3);
+    const py = num(skin, g * 3 + 1);
+    const pz = num(skin, g * 3 + 2);
+    const list = cells.get(keyOf(cellOf(px), cellOf(py), cellOf(pz)));
+    if (list === undefined) continue;
+    for (const t of list) {
+      const a = num(faces, t) * 3;
+      const b = num(faces, t + 1) * 3;
+      const c = num(faces, t + 2) * 3;
+      const ax = num(fitted, a);
+      const ay = num(fitted, a + 1);
+      const az = num(fitted, a + 2);
+      e1.set(num(fitted, b) - ax, num(fitted, b + 1) - ay, num(fitted, b + 2) - az);
+      e2.set(num(fitted, c) - ax, num(fitted, c + 1) - ay, num(fitted, c + 2) - az);
+      normal.crossVectors(e1, e2);
+      const area = normal.length();
+      if (area < 1e-9) continue;
+      to.set(px - ax, py - ay, pz - az);
+      const along = to.dot(normal) / area;
+      if (along < -UNDER_BEHIND || along > UNDER_AHEAD) continue;
+      // Barycentric weights of the foot point, which must lie inside the face.
+      const w2 = cross.crossVectors(e1, to).dot(normal) / (area * area);
+      const w1 = cross.crossVectors(to, e2).dot(normal) / (area * area);
+      const w0 = 1 - w1 - w2;
+      if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+      deleted.add(h);
+      break;
+    }
+  }
+}
+
 const CLOTH_COLOR = `
   float ao = texture(uAo, vMapUv).r;
-  float seam = smoothstep(uSplit - 0.03, uSplit + 0.03, vNy);
+  float seam = smoothstep(uSplit - 0.004, uSplit + 0.004, vNy);
   vec3 dye = mix(uBottom, uTop, seam);
   diffuseColor.rgb = dye * mix(0.55, 0.92, ao);
   diffuseColor.a = 1.0;
@@ -1286,7 +1402,8 @@ function clothMaterial(proxy: Proxy, outfit: Outfit, floor: number, span: number
   return material;
 }
 
-function addClothes(mesh: SkinnedMesh, pack: Pack, humanPos: Float32Array, outfit: Outfit, weights: Record<string, number>, owned: Owned): void {
+function addClothes(mesh: SkinnedMesh, pack: Pack, humanPos: Float32Array, outfit: Outfit, weights: Record<string, number>, skin: Float32Array, hm: Int32Array, deleted: Set<number>, owned: Owned): void {
+  const bodyFaces = mesh.geometry.index?.array ?? new Uint32Array(0);
   const human = pack.human;
   const basis = human.basis;
   const parent = mesh.parent;
@@ -1295,7 +1412,11 @@ function addClothes(mesh: SkinnedMesh, pack: Pack, humanPos: Float32Array, outfi
     const proxy = proxyOf(pack, key);
     if (proxy === null || proxy.skinIndex === null || proxy.skinWeight === null) continue;
     const fitted = fitProxy(proxy, humanPos);
-    if (proxy.kind !== "shoes") conformHips(fitted, fitProxy(proxy, basis), human, humanPos, weights, key === "cloth_skirt");
+    if (proxy.kind !== "shoes") {
+      const rest = fitProxy(proxy, basis);
+      if (key === "cloth_skirt") levelHem(fitted, rest, proxy.split);
+      conformHips(fitted, rest, human, humanPos, weights, key === "cloth_skirt");
+    }
     const span = ySpan(fitted);
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(fitted, 3));
@@ -1313,6 +1434,7 @@ function addClothes(mesh: SkinnedMesh, pack: Pack, humanPos: Float32Array, outfi
         fitted[i + 1] = num(fitted, i + 1) + num(data, i + 1) * gap;
         fitted[i + 2] = num(fitted, i + 2) + num(data, i + 2) * gap;
       }
+      if (proxy.kind !== "shoes") hideUnder(fitted, proxy.faces, skin, hm, bodyFaces, deleted);
       const position = geometry.getAttribute("position");
       if (position !== undefined) position.needsUpdate = true;
     }
@@ -1685,9 +1807,10 @@ function buildFigure(assets: Assets, body: BodyParams, sex: Sex, simId: string, 
   const outfit = clothes(sex, simId, body.body_form_age);
   const suit = proxyOf(assets.pack, outfit.suit);
   const shoes = proxyOf(assets.pack, outfit.shoes);
-  hiddenFaces(mesh.geometry, assets.restIndex, deleteSet([suit, shoes]));
+  const deleted = deleteSet([suit, shoes]);
   addGrooming(mesh, head, assets.pack, humanPos, body, sex, simId, hair, iris, skin, marks, owned);
-  addClothes(mesh, assets.pack, humanPos, outfit, weights, owned);
+  addClothes(mesh, assets.pack, humanPos, outfit, weights, cloud.xyz, assets.restIndex, deleted, owned);
+  hiddenFaces(mesh.geometry, assets.restIndex, deleted);
   return wrapper;
 }
 
