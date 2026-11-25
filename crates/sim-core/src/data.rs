@@ -1337,12 +1337,13 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
     // Closed set: the 118 values plus all keys of each extension that has any. A partial
     // set of an extension's keys is missing; any other extra key is unknown. Which
     // extensions the map declares is checked with the map (`check_extensions`).
-    let present: Vec<bool> = EXTENSIONS
+    let extensions = extensions();
+    let present: Vec<bool> = extensions
         .iter()
         .map(|extension| {
             let keys = extension.values.iter();
             let found = keys
-                .filter(|key| calibration.values.contains_key(&extension_id(key)))
+                .filter(|key| calibration.values.contains_key(*key))
                 .count();
             match found {
                 0 => Ok(false),
@@ -1351,7 +1352,7 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             }
         })
         .collect::<Result<_, _>>()?;
-    let expected = (EXTENSIONS.iter().zip(&present))
+    let expected = (extensions.iter().zip(&present))
         .filter(|(_, present)| **present)
         .fold(BASE_VALUES, |sum, (extension, _)| {
             sum + extension.values.len()
@@ -1361,13 +1362,13 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
     }
     if present[TEMPERAMENT] {
         // `development_mean` may be 0, so it does not go through `value`.
-        for key in EXTENSIONS[TEMPERAMENT].values {
-            let entry = &calibration.values[&extension_id(key)];
+        for key in &extensions[TEMPERAMENT].values {
+            let entry = &calibration.values[key];
             if entry.unit != Unit::StandardDeviation {
                 return Err(DataError::CalibrationUnit);
             }
             let x = entry.value.get();
-            let fits = if key.ends_with("_mean") {
+            let fits = if key.as_str().ends_with("_mean") {
                 (-3.0..=3.0).contains(&x)
             } else {
                 x >= 0.1
@@ -1377,11 +1378,14 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
             }
         }
         // `m_D` (`_development_mean`) or `s_D` (`_development_sd`) of an axis.
-        let of = |axis: Axis, what: &str| {
-            let key = format!("{}_development_{what}", axis.trait_id().as_str());
-            calibration.values[&extension_id(&key)].value.get()
+        let get = |id: DataId| calibration.values[&id].value.get();
+        let of = |axis: Axis| {
+            let name = axis.trait_id();
+            let mean = formatted_id(format_args!("{}_development_mean", name.as_str()));
+            let sd = formatted_id(format_args!("{}_development_sd", name.as_str()));
+            (get(mean), get(sd))
         };
-        genetics.development = Some(Axis::ALL.map(|axis| (of(axis, "mean"), of(axis, "sd"))));
+        genetics.development = Some(Axis::ALL.map(of));
     }
     if present[HAIR] {
         genetics.hair = Some(HairDryness {
@@ -1405,10 +1409,10 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
 /// another bit for bit: its only include is that trait with weight −1, its `sigma_ref` is
 /// that trait's and its `mean_ref` that trait's negated.
 struct Extension {
-    traits: &'static [(&'static str, &'static [u8], &'static [u8])],
+    traits: Vec<(DataId, &'static [u8], &'static [u8])>,
     sex_rows: bool,
-    values: &'static [&'static str],
-    mirror: Option<(&'static str, &'static str)>,
+    values: Vec<DataId>,
+    mirror: Option<(DataId, DataId)>,
 }
 
 /// The calibration values of a map without extension (map 4).
@@ -1419,90 +1423,97 @@ const TEMPERAMENT: usize = 0;
 const HAIR: usize = 1;
 
 /// The ordered table of extensions: a map declares a prefix of it.
-const EXTENSIONS: [Extension; 2] = [
-    Extension {
-        traits: &[
-            (
-                "core:agreeableness",
-                &[0, 1, 2, 3, 4, 5, 6, 7],
-                &[12, 14, 14, 11, 16, 11, 10, 13],
-            ),
-            (
-                "core:conscientiousness",
-                &[3, 4, 5, 6, 7, 0, 1, 2],
-                &[13, 17, 12, 11, 14, 13, 15, 15],
-            ),
-            (
-                "core:extraversion",
-                &[6, 7, 0, 1, 2, 3, 4, 5],
-                &[12, 15, 14, 16, 16, 14, 18, 13],
-            ),
-            (
-                "core:neuroticism",
-                &[1, 2, 3, 4, 5, 6, 7, 0],
-                &[17, 17, 15, 19, 14, 13, 16, 15],
-            ),
-            (
-                "core:openness",
-                &[4, 5, 6, 7, 0, 1, 2, 3],
-                &[20, 15, 14, 17, 16, 18, 18, 16],
-            ),
-        ],
-        sex_rows: true,
-        mirror: None,
-        values: &[
-            "core:agreeableness_development_mean",
-            "core:agreeableness_development_sd",
-            "core:conscientiousness_development_mean",
-            "core:conscientiousness_development_sd",
-            "core:extraversion_development_mean",
-            "core:extraversion_development_sd",
-            "core:neuroticism_development_mean",
-            "core:neuroticism_development_sd",
-            "core:openness_development_mean",
-            "core:openness_development_sd",
-        ],
-    },
-    Extension {
-        traits: &[
-            ("core:hair_dryness", &[], &[]),
-            ("core:hair_thickness", &[0, 1], &[17, 19]),
-        ],
-        sex_rows: false,
-        mirror: Some(("core:hair_dryness", "core:androgen")),
-        values: &[
-            "core:body_dryness_offset",
-            "core:body_dryness_curl",
-            "core:body_dryness_slope",
-            "core:body_dryness_age",
-            "core:body_dryness_male",
-            "core:body_dryness_center",
-            "core:body_dryness_tempo",
-        ],
-    },
-];
+fn extensions() -> [Extension; 2] {
+    let id = |text| DataId::new(text).unwrap_or_else(|_| panic!("invariant data.extension_id"));
+    let own = |name, segments: &'static [u8], slots: &'static [u8]| (id(name), segments, slots);
+    [
+        Extension {
+            traits: alloc::vec![
+                own(
+                    "core:agreeableness",
+                    &[0, 1, 2, 3, 4, 5, 6, 7],
+                    &[12, 14, 14, 11, 16, 11, 10, 13],
+                ),
+                own(
+                    "core:conscientiousness",
+                    &[3, 4, 5, 6, 7, 0, 1, 2],
+                    &[13, 17, 12, 11, 14, 13, 15, 15],
+                ),
+                own(
+                    "core:extraversion",
+                    &[6, 7, 0, 1, 2, 3, 4, 5],
+                    &[12, 15, 14, 16, 16, 14, 18, 13],
+                ),
+                own(
+                    "core:neuroticism",
+                    &[1, 2, 3, 4, 5, 6, 7, 0],
+                    &[17, 17, 15, 19, 14, 13, 16, 15],
+                ),
+                own(
+                    "core:openness",
+                    &[4, 5, 6, 7, 0, 1, 2, 3],
+                    &[20, 15, 14, 17, 16, 18, 18, 16],
+                ),
+            ],
+            sex_rows: true,
+            mirror: None,
+            values: [
+                "core:agreeableness_development_mean",
+                "core:agreeableness_development_sd",
+                "core:conscientiousness_development_mean",
+                "core:conscientiousness_development_sd",
+                "core:extraversion_development_mean",
+                "core:extraversion_development_sd",
+                "core:neuroticism_development_mean",
+                "core:neuroticism_development_sd",
+                "core:openness_development_mean",
+                "core:openness_development_sd",
+            ]
+            .map(id)
+            .into(),
+        },
+        Extension {
+            traits: alloc::vec![
+                own("core:hair_dryness", &[], &[]),
+                own("core:hair_thickness", &[0, 1], &[17, 19]),
+            ],
+            sex_rows: false,
+            mirror: Some((id("core:hair_dryness"), id("core:androgen"))),
+            values: [
+                "core:body_dryness_offset",
+                "core:body_dryness_curl",
+                "core:body_dryness_slope",
+                "core:body_dryness_age",
+                "core:body_dryness_male",
+                "core:body_dryness_center",
+                "core:body_dryness_tempo",
+            ]
+            .map(id)
+            .into(),
+        },
+    ]
+}
 
-fn extension_id(text: &str) -> DataId {
-    DataId::new(text).unwrap_or_else(|_| panic!("invariant data.extension_id"))
+/// A data id from formatted text (an extension's locus or calibration key).
+fn formatted_id(text: fmt::Arguments<'_>) -> DataId {
+    DataId::new(&format!("{text}")).unwrap_or_else(|_| panic!("invariant data.extension_id"))
 }
 
 impl Extension {
     /// `(locus id, trait id, segment, slot)` of each own locus, trait by trait.
     fn loci(&self) -> Vec<(DataId, DataId, u8, u8)> {
         let mut loci = Vec::new();
-        for (trait_id, segments, slots) in self.traits {
+        for (trait_id, segments, slots) in &self.traits {
             for (n, (segment, slot)) in (1..).zip(segments.iter().zip(slots.iter())) {
-                let locus = extension_id(&format!("{trait_id}_{n:02}"));
-                loci.push((locus, extension_id(trait_id), *segment, *slot));
+                let locus = formatted_id(format_args!("{}_{n:02}", trait_id.as_str()));
+                loci.push((locus, trait_id.clone(), *segment, *slot));
             }
         }
         loci
     }
 
     fn trait_ids(&self) -> impl Iterator<Item = DataId> {
-        self.traits
-            .iter()
-            .map(|(trait_id, ..)| extension_id(trait_id))
+        self.traits.iter().map(|(trait_id, ..)| trait_id.clone())
     }
 }
 
@@ -1512,7 +1523,7 @@ impl Extension {
 /// extension after a missing one, are missing.
 fn declared_extensions(map: &GenomeMap) -> Result<usize, DataError> {
     let mut declared = 0;
-    for (index, extension) in EXTENSIONS.iter().enumerate() {
+    for (index, extension) in extensions().iter().enumerate() {
         let loci = extension.loci();
         let found: Vec<&Locus> = (loci.iter())
             .filter_map(|(id, ..)| map.loci.iter().find(|locus| &locus.id == id))
@@ -1541,7 +1552,8 @@ fn declared_extensions(map: &GenomeMap) -> Result<usize, DataError> {
 /// extension writes them. Only for checked definitions.
 fn declared_loci(map: &GenomeMap) -> Vec<Locus> {
     let declared = declared_extensions(map).unwrap_or_else(|_| panic!("invariant data.extensions"));
-    let ids = EXTENSIONS[..declared].iter().flat_map(Extension::loci);
+    let extensions = extensions();
+    let ids = extensions[..declared].iter().flat_map(Extension::loci);
     ids.map(|(id, ..)| {
         let locus = map.loci.iter().find(|locus| locus.id == id);
         locus
@@ -1562,7 +1574,7 @@ fn declared_loci(map: &GenomeMap) -> Vec<Locus> {
 fn check_extensions(definitions: &Definitions) -> Result<(), DataError> {
     let (map, calibration) = (&definitions.genome_map, &definitions.calibration);
     let declared = declared_extensions(map)?;
-    let has_key = |key: &&str| calibration.values.contains_key(&extension_id(key));
+    let has_key = |key: &DataId| calibration.values.contains_key(key);
     let has_trait = |id: &DataId| find(&map.traits, id).is_some();
     let rows = |id: &DataId| {
         (calibration.traits.iter())
@@ -1573,7 +1585,8 @@ fn check_extensions(definitions: &Definitions) -> Result<(), DataError> {
         let all = calibration.sex_differences.iter();
         all.filter(|row| &row.target == id).count()
     };
-    for (index, extension) in EXTENSIONS.iter().enumerate() {
+    let extensions = extensions();
+    for (index, extension) in extensions.iter().enumerate() {
         if index >= declared {
             let mut traits = extension.trait_ids();
             let any_row = |id: &DataId| rows(id) > 0 || sex_rows(id) > 0;
@@ -1617,11 +1630,11 @@ fn check_extensions(definitions: &Definitions) -> Result<(), DataError> {
                 return Err(DataError::LocusLoad);
             }
         }
-        if let Some((mirror, of)) = extension.mirror {
-            check_mirror(map, &extension_id(mirror), &extension_id(of))?;
+        if let Some((mirror, of)) = &extension.mirror {
+            check_mirror(map, mirror, of)?;
         }
     }
-    let owned: BTreeSet<DataId> = EXTENSIONS.iter().flat_map(Extension::trait_ids).collect();
+    let owned: BTreeSet<DataId> = extensions.iter().flat_map(Extension::trait_ids).collect();
     let mut includes = map.traits.iter().flat_map(|t| t.includes.iter());
     if includes.any(|include| owned.contains(&include.target)) {
         return Err(DataError::TraitInclude);
@@ -1656,8 +1669,9 @@ fn check_mirror(map: &GenomeMap, mirror: &DataId, of: &DataId) -> Result<(), Dat
 /// own is removed (traits, loci, phenotype and sex-difference rows, calibration keys) and
 /// `map_version` is set back to 4.
 fn stripped_definitions_hash(definitions: &Definitions) -> u64 {
-    let traits: BTreeSet<DataId> = EXTENSIONS.iter().flat_map(Extension::trait_ids).collect();
-    let loci: BTreeSet<DataId> = (EXTENSIONS.iter().flat_map(Extension::loci))
+    let extensions = extensions();
+    let traits: BTreeSet<DataId> = extensions.iter().flat_map(Extension::trait_ids).collect();
+    let loci: BTreeSet<DataId> = (extensions.iter().flat_map(Extension::loci))
         .map(|(id, ..)| id)
         .collect();
     let mut stripped = definitions.clone();
@@ -1668,9 +1682,9 @@ fn stripped_definitions_hash(definitions: &Definitions) -> u64 {
     let kept = |row: &DataId| !traits.contains(row);
     calibration.traits.retain(|row| kept(&row.target));
     calibration.sex_differences.retain(|row| kept(&row.target));
-    for extension in &EXTENSIONS {
-        for key in extension.values {
-            calibration.values.remove(&extension_id(key));
+    for extension in &extensions {
+        for key in &extension.values {
+            calibration.values.remove(key);
         }
     }
     stable_hash64(&encode(&stripped))
