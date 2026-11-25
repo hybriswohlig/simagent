@@ -1336,6 +1336,22 @@ function hideUnder(fitted: Float32Array, faces: Uint32Array, skin: Float32Array,
   }
 }
 
+const SOCK_TUCK = 0.02;
+
+/** The shoe's faces up to just above the suit's hem: higher up a sock would poke through a trouser leg. */
+function belowHem(fitted: Float32Array, faces: Uint32Array, hem: number): Uint32Array {
+  const kept: number[] = [];
+  const limit = hem + SOCK_TUCK;
+  for (let t = 0; t < faces.length; t += 3) {
+    const a = num(faces, t);
+    const b = num(faces, t + 1);
+    const c = num(faces, t + 2);
+    if (num(fitted, a * 3 + 1) > limit && num(fitted, b * 3 + 1) > limit && num(fitted, c * 3 + 1) > limit) continue;
+    kept.push(a, b, c);
+  }
+  return Uint32Array.from(kept);
+}
+
 const CLOTH_COLOR = `
   float ao = texture(uAo, vMapUv).r;
   float seam = smoothstep(uSplit - 0.004, uSplit + 0.004, vNy);
@@ -1408,6 +1424,7 @@ function addClothes(mesh: SkinnedMesh, pack: Pack, humanPos: Float32Array, outfi
   const basis = human.basis;
   const parent = mesh.parent;
   if (parent === null) return;
+  let hem = Infinity;
   for (const key of [outfit.suit, outfit.shoes]) {
     const proxy = proxyOf(pack, key);
     if (proxy === null || proxy.skinIndex === null || proxy.skinWeight === null) continue;
@@ -1425,6 +1442,8 @@ function addClothes(mesh: SkinnedMesh, pack: Pack, humanPos: Float32Array, outfi
     geometry.setAttribute("skinWeight", new Float32BufferAttribute(proxy.skinWeight, 4));
     geometry.setIndex(new BufferAttribute(new Uint32Array(proxy.faces), 1));
     geometry.computeVertexNormals();
+    if (proxy.kind === "shoes") geometry.setIndex(new BufferAttribute(belowHem(fitted, proxy.faces, hem), 1));
+    else hem = span.minY;
     const gap = proxy.kind === "shoes" ? 0.003 : 0.006;
     const normals = geometry.getAttribute("normal");
     if (normals !== undefined) {
