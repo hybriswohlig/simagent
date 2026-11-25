@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "contract_version": "0.1.1",
+  "contract_version": "0.1.2",
   "retired_keys": [],
   "parameters": [
     {
@@ -263,6 +263,24 @@
       "default": 0.2,
       "stability": "stable",
       "description": "Hair curl: 0 is straight, 1 is very curly."
+    },
+    {
+      "key": "hair_strand_thickness",
+      "group": "hair",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0.5,
+      "stability": "stable",
+      "description": "Thickness of one scalp hair: 0 is fine, 1 is coarse."
+    },
+    {
+      "key": "hair_dryness",
+      "group": "hair",
+      "unit": "fraction",
+      "range": [0, 1],
+      "default": 0.3,
+      "stability": "stable",
+      "description": "Scalp-hair condition: 0 is soft and glossy, 1 is dry and brittle."
     },
     {
       "key": "hair_density",
