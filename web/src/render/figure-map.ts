@@ -22,11 +22,14 @@ const DYES: readonly (readonly [string, string])[] = [
   ["#6a6258", "#4a433c"],
 ];
 
+/** Children wear clear colours: the top stands out, the trousers stay calm. */
 const CHILD_DYES: readonly (readonly [string, string])[] = [
-  ["#5f746c", "#3a4450"],
-  ["#6e7f8c", "#35423e"],
-  ["#8a6e58", "#4a3e36"],
-  ["#5c6574", "#3a4250"],
+  ["#d8574a", "#3f5f8a"],
+  ["#e9b23f", "#4a5d78"],
+  ["#4f97d1", "#8a7a5c"],
+  ["#5fae78", "#4d5563"],
+  ["#c9699f", "#3f5f8a"],
+  ["#ee8a4f", "#3d5a4a"],
 ];
 
 const FEMALE_SUITS = ["cloth_f_tee", "cloth_skirt", "cloth_shirt"] as const;
@@ -187,10 +190,23 @@ export function hairStyle(simId: string): string {
   return HAIR_STYLES[index] ?? "hair_short";
 }
 
-/** The cut that is worn: a balding male is forced onto the short proxy. */
+/** A child under this body-form age wears the short cut. */
+const SHORT_HAIR_UNTIL = 3;
+
+/** How much of the hair's cover the baby shape takes away: a baby's hair is fine. */
+const BABY_HAIR_THIN = 0.45;
+
+/** The cut that is worn: a small child and a balding male are forced onto the short proxy. */
 export function wornHair(body: BodyParams, sex: Sex, simId: string): string {
+  if (body.body_form_age < SHORT_HAIR_UNTIL) return "hair_short";
   if (sex === "male" && body.balding_stage >= 1) return "hair_short";
   return hairStyle(simId);
+}
+
+/** The share of the scalp the hair covers: the density, thinned by the baby share of the shape. */
+export function hairCover(body: BodyParams): number {
+  const [baby] = ageSlices(body.body_form_age);
+  return clamp(body.hair_density, 0, 1) * (1 - BABY_HAIR_THIN * baby);
 }
 
 function dyeAt(table: readonly (readonly [string, string])[], index: number): readonly [string, string] {
