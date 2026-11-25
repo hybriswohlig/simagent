@@ -293,7 +293,7 @@ fn repository_file(path: &str) -> Vec<u8> {
 
 /// The record of the repository's pool, `data/pool/reference_census.json`, read and bound to
 /// `data/pool/pool.bin`. `pool_hash` in the record is the hash after the load-time
-/// temperament extension; the file's own hash stays the raw one. `data_hash` is the pool
+/// temperament and hair extensions; the file's own hash stays the raw one. `data_hash` is the pool
 /// run's data hash. `core_version` is that of the pool run (38), not the current one.
 fn repository_record() -> Record {
     let text =
@@ -302,7 +302,7 @@ fn repository_record() -> Record {
     let pool =
         sim_core::pool::Pool::from_bytes(&repository_file("data/pool/pool.bin")).expect("the pool");
     assert_eq!(pool.hash(), 0x5cc9_dc3e_b6db_8524);
-    assert_eq!(record.pool_hash, 0x12ec_62c5_7af2_a290);
+    assert_eq!(record.pool_hash, 0x20e1_34c2_1553_132b);
     assert_eq!(record.data_hash, pool.data_hash);
     record
 }
@@ -315,7 +315,7 @@ fn repository_record() -> Record {
 #[test]
 fn the_repository_pool_meets_the_clamp_rate() {
     let record = repository_record();
-    assert_eq!(record.pool_hash, 0x12ec_62c5_7af2_a290);
+    assert_eq!(record.pool_hash, 0x20e1_34c2_1553_132b);
     assert_eq!(record.data_hash, 0x6512_a2bd_8841_8544);
     assert_eq!(
         years_of(&record.rows),
