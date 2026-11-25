@@ -806,13 +806,12 @@ PROJECTION_VERSION = 27
 # write `core:practiced` each 10 hours; a raised person keeps its practice seconds, a running
 # action the second it reached its object. Both live in the house part, empty without MoveIn:
 # projection 27, core 77.
-CORE_VERSION = 77
 # Hair thickness and dryness (ADR-0034 section 4): map 6 adds two loci, which change the
 # mutation rate and the choice of the mutation site, so runs with births change; the data
-# hash and the extended pool's hash change. A run on map 6 is core 78; the projection stays 27
-# (body values are not stored). `CORE_VERSION` stays the value of the map-5 rows of these
-# references until the data carry map 6.
-CORE_VERSION_MAP6 = 78
+# hash and the extended pool's hash change. The data carry map 6: core 78; the projection
+# stays 27 (body values are not stored). The same core version covers the day room of the
+# children under 6 (the living room in the repository's houses).
+CORE_VERSION = 78
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1684,13 +1683,12 @@ class Data:
         return [term for term in terms if term[1] is not None]
 
 
-def repository_data(map6: bool = False) -> Data:
+def repository_data() -> Data:
     """The repository's data as the CLI builds them (slice S5): the documents under data/, the
     pool data/pool/pool.bin and its frequencies data/pool/pool_frequencies.json
     (`Data::with_pool`), the shock templates of data/shocks.json (ADR-0023 section 3), the
     houses of data/house/ (ADR-0025) and the social data of data/social/social.json (ADR-0030
-    section 6). `map6`: map 6 built in memory from the repository's map 5
-    (`data_reference.map6_documents`, ADR-0034) in place of the two definition files."""
+    section 6)."""
     files = data_reference.pool_files(ROOT / "data")
     assert files is not None, "the repository's data hold the pool (data/pool/)"
     pool, frequencies = files
@@ -1700,7 +1698,7 @@ def repository_data(map6: bool = False) -> Data:
     social = data_reference.social_files(ROOT / "data")
     game = data_reference.game_overlay(ROOT / "data")
     development = data_reference.development_file(ROOT / "data")
-    documents = data_reference.map6_documents() if map6 else data_reference.documents(ROOT / "data")
+    documents = data_reference.documents(ROOT / "data")
     return Data(*documents, pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, social=social, game=game, development=development)
 
 
@@ -1863,8 +1861,8 @@ def repository() -> Data:
     hash is checked against their own reference (`data_reference.repository_hash`: the
     definitions, then the pool's seed and hash and the frequencies, then the shock
     templates, then the houses, then the social data). The pool's `frozen_hash` equals the
-    definitions, or, on a map with declared extensions (map 5: temperament), the definitions
-    with them removed."""
+    definitions, or, on a map with declared extensions (map 6: temperament and hair), the
+    definitions with them removed."""
     if not _REPOSITORY:
         data = repository_data()
         assert data.hash == data_reference.repository_hash(ROOT / "data")
@@ -1875,24 +1873,6 @@ def repository() -> Data:
         assert matches, f"frozen_hash {frozen:016x}"
         _REPOSITORY.append(data)
     return _REPOSITORY[0]
-
-
-_MAP6 = []
-
-
-def map6() -> Data:
-    """The repository's data with map 6 built in memory (ADR-0034, `repository_data(map6=True)`),
-    read once: its data hash is that of `data_reference.repository_hash` with the map-6
-    definitions, and the pool's `frozen_hash` is the hash of the definitions without the
-    temperament and hair extensions (map 4)."""
-    if not _MAP6:
-        data = repository_data(map6=True)
-        demography, calibration, genome_map = data_reference.map6_documents()
-        assert data.hash == data_reference.repository_hash(ROOT / "data", (calibration, genome_map))
-        assert data.pool.frozen_hash == data_reference.stripped_documents_hash(demography, calibration, genome_map)
-        assert data.pool.frozen_hash != data_reference.documents_hash(demography, calibration, genome_map)
-        _MAP6.append(data)
-    return _MAP6[0]
 
 
 def __getattr__(name: str):
@@ -6789,13 +6769,6 @@ if __name__ == "__main__":
     print(
         f"data_hash_repository {repository().hash:016x} definitions {repository().pool.frozen_hash:016x} pool_seed {repository().pool.seed:016x}"
         f" pool_hash {repository().pool.hash:016x} traits {len(repository().traits)} measured_loci {len(repository().measured_loci)} loci {len(repository().loci)}"
-    )
-    # Map 6 (ADR-0034), built in memory from the repository's map 5: core 78, projection 27.
-    six = map6()
-    print(
-        f"data_hash_map6 {six.hash:016x} definitions {six.pool.frozen_hash:016x} pool_seed {six.pool.seed:016x}"
-        f" pool_hash {six.pool.hash:016x} traits {len(six.traits)} measured_loci {len(six.measured_loci)} loci {len(six.loci)}"
-        f" core_version {CORE_VERSION_MAP6} projection_version {PROJECTION_VERSION}"
     )
     print(f"data_hash_map3 {MAP3.hash:016x}")
     print(f"data_hash_fork {FORK_DATA.hash:016x}")

@@ -123,6 +123,8 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--
        ... census_reference.py --scan-a FIRST LAST   (seeds of fixture (a) and their founders
        whose curve is held; for choosing the seed, not a pin)
        ... census_reference.py --phenotypes FILE   (the golden phenotypes.json, compact)
+       ... census_reference.py --bodies FILE   (the golden bodies.json, compact: the 46
+       parameters of every living person at the snapshots of fixtures a, b and b2)
        ... census_reference.py --pure-heights [--out DIR]   (pure_heights.json: the pure height of
        ADR-0015 4 and spec 10.2, and the height before the loss of age)
        ... census_reference.py --records [--out DIR]   (records_phenotypes.json: the 35 `z`
@@ -1658,6 +1660,28 @@ def phenotypes_document() -> dict:
     return {"written_by": "tools/census_reference.py (independent of crates/)", "z_traits": br.BODY_TRAITS_MAP4, "note": PHENOTYPES_NOTE, "fixtures": fixtures}
 
 
+BODIES_NOTE = "the 46 body values per living person at the snapshots of census.json, as f64 bits"
+
+
+def bodies_document() -> dict:
+    """The golden `tests/golden/census/bodies.json`: per fixture a, b, b2 and snapshot the
+    living by SimId with the 46 parameters (44 with `--contract-0.1.1`) as f64 bits in the
+    contract's order, the `params` of `snapshot` (census_details.json)."""
+    fixtures = {}
+    for name in FIXTURE_RUNS:
+        snapshots = []
+
+        def at_snapshot(evaluator, year):
+            t = year_end(year)
+            persons = [[sim, [bits(evaluator.evaluate(sim, t)["params"][key][0]) for key in PARAM_KEYS]] for sim in sorted(evaluator.world.sims)]
+            snapshots.append({"year": year, "t": t, "persons": persons})
+
+        walk(name, at_snapshot, lambda evaluator, end: None)
+        fixtures[name] = snapshots
+    note = BODIES_NOTE.replace("46", str(len(PARAM_KEYS)))
+    return {"written_by": "tools/census_reference.py (independent of crates/)", "param_keys": PARAM_KEYS, "note": note, "fixtures": fixtures}
+
+
 def heights(evaluator: Evaluator, sim: int, t: int) -> tuple:
     """(`height_before_age_loss`, `pure_height`) of a sim at `t`. `height_before_age_loss =
     κ_i · H(x; θ_i) − v_i(x)` with `x = as_years(min(t − born, 25 · YEAR))` and the nutrition
@@ -1765,6 +1789,11 @@ def main(argv) -> int:
         target.write_text(json.dumps(phenotypes_document(), separators=(",", ":")))
         print(f"wrote {target}")
         return 0
+    if "--bodies" in argv:
+        target = Path(argv[argv.index("--bodies") + 1])
+        target.write_text(json.dumps(bodies_document(), separators=(",", ":")))
+        print(f"wrote {target}")
+        return 0
     if "--pure-heights" in argv:
         out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
         document = pure_heights_document()
@@ -1809,7 +1838,7 @@ def main(argv) -> int:
     head = {
         "format_version": 1,
         "written_by": "tools/census_reference.py (independent of crates/)",
-        "core_version_modelled": wr.CORE_VERSION if OLD_CONTRACT else wr.CORE_VERSION_MAP6,
+        "core_version_modelled": wr.CORE_VERSION,
         "projection_version_modelled": wr.PROJECTION_VERSION,
         "evaluation_second": "year_end(k) = (k + 1) * YEAR - 1, YEAR = 31449600",
         "clamped_keys": CLAMPED_KEYS,

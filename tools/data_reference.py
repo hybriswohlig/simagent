@@ -94,11 +94,11 @@ keeps it equal to the definitions with everything every declared extension owns 
 to 4 (`stripped_documents_hash`). The calibration holds 118 values plus 10 with temperament
 plus 7 with hair (`extension_rejection`).
 
-Map 6 (ADR-0034 section 1) is built in memory from the repository's map 5 until the data
-files carry it (`map6_documents`, `hair_patch`): the two hair traits, their two loci at
+Map 6 (ADR-0034 section 1) is what the data files carry; `map6_documents` returns it as it
+is, and builds it in memory from a map 5 (`hair_patch`): the two hair traits, their two loci at
 segment 0 slot 17 and segment 1 slot 19 (the rule of ADR-0020 section 1, `placement`), the two
 phenotype rows and the seven values of the dryness. The output prints its hashes and the
-patch as JSON.
+patch as JSON (the patch the data files were made with).
 
 The repository's data (slice S5 of the switch, design note section 14): data/ holds the
 genome map, its calibration and the life course data, and under data/pool/ the pool
