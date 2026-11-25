@@ -421,7 +421,7 @@ const REPOSITORY_HOUSES: [&str; 3] = [
 ];
 
 /// The calibration and the map of `data/` as JSON values without their text, to change
-/// further: map 5 with the temperament traits (ADR-0033 section 2).
+/// further: map 6 with the temperament and hair traits (ADR-0033 section 2, ADR-0034).
 #[allow(dead_code, reason = "only the tests on the repository's map need them")]
 pub fn repository_files() -> (Value, Value) {
     files_from(REPOSITORY_CALIBRATION, REPOSITORY_GENOME_MAP)
@@ -432,17 +432,67 @@ pub fn repository_files() -> (Value, Value) {
 #[allow(dead_code, reason = "only the tests on map 6 need it")]
 const MAP6_PATCH: &str = include_str!("map6_patch.json");
 
-/// Map 6 in memory (ADR-0034 section 1), as `tools/data_reference.py` builds it from the
-/// repository's map 5 (`with_hair`): the patch's traits, loci and phenotype rows added and
-/// sorted (traits and rows by id, loci by chromosome, segment and slot), its values added,
-/// `map_version` 6; then without text like `repository_files`.
-#[allow(dead_code, reason = "only the tests on map 6 need them")]
-pub fn map6_files() -> (Value, Value) {
+/// Map 5 in memory: the repository's map 6 without the entries of the hair extension
+/// (those of `map6_patch.json`: traits, loci, phenotype and sex rows, values), `map_version`
+/// 5, as `strip_extensions` of `tools/data_reference.py` leaves it.
+fn map5_values() -> (Value, Value) {
     let read = |text: &str| serde_json::from_str::<Value>(text).expect("json");
     let patch = read(MAP6_PATCH);
     let (mut calibration, mut genome_map) =
         (read(REPOSITORY_CALIBRATION), read(REPOSITORY_GENOME_MAP));
-    assert_eq!(genome_map["map_version"], 5, "the repository holds map 5");
+    assert_eq!(genome_map["map_version"], 6, "the repository holds map 6");
+    let ids = |list: &Value, key: &str| -> Vec<Value> {
+        let all = list.as_array().expect("list").iter();
+        all.map(|entry| entry[key].clone()).collect()
+    };
+    let remove_owned = |list: &mut Value, key: &str, owned: &[Value]| {
+        let all = list.as_array_mut().expect("list");
+        let before = all.len();
+        all.retain(|entry| !owned.contains(&entry[key]));
+        assert_eq!(before - all.len(), owned.len(), "every {key} of the patch");
+    };
+    remove_owned(
+        &mut genome_map["traits"],
+        "id",
+        &ids(&patch["traits"], "id"),
+    );
+    remove_owned(&mut genome_map["loci"], "id", &ids(&patch["loci"], "id"));
+    let rows = ids(&patch["calibration_traits"], "trait");
+    remove_owned(&mut calibration["traits"], "trait", &rows);
+    let sex_rows = ids(&patch["sex_differences"], "trait");
+    remove_owned(&mut calibration["sex_differences"], "trait", &sex_rows);
+    for key in patch["values"].as_object().expect("values").keys() {
+        let values = calibration["values"].as_object_mut().expect("values");
+        assert!(values.remove(key).is_some(), "{key}");
+    }
+    genome_map["map_version"] = Value::from(5);
+    (calibration, genome_map)
+}
+
+/// Map 5 (`map5_values`) without text like `repository_files`.
+#[allow(dead_code, reason = "only the tests on map 5 and map 6 need them")]
+pub fn map5_files() -> (Value, Value) {
+    let (calibration, genome_map) = map5_values();
+    files_from(&calibration.to_string(), &genome_map.to_string())
+}
+
+/// Map 5 with the repository's pool, extended with the 40 temperament loci.
+#[allow(dead_code, reason = "only the tests on map 5 and map 6 need them")]
+pub fn map5_data() -> Data {
+    let (calibration, genome_map) = map5_files();
+    repository_data_on(calibration, genome_map)
+}
+
+/// Map 6 (ADR-0034 section 1) as `tools/data_reference.py` builds it from map 5
+/// (`with_hair`): the patch's traits, loci and phenotype rows added to `map5_values` and
+/// sorted (traits and rows by id, loci by chromosome, segment and slot), its values added,
+/// `map_version` 6; then without text like `repository_files`. It equals the repository's
+/// map 6: the patch is what the data commit added.
+#[allow(dead_code, reason = "only the tests on map 6 need them")]
+pub fn map6_files() -> (Value, Value) {
+    let read = |text: &str| serde_json::from_str::<Value>(text).expect("json");
+    let patch = read(MAP6_PATCH);
+    let (mut calibration, mut genome_map) = map5_values();
     genome_map["map_version"] = patch["map_version"].clone();
     let joined = |list: &Value, more: &Value| -> Vec<Value> {
         let mut all = list.as_array().expect("list").clone();
@@ -472,7 +522,13 @@ pub fn map6_files() -> (Value, Value) {
         let values = calibration["values"].as_object_mut().expect("values");
         assert!(values.insert(key.clone(), entry.clone()).is_none(), "{key}");
     }
-    files_from(&calibration.to_string(), &genome_map.to_string())
+    let files = files_from(&calibration.to_string(), &genome_map.to_string());
+    assert_eq!(
+        files,
+        repository_files(),
+        "the patch applied to map 5 is the repository's map 6"
+    );
+    files
 }
 
 /// The repository's data on map 6 (`map6_files`) as the CLI would build them, the pool

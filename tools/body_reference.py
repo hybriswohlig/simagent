@@ -1048,7 +1048,7 @@ def main(argv) -> int:
         reason = body_data_check(fixture, read)
         print(f"body_data {name} reading {'map4' if read is BODY_TRAITS_MAP4 else 'map3'} names: {'accepted' if reason is None else 'rejected ' + reason}")
     contract = json.loads(CONTRACT.read_text())["parameters"]
-    assert len(contract) == 44
+    assert len(contract) == 46 and contract == contract_with_hair(contract)
     values = BodyValues(data_reference.strip(pigment[0]))
     values_red = BodyValues(data_reference.strip(red[0]))
     values4 = BodyValues(data_reference.strip(map4[0]))

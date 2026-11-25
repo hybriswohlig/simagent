@@ -1,7 +1,8 @@
 //! Map 6 (ADR-0034): the hair extension on top of the temperament extension, loaded into the
 //! frozen pool like the temperament loci (ADR-0033 section 2) through the ordered table of
-//! extensions. Map 6 exists here only in memory: the repository's map 5 with the patch
-//! `tools/data_reference.py` prints (`common::map6_files`).
+//! extensions. `common::map6_files` builds map 6 from map 5 (the repository's map 6 without
+//! the hair entries) with the patch `tools/data_reference.py` prints, and checks it equals the
+//! repository's map 6.
 //!
 //! The expected values come from `tools/data_reference.py` (rows `map6 ...` and
 //! `map6_rejection ...`) and `tools/pool_extension_reference.py real` (rows `map6_...`).
@@ -83,7 +84,7 @@ fn map6_loads_with_the_reference_hashes() {
     assert_eq!(data.hash(), 0x6b43_f872_efc1_daa1);
     assert_eq!(data.pool().expect("a pool").hash(), 0x20e1_34c2_1553_132b);
 
-    let map5 = common::repository_data();
+    let map5 = common::map5_data();
     assert_eq!(map5.hash(), 0x5a9b_dc91_8b46_8f1c);
     assert_eq!(map5.pool().expect("a pool").hash(), 0x12ec_62c5_7af2_a290);
 }
@@ -273,7 +274,7 @@ fn the_hair_model_reads_the_seven_dryness_values() {
             tempo: 10.0,
         })
     );
-    let (calibration, genome_map) = common::repository_files();
+    let (calibration, genome_map) = common::map5_files();
     let map5 = Data::new(common::definitions(calibration, genome_map).expect("definitions"))
         .expect("map 5");
     assert_eq!(map5.genetics().hair, None);
@@ -416,7 +417,7 @@ fn the_dryness_must_be_the_negated_androgen() {
 
 /// Map 5 changed by `change`.
 fn changed5(change: impl FnOnce(&mut Value, &mut Value)) -> Result<Data, DataError> {
-    let (mut calibration, mut genome_map) = common::repository_files();
+    let (mut calibration, mut genome_map) = common::map5_files();
     change(&mut calibration, &mut genome_map);
     Data::new(common::definitions(calibration, genome_map).expect("definitions"))
 }

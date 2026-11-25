@@ -61,9 +61,9 @@ fn sex_of(man: bool) -> Sex {
     if man { Sex::Male } else { Sex::Female }
 }
 
-/// The repository's data (map 5) with its pool, as the CLI builds them.
+/// Map 5 (the repository's map 6 without the hair extension) with its pool.
 fn map5() -> Data {
-    common::repository_data()
+    common::map5_data()
 }
 
 /// The anchors of the decision (`body_hair_anchor`): the thickness at `z = 0, 1, 2, −1, −2`
