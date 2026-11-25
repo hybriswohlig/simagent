@@ -2,6 +2,29 @@
 
 Jede Änderung von `genome_map.json` erhöht `map_version` und steht hier (B9, ADR-0007).
 
+## 6 (2026-11-25)
+
+- Zwei Haarmerkmale (ADR-0034 Abschnitt 1): `core:hair_thickness` mit zwei eigenen
+  additiven autosomalen Genorten `core:hair_thickness_01` (Segment 0, Platz 17) und
+  `core:hair_thickness_02` (Segment 1, Platz 19), Effekt 1, Ladung +1, Klasse klein,
+  Mutation in beide Richtungen; die Plätze sind die kleinsten freien der Karte 5 nach der
+  Regel aus ADR-0020 Abschnitt 1, die alten Genorte behalten ihre Stellen.
+  `core:hair_dryness` ohne eigene Genorte, `includes` `core:androgen` mit Gewicht −1.
+  Kartenformat unverändert, `map_version` 6: 170 Genorte, 45 Merkmale, 24 freie Plätze.
+- Referenzwerte: `core:hair_thickness` `d_ref` 1 je Genort, `sigma_ref` 1, `mean_ref` 0, die
+  exakten Parameter der Hardy-Weinberg-Verteilung bei p = 0.5 (`Var(A) = 2 · 2p(1−p) = 1`),
+  eine Ausnahme vom Messen. `core:hair_dryness` übernimmt `sigma_ref` von `core:androgen`
+  und dessen negiertes `mean_ref`, so dass `G` bitgleich `−G` von `core:androgen` ist.
+- Kalibrierung: `h2` 0.60 und `c2` 0 für `core:hair_thickness`, `h2` 0.15 und `c2` 0 für
+  `core:hair_dryness`, Kind und Erwachsener gleich, keine Geschlechtsunterschiede. Unter
+  `values` die sieben Spielwerte der Trockenheit (ADR-0034 Abschnitt 3):
+  `core:body_dryness_offset` −0.942, `_curl` 0.75, `_slope` 1.30, `_age` 2.0 und `_male`
+  −0.35 (Einheit `logit`), `_center` 55 und `_tempo` 10 (Einheit `year`).
+- Die Pooldatei `data/pool/pool.bin` bleibt bytegleich, ihr `frozen_hash`
+  `4864bcf40e824de2` ist der Hash der Definitionen ohne beide Erweiterungen, mit
+  `map_version` 4. Die zwei Genorte kommen wie die des Temperaments beim Laden in die Genome
+  (ADR-0034 Abschnitt 2). Hash der Definitionen `b037c9deff201479`.
+
 ## 5 (2026-11-17)
 
 - Fünf Temperamentsmerkmale (Spezifikation 4.1, 4.2 und 6.2, ADR-0020 Abschnitt 1,
