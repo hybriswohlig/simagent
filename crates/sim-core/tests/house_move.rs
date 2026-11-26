@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::genome::Sex;
+use sim_core::habit;
 use sim_core::house::data::HouseData;
 use sim_core::house::need::NeedSample;
 use sim_core::house::reserve::Reserve;
@@ -295,6 +296,7 @@ fn the_first_morning_gives_the_needs() {
             filler: false,
             commanded: false,
             reached: None,
+            quarter: habit::quarter(at),
         }),
         due: None,
         decisions: Decisions {
@@ -307,6 +309,7 @@ fn the_first_morning_gives_the_needs() {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     let house = run.world.state().house();
     assert!(house.households[&home].morning);
@@ -469,6 +472,7 @@ fn house_entry(payload: &LogPayload) -> bool {
             | LogPayload::CameHome { .. }
             | LogPayload::Missed { .. }
             | LogPayload::Practiced { .. }
+            | LogPayload::Leaning { .. }
     )
 }
 

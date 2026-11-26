@@ -291,6 +291,41 @@ def habit_points(strength: int) -> int:
     return HABIT_POINTS_PER_STRENGTH * strength
 
 
+def habit_completes(reason: str, commanded: bool) -> bool:
+    """Whether an action's end strengthens its habit: `done` or `full`, and not chosen by a
+    command (an end by a command has neither reason)."""
+    return reason in ("done", "full") and not commanded
+
+
+# Per point a critical need lies below 151 (ADR-0026 section 3): the share no other sum reaches.
+PER_CRITICAL_POINT = 1_000_000_000
+
+
+def leaning_rows(
+    habits: Habits, offers: Sequence[Tuple[int, int, int]], t: int, in_night: bool
+) -> List[Tuple[int, int, int, int, Optional[str], Optional[int], Optional[int]]]:
+    """The rows of `core:leaning` for a choice at second t (section 7): `offers` are the open
+    offers the choice weighs as (object, offer index, furniture kind data id), in the order of
+    the objects and their offers. Each offer whose habit (kind, offer, quarter of t) has a
+    strength above 0 gives a row (object, offer, habit points, niche points, skill, sibling,
+    lead_milli); without the niche (slice H1) the last four are 0, None, None, None. In the
+    person's night no habit counts, so there are no rows.
+
+    READING (section 7, "ohne Wirkung in den Stufen der Nacht"): the bonus is 0 in the night,
+    not merely outranked there, and so the night's choices write no `core:leaning`.
+    READING (section 7, "je Angebot mit Zuschlag"): one row per offer, so two objects of one
+    kind with the habit's offer give two rows with the same points."""
+    if in_night:
+        return []
+    current = habits_at(habits, t)
+    rows = []
+    for obj, offer, kind in offers:
+        strength = current.get(habit_key(kind, offer, t), 0)
+        if strength > 0:
+            rows.append((obj, offer, habit_points(strength), 0, None, None, None))
+    return rows
+
+
 def niche_lead(
     own_milli: int, siblings: Sequence[Tuple[int, int, int]]
 ) -> Optional[Tuple[int, int]]:
@@ -516,6 +551,36 @@ def main() -> None:
     # Points: 15 * strength: 160 -> 2400; 1000 -> 15000.
     assert habit_points(160) == 2400 and habit_points(1000) == 15_000 and habit_points(0) == 0
     print("habit: 0 ->", 100, "-> two days later", habits_at(habit_complete({}, key, t0), t2)[key], "-> after completion", habits_at(h, t2)[key])
+    # Which ends strengthen: done and full without a command; left, critical, obligation,
+    # command and collapse never, and a commanded action not even at done or full.
+    assert [habit_completes(r, False) for r in ("done", "full", "left", "critical", "obligation", "command", "collapse")] == [True, True, False, False, False, False, False]
+    assert not habit_completes("done", True) and not habit_completes("full", True)
+    # The leaning of a choice at t2 (07:00 of day 2, quarter 1) with the habit h of kind 7,
+    # offer 0 at 160: objects 3 and 4 of kind 7 offer 0 get 2400 each; object 5 of kind 7 offer 1
+    # and object 6 of kind 8 offer 0 get nothing. At 12:00 the quarter is 2: no row. In the night
+    # no row.
+    offers = [(3, 0, 7), (4, 0, 7), (5, 1, 7), (6, 0, 8)]
+    lean = leaning_rows(h, offers, t2, False)
+    assert lean == [(3, 0, 2400, 0, None, None, None), (4, 0, 2400, 0, None, None, None)]
+    assert leaning_rows(h, offers, t2 - 25_200 + 43_200, False) == []
+    assert leaning_rows(h, offers, t2, True) == []
+    # Five days after its last completion at 160 the habit is 160 - 100 = 60: 900 points; ten
+    # days (200 lost) leave nothing, and an entry at 0 gives no row.
+    assert leaning_rows(h, offers, t2 + 5 * DAY, False)[0][2] == 900
+    assert leaning_rows(h, offers, t2 + 8 * DAY, False) == []
+    # A critical need always wins: the most a habit gives is below one point of it.
+    assert habit_points(HABIT_MAX) == 15_000 < PER_CRITICAL_POINT
+    # By hand (house_choice's flat, an adult of 30): hunger 150 (critical), bladder 500,
+    # hygiene 700, fun 800. The table fills hunger +1800 for 20 min = 600, weighing 700 - 150 =
+    # 550: 330 000, a walk of 4 s, and (151 - 150) * 10^9; the television with a full habit
+    # (1000 -> 15 000): fun 200 * 200 = 40 000, 3 s, + 15 000. The table wins.
+    table = 550 * 600 - 50 * 4 + 1 * PER_CRITICAL_POINT
+    tv = 200 * 200 - 50 * 3 + habit_points(1000)
+    assert (table, tv) == (1_000_329_800, 54_850) and table > tv
+    # A habit tips a close choice: at the morning values the television and the bookshelf tie at
+    # 39 850, below 40 000 (idle); a habit of 100 on the bookshelf (1500) lifts it to 41 350.
+    assert 39_850 + habit_points(100) == 41_350
+    print("leaning rows at 07:00 of day 2 with the habit at 160:", lean)
 
     # --- Niche (7) -------------------------------------------------------------------------
     # lead 300 -> 20 * 300 = 6000; lead 600 -> 12000 clamped to 10000; lead -5 -> -100 -> 0.

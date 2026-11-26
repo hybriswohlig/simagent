@@ -738,6 +738,7 @@ export const CODES: { readonly [code: string]: string } = {
   "payload core:felt": "{0} fühlt etwas",
   "payload core:developed": "{0} wächst daran",
   "payload core:practiced": "{0} wird geübter",
+  "payload core:leaning": "{0} folgt einer Gewohnheit",
   "shock core:hunger_one_year": "Ein Hungerjahr kommt: Jahr {first}.",
   "shock core:hunger_three_years": "Drei Hungerjahre kommen: Jahre {first} bis {last}.",
   "cause event": "Folge eines Ereignisses",

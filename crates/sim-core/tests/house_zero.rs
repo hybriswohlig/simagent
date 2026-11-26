@@ -1233,6 +1233,7 @@ fn getting_up_needs_energy_above_0() {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     assert_eq!(stand_up(&lying(six - 72), &rules, born), Some(t(six)));
     assert_eq!(

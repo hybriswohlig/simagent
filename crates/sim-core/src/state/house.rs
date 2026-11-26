@@ -262,6 +262,7 @@ pub(super) fn start_day(
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     domain.house.sims.insert(sim, person);
     plan_crossings(domain, data, sim, entry, ctx);

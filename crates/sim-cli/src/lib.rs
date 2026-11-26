@@ -680,9 +680,10 @@ fn places_taken(
 /// choice raised also when the choice waits for a taken object: what the offer it waits for
 /// raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page). For the person's latest
 /// choice in the log, `latest`, its reserve at the clock as the house answer gives it (version 9,
-/// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `bonus(object)` is that
-/// furniture's company minus its avoid, from the choice's `core:company` entry, outside the mood;
-/// 0 where that entry has no row for it (ADR-0030 section 4). `company` names those rows and the
+/// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `bonus(object, offer)` is that
+/// furniture's company minus its avoid, from the choice's `core:company` entry, plus the offer's
+/// habit and niche from its `core:leaning` entry, outside the mood; 0 where those entries have no
+/// row for it (ADR-0030 section 4, ADR-0033 section 7). `company` names those rows and the
 /// bond and belief lines the avoid step is read from (version 10, ADR-0031 section 5).
 /// `temper` is that person's temper at the choice, and each company row names the unscaled
 /// company beside the logged one (version 11, ADR-0032 section 7). `None` for any other entry.
@@ -692,7 +693,7 @@ pub fn why_answer(
     id: u64,
     latest: bool,
     ended: Option<Ended<'_>>,
-    bonus: impl Fn(u16) -> i64,
+    bonus: impl Fn(u16, u16) -> i64,
     company: social_view::CompanyAt<'_>,
 ) -> Result<Option<serde_json::Value>, CliError> {
     use sim_core::house::choice::ENOUGH;
@@ -1141,7 +1142,7 @@ fn waited_offer(
         tier,
         leaves: departure(houses.day(), born, || work_draw(seed, key), entry.t),
     };
-    let scored = scored_offers(world, (house, houses), &choice, |_| 0)?;
+    let scored = scored_offers(world, (house, houses), &choice, |_, _| 0)?;
     let of_it: Vec<sim_core::house::choice::Scored> = (scored.into_iter())
         .filter(|scored| scored.object == *waited)
         .collect();
@@ -1250,7 +1251,7 @@ struct ChoiceAt<'a> {
 
 /// The points of every offer open in `choice` recomputed with `house::choice::score` from its
 /// room and needs and the person's age and night in its second, each with the person's mood
-/// for it then (none for a command), plus `bonus(object)` outside the mood, the most first (a tie
+/// for it then (none for a command), plus `bonus(object, offer)` outside the mood, the most first (a tie
 /// to the smaller object, then offer).
 fn scored_offers(
     world: &World,
@@ -1259,7 +1260,7 @@ fn scored_offers(
         &sim_core::house::data::HouseData,
     ),
     choice: &ChoiceAt<'_>,
-    bonus: impl Fn(u16) -> i64,
+    bonus: impl Fn(u16, u16) -> i64,
 ) -> Result<Vec<sim_core::house::choice::Scored>, CliError> {
     use sim_core::house::choice::{Bonus, age, mood, score};
     use sim_core::house::day::night;
@@ -1283,8 +1284,8 @@ fn scored_offers(
     let depart_in = choice.leaves.map(|leaves| (leaves - choice.at).as_secs());
     let values = (age, choice.needs, choice.room);
     // The company in `core:company` is the temper's scaled value already (ADR-0032 section 5), so
-    // the net the entry gives goes in at temper 0, which scales nothing.
-    let net = |object| Bonus::company(bonus(object));
+    // the net the entries give goes in at temper 0, which scales nothing.
+    let net = |object, offer| Bonus::company(bonus(object, offer));
     let mut scored = score(house, houses, values, (left, depart_in), moods, 0, net);
     scored.sort_by_key(|scored| {
         (
@@ -1439,7 +1440,7 @@ fn compared_now(
         tier: &tier,
         leaves,
     };
-    let scored = scored_offers(world, (house, houses), &choice, |_| 0)?;
+    let scored = scored_offers(world, (house, houses), &choice, |_, _| 0)?;
     let mut offers = offer_values(house, houses, &choice, &scored, age)?;
     offers.extend(departure_closed(house, houses, &choice, age)?);
     Ok(Some(

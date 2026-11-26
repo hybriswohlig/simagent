@@ -678,10 +678,11 @@ fn log_kind(payload: &LogPayload) -> &'static str {
         LogPayload::Felt { .. } => "core:felt",
         LogPayload::Developed { .. } => "core:developed",
         LogPayload::Practiced { .. } => "core:practiced",
+        LogPayload::Leaning { .. } => "core:leaning",
     }
 }
 
-const LOG_KINDS: [&str; 48] = [
+const LOG_KINDS: [&str; 49] = [
     "core:started",
     "core:founder_added",
     "core:birthday",
@@ -730,10 +731,11 @@ const LOG_KINDS: [&str; 48] = [
     "core:felt",
     "core:developed",
     "core:practiced",
+    "core:leaning",
 ];
 
 /// The entries of the house: no golden scenario moves in yet (ADR-0024).
-const HOUSE_LOGS: [&str; 31] = [
+const HOUSE_LOGS: [&str; 32] = [
     "core:moved_in",
     "core:moved_out",
     "core:day_started",
@@ -765,6 +767,7 @@ const HOUSE_LOGS: [&str; 31] = [
     "core:felt",
     "core:developed",
     "core:practiced",
+    "core:leaning",
 ];
 
 /// The kinds that a run did not exercise (ADR-0003 6.3).
@@ -867,7 +870,8 @@ fn golden_scenarios_cover_every_kind() {
             "log core:refuted",
             "log core:felt",
             "log core:developed",
-            "log core:practiced"
+            "log core:practiced",
+            "log core:leaning"
         ],
         "the dummy run has no override, no shock, no boost and no pool, its switch is off, \
          its only disease begins at birth, no partnership ends by separation, and nobody \
@@ -923,7 +927,7 @@ fn the_coverage_lists_match_the_code_registries() {
         .map(|(_, name)| name)
         .collect();
     assert_eq!(logs, LOG_KINDS);
-    assert_eq!(logs.len(), 48);
+    assert_eq!(logs.len(), 49);
 }
 
 /// Each required kind is really required: a run that lacks exactly one of them is
@@ -1047,7 +1051,8 @@ fn the_coverage_check_reports_missing_kinds() {
             "log core:refuted",
             "log core:felt",
             "log core:developed",
-            "log core:practiced"
+            "log core:practiced",
+            "log core:leaning"
         ]
     );
 }

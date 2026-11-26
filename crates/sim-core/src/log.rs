@@ -435,6 +435,27 @@ pub enum LogPayload {
         hours: u64,
         level_milli: i64,
     },
+    /// A choice by day weighed a habit on some offer (ADR-0033 section 7). Written after
+    /// `core:company` and before `core:action_started` or `core:idle`, only when some offer has
+    /// a bonus. `rows` is ascending by object, then offer.
+    #[serde(rename = "core:leaning")]
+    Leaning { rows: Vec<Leaning> },
+}
+
+/// One offer a choice gave a bonus for what the person is used to (ADR-0033 section 7): `habit`
+/// the points of its habit at the quarter of the choice, `15 · strength`. `niche` the points of
+/// the lead in `skill` over the sibling `sibling` by `lead_milli`; 0 and none while the choice
+/// weighs no niche. Both add to the offer's points outside the mood.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Leaning {
+    pub object: u16,
+    pub offer: u16,
+    pub habit: i64,
+    pub niche: i64,
+    pub skill: Option<Skill>,
+    pub sibling: Option<SimId>,
+    pub lead_milli: Option<i64>,
 }
 
 /// One sociable furniture a choice weighed (ADR-0030 section 4). `avoid` is positive and is

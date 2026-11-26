@@ -7,6 +7,7 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sim_core::data_id::DataId;
+use sim_core::habit;
 use sim_core::house::data::{HouseData, NEEDS, Need};
 use sim_core::house::need::NeedSample;
 use sim_core::house::reserve::Reserve;
@@ -140,6 +141,7 @@ fn person(place: Place, action: Option<Action>) -> InHouse {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     }
 }
 
@@ -156,6 +158,7 @@ fn legal() -> HouseState {
         filler: false,
         commanded: false,
         reached: None,
+        quarter: 1,
     };
     let fridge = Action {
         object: 1,
@@ -164,6 +167,7 @@ fn legal() -> HouseState {
         filler: false,
         commanded: false,
         reached: None,
+        quarter: habit::quarter(t(NOW - 3)),
     };
     let walk = Place::Walking {
         from: 2,
@@ -458,6 +462,7 @@ fn places_and_actions_are_checked() {
                 filler: false,
                 commanded: false,
                 reached: None,
+                quarter: habit::quarter(t(NOW - 3)),
             });
             one.needs[4] = fun_since(if object == 3 { 400 } else { 300 });
             s.waits.clear();
@@ -513,12 +518,17 @@ fn holds_and_choices_are_checked() {
 fn walks_and_rates_are_checked() {
     let walk = |choices: Option<&[u64]>, depart: i64, arrive: i64| {
         checked_after(&houses(), choices, move |s| {
-            in_house(s, 3).place = Place::Walking {
+            let walker = in_house(s, 3);
+            walker.place = Place::Walking {
                 from: 2,
                 to: 1,
                 depart: t(depart),
                 arrive: t(arrive),
             };
+            // Chosen as the walk began (ADR-0033 section 7).
+            if let Some(action) = walker.action.as_mut() {
+                action.quarter = habit::quarter(t(depart));
+            }
         })
     };
     assert_eq!(walk(None, NOW - 1, NOW + 6), Ok(()));
@@ -559,6 +569,7 @@ fn walks_and_rates_are_checked() {
             filler: false,
             commanded: false,
             reached: None,
+            quarter: 2,
         });
         let rates = [-40, 85, -40, -10, 0];
         for (at, need) in one.needs.iter_mut().enumerate() {
@@ -589,6 +600,7 @@ fn walks_and_rates_are_checked() {
             filler: false,
             commanded: false,
             reached: None,
+            quarter: habit::quarter(t(depart)),
         });
         drained_by(&mut state, depart + 3);
         consistent(&state, Some(&houses()), t(depart + 3), None, alive, member)
@@ -623,6 +635,7 @@ fn away_due_and_decisions_are_checked() {
             filler: false,
             commanded: false,
             reached: None,
+            quarter: 2,
         });
     });
     assert_eq!(busy, Err(Broken::AwayBusy));
@@ -767,6 +780,7 @@ fn one_lying_is_checked() {
             filler: false,
             commanded: false,
             reached: None,
+            quarter: 2,
         });
     });
     assert_eq!(busy, Err(Broken::Collapse));
@@ -818,6 +832,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 filler: false,
                 commanded: false,
                 reached: None,
+                quarter: habit::quarter(t(NOW - 6)),
             });
             one.needs[3] = NeedSample::new(140, t(NOW - 600), -30);
             // Hunger 100 now: her hunger at 0 now would drain the reserve from a change of rates
@@ -869,6 +884,7 @@ fn a_waiting_departure_keeps_what_a_need_at_0_writes() {
                 filler: false,
                 commanded: false,
                 reached: None,
+                quarter: 2,
             });
             one.needs[3] = NeedSample::new(100, t(NOW - 300), 2_800);
             one.needs[0] = NeedSample::new(700, t(NOW - 6 * 3_600), -100);
@@ -1160,6 +1176,7 @@ fn a_bed_a_young_child_holds_is_checked() {
         filler: false,
         commanded: false,
         reached: None,
+        quarter: 2,
     });
     let houses = houses();
     let check = |now: i64, young: usize| {
@@ -1312,6 +1329,7 @@ fn the_reserve_is_written_when_a_run_writes_it() {
                 filler: false,
                 commanded: false,
                 reached: None,
+                quarter: 2,
             });
             two.needs = needs();
             two.needs[0] = NeedSample::new(300, t(NOW - 60), 1_800);
@@ -1593,6 +1611,7 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
                 filler: true,
                 commanded: false,
                 reached: None,
+                quarter: 2,
             }),
             due: None,
             decisions: Decisions {
@@ -1604,6 +1623,7 @@ fn a_time_filler_after_a_walk_twice_as_long_needs_its_band() {
             talk_day: 0,
             talks: 0,
             entries: 0,
+            habits: Vec::new(),
         };
         let state = HouseState {
             households: BTreeMap::from([(

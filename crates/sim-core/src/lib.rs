@@ -25,6 +25,7 @@ pub mod fertility;
 pub mod finite;
 pub mod genome;
 pub mod growth;
+pub mod habit;
 pub mod hash;
 pub mod hex_u64;
 pub mod house;

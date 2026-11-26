@@ -260,7 +260,7 @@ pub fn week(data: Data, start: Start, households: usize) -> Result<Option<(Count
             (left, None),
             moods,
             0,
-            |_| Bonus::NONE,
+            |_, _| Bonus::NONE,
         )
         .len();
         counted.most_offers = counted.most_offers.max(weighed);

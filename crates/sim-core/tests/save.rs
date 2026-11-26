@@ -14,6 +14,7 @@ use sim_core::data::{Data, ShockKind, ShockTemplate};
 use sim_core::data_id::DataId;
 use sim_core::finite::FiniteF64;
 use sim_core::genome::Sex;
+use sim_core::habit;
 use sim_core::house::choice::mood;
 use sim_core::input::{ForkOverride, Founder, Input, Start, TriggerShock};
 use sim_core::lineage::LineageKey;
@@ -489,7 +490,9 @@ type QueueEntry = (i64, u16, u64, Payload, Option<i64>);
 /// at, rate, energy extra; the addendum of 2026-11-06 on hunger at 0), `DERIVED` for the one her
 /// needs and what she does give (`derived`). An action at its object reached it when the first
 /// need its offer sets was written down (`Action::reached`, ADR-0033 section 6): in these saves
-/// the last second a need was written down; one on the way has not reached it.
+/// the last second a need was written down; one on the way has not reached it. Its quarter of the
+/// day (ADR-0033 section 7) is that of its walk's start, at its object that of its arrival. No
+/// habits.
 #[derive(Clone)]
 struct TestInHouse {
     needs: [(u16, i64, i32); 5],
@@ -504,13 +507,17 @@ struct TestInHouse {
     entries: u16,
 }
 
+/// An action as the save holds it: (object, offer, place, time-filler, commanded, the second it
+/// reached its object, the quarter of the day it was chosen in).
+type WireAction = (u16, u16, u8, bool, bool, Option<i64>, u8);
+
 /// [`TestInHouse`] in the field order of [`sim_core::house::state::InHouse`], the action with the
 /// second it reached its object.
 #[derive(Serialize)]
 struct WireInHouse<'a> {
     needs: &'a [(u16, i64, i32); 5],
     place: &'a TestPlace,
-    action: Option<(u16, u16, u8, bool, bool, Option<i64>)>,
+    action: Option<WireAction>,
     due: &'a Option<(u8, i64, i64)>,
     decisions: &'a (i64, u16),
     collapsed: bool,
@@ -518,6 +525,7 @@ struct WireInHouse<'a> {
     talk_day: i64,
     talks: u16,
     entries: u16,
+    habits: Vec<(String, u16, u8, u16, i64)>,
 }
 
 impl Serialize for TestInHouse {
@@ -529,8 +537,13 @@ impl Serialize for TestInHouse {
             TestPlace::Room(_) => last,
             _ => None,
         };
+        let begun = match self.place {
+            TestPlace::Walking { depart, .. } => Some(depart),
+            _ => reached,
+        };
+        let quarter = habit::quarter(SimTime::from_secs(begun.unwrap_or(0)));
         let action = (self.action.as_ref()).map(|TestAction(object, offer, slot, filler, told)| {
-            (*object, *offer, *slot, *filler, *told, reached)
+            (*object, *offer, *slot, *filler, *told, reached, quarter)
         });
         WireInHouse {
             needs: &self.needs,
@@ -543,6 +556,7 @@ impl Serialize for TestInHouse {
             talk_day: self.talk_day,
             talks: self.talks,
             entries: self.entries,
+            habits: Vec::new(),
         }
         .serialize(serializer)
     }

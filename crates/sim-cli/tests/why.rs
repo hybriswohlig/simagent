@@ -101,22 +101,32 @@ fn why_recomputes_the_choice() {
             LogPayload::ActionStarted { filler: true, .. }
         );
         let ended = end.filter(|_| filled);
-        let bonus = |object: u16| -> i64 {
-            let Some(LogPayload::Company { objects }) = (log[..at].iter())
+        // The same person's entries of the same second before the choice, the latest first.
+        let before = || {
+            (log[..at].iter())
                 .rev()
-                .find(|other| {
-                    other.t == entry.t
-                        && other.subjects == entry.subjects
-                        && matches!(other.payload, LogPayload::Company { .. })
-                })
-                .map(|other| &other.payload)
-            else {
-                return 0;
-            };
-            (objects.iter())
-                .find(|row| row.object == object)
-                .map(|row| row.company - row.avoid)
-                .unwrap_or(0)
+                .take_while(|other| other.t == entry.t)
+                .filter(|other| other.subjects == entry.subjects)
+        };
+        let bonus = |object: u16, offer: u16| -> i64 {
+            let company = before().find_map(|other| match &other.payload {
+                LogPayload::Company { objects } => Some(
+                    (objects.iter())
+                        .find(|row| row.object == object)
+                        .map_or(0, |row| row.company - row.avoid),
+                ),
+                _ => None,
+            });
+            // What it is used to (ADR-0033 section 7).
+            let leaning = before().find_map(|other| match &other.payload {
+                LogPayload::Leaning { rows } => Some(
+                    (rows.iter())
+                        .find(|row| (row.object, row.offer) == (object, offer))
+                        .map_or(0, |row| row.habit + row.niche),
+                ),
+                _ => None,
+            });
+            company.unwrap_or(0) + leaning.unwrap_or(0)
         };
         let company_rows = match (log[..at].iter())
             .rev()

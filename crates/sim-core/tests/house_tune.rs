@@ -18,6 +18,7 @@ use common::day::{self, MORNING, Run, number, places_hold};
 use serde_json::json;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
+use sim_core::habit;
 use sim_core::house::choice::{
     Bonus, ENOUGH, crosses_departure, filler, lasts, mood, next_choice, score,
 };
@@ -94,7 +95,7 @@ fn a_need_weighs_from_its_comfort() {
             (None, None),
             no_mood,
             0,
-            |_| Bonus::NONE,
+            |_, _| Bonus::NONE,
         )
     };
     let hungry = |hunger: u16| [hunger, 1000, 1000, 1000, 1000];
@@ -414,6 +415,7 @@ fn a_time_filler_ends_at_its_length_the_departure_bedtime_or_after_four_hours() 
             filler: true,
             commanded: false,
             reached: Some(t(begun)),
+            quarter: habit::quarter(t(begun)),
         }),
         due: None,
         decisions: sim_core::house::state::Decisions { day: 1, count: 1 },
@@ -423,6 +425,7 @@ fn a_time_filler_ends_at_its_length_the_departure_bedtime_or_after_four_hours() 
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     let fun = |mut person: InHouse, begun: i64| {
         person.needs[4] = NeedSample::new(800, t(begun), 100);
@@ -679,7 +682,7 @@ fn an_offer_that_runs_into_the_departure_is_closed() {
             (None, depart_in),
             no_mood,
             0,
-            |_| Bonus::NONE,
+            |_, _| Bonus::NONE,
         )
         .iter())
         .map(|scored| scored.object)
@@ -744,6 +747,7 @@ fn the_departure_closes_a_toilet_by_its_end_after_the_walk() {
             filler: false,
             commanded: false,
             reached: Some(arrived),
+            quarter: habit::quarter(chosen),
         }),
         due: None,
         decisions: sim_core::house::state::Decisions { day: 1, count: 1 },
@@ -753,6 +757,7 @@ fn the_departure_closes_a_toilet_by_its_end_after_the_walk() {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     person.needs[2] = falling.with_rate(arrived, 12_000);
     let born = t(-30 * Y);
@@ -1218,6 +1223,7 @@ fn a_walk_into_the_night_saved_on_its_way_runs_on_the_same() {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     let (houses, house) = tune_house(&data);
     let who = (t(-70 * Y), key, 7);
@@ -1435,6 +1441,8 @@ fn a_time_filler_at_an_offer_that_is_none_is_refused() {
         filler: true,
         commanded: false,
         reached: first,
+        // Chosen at 6:05, the second quarter of the day.
+        quarter: 1,
     });
     woman.place = Place::Room(0);
     let refused = consistent(&house, data.houses(), now, None, alive, member);
