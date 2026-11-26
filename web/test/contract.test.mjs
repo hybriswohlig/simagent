@@ -8,7 +8,7 @@ import { BODY_CONTRACT_VERSION } from "../dist/generated/body.js";
 
 test("the same stage, the same or older version, is readable", () => {
   assert.equal(readable(BODY_CONTRACT_VERSION), true);
-  for (const [data, own] of [["0.1.0", "0.1.2"], ["0.1.2", "0.1.2"], ["1.0.0", "1.3.0"], ["1.2.9", "1.3.0"]]) {
+  for (const [data, own] of [["0.1.0", "0.1.2"], ["0.1.2", "0.1.2"], ["0.1.2", "0.1.3"], ["0.1.3", "0.1.3"], ["1.0.0", "1.3.0"], ["1.2.9", "1.3.0"]]) {
     assert.equal(readable(data, own), true, `${data} by ${own}`);
   }
 });
@@ -16,6 +16,7 @@ test("the same stage, the same or older version, is readable", () => {
 test("a newer version, another stage or no version is refused", () => {
   for (const [data, own] of [
     ["0.1.3", "0.1.2"],
+    ["0.1.4", "0.1.3"],
     ["0.2.0", "0.1.9"],
     ["0.1.0", "0.2.0"],
     ["2.0.0", "1.9.9"],
