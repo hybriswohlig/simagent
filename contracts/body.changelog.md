@@ -3,6 +3,14 @@
 Ein Abschnitt pro `contract_version` (ADR-0005 Abschnitt 7), der neueste oben, jeweils
 mit den Einträgen Neu, Geändert und Stillgelegt.
 
+## 0.1.2
+
+- Neu: `hair_strand_thickness` (Haarstärke, Standard 0,5) und `hair_dryness` (Trockenheit,
+  Standard 0,3) in der Gruppe `hair` nach `hair_curl`, Einheit `fraction`, Bereich 0 bis 1,
+  `stable` (ADR-0034 Abschnitt 3).
+- Geändert: nichts.
+- Stillgelegt: nichts.
+
 ## 0.1.1
 
 - Neu: nichts.

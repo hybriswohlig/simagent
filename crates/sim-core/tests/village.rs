@@ -43,8 +43,8 @@ const POOL: &[u8] = include_bytes!("../../../data/pool/pool.bin");
 const FREQUENCIES: &str = include_str!("../../../data/pool/pool_frequencies.json");
 
 // The data and the pool (the reference's `village_<seed>_config`).
-const DATA_HASH: u64 = 0xf5c6_0bfe_b2f1_cceb;
-const POOL_HASH: u64 = 0x12ec_62c5_7af2_a290;
+const DATA_HASH: u64 = 0x6b43_f872_efc1_daa1;
+const POOL_HASH: u64 = 0x20e1_34c2_1553_132b;
 const POOL_SEED: u64 = 0x11b0_19a2;
 const FROZEN_AT: i64 = 23_587_200_000;
 const CANDIDATE_WOMEN: usize = 5664;
@@ -180,10 +180,10 @@ const VILLAGES: [Village; 2] = [
     Village {
         seed: SEED_2_WORLD,
         chosen: &SEED_2,
-        start_input: (9833, 0x23b2_2173_712f_3af6),
+        start_input: (9833, 0x3a48_ed16_714b_c25a),
         entries: 161,
-        state_hash: 0x6693_2563_98d8_e2b2,
-        save: (24894, 0x84f1_a53e_6b46_7e67),
+        state_hash: 0x0e4b_02f2_fa2a_8b31,
+        save: (24893, 0x3a3b_5230_29b6_2093),
         kin: &[
             (9, 59, 1.0 / 256.0),
             (18, 61, 1.0 / 128.0),
@@ -201,10 +201,10 @@ const VILLAGES: [Village; 2] = [
     Village {
         seed: SEED_3_WORLD,
         chosen: &SEED_3,
-        start_input: (9839, 0xb36d_efa2_85c2_a593),
+        start_input: (9839, 0xa4b6_0573_a8e6_a377),
         entries: 161,
-        state_hash: 0x0cec_d85c_9c42_4bec,
-        save: (24923, 0xe70c_a329_8aa5_1421),
+        state_hash: 0xc063_6bc2_d5c8_5116,
+        save: (24922, 0x4aa8_5885_b182_3e68),
         kin: &[
             (6, 32, 1.0 / 128.0),
             (6, 50, 1.0 / 128.0),
@@ -355,122 +355,122 @@ const REJECTED: [Rejected; 16] = [
         "odd_n_start",
         28,
         "start_pool_village_n_start",
-        (9833, 0x477a_3a05_d5bf_5e37),
+        (9833, 0x5144_4f12_48e1_9d22),
         None,
     ),
     (
         "odd_n_start_no_households",
         28,
         "start_pool_village_n_start",
-        (54, 0x5af8_4f9c_914a_2f22),
+        (54, 0x7528_11b5_6b3e_9dc9),
         Some(
-            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c6167650100000001500190c5cad7d7d898f6124f000100",
+            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c61676501000000015001aba6ccaaa198cdf0204f000100",
         ),
     ),
     (
         "immigration_on",
         29,
         "start_pool_village_immigration",
-        (9833, 0xa249_a48c_9b5d_a523),
+        (9833, 0xc53b_0d1e_e4c3_247b),
         None,
     ),
     (
         "immigration_on_no_households",
         29,
         "start_pool_village_immigration",
-        (54, 0x58c0_881b_8c19_93ef),
+        (54, 0x1ee0_8314_9d16_26ba),
         Some(
-            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c6167650100000001500190c5cad7d7d898f61250010100",
+            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c61676501000000015001aba6ccaaa198cdf02050010100",
         ),
     ),
     (
         "odd_n_start_before_immigration",
         28,
         "start_pool_village_n_start",
-        (9833, 0xbde1_33b7_55c5_e970),
+        (9833, 0xf813_7c38_2a42_da95),
         None,
     ),
     (
         "n_start_0_before_village",
         26,
         "start_pool_n_start",
-        (54, 0x8069_6647_db96_7ea6),
+        (54, 0xf1be_a604_eb0f_0be5),
         Some(
-            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c6167650100000001500190c5cad7d7d898f61200000100",
+            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c61676501000000015001aba6ccaaa198cdf02000000100",
         ),
     ),
     (
         "too_few_candidates_n_start_11330",
         30,
         "start_pool_village_candidates",
-        (55, 0xd49f_cc84_401e_ca10),
+        (55, 0x5fe8_1a60_01ba_e7b6),
         Some(
-            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c6167650100000001500190c5cad7d7d898f612c258000100",
+            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c61676501000000015001aba6ccaaa198cdf020c258000100",
         ),
     ),
     (
         "immigration_before_candidates",
         29,
         "start_pool_village_immigration",
-        (55, 0xa796_8274_2925_089d),
+        (55, 0x9987_e50e_5fa4_0dcb),
         Some(
-            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c6167650100000001500190c5cad7d7d898f612c258010100",
+            "01010082808080c080c0f65e15636f72653a63726974657269615f76696c6c61676501000000015001aba6ccaaa198cdf020c258010100",
         ),
     ),
     (
         "men_first",
         27,
         "start_pool_households",
-        (9833, 0xa9a0_0aa4_adea_62e7),
+        (9833, 0xb23c_297f_cd45_f9c2),
         None,
     ),
     (
         "one_missing",
         27,
         "start_pool_households",
-        (9712, 0x97af_5db7_37ef_1cd2),
+        (9712, 0x25d3_bf6c_2dbc_6f0e),
         None,
     ),
     (
         "one_altered_leave_home",
         27,
         "start_pool_households",
-        (9834, 0x09cd_0f5d_3a87_c5c2),
+        (9834, 0xa8db_ff42_ee6c_33aa),
         None,
     ),
     (
         "record_unstruck_place_1_separation_at",
         27,
         "start_pool_households",
-        (9839, 0xf2d3_0a3b_7dfe_9246),
+        (9839, 0x816a_637c_5b6b_68bd),
         None,
     ),
     (
         "the_town_draw",
         27,
         "start_pool_households",
-        (10657, 0x0d0d_3ffa_624f_1c43),
+        (10657, 0xb1e6_b445_9d43_1785),
         None,
     ),
     (
         "another_seed",
         27,
         "start_pool_households",
-        (9839, 0xb4ca_a786_8712_63d1),
+        (9839, 0xfe77_7ec4_a277_de37),
         None,
     ),
     (
         "village_false_with_the_village_households",
         27,
         "start_pool_households",
-        (9833, 0xbc65_e3b8_ec9f_8fb0),
+        (9833, 0xeeeb_a034_463a_baae),
         None,
     ),
     (
         "decision_capacity_zero_before_pool",
         23,
         "capacity_zero",
-        (9833, 0xd3c5_d7e1_420e_7288),
+        (9833, 0xd1a3_6c86_f223_fff6),
         None,
     ),
 ];
@@ -585,40 +585,40 @@ fn a_village_start_is_rejected_as_the_reference_rejects_it() {
 // The village of seed 2 to the end of year 29 (the reference's `village_<seed>_run`).
 const RUN_END: i64 = 30 * Y - 1;
 const RUN_LOG: (usize, u64) = (2811, 0x0946_4c54_8a70_cd39);
-const RUN_SAVE_END: (usize, u64) = (30110, 0x3f2c_bdf9_8601_fce3);
-const RUN_STATE_HASH: u64 = 0x7bf3_f263_ead0_fbc0;
+const RUN_SAVE_END: (usize, u64) = (30109, 0x0f11_a6d1_ff53_0dfa);
+const RUN_STATE_HASH: u64 = 0x9716_1ce5_3d6c_dd75;
 const RUN_ARCHIVED: u64 = 28;
 const RUN_YEAR_HASHES: [u64; 30] = [
-    0xf51a_b459_98fb_f6d5,
-    0x2f36_6050_d376_dd75,
-    0x324d_9c6f_ceeb_4b15,
-    0x5a3c_b253_f787_d253,
-    0x8313_f1c9_c480_2890,
-    0x05fe_19cf_c147_102a,
-    0x75c1_2d7a_00b3_9a35,
-    0xfdf7_8729_312b_651b,
-    0x9829_f2c9_94a9_e75d,
-    0x21c4_243f_8a20_e7aa,
-    0x604c_f655_b6f2_27a2,
-    0xff45_ed73_bda6_082b,
-    0xac6e_faab_540e_1091,
-    0x405b_bbba_92db_84f0,
-    0xecb0_dd48_1e0a_bdcd,
-    0x98cd_2928_34e3_c699,
-    0x50bd_971c_5388_4d48,
-    0x57df_f3e1_9fb7_8025,
-    0x8806_7bf6_6134_bbad,
-    0xec0d_6036_d0b2_2509,
-    0x4e28_21f0_cf4c_f508,
-    0xea73_b164_dd56_b195,
-    0x1559_6acc_f123_8129,
-    0xcdd5_8186_fb3d_9b82,
-    0x35d6_e331_667b_9115,
-    0xee07_38ad_995f_4d3e,
-    0x67b3_4289_38a7_2e16,
-    0x7dd0_0d6b_399f_bc08,
-    0x9b54_a2cf_c5b4_30b9,
-    0x8ffa_bc06_2928_be70,
+    0xbdf0_f8a1_7925_add6,
+    0xc17e_d8aa_773b_d77e,
+    0x68e2_49cd_fb16_9179,
+    0xcd82_f9f4_d89a_e63b,
+    0xfd62_3113_20e9_7cee,
+    0xd4ea_87dc_2fee_f5f7,
+    0x870c_ebc5_6775_e726,
+    0xec0b_c756_1b7b_7257,
+    0x07cf_7acd_30d2_a607,
+    0x0330_e9eb_1e8a_2118,
+    0xa472_71a8_61d7_72f7,
+    0x969c_0be0_fc33_38d2,
+    0x0deb_bf60_836c_8a2d,
+    0x7857_b089_d68a_aaeb,
+    0x838d_5e68_f074_b7a2,
+    0xf470_2270_7a3d_b311,
+    0x6098_b6c5_906d_f06a,
+    0x8448_bc1d_dc66_e07a,
+    0x5a40_83d7_8648_c388,
+    0xc4bc_1c91_2106_a142,
+    0xf9f8_4617_a3ab_7ce8,
+    0x57f6_e94f_36a3_cc6a,
+    0x1616_a484_9ad4_9a3b,
+    0x38bc_c304_bc51_8000,
+    0xe15b_63b2_74ba_d78b,
+    0x2e3e_c240_25c7_f381,
+    0x071c_b41d_9adc_eefb,
+    0x134d_6ab1_5d0d_9935,
+    0x5298_9b2a_976a_2e99,
+    0x1686_666b_e457_8007,
 ];
 /// The living at the end of each year.
 const RUN_LIVING: [u64; 30] = [
@@ -643,9 +643,9 @@ type Hunk = (usize, usize, &'static str);
 /// The save of year 9 as (length, xxh3), the hunks of the reference's forged save and that
 /// save.
 const VILLAGE_MOVED_IN: ((usize, u64), &[Hunk], (usize, u64)) = (
-    (28525, 0xd71d_df06_9ef7_a65d),
-    &[(8697, 1, "01"), (14571, 1, "01fecff6ab02")],
-    (28530, 0x3402_44f0_fe1f_072c),
+    (28527, 0x77c9_01a5_b68f_44c6),
+    &[(8696, 1, "01"), (14570, 1, "01fecff6ab02")],
+    (28532, 0x4911_becd_e576_dbff),
 );
 
 /// The village of seed 2 over 30 years (`K` = 80): the year hashes, the living at each year

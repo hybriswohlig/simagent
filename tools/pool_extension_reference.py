@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""Load-time extension of the founder pool (ADR-0033 section 2, decisions 5 and 6).
+"""Load-time extension of the founder pool (ADR-0033 section 2, decisions 5 and 6; ADR-0034
+section 2).
 
-The frozen pool file is not rewritten. When the genome map declares the five temperament
-traits, every pool genome gains their 40 additive autosomal loci. A genome with no parent
-among the living pool members draws both copies independently (`POOL_ALLELE`, pool seed,
-subject the genome key, occasion `str_key` of the locus, detail the copy 0 or 1,
+The frozen pool file is not rewritten. The extensions are an ordered table
+(`data_reference.EXTENSIONS`): temperament (map 5, the five traits' 40 additive autosomal
+loci) and hair (map 6, the two loci of `core:hair_thickness`, `core:hair_thickness_01` at
+segment 0 slot 17 and `_02` at segment 1 slot 19, after the 40). A map declares a prefix of
+the table; every pool genome gains the loci of its declared extensions. A genome with no
+parent among the living pool members draws both copies independently (`POOL_ALLELE`, pool
+seed, subject the genome key, occasion `str_key` of the locus, detail the copy 0 or 1,
 `unit(key) < 0.5`). Otherwise each living parent transmits one copy by the same Mendelian
 draw as `assign_locus` (addressed by the child's genome key, the locus and the copy); a
 missing parent's copy is drawn independently at p = 0.5. Order: living members by
 `(born, lineage_key)`, then unborn children by the mother's pending birth (`birth_at`)
 and the child's lineage key. Identical twins share a genome key, so they draw the same
-alleles. Applying the extension twice changes nothing. Slots other than the 40 stay as
-they are.
+alleles. Applying the extension twice changes nothing. Slots other than the new ones stay as
+they are. Every draw is per locus, so the 40 temperament alleles are the same bits whether
+the hair loci are written or not (asserted on the real pool).
 
-The reference values of each trait (`d_ref` 1, `sigma_ref` 2, `mean_ref` 0) are the exact
-parameters of the Hardy-Weinberg distribution at p = 0.5 (`Var(A) = 8 · 2p(1-p) = 4`), an
-exception to measuring them. This script does not measure.
+The reference values of each temperament trait (`d_ref` 1, `sigma_ref` 2, `mean_ref` 0) and
+of `core:hair_thickness` (`d_ref` 1, `sigma_ref` 1, `mean_ref` 0) are the exact parameters of
+the Hardy-Weinberg distribution at p = 0.5 (`Var(A) = n · 2p(1-p)` for n loci), an exception
+to measuring them. This script does not measure.
 
 Usage:
   python tools/pool_extension_reference.py fixture
@@ -25,6 +31,7 @@ Usage:
 import sys
 from pathlib import Path
 
+import data_reference
 import pool_reference
 import world_reference
 from rng_reference import chacha_key, founder_key, str_key, unit, words
@@ -39,84 +46,45 @@ FREQUENCY_BOUND = 0.01
 MENDELIAN_GENOMES = 29_942
 POOL_GENOMES = 40_418
 
-# Ordinal among the five new traits only (ascending data id). Locus i (from 0) goes to
-# segment (o * 3 + i) mod 8, at the smallest free slot of that segment. Each trait has
-# eight loci, so it hits every segment once and the min-distance branch never fires.
-TRAITS = (
-    "core:agreeableness",
-    "core:conscientiousness",
-    "core:extraversion",
-    "core:neuroticism",
-    "core:openness",
-)
-# (id, segment, slot), placement against data/genetics/genome_map.json of map 4.
-LOCI = (
-    ("core:agreeableness_01", 0, 12),
-    ("core:agreeableness_02", 1, 14),
-    ("core:agreeableness_03", 2, 14),
-    ("core:agreeableness_04", 3, 11),
-    ("core:agreeableness_05", 4, 16),
-    ("core:agreeableness_06", 5, 11),
-    ("core:agreeableness_07", 6, 10),
-    ("core:agreeableness_08", 7, 13),
-    ("core:conscientiousness_01", 3, 13),
-    ("core:conscientiousness_02", 4, 17),
-    ("core:conscientiousness_03", 5, 12),
-    ("core:conscientiousness_04", 6, 11),
-    ("core:conscientiousness_05", 7, 14),
-    ("core:conscientiousness_06", 0, 13),
-    ("core:conscientiousness_07", 1, 15),
-    ("core:conscientiousness_08", 2, 15),
-    ("core:extraversion_01", 6, 12),
-    ("core:extraversion_02", 7, 15),
-    ("core:extraversion_03", 0, 14),
-    ("core:extraversion_04", 1, 16),
-    ("core:extraversion_05", 2, 16),
-    ("core:extraversion_06", 3, 14),
-    ("core:extraversion_07", 4, 18),
-    ("core:extraversion_08", 5, 13),
-    ("core:neuroticism_01", 1, 17),
-    ("core:neuroticism_02", 2, 17),
-    ("core:neuroticism_03", 3, 15),
-    ("core:neuroticism_04", 4, 19),
-    ("core:neuroticism_05", 5, 14),
-    ("core:neuroticism_06", 6, 13),
-    ("core:neuroticism_07", 7, 16),
-    ("core:neuroticism_08", 0, 15),
-    ("core:openness_01", 4, 20),
-    ("core:openness_02", 5, 15),
-    ("core:openness_03", 6, 14),
-    ("core:openness_04", 7, 17),
-    ("core:openness_05", 0, 16),
-    ("core:openness_06", 1, 18),
-    ("core:openness_07", 2, 18),
-    ("core:openness_08", 3, 16),
-)
-OCCASION = {locus_id: str_key(locus_id) for locus_id, _, _ in LOCI}
-NEW_BITS = {(segment, slot) for _, segment, slot in LOCI}
-# Extended file bytes keyed by xxh3 of the raw file, so one process extends a pool once.
+# The extensions' loci as (id, chromosome, segment, slot), from the table of
+# data_reference: the 40 temperament loci (map 5), then the two hair loci (map 6). Their
+# placement is asserted against the rule of ADR-0020 section 1 there (`check_placements`).
+TEMPERAMENT_LOCI = data_reference.EXTENSIONS[0].loci
+HAIR_LOCI = data_reference.EXTENSIONS[1].loci
+LOCI = TEMPERAMENT_LOCI
+MAP6_LOCI = TEMPERAMENT_LOCI + HAIR_LOCI
+assert [locus[0] for locus in HAIR_LOCI] == ["core:hair_thickness_01", "core:hair_thickness_02"]
+assert [locus[2:] for locus in HAIR_LOCI] == [(0, 17), (1, 19)]
+OCCASION = {locus_id: str_key(locus_id) for locus_id, _, _, _ in MAP6_LOCI}
+# The checksum of the 40 temperament alleles of the real pool (the regression value of the
+# map-5 extension, ADR-0034 section 2): unchanged when the hair loci are added.
+TEMPERAMENT_CHECKSUM = 0x7151A1C895A73F91
+# Extended file bytes keyed by (xxh3 of the raw file, the loci with their places), so one
+# process extends a pool once per set of loci.
 _EXTENDED_BYTES = {}
 
 
 def declares_temperament(locus_ids) -> bool:
     """True when every temperament locus id is present. `locus_ids` is a set of ids or a
     dict keyed by id."""
-    return all(locus_id in locus_ids for locus_id, _, _ in LOCI)
+    return all(locus_id in locus_ids for locus_id, _, _, _ in TEMPERAMENT_LOCI)
 
 
-def extended_bytes(raw: bytes) -> bytes:
-    """The pool file with the temperament loci written, cached by the raw file's hash.
+def extended_bytes(raw: bytes, loci=LOCI) -> bytes:
+    """The pool file with the loci `loci` ((id, chromosome, segment, slot), the declared
+    extensions' loci in table order) written, cached by the raw file's hash and the loci.
 
-    The file on disk is not rewritten. A second call with the same bytes returns the
-    cached encoding. The extension is idempotent, so extending an already extended
-    encoding yields the same bytes.
+    The file on disk is not rewritten. A second call with the same bytes and loci returns the
+    cached encoding. The extension is idempotent, so extending an already extended encoding
+    yields the same bytes.
     """
-    key = world_reference.hash64(raw)
+    loci = tuple(tuple(locus) for locus in loci)
+    key = (world_reference.hash64(raw), loci)
     found = _EXTENDED_BYTES.get(key)
     if found is not None:
         return found
     pool = pool_reference.read_pool(raw)
-    extend_pool(pool)
+    extend_pool(pool, loci)
     encoded = pool_reference.encode_pool(pool)
     _EXTENDED_BYTES[key] = encoded
     return encoded
@@ -195,13 +163,22 @@ def iter_genomes(pool: dict):
         yield child, mother, father
 
 
-def extend_pool(pool: dict) -> dict:
-    """Writes the 40 loci into every genome. Returns counts for the report.
+def extend_pool(pool: dict, loci=LOCI) -> dict:
+    """Writes `loci` ((id, chromosome, segment, slot), autosomal) into every genome. Returns
+    counts for the report: `allele_checksum` over every new copy (per genome, per locus in
+    the order of `loci`, per copy), and `checksums` per extension of the table over its loci
+    alone in the same order (`allele_bytes` holds those bytes).
 
     A parent transmits only when its lineage key is a living member already visited.
     That is `assign_locus`: the assigned map holds the living people in birth order,
     and a parent who is not among them (dead, emigrated, or not yet visited) is missing.
     """
+    assert all(chromosome == "autosome" for _, chromosome, _, _ in loci)
+    groups = {
+        extension.name: {locus[0] for locus in extension.loci}
+        for extension in data_reference.EXTENSIONS
+        if any(locus[0] in {own[0] for own in extension.loci} for locus in loci)
+    }
     living = {person["lineage_key"] for household in pool["households"] for person in household["members"]}
     assigned = {}
     by_genome_key = {}
@@ -209,6 +186,7 @@ def extend_pool(pool: dict) -> dict:
     alt = 0
     copies = 0
     allele_bytes = bytearray()
+    group_bytes = {name: bytearray() for name in groups}
     for person, mother_key, father_key in iter_genomes(pool):
         mother_genome = assigned.get(mother_key) if mother_key in living else None
         father_genome = assigned.get(father_key) if father_key in living else None
@@ -218,7 +196,7 @@ def extend_pool(pool: dict) -> dict:
         # A genome key written before (an identical twin, whatever the order of birth
         # seconds and keys) gives its new alleles unchanged.
         first = by_genome_key.get(person["genome_key"])
-        for locus_id, segment, slot in LOCI:
+        for locus_id, _, segment, slot in loci:
             drawn = []
             for detail, parent in ((0, mother_genome), (1, father_genome)):
                 u = draw_unit(pool["pool_seed"], person["genome_key"], locus_id, detail)
@@ -231,6 +209,9 @@ def extend_pool(pool: dict) -> dict:
                     allele = parent_copies[0] if u < 0.5 else parent_copies[1]
                 drawn.append(allele)
                 allele_bytes.append(allele)
+                for name, ids in groups.items():
+                    if locus_id in ids:
+                        group_bytes[name].append(allele)
                 alt += allele
                 copies += 1
             genome = write_copies(genome, segment, slot, drawn)
@@ -238,17 +219,20 @@ def extend_pool(pool: dict) -> dict:
         by_genome_key.setdefault(person["genome_key"], genome)
         assigned[person["lineage_key"]] = genome
     return {
-        "genomes": copies // (2 * len(LOCI)),
+        "genomes": copies // (2 * len(loci)),
         "mendelian": mendelian,
         "alt": alt,
         "copies": copies,
         "frequency": alt / copies,
         "allele_checksum": world_reference.hash64(bytes(allele_bytes)),
+        "checksums": {name: world_reference.hash64(bytes(data)) for name, data in group_bytes.items()},
+        "allele_bytes": {name: bytes(data) for name, data in group_bytes.items()},
     }
 
 
-def old_slots_unchanged(before: dict, after: dict) -> bool:
-    """Every autosome bit outside the 40 new slots is the same genome for genome."""
+def old_slots_unchanged(before: dict, after: dict, loci=LOCI) -> bool:
+    """Every autosome bit outside the new slots of `loci` is the same genome for genome."""
+    new_bits = {(segment, slot) for _, _, segment, slot in loci}
     pairs = list(iter_genomes(before)), list(iter_genomes(after))
     if len(pairs[0]) != len(pairs[1]):
         return False
@@ -256,7 +240,7 @@ def old_slots_unchanged(before: dict, after: dict) -> bool:
         for side in (0, 1):
             for segment in range(8):
                 for slot in range(24):
-                    if (segment, slot) in NEW_BITS:
+                    if (segment, slot) in new_bits:
                         continue
                     if allele_at(left["genome"][side], segment, slot) != allele_at(right["genome"][side], segment, slot):
                         return False
@@ -276,13 +260,13 @@ def twin_genomes_match(pool: dict) -> bool:
     return True
 
 
-def child_shares(pool: dict, child_key: int, mother_key: int, father_key: int) -> bool:
+def child_shares(pool: dict, child_key: int, mother_key: int, father_key: int, loci=LOCI) -> bool:
     """Each new copy of the child equals the parent copy the draw selected."""
     genomes = {person["lineage_key"]: person for person, _, _ in iter_genomes(pool)}
     child = genomes[child_key]
     mother = genomes[mother_key]["genome"]
     father = genomes[father_key]["genome"]
-    for locus_id, segment, slot in LOCI:
+    for locus_id, _, segment, slot in loci:
         maternal, paternal = copies_at(child["genome"], segment, slot)
         u0 = draw_unit(pool["pool_seed"], child["genome_key"], locus_id, 0)
         u1 = draw_unit(pool["pool_seed"], child["genome_key"], locus_id, 1)
@@ -363,9 +347,9 @@ def fixture_pool() -> dict:
     }
 
 
-def alleles_of(person) -> str:
+def alleles_of(person, loci=LOCI) -> str:
     bits = []
-    for _, segment, slot in LOCI:
+    for _, _, segment, slot in loci:
         bits.extend(str(bit) for bit in copies_at(person["genome"], segment, slot))
     return "".join(bits)
 
@@ -409,15 +393,47 @@ def run_fixture() -> None:
     # The half-orphan's paternal copy is the independent draw, not a parent's allele.
     half = people[keys["half"]]
     independent = True
-    for locus_id, segment, slot in LOCI:
+    for locus_id, _, segment, slot in LOCI:
         u = draw_unit(pool["pool_seed"], half["genome_key"], locus_id, 1)
         if copies_at(half["genome"], segment, slot)[1] != (1 if u < 0.5 else 0):
             independent = False
     print(f"fixture_half_father_independent {int(independent)}")
     print(f"fixture_frequency_bound {FREQUENCY_BOUND}")
+    run_fixture_map6(people, keys, report)
 
 
-def run_real(path: Path) -> None:
+def run_fixture_map6(people: dict, keys: dict, report: dict) -> None:
+    """Map 6 (ADR-0034 section 2): the same fixture extended with the 42 loci. The 40
+    temperament alleles of every genome are those of the map-5 extension above, bit for bit;
+    the lines give the hair alleles (`_01` maternal, paternal, then `_02`) and the checksums."""
+    pool = fixture_pool()
+    pool.pop("_keys")
+    before = snapshot(pool)
+    six = extend_pool(pool, MAP6_LOCI)
+    again = snapshot(pool)
+    extend_pool(pool, MAP6_LOCI)
+    sixes = {person["lineage_key"]: person for person, _, _ in iter_genomes(pool)}
+    names = ("mother", "father", "child", "half", "twin_a", "twin_b", "unborn", "unborn_twin")
+    for name in names:
+        assert alleles_of(sixes[keys[name]], TEMPERAMENT_LOCI) == alleles_of(people[keys[name]]), name
+    assert six["checksums"]["temperament"] == report["allele_checksum"]
+    print("fixture_map6_extension_version 2")
+    print(f"fixture_map6_loci {len(MAP6_LOCI)}")
+    for name in names:
+        print(f"fixture_map6_hair_alleles {name} {alleles_of(sixes[keys[name]], HAIR_LOCI)}")
+    print(f"fixture_map6_checksum {six['allele_checksum']:016x}")
+    print(f"fixture_map6_checksum_temperament {six['checksums']['temperament']:016x} (the map-5 fixture checksum)")
+    print(f"fixture_map6_checksum_hair {six['checksums']['hair']:016x}")
+    print(f"fixture_map6_mendelian {six['mendelian']}")
+    print(f"fixture_map6_old_slots_unchanged {int(old_slots_unchanged(before, pool, MAP6_LOCI))}")
+    print(f"fixture_map6_idempotent {int(snapshot(pool)['households'] == again['households'])}")
+    print(f"fixture_map6_twins_equal {int(sixes[keys['twin_a']]['genome'] == sixes[keys['twin_b']]['genome'])}")
+    print(f"fixture_map6_unborn_twins_equal {int(sixes[keys['unborn']]['genome'] == sixes[keys['unborn_twin']]['genome'])}")
+    print(f"fixture_map6_child_shares {int(child_shares(pool, keys['child'], keys['mother'], keys['father'], MAP6_LOCI))}")
+
+
+def run_real(path: Path) -> bytes:
+    """The map-5 extension (40 loci) of the real pool; returns the temperament allele bytes."""
     raw = path.read_bytes()
     pool = pool_reference.read_pool(raw)
     file_hash = world_reference.hash64(raw)
@@ -452,6 +468,51 @@ def run_real(path: Path) -> None:
             f"mendelian count {report['mendelian']} is not {MENDELIAN_GENOMES}; "
             "check the living-parent definition before changing the assertion"
         )
+    if report["allele_checksum"] != TEMPERAMENT_CHECKSUM:
+        raise SystemExit(f"temperament checksum {report['allele_checksum']:016x} is not {TEMPERAMENT_CHECKSUM:016x}")
+    return report["allele_bytes"]["temperament"]
+
+
+def run_real_map6(path: Path, temperament: bytes) -> None:
+    """The map-6 extension (42 loci: the 40 temperament loci, then `core:hair_thickness_01`
+    and `_02`) of the real pool, from a fresh read of the file. The 40 temperament alleles
+    must equal those of the map-5 extension byte for byte (`temperament`, per genome, per
+    locus, per copy), and their checksum stays the regression value."""
+    raw = path.read_bytes()
+    pool = pool_reference.read_pool(raw)
+    before = snapshot(pool)
+    report = extend_pool(pool, MAP6_LOCI)
+    second = snapshot(pool)
+    extend_pool(pool, MAP6_LOCI)
+    same = report["allele_bytes"]["temperament"] == temperament
+    hair = report["allele_bytes"]["hair"]
+    hair_alt = sum(hair)
+    extended = pool_reference.encode_pool(pool)
+    assert extended == extended_bytes(raw, MAP6_LOCI)
+    print("map6_extension_version 2")
+    print(f"map6_loci {len(MAP6_LOCI)}")
+    print("map6_placement " + " ".join(f"{locus_id}@{segment}.{slot}" for locus_id, _, segment, slot in HAIR_LOCI))
+    print(f"map6_genomes {report['genomes']}")
+    print(f"map6_mendelian {report['mendelian']}")
+    print(f"map6_alt {report['alt']}")
+    print(f"map6_copies {report['copies']}")
+    print(f"map6_frequency {report['frequency']:.16f}")
+    print(f"map6_hair_alt {hair_alt}")
+    print(f"map6_hair_copies {len(hair)}")
+    print(f"map6_hair_frequency {hair_alt / len(hair):.16f}")
+    print(f"map6_hair_frequency_within_bound {int(abs(hair_alt / len(hair) - 0.5) < FREQUENCY_BOUND)}")
+    print(f"map6_allele_checksum {report['allele_checksum']:016x}")
+    print(f"map6_allele_checksum_temperament {report['checksums']['temperament']:016x}")
+    print(f"map6_allele_checksum_hair {report['checksums']['hair']:016x}")
+    print(f"map6_temperament_alleles_equal_map5 {int(same)}")
+    print(f"map6_extended_hash {world_reference.hash64(extended):016x}")
+    print(f"map6_old_slots_unchanged {int(old_slots_unchanged(before, pool, MAP6_LOCI))}")
+    print(f"map6_idempotent {int(pool['households'] == second['households'])}")
+    print(f"map6_twins_match {int(twin_genomes_match(pool))}")
+    if not same or report["checksums"]["temperament"] != TEMPERAMENT_CHECKSUM:
+        raise SystemExit("the temperament alleles of map 6 differ from those of map 5")
+    if report["genomes"] != POOL_GENOMES or report["mendelian"] != MENDELIAN_GENOMES:
+        raise SystemExit(f"map 6 counts {report['genomes']} {report['mendelian']}")
 
 
 def main() -> None:
@@ -460,7 +521,8 @@ def main() -> None:
         run_fixture()
     elif command == "real":
         path = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "data" / "pool" / "pool.bin"
-        run_real(path)
+        temperament = run_real(path)
+        run_real_map6(path, temperament)
     else:
         raise SystemExit("usage: pool_extension_reference.py fixture | real [POOL]")
 

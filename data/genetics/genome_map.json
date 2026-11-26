@@ -1,6 +1,6 @@
 {
   "format_version": 2,
-  "map_version": 5,
+  "map_version": 6,
   "traits": [
     {
       "id": "core:agreeableness",
@@ -347,6 +347,27 @@
       "exclusive": false,
       "includes": [],
       "description": "Trait of the template of map 4 with 2 own additive loci; sigma_ref is its start value of the pre-run (ADR-0020 sections 1 and 3)."
+    },
+    {
+      "id": "core:hair_dryness",
+      "sigma_ref": 2.0091115153283217,
+      "mean_ref": -0.011102035190670132,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": -1.0
+        }
+      ],
+      "description": "Hair dryness without own loci; includes core:androgen with weight -1, sigma_ref is core:androgen's and mean_ref its negation, so G = -G of core:androgen bit for bit (ADR-0034 section 1)."
+    },
+    {
+      "id": "core:hair_thickness",
+      "sigma_ref": 1.0,
+      "mean_ref": 0.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Hair thickness with 2 own additive loci. d_ref 1 per locus, sigma_ref 1 and mean_ref 0 are the exact parameters of the Hardy-Weinberg distribution at p = 0.5 (Var(A) = 2 * 2p(1-p) = 1), an exception to measuring them (ADR-0034 section 1)."
     },
     {
       "id": "core:head_size",
@@ -810,6 +831,27 @@
       "description": "Additive locus 5 of core:openness (ADR-0020 section 1)."
     },
     {
+      "id": "core:hair_thickness_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 17,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_thickness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:hair_thickness (ADR-0020 section 1, ADR-0034 section 1)."
+    },
+    {
       "id": "core:pigment_11",
       "chromosome": "autosome",
       "segment": 0,
@@ -1259,6 +1301,27 @@
       "mark": "small",
       "mutation": "both",
       "description": "Additive locus 6 of core:openness (ADR-0020 section 1)."
+    },
+    {
+      "id": "core:hair_thickness_02",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 19,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_thickness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:hair_thickness (ADR-0020 section 1, ADR-0034 section 1)."
     },
     {
       "id": "core:pigment_12",

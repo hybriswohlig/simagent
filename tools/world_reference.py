@@ -806,7 +806,12 @@ PROJECTION_VERSION = 27
 # write `core:practiced` each 10 hours; a raised person keeps its practice seconds, a running
 # action the second it reached its object. Both live in the house part, empty without MoveIn:
 # projection 27, core 77.
-CORE_VERSION = 77
+# Hair thickness and dryness (ADR-0034 section 4): map 6 adds two loci, which change the
+# mutation rate and the choice of the mutation site, so runs with births change; the data
+# hash and the extended pool's hash change. The data carry map 6: core 78; the projection
+# stays 27 (body values are not stored). The same core version covers the day room of the
+# children under 6 (the living room in the repository's houses).
+CORE_VERSION = 78
 
 FORMAT_VERSION = 2
 # The pedigree's format (design note of the arrival, section 8): `pool` per person.
@@ -1346,8 +1351,10 @@ class DataPool:
     hash of the data's documents before the pool's bytes are appended, and from `also_frozen`
     when that is given; the file's `data_hash` is not read), then the frequencies the data
     carry with the pool (S2a, `data_reference.frequencies_rejection`): `pool.frequencies_loci`
-    (not exactly the seven loci), `pool.frequency_range` (a `q` not in (0, 1)). When `loci`
-    contains every temperament locus, the genomes are then extended
+    (not exactly the seven loci), `pool.frequency_range` (a `q` not in (0, 1)). When the map
+    declares extensions (`extension_loci`, the loci of its declared prefix of
+    `data_reference.EXTENSIONS` with their places: temperament on map 5, temperament and hair
+    on map 6), the genomes are then extended with those loci
     (`pool_extension_reference.extended_bytes`) and the hash is xxh3 of that encoding; the
     file's `frozen_hash` is unchanged. Otherwise the hash is xxh3 of the file's bytes. Holds
     the seed, `E_p`, the hash, the frequencies {locus: q}, the households, each
@@ -1356,7 +1363,7 @@ class DataPool:
     guarantees) and its number of members, and indices of the members, the unborn children
     and the records by lineage key."""
 
-    def __init__(self, data: bytes, loci: dict, data_hash: int, frequencies: dict, also_frozen=None):
+    def __init__(self, data: bytes, loci: dict, data_hash: int, frequencies: dict, also_frozen=None, extension_loci=()):
         import pool_reference
 
         self.bytes = data
@@ -1388,8 +1395,9 @@ class DataPool:
         self.frequencies = {locus: float(frequencies[locus]) for locus in sorted(frequencies)}
         import pool_extension_reference
 
-        if pool_extension_reference.declares_temperament(loci):
-            extended = pool_extension_reference.extended_bytes(data)
+        if extension_loci:
+            assert all(locus[0] in loci for locus in extension_loci)
+            extended = pool_extension_reference.extended_bytes(data, extension_loci)
             self.hash = hash64(extended)
             self.file = pool_reference.read_pool(extended)
             self.households = self.file["households"]
@@ -1475,10 +1483,12 @@ class Data:
         hashed = definitions
         if pool is not None:
             extract_hash = xxhash.xxh3_64_intdigest(extract, seed=0)
-            also_frozen = None
-            if genome_map.get("map_version") == 5 and data_reference.declares_temperament(genome_map):
-                also_frozen = data_reference.stripped_documents_hash(extract_demography, calibration, genome_map)
-            self.pool = DataPool(pool, self.loci, extract_hash, {} if frequencies is None else dict(frequencies), also_frozen)
+            # A map with declared extensions (ADR-0034 section 2): the pool's `frozen_hash` may
+            # also be the hash of the definitions without them (map 4), and the pool is extended
+            # with their loci.
+            also_frozen = data_reference.also_frozen_hash(extract_demography, calibration, genome_map)
+            extension_loci = data_reference.declared_loci(genome_map)
+            self.pool = DataPool(pool, self.loci, extract_hash, {} if frequencies is None else dict(frequencies), also_frozen, extension_loci)
             self.pool_frequencies = self.pool.frequencies
             self.hash = data_reference.data_hash_with_pool(definitions, self.pool.seed, self.pool.hash, self.pool.frequencies)
             hashed += data_reference.pool_suffix(self.pool.seed, self.pool.hash, self.pool.frequencies)
@@ -1688,7 +1698,8 @@ def repository_data() -> Data:
     social = data_reference.social_files(ROOT / "data")
     game = data_reference.game_overlay(ROOT / "data")
     development = data_reference.development_file(ROOT / "data")
-    return Data(*data_reference.documents(ROOT / "data"), pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, social=social, game=game, development=development)
+    documents = data_reference.documents(ROOT / "data")
+    return Data(*documents, pool=pool, frequencies=frequencies, shocks=shocks, houses=houses, social=social, game=game, development=development)
 
 
 # The map 3 fixture (design note of the switch, section 4): tests/golden/map3 holds the map 3
@@ -1850,16 +1861,15 @@ def repository() -> Data:
     hash is checked against their own reference (`data_reference.repository_hash`: the
     definitions, then the pool's seed and hash and the frequencies, then the shock
     templates, then the houses, then the social data). The pool's `frozen_hash` equals the
-    definitions, or, on map version 5 with the temperament loci, the definitions with that
-    extension removed."""
+    definitions, or, on a map with declared extensions (map 6: temperament and hair), the
+    definitions with them removed."""
     if not _REPOSITORY:
         data = repository_data()
         assert data.hash == data_reference.repository_hash(ROOT / "data")
         demography, calibration, genome_map = data_reference.documents(ROOT / "data")
         frozen = data.pool.frozen_hash
         matches = frozen == data_reference.documents_hash(demography, calibration, genome_map)
-        if genome_map.get("map_version") == 5 and data_reference.declares_temperament(genome_map):
-            matches = matches or frozen == data_reference.stripped_documents_hash(demography, calibration, genome_map)
+        matches = matches or frozen == data_reference.also_frozen_hash(demography, calibration, genome_map)
         assert matches, f"frozen_hash {frozen:016x}"
         _REPOSITORY.append(data)
     return _REPOSITORY[0]

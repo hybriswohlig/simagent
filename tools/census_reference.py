@@ -123,6 +123,8 @@ Usage: $HOME/.cache/simagent-tools-venv/bin/python tools/census_reference.py [--
        ... census_reference.py --scan-a FIRST LAST   (seeds of fixture (a) and their founders
        whose curve is held; for choosing the seed, not a pin)
        ... census_reference.py --phenotypes FILE   (the golden phenotypes.json, compact)
+       ... census_reference.py --bodies FILE   (the golden bodies.json, compact: the 46
+       parameters of every living person at the snapshots of fixtures a, b and b2)
        ... census_reference.py --pure-heights [--out DIR]   (pure_heights.json: the pure height of
        ADR-0015 4 and spec 10.2, and the height before the loss of age)
        ... census_reference.py --records [--out DIR]   (records_phenotypes.json: the 35 `z`
@@ -159,10 +161,18 @@ TEMPLATE = ROOT / "tests" / "golden" / "map4_template"
 CONTRACT_PATH = ROOT / "contracts" / "body.json"
 DEFAULT_OUT = Path.home() / ".cache" / "simagent-notes" / "ref-census"
 
-CONTRACT = json.loads(CONTRACT_PATH.read_text())["parameters"]
+# The contract of version 0.1.2 (ADR-0034 section 3): the parameters of contracts/body.json
+# with `hair_strand_thickness` and `hair_dryness` after `hair_curl`, 46 keys, 368 bytes of
+# parameters per person (`body_reference.contract_with_hair`). `--contract-0.1.1` keeps the 44
+# keys of version 0.1.1 (352 bytes), the census as it was before, for comparison.
+CONTRACT_011 = json.loads(CONTRACT_PATH.read_text())["parameters"]
+OLD_CONTRACT = "--contract-0.1.1" in sys.argv
+CONTRACT = [entry for entry in CONTRACT_011 if entry["key"] not in br.HAIR_KEYS] if OLD_CONTRACT else br.contract_with_hair(CONTRACT_011)
 PARAM_KEYS = [entry["key"] for entry in CONTRACT]
 CLAMPED_KEYS = [entry["key"] for entry in CONTRACT if entry["unit"] in ("z", "cm")]
-assert len(PARAM_KEYS) == 44 and len(CLAMPED_KEYS) == 21 and CLAMPED_KEYS[0] == "height_cm"
+assert len(PARAM_KEYS) == (44 if OLD_CONTRACT else 46) and len(CLAMPED_KEYS) == 21 and CLAMPED_KEYS[0] == "height_cm"
+PARAM_BYTES = 8 * len(PARAM_KEYS)
+assert PARAM_BYTES == (352 if OLD_CONTRACT else 368)
 assert CLAMPED_KEYS[1:9] == [
     "leg_ratio_z",
     "head_size_z",
@@ -213,9 +223,15 @@ def census_body_check(calibration: dict, genome_map: dict) -> tuple:
     one not recessive on an autosome, fails as in `BodyData::new`. Returns (the reason or None,
     whether both loci are absent)."""
     in_map = {locus["id"] for locus in genome_map["loci"]}
-    if not any(locus_id in in_map for locus_id in PIGMENT_LOCI):
-        return br.body_traits_check((calibration, genome_map), br.BODY_TRAITS_MAP4), True
-    return br.body_data_check((calibration, genome_map), br.BODY_TRAITS_MAP4), False
+    absent = not any(locus_id in in_map for locus_id in PIGMENT_LOCI)
+    if absent:
+        reason = br.body_traits_check((calibration, genome_map), br.BODY_TRAITS_MAP4)
+    else:
+        reason = br.body_data_check((calibration, genome_map), br.BODY_TRAITS_MAP4)
+    if reason is None:
+        # The hair group (ADR-0034 section 3): optional, but whole when there.
+        reason = br.hair_group_check(calibration, genome_map)[1]
+    return reason, absent
 
 
 class BodyCensusData:
@@ -245,6 +261,13 @@ class BodyCensusData:
         rows = {row["trait"]: row for row in stripped_calibration["traits"]}
         self.traits = {trait: wr.PhenotypeTrait(trait, stripped_map, rows[trait]) for trait in br.BODY_TRAITS_MAP4}
         self.values = br.BodyValues(stripped_calibration)
+        # With the hair group the two hair traits are read too (ADR-0034 section 3); without it
+        # the mapping gives the defaults and reads neither.
+        self.hair = br.hair_group_check(calibration, genome_map)[0]
+        assert self.hair == (self.values.hair is not None)
+        if self.hair:
+            for trait in br.HAIR_ROLES.values():
+                self.traits[trait] = wr.PhenotypeTrait(trait, stripped_map, rows[trait])
         loci = {locus["id"]: locus for locus in stripped_map["loci"]}
         self.mc1r = loci.get("core:mc1r")
         self.herc2 = loci.get("core:herc2")
@@ -328,7 +351,10 @@ class Evaluator:
             "key": key,
             "sex": sex,
             "z_of": z_of,
-            "z": {role: z_of[pair[1]] for role, pair in br.ROLES.items()},
+            "z": {
+                **{role: z_of[pair[1]] for role, pair in br.ROLES.items()},
+                **({role: z_of[trait] for role, trait in br.HAIR_ROLES.items()} if body.hair else {}),
+            },
             "mc1r": mc1r,
             "herc2": herc2,
             "g_L": g,
@@ -756,9 +782,10 @@ def params_bytes(params: dict) -> bytes:
 
 def snapshot(evaluator: Evaluator, year: int, kind_of) -> dict:
     """`body_at` of every living person at the year end of `year`: per person its inputs and
-    the 44 parameters as f64 bits in the contract's order; `hash` per person is xxh3-64 of
-    the 44 values as little-endian f64 in that order, `hash` of the snapshot xxh3-64 of
-    (u64 LE SimId + those 352 bytes) per person in ascending SimId."""
+    the 46 parameters (44 with `--contract-0.1.1`) as f64 bits in the contract's order; `hash`
+    per person is xxh3-64 of those values as little-endian f64 in that order, `hash` of the
+    snapshot xxh3-64 of (u64 LE SimId + those 368 bytes, 352 with 44) per person in ascending
+    SimId."""
     world = evaluator.world
     t = year_end(year)
     persons, whole = [], b""
@@ -1633,6 +1660,28 @@ def phenotypes_document() -> dict:
     return {"written_by": "tools/census_reference.py (independent of crates/)", "z_traits": br.BODY_TRAITS_MAP4, "note": PHENOTYPES_NOTE, "fixtures": fixtures}
 
 
+BODIES_NOTE = "the 46 body values per living person at the snapshots of census.json, as f64 bits"
+
+
+def bodies_document() -> dict:
+    """The golden `tests/golden/census/bodies.json`: per fixture a, b, b2 and snapshot the
+    living by SimId with the 46 parameters (44 with `--contract-0.1.1`) as f64 bits in the
+    contract's order, the `params` of `snapshot` (census_details.json)."""
+    fixtures = {}
+    for name in FIXTURE_RUNS:
+        snapshots = []
+
+        def at_snapshot(evaluator, year):
+            t = year_end(year)
+            persons = [[sim, [bits(evaluator.evaluate(sim, t)["params"][key][0]) for key in PARAM_KEYS]] for sim in sorted(evaluator.world.sims)]
+            snapshots.append({"year": year, "t": t, "persons": persons})
+
+        walk(name, at_snapshot, lambda evaluator, end: None)
+        fixtures[name] = snapshots
+    note = BODIES_NOTE.replace("46", str(len(PARAM_KEYS)))
+    return {"written_by": "tools/census_reference.py (independent of crates/)", "param_keys": PARAM_KEYS, "note": note, "fixtures": fixtures}
+
+
 def heights(evaluator: Evaluator, sim: int, t: int) -> tuple:
     """(`height_before_age_loss`, `pure_height`) of a sim at `t`. `height_before_age_loss =
     κ_i · H(x; θ_i) − v_i(x)` with `x = as_years(min(t − born, 25 · YEAR))` and the nutrition
@@ -1740,6 +1789,11 @@ def main(argv) -> int:
         target.write_text(json.dumps(phenotypes_document(), separators=(",", ":")))
         print(f"wrote {target}")
         return 0
+    if "--bodies" in argv:
+        target = Path(argv[argv.index("--bodies") + 1])
+        target.write_text(json.dumps(bodies_document(), separators=(",", ":")))
+        print(f"wrote {target}")
+        return 0
     if "--pure-heights" in argv:
         out = Path(argv[argv.index("--out") + 1]) if "--out" in argv else DEFAULT_OUT
         document = pure_heights_document()
@@ -1790,7 +1844,7 @@ def main(argv) -> int:
         "clamped_keys": CLAMPED_KEYS,
         "param_keys": PARAM_KEYS,
         "z_traits": br.BODY_TRAITS_MAP4,
-        "hashes": "xxh3-64 seed 0; person hash = xxh3_64(the 44 params as f64 LE in param_keys order); snapshot hash = xxh3_64(concat over the living by ascending SimId of (u64 LE SimId ++ those 352 bytes)); start_input_hash = xxh3_64(the input record of Start: i64 stamp -1, sequence 1, the postcard of Start)",
+        "hashes": f"xxh3-64 seed 0; person hash = xxh3_64(the {len(PARAM_KEYS)} params as f64 LE in param_keys order); snapshot hash = xxh3_64(concat over the living by ascending SimId of (u64 LE SimId ++ those {PARAM_BYTES} bytes)); start_input_hash = xxh3_64(the input record of Start: i64 stamp -1, sequence 1, the postcard of Start)",
     }
     for name, record in fixtures.items():
         (out / "scenarios" / f"{name}.json").write_text(json.dumps(record["scenario"], separators=(",", ":")) + "\n")

@@ -5,7 +5,7 @@
 use alloc::vec::Vec;
 
 use super::{BodyParamKey, BodyParams};
-use crate::data::{Action, BodyModel, Chromosome, Data, DataError};
+use crate::data::{Action, BodyModel, Chromosome, Data, DataError, HairDryness};
 use crate::data_id::DataId;
 use crate::genome::{Genome, Sex};
 use crate::growth::{IndividualCurve, height_loss, nutrition_loss};
@@ -67,6 +67,13 @@ pub fn herc2() -> DataId {
     DataId::new("core:herc2").unwrap_or_else(|_| panic!("invariant body.locus_id"))
 }
 
+/// The two traits of the hair group (ADR-0034 section 3): the strand thickness and the
+/// dryness, read only when the data hold the whole group.
+pub fn hair_traits() -> [DataId; 2] {
+    ["core:hair_thickness", "core:hair_dryness"]
+        .map(|t| DataId::new(t).unwrap_or_else(|_| panic!("invariant body.trait_id")))
+}
+
 /// The parameters with the units `z` and `cm`, the only ones that are clamped (ADR-0005
 /// section 1).
 pub const CLAMPED_KEYS: [BodyParamKey; 21] = [
@@ -104,12 +111,16 @@ pub struct BodyData<'a> {
     /// Whether the map holds the two pigment loci; without them (only the census of the
     /// pre-run's data) both doses are 0.
     pigment_loci: bool,
+    /// The numbers of the dryness if the data hold the hair group; without it the two hair
+    /// keys are their defaults.
+    hair: Option<HairDryness>,
 }
 
 impl<'a> BodyData<'a> {
     /// Every trait of `body_traits` stands in the map with a phenotype row whose child and
     /// adult weights are bitwise equal, and both pigment loci stand in the map as recessive
-    /// loci on an autosome; else `data.body_traits`.
+    /// loci on an autosome; the hair group (`hair_traits`, their rows, the numbers of the
+    /// dryness) is whole with such rows or absent; else `data.body_traits`.
     pub fn new(data: &'a Data) -> Result<BodyData<'a>, DataError> {
         BodyData::checked(data, false)
     }
@@ -124,13 +135,15 @@ impl<'a> BodyData<'a> {
     }
 
     fn checked(data: &'a Data, absent_pigment: bool) -> Result<BodyData<'a>, DataError> {
-        let traits_ok = body_traits().iter().all(|t| {
+        let ageless = |t: &DataId| {
             data.phenotype_weights(t)
                 .is_some_and(|[h2_child, c2_child, h2_adult, c2_adult]| {
                     h2_child.to_bits() == h2_adult.to_bits()
                         && c2_child.to_bits() == c2_adult.to_bits()
                 })
-        });
+        };
+        let traits_ok = body_traits().iter().all(ageless);
+        let hair = BodyData::hair_group(data, ageless)?;
         let present = |name: &DataId| data.genome_map().loci.iter().any(|l| l.id == *name);
         let loci_ok = [mc1r(), herc2()].iter().all(|name| {
             data.genome_map().loci.iter().any(|locus| {
@@ -144,13 +157,36 @@ impl<'a> BodyData<'a> {
             (true, true, _) => Ok(BodyData {
                 data,
                 pigment_loci: true,
+                hair,
             }),
             (true, false, true) => Ok(BodyData {
                 data,
                 pigment_loci: false,
+                hair,
             }),
             _ => Err(DataError::BodyTraits),
         }
+    }
+
+    /// The hair group (ADR-0034 section 3): absent if none of its parts is there (the two
+    /// traits in the map, their phenotype rows, the numbers of the dryness); else every part
+    /// must be there and both rows `ageless`, or `data.body_traits`.
+    fn hair_group(
+        data: &Data,
+        ageless: impl Fn(&DataId) -> bool,
+    ) -> Result<Option<HairDryness>, DataError> {
+        let model = data.genetics().hair;
+        let traits = hair_traits();
+        let in_map = traits.iter().map(|t| data.trait_terms(t).is_some());
+        let rows = traits.iter().map(|t| data.phenotype_weights(t).is_some());
+        let parts: Vec<bool> = in_map.chain(rows).chain([model.is_some()]).collect();
+        if !parts.contains(&true) {
+            return Ok(None);
+        }
+        if parts.contains(&false) || !traits.iter().all(ageless) {
+            return Err(DataError::BodyTraits);
+        }
+        Ok(model)
     }
 
     pub const fn data(&self) -> &'a Data {
@@ -187,10 +223,13 @@ pub struct BodyTraits {
     pub hair_density: f64,
     pub grey: f64,
     pub skin_age: f64,
+    /// The phenotypes of `hair_traits`, read only with the hair group (0 without it).
+    pub hair_thickness: f64,
+    pub hair_dryness: f64,
 }
 
 impl BodyTraits {
-    /// The phenotypes in the order of `body_traits`.
+    /// The phenotypes in the order of `body_traits`, the hair traits 0.
     pub fn from_values(values: [f64; 35]) -> BodyTraits {
         let [
             height,
@@ -254,6 +293,8 @@ impl BodyTraits {
             hair_density,
             grey,
             skin_age,
+            hair_thickness: 0.0,
+            hair_dryness: 0.0,
         }
     }
 }
@@ -277,7 +318,8 @@ pub struct BodyInputs<'a> {
 
 impl BodyTraits {
     /// The phenotypes of a person with the age 0 (their weights do not depend on age,
-    /// `BodyData::new` checked that), so the same all its life.
+    /// `BodyData::new` checked that), so the same all its life; the hair traits only with
+    /// the hair group.
     pub fn of_person(
         body: &BodyData<'_>,
         environment: Environment<'_>,
@@ -286,7 +328,7 @@ impl BodyTraits {
         parents: Option<Parents>,
     ) -> BodyTraits {
         let data = body.data();
-        BodyTraits::from_values(body_traits().map(|t| {
+        let of = |t: DataId| {
             phenotype(
                 environment,
                 data,
@@ -297,7 +339,14 @@ impl BodyTraits {
                 SimDuration::ZERO,
             )
             .unwrap_or_else(|| panic!("invariant body.phenotype"))
-        }))
+        };
+        let mut traits = BodyTraits::from_values(body_traits().map(of));
+        if body.hair.is_some() {
+            let [thickness, dryness] = hair_traits().map(of);
+            traits.hair_thickness = thickness;
+            traits.hair_dryness = dryness;
+        }
+        traits
     }
 }
 
@@ -501,6 +550,21 @@ pub(crate) fn raw_body_values(
             / m.spots_tempo,
     );
     let stoop = logistic(((b - m.stoop_center) + m.stoop_skin * z.skin_age) / m.stoop_tempo);
+    // The hair strand and its dryness (ADR-0034 section 3), the terms added left to right;
+    // without the hair group the defaults of the contract, not `z = 0`.
+    let (strand, dryness) = match &body.hair {
+        Some(h) => {
+            let s_age = logistic((b - h.center) / h.tempo);
+            let m_male = if male { 1.0 } else { 0.0 };
+            let u = (((h.offset + h.curl * z.curl) + h.slope * z.hair_dryness) + h.age * s_age)
+                + h.male * m_male;
+            (logistic(z.hair_thickness), logistic(u))
+        }
+        None => (
+            BodyParamKey::HairStrandThickness.spec().default,
+            BodyParamKey::HairDryness.spec().default,
+        ),
+    };
 
     let f = &z.face;
     let values = [
@@ -533,6 +597,8 @@ pub(crate) fn raw_body_values(
         (BodyParamKey::HairPheomelanin, hair_pheo),
         (BodyParamKey::IrisMelanin, iris),
         (BodyParamKey::HairCurl, curl),
+        (BodyParamKey::HairStrandThickness, strand),
+        (BodyParamKey::HairDryness, dryness),
         (BodyParamKey::HairDensity, density),
         (BodyParamKey::BaldingStage, balding),
         (BodyParamKey::HairGreyFraction, grey),
