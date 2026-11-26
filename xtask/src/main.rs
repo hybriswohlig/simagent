@@ -13,6 +13,7 @@ mod codegen_ts;
 mod contract;
 mod contract_base;
 mod criteria;
+mod display;
 mod export_types;
 mod house_week;
 mod kat;
@@ -313,6 +314,20 @@ fn kat_verify_reference() -> Result {
 fn gate(require_clean_tree: bool) -> Result {
     let root = workspace_root()?;
     checks(&root, require_clean_tree)?;
+    // Only the gate of a clean tree may be short: its diff then names every change.
+    if require_clean_tree {
+        let changed = changed_against_main(&root);
+        let paths: Option<Vec<&str>> = changed
+            .as_ref()
+            .map(|paths| paths.iter().map(String::as_str).collect());
+        if display::short_gate(paths.as_deref()) {
+            println!("== display-only diff: short gate");
+            for path in paths.iter().flatten() {
+                println!("  {path}");
+            }
+            return step("smoke (release binary)", || smoke::smoke(&root));
+        }
+    }
     step("canaries", || {
         let problems = canary::run(
             &root,
@@ -347,6 +362,15 @@ fn gate(require_clean_tree: bool) -> Result {
     })?;
     step("smoke (release binary)", || smoke::smoke(&root))?;
     step("story (release)", || release_xtask(&root, "story"))
+}
+
+/// Every path that differs between the merge base with origin/main and HEAD, a rename as
+/// its old and its new path. `None` when git finds no merge base or cannot list the diff.
+fn changed_against_main(root: &Path) -> Option<Vec<String>> {
+    let base = git_text(root, &["merge-base", "HEAD", "origin/main"]).ok()?;
+    let range = format!("{}...HEAD", base.trim());
+    let listed = git_text(root, &["diff", "--name-only", "--no-renames", &range]).ok()?;
+    Some(listed.lines().map(str::to_string).collect())
 }
 
 /// A release run of this xtask's `command`, the same way the gate runs a release binary.
