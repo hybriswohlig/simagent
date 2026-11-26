@@ -3454,7 +3454,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 11,
+                "version": 12,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -4037,12 +4037,12 @@ fn why_names_what_is_urgent() {
         7,
         false,
         None,
-        |_| 0,
+        |_, _| 0,
         sim_cli::social_view::CompanyAt::NONE,
     )
     .expect("answers")
     .expect("a choice");
-    assert_eq!(why["version"], json!(11));
+    assert_eq!(why["version"], json!(12));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -4130,7 +4130,7 @@ fn why_names_the_departure_of_a_commanded_offer_it_closes() {
         9,
         false,
         None,
-        |_| 0,
+        |_, _| 0,
         sim_cli::social_view::CompanyAt::NONE,
     )
     .expect("answers")
@@ -4241,12 +4241,12 @@ fn why_names_what_a_time_filler_ends_for_when_a_wait_follows() {
             9,
             false,
             Some(end),
-            |_| 0,
+            |_, _| 0,
             sim_cli::social_view::CompanyAt::NONE,
         )
         .expect("answers")
         .expect("a choice");
-        assert_eq!(why["version"], json!(11));
+        assert_eq!(why["version"], json!(12));
         let told = &why["filler"];
         assert_eq!(
             (&told["until"], &told["ends"], &told["then"]),
@@ -4355,7 +4355,7 @@ fn why_compares_an_idle_person_at_the_clock() {
         0,
         false,
         None,
-        |_| 0,
+        |_, _| 0,
         sim_cli::social_view::CompanyAt::NONE,
     )
     .expect("answers")
@@ -4543,7 +4543,7 @@ fn company_names_the_belief_that_last_lowered_trust() {
         0,
         false,
         None,
-        |_| 0,
+        |_, _| 0,
         sim_cli::social_view::CompanyAt {
             rows: &rows,
             history: &history,
@@ -4810,7 +4810,7 @@ fn five_memories_a_belief_and_a_true_deed_on_the_house_answer() {
         0,
         false,
         None,
-        |_| 0,
+        |_, _| 0,
         sim_cli::social_view::CompanyAt {
             rows: &rows,
             history: &history,
@@ -4979,7 +4979,7 @@ fn why_names_the_temper_and_the_unscaled_company() {
             0,
             false,
             None,
-            |_| 0,
+            |_, _| 0,
             sim_cli::social_view::CompanyAt {
                 rows: &rows,
                 history,
@@ -4990,7 +4990,7 @@ fn why_names_the_temper_and_the_unscaled_company() {
     };
     let now = ask(&[felt(1, t, -300)], 5_600);
     assert_eq!(now["temper"], json!(-300));
-    assert_eq!(now["version"], json!(11));
+    assert_eq!(now["version"], json!(12));
     assert_eq!(now["company"][0]["company"], json!(5_600));
     assert_eq!(now["company"][0]["plain"], json!(8_000));
     assert_eq!(ask(&[felt(1, t - DAY, -300)], 5_600)["temper"], json!(-200));

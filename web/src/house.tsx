@@ -31,7 +31,7 @@ const HOUSES = { format: "simagent.view.houses", version: 2 } as const;
 const DAY_PAGES = 10;
 /** The most members a household with a house has (ADR-0025 section 3). */
 export const LARGEST = 8;
-const WHY = { format: "simagent.view.why", version: 11 } as const;
+const WHY = { format: "simagent.view.why", version: 12 } as const;
 /** The pace of playing: how long each step stands before the next is asked for. */
 const PACE_MS = 800;
 

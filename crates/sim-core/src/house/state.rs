@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_id::DataId;
 use crate::development::Raised;
+use crate::habit::{self, Habit};
 use crate::house::choice::{CRITICAL, next_choice_drag};
 use crate::house::data::{
     AGE_BANDS, DayRules, House, HouseData, NEEDS, Need, NeedRates, OfferDef, age_band,
@@ -60,6 +61,9 @@ pub struct InHouse {
     /// Social entries of talks this person was a subject of on `talk_day`, at most
     /// `entries_per_day`.
     pub entries: u16,
+    /// What it is used to (ADR-0033 section 7), in the order of their keys; left behind with
+    /// the house.
+    pub habits: Vec<Habit>,
 }
 
 /// Where a person with needs is (ADR-0025 section 5). A walk with an action leads to its
@@ -92,6 +96,9 @@ pub struct Action {
     pub commanded: bool,
     /// The second it reached its object and the action began to run; `None` on the way.
     pub reached: Option<SimTime>,
+    /// The quarter of the day of the second it was chosen, whose habit its end strengthens
+    /// (ADR-0033 section 7).
+    pub quarter: u8,
 }
 
 /// A departure that waits for the end of an action for a critical need (ADR-0024 section
@@ -122,8 +129,9 @@ pub struct Decisions {
 /// The house part of the domain state, each map in the projection after `pool_used`, then the
 /// social part (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6, projection 24), then
 /// who was raised in a house (ADR-0033 sections 3 to 5, projection 25; its days of a need at 0
-/// and a running action's `commanded`, projection 26): in a run without
-/// `MoveIn` it is ten zero lengths. The talk's day counters and last-talk seconds live in
+/// and a running action's `commanded`, projection 26; its practice seconds and a running action's
+/// second of arrival, projection 27; each person's habits and a running action's quarter of the
+/// day, projection 28): in a run without `MoveIn` it is ten zero lengths. The talk's day counters and last-talk seconds live in
 /// `InHouse` and `MovedIn`, and an open Talk lives in the queue.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HouseState {
@@ -345,6 +353,7 @@ pub fn filler_end_if(
         filler: true,
         commanded: false,
         reached: Some(arrive),
+        quarter: habit::quarter(now),
     });
     for (sample, need) in there.needs.iter_mut().zip(NEEDS) {
         if offered.sets(need) {
@@ -554,6 +563,11 @@ pub enum Broken {
     /// one other than the second the first need its offer sets was written down (ADR-0033
     /// section 6).
     Reached,
+    /// An action on the way with a quarter of the day other than that of its walk's start, or
+    /// one above 3; habits more than 8, out of the order of their keys, of a kind or an offer
+    /// the house data lack, of a quarter above 3, a value outside 100 to 1000 or written down
+    /// after the clock (ADR-0033 section 7).
+    Habit,
     /// Away or on the way out with a rate, an action or a duty.
     AwayBusy,
     /// Away or on the way out with needs not all written down at one second, on the way out
@@ -831,6 +845,13 @@ fn person_consistent(
             return Err(Broken::Reached);
         }
     }
+    let known = |kept: &Habit| {
+        let kind = data.and_then(|data| data.kind(&kept.kind));
+        kind.is_some_and(|kind| usize::from(kept.offer) < kind.offers.len())
+    };
+    if !habit::consistent(&person.habits, now) || !person.habits.iter().all(known) {
+        return Err(Broken::Habit);
+    }
     let dwelling = dwell_walk(person, home);
     let goal = match (person.action, dwelling) {
         (Some(action), _) => home.def().objects[usize::from(action.object)].room,
@@ -876,6 +897,16 @@ fn person_consistent(
             }
         }
         Place::Away => {}
+    }
+    // An action's walk began in the second it was chosen (ADR-0033 section 7).
+    if let Some(action) = person.action {
+        let chosen = match person.place {
+            Place::Walking { depart, .. } => habit::quarter(depart) == action.quarter,
+            Place::Room(_) | Place::Away => action.quarter < 4,
+        };
+        if !chosen {
+            return Err(Broken::Habit);
+        }
     }
     // Away and on the way out every need stands still since the second of leaving, the start
     // of the walk out (ADR-0024 section 4).

@@ -289,6 +289,8 @@ fn command_rejections_and_effect() {
                 filler: false,
                 commanded: true,
                 reached: None,
+                // Commanded at 6:00:01, the second quarter of the day.
+                quarter: 1,
             })
         )
     );

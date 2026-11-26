@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use super::house::{plan_crossings, planned_in};
 use super::{DomainState, Slot};
 use crate::data::Data;
+use crate::habit;
 use crate::house::choice::{Bonus, CRITICAL, Choice, choose, filler, in_tier, mood, score, tier};
 use crate::house::data::{BedFor, House, HouseData, NEEDS, Need, OfferDef, age_band};
 use crate::house::day::{departure, night, work_draw};
@@ -20,7 +21,7 @@ use crate::house::state::{
     filler_end_if,
 };
 use crate::ids::{EventId, HouseholdId, SimId};
-use crate::log::{Cause, Causes, Company, EndReason, LogPayload, Subject};
+use crate::log::{Cause, Causes, Company, EndReason, Leaning, LogPayload, Subject};
 use crate::social::bond::choice_bonus;
 use crate::social::feeling::{read, scaled_company};
 use crate::time::{SimDuration, SimTime, day_index};
@@ -290,8 +291,10 @@ fn busy(house: &House, houses: &HouseData, taken: &BTreeSet<(u16, u8)>) -> Vec<u
 /// time-filler instead, if one is free (the addendum on comfort and the time-filler). For a
 /// sociable furniture where someone of the household sits or is on the way, it adds the data's
 /// company and subtracts its avoid, outside the mood, and writes `core:company` before the choice
-/// when either counts (ADR-0030 section 4). Each choice counts against the day's budget and
-/// cancels a pending `Decide`.
+/// when either counts (ADR-0030 section 4). By day an offer whose habit at the quarter of now
+/// is above 0 gets its points, outside the mood, and the choice writes `core:leaning` after
+/// that (ADR-0033 section 7); in the night no habit counts. Each choice counts against the
+/// day's budget and cancels a pending `Decide`.
 pub(crate) fn decide(
     domain: &mut DomainState,
     data: &Data,
@@ -336,12 +339,21 @@ pub(crate) fn decide(
     }
     person.decisions.count += 1;
     let needs = person.needs.map(|need| need.value_at(now));
+    let habits = person.habits.clone();
     let left = tonight.map(|night| night.left(now));
     let percent = houses.day().choice_mood_percent;
     let moods = |object, offer| mood(seed, key, now, (object, offer), percent);
     let leaves = departure(houses.day(), birth, || work_draw(seed, key), now);
     let depart_in = leaves.map(|leaves| (leaves - now).as_secs());
     let (bonuses, rows, temper) = company_of(domain, data, household, house, sim, now);
+    let quarter = habit::quarter(now);
+    let used_to = |object: u16, offer: u16| match tonight {
+        Some(_) => 0,
+        None => {
+            let kind = &house.def().objects[usize::from(object)].kind;
+            habit::points(habit::strength(&habits, (kind, offer, quarter), now))
+        }
+    };
     let scored = score(
         house,
         houses,
@@ -349,8 +361,24 @@ pub(crate) fn decide(
         (left, depart_in),
         moods,
         temper,
-        |object| (bonuses.get(usize::from(object)).copied()).unwrap_or(Bonus::NONE),
+        |object, offer| Bonus {
+            habit: used_to(object, offer),
+            ..(bonuses.get(usize::from(object)).copied()).unwrap_or(Bonus::NONE)
+        },
     );
+    let leaning: Vec<Leaning> = (scored.iter())
+        .map(|scored| (scored, used_to(scored.object, scored.offer)))
+        .filter(|(_, habit)| *habit != 0)
+        .map(|(scored, habit)| Leaning {
+            object: scored.object,
+            offer: scored.offer,
+            habit,
+            niche: 0,
+            skill: None,
+            sibling: None,
+            lead_milli: None,
+        })
+        .collect();
     let choice = choose(
         (house, houses),
         (age, needs),
@@ -396,6 +424,10 @@ pub(crate) fn decide(
             vec![Subject::Sim(sim)],
             causes.clone(),
         );
+    }
+    if !leaning.is_empty() {
+        let rows = LogPayload::Leaning { rows: leaning };
+        ctx.emit(rows, vec![Subject::Sim(sim)], causes.clone());
     }
     let (Some(chosen), Some(walk_secs), Some(arrive)) = (chosen, walk, arrive) else {
         let waits = match choice {
@@ -570,6 +602,7 @@ pub(crate) fn seat_bonus(
         bonuses[usize::from(object)] = Bonus {
             company: liked.company,
             avoid: avoided.avoid,
+            habit: 0,
         };
         rows.push(Company {
             object,
@@ -912,6 +945,7 @@ fn begin(
         filler,
         commanded,
         reached: None,
+        quarter: habit::quarter(depart),
     });
     let handle = ctx.schedule(arrive, EventPayload::Arrive { sim }, entry);
     domain.pending.insert((sim, Slot::Arrive), handle);
@@ -1283,6 +1317,13 @@ fn end(
         needs,
     };
     let entry = ctx.emit(ended, vec![Subject::Sim(sim)], causes);
+    // Done or full by its own choice, the habit of its offer at the quarter it was chosen grows
+    // (ADR-0033 section 7).
+    if habit::completes(reason, action.commanded) {
+        let kind = &house.def().objects[usize::from(action.object)].kind;
+        let key = (kind, action.offer, action.quarter);
+        habit::complete(&mut person.habits, key, now);
+    }
     let place = person.place;
     match place {
         Place::Walking { from, .. } => person.place = Place::Room(from),

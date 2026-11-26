@@ -45,31 +45,49 @@ pub struct Scored {
     pub points: i64,
 }
 
-/// What the people at a furniture add and take for it in a choice (ADR-0030 section 4): `company`
-/// the points for sitting with a liked person, `avoid` the points off for sitting with a distrusted
-/// one, both from the data and not negative. `score` scales the company with the chooser's temper
-/// (ADR-0032 section 5) and leaves the avoid as it is.
+/// What an offer gets and loses in a choice beside its needs, per offer (ADR-0033 section 7):
+/// what the people at its furniture add and take (ADR-0030 section 4), `company` the points for
+/// sitting with a liked person, `avoid` the points off for sitting with a distrusted one, both from
+/// the data and not negative; and `habit`, the points of the chooser's habit for the offer, not
+/// negative. `score` scales the company with the chooser's temper (ADR-0032 section 5) and leaves
+/// the avoid and the habit as they are.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Bonus {
     pub company: i64,
     pub avoid: i64,
+    pub habit: i64,
 }
 
 impl Bonus {
-    /// Nobody there who counts.
+    /// Nobody there who counts, and no habit.
     pub const NONE: Bonus = Bonus {
         company: 0,
         avoid: 0,
+        habit: 0,
     };
 
     /// Only company.
     pub const fn company(company: i64) -> Bonus {
-        Bonus { company, avoid: 0 }
+        Bonus {
+            company,
+            ..Bonus::NONE
+        }
     }
 
     /// Only avoid.
     pub const fn avoid(avoid: i64) -> Bonus {
-        Bonus { company: 0, avoid }
+        Bonus {
+            avoid,
+            ..Bonus::NONE
+        }
+    }
+
+    /// Only a habit.
+    pub const fn habit(habit: i64) -> Bonus {
+        Bonus {
+            habit,
+            ..Bonus::NONE
+        }
     }
 }
 
@@ -113,9 +131,10 @@ pub fn mood(
 /// percent: `(Σ weight · gain) · (100 + mood) / 100 − 50 · walking seconds`, truncated toward
 /// zero, and `(151 − v) · 10⁹` for each critical need the offer raises; the mood scales neither
 /// the walk, the bonus of the furniture, nor that (ADR-0026, addendum of 2026-11-04 on the mood).
-/// `bonus` is company and avoid for that furniture (ADR-0030 section 4); the net, the company
-/// scaled by `temper`, the chooser's, as `company · (1000 + temper) / 1000` toward 0 (ADR-0032
-/// section 5) minus the avoid, is added after the scaled needs like the walk. A fallback offer is scored here, so it gets the bonus too. The gain of a need the offer
+/// `bonus(object, offer)` is company and avoid for that furniture (ADR-0030 section 4) and the
+/// habit for that offer (ADR-0033 section 7); the net, the company scaled by `temper`, the
+/// chooser's, as `company · (1000 + temper) / 1000` toward 0 (ADR-0032 section 5) minus the avoid
+/// plus the habit, is added after the scaled needs like the walk. A fallback offer is scored here, so it gets the bonus too. The gain of a need the offer
 /// raises is `min(rate · length / 3600, 1000 − v)`, with the length `seconds` or `max_seconds`
 /// and the rates of the age band of `age`; its weight `max(0, comfort − v)` (the addendum on
 /// comfort and the time-filler). An offer of sleep is open only in the person's night,
@@ -130,7 +149,7 @@ pub fn score(
     (night_left, depart_in): (Option<i64>, Option<i64>),
     moods: impl Fn(u16, u16) -> i8,
     temper: i16,
-    bonus: impl Fn(u16) -> Bonus,
+    bonus: impl Fn(u16, u16) -> Bonus,
 ) -> Vec<Scored> {
     let Some(band) = age_band(age) else {
         return Vec::new();
@@ -156,8 +175,8 @@ pub fn score(
                 continue;
             }
             let mood = moods(object, offer);
-            let furniture = bonus(object);
-            let net = scaled_company(furniture.company, temper) - furniture.avoid;
+            let got = bonus(object, offer);
+            let net = scaled_company(got.company, temper) - got.avoid + got.habit;
             let points = points(def, (data.rates(), band, length), values, walk, mood, net);
             scored.push(Scored {
                 object,
@@ -171,8 +190,8 @@ pub fn score(
 }
 
 /// The points of one offer `def` of `length` seconds in the age band `band` for the needs
-/// `values`, `walk` the points its walk costs, with the mood `mood` and the furniture's
-/// `bonus` (`score`).
+/// `values`, `walk` the points its walk costs, with the mood `mood` and the offer's net `bonus`
+/// (`score`).
 fn points(
     def: &OfferDef,
     (rates, band, length): (&NeedRates, usize, i64),

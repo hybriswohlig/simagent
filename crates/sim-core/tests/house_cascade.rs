@@ -233,6 +233,8 @@ fn an_idle_choice_does_not_schedule_itself_again() {
             filler: false,
             commanded: true,
             reached,
+            // Told at 6:01:39, the second quarter of the day.
+            quarter: 1,
         })
     );
 

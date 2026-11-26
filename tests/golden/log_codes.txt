@@ -52,6 +52,7 @@ payload 44 core:refuted
 payload 45 core:felt
 payload 46 core:developed
 payload 47 core:practiced
+payload 48 core:leaning
 cause 0 event
 cause 1 plan
 cause 2 input

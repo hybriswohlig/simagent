@@ -28,8 +28,8 @@ use sim_core::input::{
 };
 use sim_core::lineage::{GenomeKey, LineageKey};
 use sim_core::log::{
-    Cause, Causes, Company, DrawRef, EndReason, ForgetReason, LogEntry, LogPayload, PlanRef,
-    Subject,
+    Cause, Causes, Company, DrawRef, EndReason, ForgetReason, Leaning, LogEntry, LogPayload,
+    PlanRef, Subject,
 };
 use sim_core::params::{NutritionYear, ParamChange, WorldParams};
 use sim_core::presentation::kin::{Foster, KinWord};
@@ -1229,6 +1229,28 @@ fn all_payloads() -> Vec<LogPayload> {
             hours: 20,
             level_milli: 19,
         },
+        LogPayload::Leaning {
+            rows: vec![
+                Leaning {
+                    object: 3,
+                    offer: 0,
+                    habit: 2400,
+                    niche: 0,
+                    skill: None,
+                    sibling: None,
+                    lead_milli: None,
+                },
+                Leaning {
+                    object: 4,
+                    offer: 1,
+                    habit: 0,
+                    niche: 6000,
+                    skill: Some(Skill::Play),
+                    sibling: Some(SimId::try_from(2).expect("valid")),
+                    lead_milli: Some(300),
+                },
+            ],
+        },
     ];
     // A new variant fails to compile here until it is added to the list above.
     for payload in &payloads {
@@ -1280,7 +1302,8 @@ fn all_payloads() -> Vec<LogPayload> {
             | LogPayload::Refuted { .. }
             | LogPayload::Felt { .. }
             | LogPayload::Developed { .. }
-            | LogPayload::Practiced { .. } => {}
+            | LogPayload::Practiced { .. }
+            | LogPayload::Leaning { .. } => {}
         }
     }
     payloads

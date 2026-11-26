@@ -86,7 +86,7 @@ fn an_adult_at_the_morning_values() {
         (None, None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let expected = [
         // Table: hunger +1 800 for 20 min, 600 but 400 to full, weighing 100: 100 · 400, 4 s.
@@ -154,7 +154,7 @@ fn in_the_night_a_bed_comes_first() {
         (Some(ADULT_NIGHT), None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let expected = [
         (0, -200),
@@ -197,7 +197,7 @@ fn in_the_night_a_bed_comes_first() {
         (Some(ADULT_NIGHT), None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     assert_eq!(chose(morning, &hungry, &[]), at(5, 100_000 - 150));
     assert_eq!(chose(morning, &hungry, &[5]), at(0, 40_000 - 200));
@@ -239,7 +239,7 @@ fn a_critical_need_comes_first() {
         (None, None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     assert_eq!(points(&scored), day);
     assert_eq!(best(&scored, &[]).map(|chosen| chosen.object), Some(9));
@@ -250,7 +250,7 @@ fn a_critical_need_comes_first() {
         (Some(CHILD_NIGHT), None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let mut night = day.to_vec();
     // Sofa: energy +50 for 10 h, 500, 300 to full: 300 · 300, 8 s; bed: +80 asleep (6 to 12)
@@ -297,7 +297,7 @@ fn the_lower_critical_need_wins() {
         (Some(ADULT_NIGHT), None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let hungry = 31_000_000_000;
     let tired = 111_000_000_000;
@@ -342,7 +342,7 @@ fn the_lower_critical_need_wins() {
         (None, None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     assert_eq!(chose(&by_day, false), 0);
 }
@@ -393,7 +393,7 @@ fn the_sleeping_rates_follow_the_age_band() {
             (Some(night), None),
             no_mood,
             0,
-            |_| Bonus::NONE,
+            |_, _| Bonus::NONE,
         );
         let bed = scored.iter().find(|scored| scored.object == 7);
         let expected = 151_000_000_000 + 1_000 * gain - 250;
@@ -502,7 +502,7 @@ fn the_mood_scales_what_the_offer_fills() {
         (None, None),
         moods,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let expected = [
         (0, -450),
@@ -537,7 +537,7 @@ fn the_mood_scales_what_the_offer_fills() {
         (None, None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let plain_best = best(&plain, &[]).map(|chosen| (chosen.object, chosen.points));
     assert_eq!(plain_best, Some((3, 119_600)));
@@ -549,7 +549,7 @@ fn the_mood_scales_what_the_offer_fills() {
             (None, None),
             moods,
             0,
-            |_| Bonus::NONE,
+            |_, _| Bonus::NONE,
         );
         (points(&scored).into_iter())
             .filter(|(object, _)| [3, 4, 9].contains(object))
@@ -584,7 +584,7 @@ fn a_critical_need_wins_whatever_the_mood() {
         (None, None),
         moods,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let of = |object: u16| (scored.iter()).find(|scored| scored.object == object);
     let critical = 1_000_000_000;
@@ -644,7 +644,7 @@ fn the_floor_and_the_beds_take_the_mood() {
         (None, None),
         moods,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     assert_eq!(
         chose(&by_day, &[0, 1, 2, 5, 6, 7, 8], false),
@@ -658,7 +658,7 @@ fn the_floor_and_the_beds_take_the_mood() {
         (Some(ADULT_NIGHT), None),
         moods,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let in_bed = |busy: &[u16]| {
         let beds = Some(any.as_slice());

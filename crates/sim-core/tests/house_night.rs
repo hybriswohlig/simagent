@@ -406,6 +406,7 @@ fn the_last_night_of_time_lasts_to_its_end() {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     let sleep = OfferDef {
         rates: Default::default(),
@@ -443,6 +444,7 @@ fn a_sleep_ends_with_its_night() {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     let sleep = OfferDef {
         rates: Default::default(),

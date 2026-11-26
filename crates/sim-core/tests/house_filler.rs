@@ -455,6 +455,7 @@ fn no_time_filler_two_minutes_before_school() {
         talk_day: 0,
         talks: 0,
         entries: 0,
+        habits: Vec::new(),
     };
     let end = |second: i64, (object, offer, walk): (u16, u16, u32)| {
         let person = girl_at(second);
@@ -569,7 +570,7 @@ fn hunger_under_comfort_eats_before_the_bed() {
         (Some(night), None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let points = |object: u16| {
         (scored.iter())
@@ -585,7 +586,7 @@ fn hunger_under_comfort_eats_before_the_bed() {
         (None, None),
         no_mood,
         0,
-        |_| Bonus::NONE,
+        |_, _| Bonus::NONE,
     );
     let day_choice = choose((house, &houses), (9, needs), &by_day, &[], None);
     assert_eq!(day_choice, Choice::Idle);
@@ -598,7 +599,7 @@ fn hunger_under_comfort_eats_before_the_bed() {
             (Some(night), None),
             no_mood,
             0,
-            |_| Bonus::NONE,
+            |_, _| Bonus::NONE,
         );
         match choose((house, &houses), (9, values), &scored, busy, Some(&beds)) {
             Choice::Take(chosen) => Some(chosen.object),

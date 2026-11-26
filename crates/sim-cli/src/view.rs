@@ -1151,12 +1151,33 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
         ended,
         next: next.as_ref(),
     });
-    let (rows, history) = match &found.payload {
+    let (rows, leaning, history) = match &found.payload {
         LogPayload::Idle { .. } | LogPayload::ActionStarted { .. } => {
             let choice_at = end.saturating_sub(u64::try_from(line.len()).unwrap_or(0));
-            let rows = match company_before(&log, choice_at, &found) {
-                Ok(rows) => rows,
-                Err(()) => return Response::error(500, "events_invalid"),
+            let company =
+                rows_before(
+                    &log,
+                    choice_at,
+                    &found,
+                    "\"core:company\"",
+                    |payload| match payload {
+                        LogPayload::Company { objects } => Some(objects),
+                        _ => None,
+                    },
+                );
+            let leaning =
+                rows_before(
+                    &log,
+                    choice_at,
+                    &found,
+                    "\"core:leaning\"",
+                    |payload| match payload {
+                        LogPayload::Leaning { rows } => Some(rows),
+                        _ => None,
+                    },
+                );
+            let (Ok(rows), Ok(leaning)) = (company, leaning) else {
+                return Response::error(500, "events_invalid");
             };
             // Bond lines can stand long before the choice. The company row itself stays in the
             // short window above.
@@ -1168,9 +1189,9 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
                     Err(()) => return Response::error(500, "events_invalid"),
                 }
             };
-            (rows, history)
+            (rows, leaning, history)
         }
-        _ => (Vec::new(), Vec::new()),
+        _ => (Vec::new(), Vec::new(), Vec::new()),
     };
     match world().and_then(|world| {
         crate::why_answer(
@@ -1179,11 +1200,14 @@ fn why(dir: &Path, world: impl FnOnce() -> Result<Rc<World>, CliError>, entry: &
             id,
             latest,
             ended,
-            |object| {
-                (rows.iter())
+            |object, offer| {
+                let company = (rows.iter())
                     .find(|row| row.object == object)
-                    .map(|row| row.company - row.avoid)
-                    .unwrap_or(0)
+                    .map_or(0, |row| row.company - row.avoid);
+                let leaning = (leaning.iter())
+                    .find(|row| (row.object, row.offer) == (object, offer))
+                    .map_or(0, |row| row.habit + row.niche);
+                company + leaning
             },
             crate::social_view::CompanyAt {
                 rows: &rows,
@@ -1284,15 +1308,18 @@ fn later_choice(path: &Path, from: u64, sim: sim_core::ids::SimId) -> Result<boo
 /// How many bytes of the domain log the search for an entry reads one line after the other.
 const SEARCH_WINDOW: u64 = 1 << 16;
 
-/// The `core:company` rows of the choice that starts at byte `choice_start`, from the last such
-/// entry about the same person in the same second within `SEARCH_WINDOW` before it. Empty when
-/// the choice weighed no company. `Err` for a log it cannot read or a line it cannot parse.
-fn company_before(
+/// The rows of the entry of the kind `quoted` (its JSON name in quotes) of the choice that starts
+/// at byte `choice_start`, `rows` of its payload, from the last such entry about the same person
+/// in the same second within `SEARCH_WINDOW` before it: `core:company` (ADR-0030 section 4) or
+/// `core:leaning` (ADR-0033 section 7). Empty when the choice weighed none. `Err` for a log it
+/// cannot read or a line it cannot parse.
+fn rows_before<T>(
     path: &Path,
     choice_start: u64,
     choice: &sim_core::log::LogEntry,
-) -> Result<Vec<sim_core::log::Company>, ()> {
-    use sim_core::log::LogPayload;
+    quoted: &str,
+    rows_of: impl Fn(sim_core::log::LogPayload) -> Option<Vec<T>>,
+) -> Result<Vec<T>, ()> {
     use std::io::{Read, Seek, SeekFrom};
     if choice_start == 0 {
         return Ok(Vec::new());
@@ -1313,15 +1340,15 @@ fn company_before(
     let text = std::str::from_utf8(&buf[start..]).map_err(drop)?;
     let mut rows = Vec::new();
     for line in text.split_inclusive('\n') {
-        if !line.ends_with('\n') || !line.contains("\"core:company\"") {
+        if !line.ends_with('\n') || !line.contains(quoted) {
             continue;
         }
         let entry: sim_core::log::LogEntry = serde_json::from_str(line).map_err(drop)?;
         if entry.t == choice.t
             && entry.subjects == choice.subjects
-            && let LogPayload::Company { objects } = entry.payload
+            && let Some(found) = rows_of(entry.payload)
         {
-            rows = objects;
+            rows = found;
         }
     }
     Ok(rows)

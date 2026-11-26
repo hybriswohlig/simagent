@@ -93,12 +93,14 @@ fn company_crosses_the_threshold_and_stays_outside_the_mood() {
     assert!(sit.fallback, "the sofa's sit is the repository's fallback");
     let morning = (30, MORNING_VALUES, 0);
     let open = (None, None);
-    let plain = score(house, &houses, morning, open, no_mood, 0, |_| Bonus::NONE);
+    let plain = score(house, &houses, morning, open, no_mood, 0, |_, _| {
+        Bonus::NONE
+    });
     // Television: fun weighs 200 and the gain is capped at the 200 still missing; 3 s from the hall.
     assert_eq!(points_of(&plain, 3, 0), 200 * 200 - 150);
     assert_eq!(200 * 200 - 150, 39_850);
     const { assert!(39_850 < ENOUGH) };
-    let with_tv = score(house, &houses, morning, open, no_mood, 0, |object| {
+    let with_tv = score(house, &houses, morning, open, no_mood, 0, |object, _| {
         if object == 3 {
             Bonus::company(8_000)
         } else {
@@ -134,8 +136,8 @@ fn company_crosses_the_threshold_and_stays_outside_the_mood() {
     let warm = |object, offer| {
         if (object, offer) == (2, 1) { 10 } else { 0 }
     };
-    let cool = score(house, &houses, morning, open, warm, 0, |_| Bonus::NONE);
-    let warmed = score(house, &houses, morning, open, warm, 0, |object| {
+    let cool = score(house, &houses, morning, open, warm, 0, |_, _| Bonus::NONE);
+    let warmed = score(house, &houses, morning, open, warm, 0, |object, _| {
         if object == 2 {
             Bonus::company(8_000)
         } else {
@@ -146,7 +148,7 @@ fn company_crosses_the_threshold_and_stays_outside_the_mood() {
     assert_eq!(12_000 * 110 / 100 - 150, 13_050);
     assert_eq!(points_of(&warmed, 2, 1), 13_050 + 8_000);
     assert_eq!((13_050 + 8_000) - 13_050, 8_000);
-    let seated = score(house, &houses, morning, open, no_mood, 0, |object| {
+    let seated = score(house, &houses, morning, open, no_mood, 0, |object, _| {
         if object == 2 {
             Bonus::company(8_000)
         } else {
@@ -155,19 +157,20 @@ fn company_crosses_the_threshold_and_stays_outside_the_mood() {
     });
     assert_eq!(points_of(&seated, 2, 1), (12_000 - 150) + 8_000);
 
-    let cancelled = score(house, &houses, morning, open, no_mood, 0, |object| {
+    let cancelled = score(house, &houses, morning, open, no_mood, 0, |object, _| {
         // Equal company and avoid: the scored bonus is their difference.
         if object == 2 {
             Bonus {
                 company: RULES.0,
                 avoid: RULES.1,
+                habit: 0,
             }
         } else {
             Bonus::NONE
         }
     });
     assert_eq!(points_of(&cancelled, 2, 1), points_of(&plain, 2, 1));
-    let avoided = score(house, &houses, morning, open, no_mood, 0, |object| {
+    let avoided = score(house, &houses, morning, open, no_mood, 0, |object, _| {
         if object == 2 {
             Bonus::avoid(8_000)
         } else {
@@ -187,12 +190,14 @@ fn company_outweighs_a_longer_walk_and_never_a_critical_need() {
         .expect("flat");
     let morning = (30, MORNING_VALUES, 0);
     let open = (None, None);
-    let plain = score(house, &houses, morning, open, no_mood, 0, |_| Bonus::NONE);
+    let plain = score(house, &houses, morning, open, no_mood, 0, |_, _| {
+        Bonus::NONE
+    });
     // Table 100 · 400 − 4 s, television 200 · 200 − 3 s: the television leads by the walk, 50.
     assert_eq!(points_of(&plain, 0, 0), 100 * 400 - 200);
     assert_eq!(points_of(&plain, 3, 0), 200 * 200 - 150);
     assert_eq!((100 * 400 - 200, 200 * 200 - 150), (39_800, 39_850));
-    let with_table = score(house, &houses, morning, open, no_mood, 0, |object| {
+    let with_table = score(house, &houses, morning, open, no_mood, 0, |object, _| {
         if object == 0 {
             Bonus::company(8_000)
         } else {
@@ -227,7 +232,7 @@ fn company_outweighs_a_longer_walk_and_never_a_critical_need() {
         open,
         no_mood,
         0,
-        |object| {
+        |object, _| {
             if object == 2 {
                 Bonus::company(8_000)
             } else {
@@ -493,8 +498,8 @@ fn partners_in_the_evening_sit_together() {
         .expect("house");
     let there = (30, EVENING_NEEDS, 1);
     let open = (None, None);
-    let alone = score(home, &houses, there, open, no_mood, 0, |_| Bonus::NONE);
-    let joined = score(home, &houses, there, open, no_mood, 0, |object| {
+    let alone = score(home, &houses, there, open, no_mood, 0, |_, _| Bonus::NONE);
+    let joined = score(home, &houses, there, open, no_mood, 0, |object, _| {
         if object == 0 {
             Bonus::company(8_000)
         } else {
@@ -576,6 +581,8 @@ fn partners_in_the_evening_sit_together() {
             filler: false,
             commanded: true,
             reached: None,
+            // Told at 18:00, the last quarter of the day.
+            quarter: 3,
         })
     );
     assert!(
@@ -663,7 +670,11 @@ fn both_components_are_logged_when_they_cancel() {
         }
         other => panic!("core:company once he sits, got {other:?}"),
     }
-    assert!(matches!(run.log[at + 1].payload, LogPayload::Idle { .. }));
+    // Her habits' `core:leaning` comes between (ADR-0033 section 7), then the choice.
+    let next = (run.log[at + 1..].iter())
+        .map(|entry| &entry.payload)
+        .find(|payload| !matches!(payload, LogPayload::Leaning { .. }));
+    assert!(matches!(next, Some(LogPayload::Idle { .. })), "{next:?}");
 }
 
 /// The partners' bond starts at the move-in, 23:59:59 of day 0. Familiarity falls by 5 a day.
@@ -753,7 +764,11 @@ fn a_walker_is_company_and_only_a_seated_person_is_avoided() {
         }
         other => panic!("core:company once he sits, got {other:?}"),
     }
-    assert!(matches!(run.log[at + 1].payload, LogPayload::Idle { .. }));
+    // Her habits' `core:leaning` comes between (ADR-0033 section 7), then the choice.
+    let next = (run.log[at + 1..].iter())
+        .map(|entry| &entry.payload)
+        .find(|payload| !matches!(payload, LogPayload::Leaning { .. }));
+    assert!(matches!(next, Some(LogPayload::Idle { .. })), "{next:?}");
 }
 
 /// The evening of `evening` on `data`, with the woman's temper at `temper` (from a save with it
@@ -808,11 +823,12 @@ fn the_temper_halves_the_company_and_the_television_wins() {
     let there = (30, EVENING_NEEDS, 1);
     let open = (None, None);
     let with_him = |temper: i16, avoid: i64| {
-        score(home, &houses, there, open, no_mood, temper, |object| {
+        score(home, &houses, there, open, no_mood, temper, |object, _| {
             if object == 0 {
                 Bonus {
                     company: 8_000,
                     avoid,
+                    habit: 0,
                 }
             } else {
                 Bonus::NONE
