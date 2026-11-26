@@ -3,6 +3,15 @@
 Ein Abschnitt pro `contract_version` (ADR-0005 Abschnitt 7), der neueste oben, jeweils
 mit den Einträgen Neu, Geändert und Stillgelegt.
 
+## 0.1.3
+
+- Neu: nichts.
+- Geändert: die Haartabelle in der Zeile Eumelanin 0,25 ist bei Phäomelanin 0, 0,25 und 0,5
+  `#a09078`, `#ae946c` und `#b08454` statt `#8c8171`, `#8a7764` und `#886c55`, damit
+  Dunkelblond und Hellbraun golden statt mausbraun wirken; Kupfer und die übrigen Zeilen
+  bleiben (Entscheidung Grok vom 2026-11-26 nach den Figuren).
+- Stillgelegt: nichts.
+
 ## 0.1.2
 
 - Neu: `hair_strand_thickness` (Haarstärke, Standard 0,5) und `hair_dryness` (Trockenheit,
