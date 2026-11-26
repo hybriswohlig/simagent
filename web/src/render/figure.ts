@@ -880,7 +880,15 @@ const HAIR_VERTEX = `
     float lengths = smoothstep(0.08, 0.2, curlBelow);
     transformed += objectNormal * uCurl * 0.011 * lengths * sin(curlBelow * 120.0 + aMesh.x * 55.0 + aMesh.z * 35.0);
   }
+  // Thick strands give the hair body, fine ones lie flat on the head.
+  transformed += objectNormal * max(uThick - 0.5, 0.0) * THICK_BODY * smoothstep(0.0, 0.05, max(uCrown.y - aMesh.y, 0.0));
 `;
+
+/** Roughness of well kept and of dry hair. */
+const HAIR_SLEEK = 0.6;
+const HAIR_MATT = 0.96;
+/** How far fine strands open the cover and thick ones close it. */
+const FINE_HAIR_OPEN = 0.1;
 
 const STRAND_FRAG = `
   float cover = vKeep;
@@ -904,7 +912,8 @@ const STRAND_FRAG = `
     }
     cover *= softA;
     float shade = dot(strand.rgb, vec3(0.299, 0.587, 0.114));
-    float lift = clamp(shade / uMean, 0.6, 1.3) * (1.0 + CURL_SHADE * uCurl * wave * (1.0 + inLengths));
+    // Dry hair is dull: the light and dark of the strands even out.
+    float lift = mix(clamp(shade / uMean, 0.6, 1.3), 1.0, DRY_FLAT * uDry) * (1.0 + CURL_SHADE * uCurl * wave * (1.0 + inLengths));
     diffuseColor.rgb = uHair * lift;
     diffuseColor.a = 1.0;
   #endif
@@ -1024,10 +1033,12 @@ function strandMaterial(
   softEdge: boolean,
   cap: number,
   curl: number,
+  thickness: number,
+  dryness: number,
   brow: readonly [number, number],
   owned: Owned,
 ): Material {
-  const material = new MeshStandardMaterial({ roughness: 0.84, metalness: 0 });
+  const material = new MeshStandardMaterial({ roughness: MathUtils.lerp(HAIR_SLEEK, HAIR_MATT, dryness), metalness: 0 });
   material.map = texture;
   material.color.set("#ffffff");
   material.side = DoubleSide;
@@ -1046,15 +1057,17 @@ function strandMaterial(
     uClip: { value: 0 },
     uMean: { value: strandMean(texture) },
     uCurl: { value: curl },
+    uThick: { value: thickness },
+    uDry: { value: dryness },
     uBrow: { value: new Vector3(0, brow[0], brow[1]) },
   };
   bindShader(
     material,
     `strand-${fillPart ? "part" : "cut"}-${softEdge ? "soft" : "hard"}`,
     uniforms,
-    "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;\nuniform float uFill;\nuniform float uCurl;",
+    "attribute vec3 aMesh;\nvarying float vKeep;\nvarying vec3 vMesh;\nuniform float uBald;\nuniform vec3 uCrown;\nuniform float uFill;\nuniform float uCurl;\nuniform float uThick;\nconst float THICK_BODY = 0.01;",
     HAIR_VERTEX,
-    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uMean;\nuniform float uCurl;\nuniform vec3 uBrow;\nuniform vec3 uCrown;\nconst float CURL_FREQ = 45.0;\nconst float CURL_TIGHT = 70.0;\nconst float CURL_BEND = 0.007;\nconst float CURL_SHADE = 0.18;",
+    "varying float vKeep;\nvarying vec3 vMesh;\nuniform vec3 uHair;\nuniform float uThresh;\nuniform float uFill;\nuniform float uSoft;\nuniform float uCap;\nuniform float uClip;\nuniform float uMean;\nuniform float uCurl;\nuniform float uDry;\nuniform vec3 uBrow;\nuniform vec3 uCrown;\nconst float CURL_FREQ = 45.0;\nconst float CURL_TIGHT = 70.0;\nconst float CURL_BEND = 0.007;\nconst float CURL_SHADE = 0.18;\nconst float DRY_FLAT = 0.6;",
     STRAND_FRAG,
   );
   owned.materials.push(material);
@@ -1557,7 +1570,10 @@ function addGrooming(
   const density = hairCover(body);
   if (density > 0.02 && hair !== null) {
     const bald = hairName === "hair_short" ? Math.min(1, Math.max(0, body.balding_stage) / 7) : 0;
-    const threshold = MathUtils.lerp(0.9, 0.2, density);
+    const thickness = Math.min(1, Math.max(0, body.hair_strand_thickness));
+    const dryness = Math.min(1, Math.max(0, body.hair_dryness));
+    // Thick strands close the hair, fine ones let more of the scalp through.
+    const threshold = MathUtils.lerp(0.9, 0.2, density) + MathUtils.lerp(FINE_HAIR_OPEN, -FINE_HAIR_OPEN, thickness);
     const crown = hairCrown(hair, humanPos);
     addFitted(
       mesh,
@@ -1565,7 +1581,7 @@ function addGrooming(
       hair,
       hair.faces,
       humanPos,
-      strandMaterial(textureOf(hair.image, true, SRGBColorSpace, owned), hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, Math.min(1, Math.max(0, body.hair_curl)), browLine, owned),
+      strandMaterial(textureOf(hair.image, true, SRGBColorSpace, owned), hairHex, threshold, bald, crown, -1, true, true, HAIR_CAP[hairName] ?? 0.04, Math.min(1, Math.max(0, body.hair_curl)), thickness, dryness, browLine, owned),
       2,
       0,
       null,
@@ -1581,7 +1597,7 @@ function addGrooming(
       brows,
       browFaces(brows, humanPos),
       humanPos,
-      strandMaterial(textureOf(brows.image, true, SRGBColorSpace, owned), hairHex, browCut, 0, marks.crown, -8, false, false, 0, 0, NO_FRINGE, owned),
+      strandMaterial(textureOf(brows.image, true, SRGBColorSpace, owned), hairHex, browCut, 0, marks.crown, -8, false, false, 0, 0, 0.5, 0, NO_FRINGE, owned),
       3,
       0.003,
       thickenBrows,
