@@ -764,8 +764,8 @@ fn the_steps_of_overhearing_are_the_references() {
 }
 
 /// A couple in a house with their baby born there and the repository's talk furniture, for
-/// four months. In the repository's houses a small child spends day and night in the children's
-/// room, where no one talks, so here its day room is the living room. Each praise, tease or
+/// four months. Its day room is set to the living room, as in the repository's houses, so the test
+/// does not depend on their files; its night room stays the children's room. Each praise, tease or
 /// apology of one partner to the other at furniture in the room where the clock puts the baby
 /// (its night room in bed, its day room by day, nowhere at the kindergarten) writes the half
 /// rows for the baby, source the actor, by the talk; nothing else develops the baby.
@@ -861,9 +861,10 @@ fn a_baby_overhears_its_parents_in_its_room() {
     assert_eq!(run.world.state().house().raised[&baby].experience, d);
 }
 
-/// In the repository's houses no one talks where a small child is: a baby overhears nothing.
+/// In the repository's houses a small child spends the day in the living room, where the
+/// parents talk (ADR-0024 section 4): the baby overhears them.
 #[test]
-fn in_the_repositorys_houses_a_baby_overhears_nothing() {
+fn in_the_repositorys_houses_a_baby_overhears_its_parents() {
     let data = life_data(true).with_social(common::repository_social());
     let couple = [FAMILY[0], FAMILY[1]];
     let (mut run, _) = Run::family(data, 7, "test:upbringing", &couple, 0);
@@ -888,5 +889,5 @@ fn in_the_repositorys_houses_a_baby_overhears_nothing() {
             }
         )
     });
-    assert!(talks > 20 && !overheard, "{talks} talks");
+    assert!(talks > 20 && overheard, "{talks} talks");
 }

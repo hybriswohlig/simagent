@@ -11,7 +11,7 @@ const SOCIAL: &str = include_str!("../../../data/social/social.json");
 /// The data hash of the repository's data from `tools/data_reference.py` (ADR-0007), with the
 /// social data after the houses; without them it is 0a08eab115b75093. The feelings of ADR-0032
 /// moved it from 01ce3a4b0ac58e6f.
-const DATA_HASH: u64 = 0xf5c6_0bfe_b2f1_cceb;
+const DATA_HASH: u64 = 0x6b43_f872_efc1_daa1;
 
 /// The repository's data, for the kinds of furniture of its houses.
 fn repository() -> &'static sim_core::data::Data {

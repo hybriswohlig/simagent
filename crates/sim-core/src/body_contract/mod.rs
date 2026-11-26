@@ -13,7 +13,7 @@ pub(crate) use census::{BodyMemo, count};
 pub use generated::{BodyParamKey, BodyParamSpec, BodyParams, CONTRACT_VERSION, SOURCE_HASH};
 pub use mapping::{
     BodyData, BodyEvaluation, BodyInputs, BodyTraits, CLAMPED_KEYS, body_params, body_traits,
-    herc2, mc1r,
+    hair_traits, herc2, mc1r,
 };
 pub use person::reserve_size;
 pub(crate) use person::{bio_age, reserve_size_of};

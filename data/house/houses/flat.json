@@ -9,7 +9,7 @@
     {"id": "bedroom"},
     {"id": "kids"}
   ],
-  "child_day_room": "kids",
+  "child_day_room": "living",
   "child_night_room": "kids",
   "dwell_room": "living",
   "doors": [

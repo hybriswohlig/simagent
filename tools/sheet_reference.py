@@ -22,14 +22,16 @@ The genomes, by locus (B1 to B6):
 - `core:mc1r`: `[1, 1]` for red hair, `[0, 0]` otherwise (B3);
 - `core:herc2`: `[1, 1]` for a light iris, `[0, 0]` otherwise (B4).
 
-Checked: 161 additive autosomal loci (40 of them the temperament loci), of them 8 liability
+Checked: 161 additive autosomal loci on map 5 (40 of them the temperament loci), 163 on map 6
+(ADR-0034: the two loci of `core:hair_thickness` added, dose 1 by B1), of them 8 liability
 loci, and the 7 others the map has
 (`core:disease_ar`, `core:mc1r`, `core:herc2`, `core:disease_ad_late`,
 `core:disease_ad_partial` on autosomes, `core:disease_xr` on the X, `core:disease_mt` on the
 mt); no Y locus.
 
 Usage: $HOME/.cache/simagent-tools-venv/bin/python sheet_reference.py [--write]   (from tools/;
-with --write the scenario goes to data/scenarios/bogen.json, else the summary only)
+with --write the scenario goes to data/scenarios/bogen.json, else the summary only; the summary
+ends with the scenario of map 6 built in memory, `data_reference.map6_documents`)
 """
 
 import json
@@ -56,15 +58,21 @@ OTHERS = {
 }
 
 
-def loci() -> list:
-    """The map's loci in its order, each (id, chromosome, additive), with the counts above."""
+# The additive autosomal loci per map version: map 5 (temperament), map 6 (and hair).
+ADDITIVE = {5: 161, 6: 163}
+
+
+def loci(genome_map=None) -> list:
+    """The map's loci in its order (data/genetics/genome_map.json, or `genome_map`), each
+    (id, chromosome, additive), with the counts above."""
+    genome_map = json.loads(MAP.read_text()) if genome_map is None else genome_map
     found = [
         (locus["id"], locus["chromosome"], isinstance(locus["action"], dict) and "additive" in locus["action"])
-        for locus in json.loads(MAP.read_text())["loci"]
+        for locus in genome_map["loci"]
     ]
     additive = [lid for lid, chromosome, add in found if add and chromosome == "autosome"]
     others = {lid: chromosome for lid, chromosome, add in found if not add}
-    assert len(additive) == 161, len(additive)
+    assert len(additive) == ADDITIVE[genome_map["map_version"]], len(additive)
     assert set(LIABILITY) <= set(additive) and set(PUBERTY) <= set(additive)
     assert others == OTHERS, others
     assert all(chromosome in ("autosome", "x", "mt") for _, chromosome, _ in found), "no Y locus"
@@ -88,9 +96,9 @@ def copies(lid: str, chromosome: str, additive: bool, variant: str, sex: str) ->
     return [0, 0]
 
 
-def founders() -> list:
+def founders(genome_map=None) -> list:
     """The ten founders in the order of B8, each a woman, then a man."""
-    found = loci()
+    found = loci(genome_map)
     return [
         {
             "born": BORN,
@@ -105,11 +113,11 @@ def founders() -> list:
     ]
 
 
-def scenario_text() -> str:
+def scenario_text(genome_map=None) -> str:
     """The scenario, format 5, as the repository writes scenarios: two spaces, one allele per
     line."""
     people = []
-    for founder in founders():
+    for founder in founders(genome_map):
         alleles = ",\n".join(f"          {json.dumps(allele)}" for allele in founder["alleles"])
         people.append(
             "      {\n"
@@ -150,6 +158,18 @@ def main(argv) -> int:
     for variant, people in zip(VARIANTS, zip(*[iter(parsed["start"]["founders"])] * 2)):
         named = {allele["locus"]: allele["copies"] for allele in people[0]["alleles"]}
         print(f"{variant}: puberty_01 {named['core:puberty_01']}, mc1r {named['core:mc1r']}, herc2 {named['core:herc2']}")
+    # Map 6 (ADR-0034), built in memory: 163 additive loci, the hair loci at dose 1 (B1).
+    import data_reference
+    import xxhash
+
+    _, _, map6 = data_reference.map6_documents()
+    six = scenario_text(map6)
+    named = {allele["locus"]: allele["copies"] for allele in json.loads(six)["start"]["founders"][0]["alleles"]}
+    additive = sum(1 for _, chromosome, add in loci(map6) if add and chromosome == "autosome")
+    print(
+        f"map6: additive {additive}, alleles per founder {len(named)}, hair_thickness_01 {named['core:hair_thickness_01']},"
+        f" hair_thickness_02 {named['core:hair_thickness_02']}, scenario xxh3 {xxhash.xxh3_64_intdigest(six.encode(), seed=0):016x}"
+    )
     if "--write" in argv[1:]:
         OUT.write_text(text)
         print(f"wrote {OUT.relative_to(ROOT)}")

@@ -2185,7 +2185,7 @@ fn settings_file(values: &str) -> String {
 
 /// The data hash of the base game, as the manifest writes it (`sim_cli::data`, test
 /// `the_base_game_loads`).
-const BASE_HASH: &str = "f5c60bfeb2f1cceb";
+const BASE_HASH: &str = "6b43f872efc1daa1";
 
 /// The data hash in the manifest of the run in `dir`.
 fn data_hash(dir: &Path) -> String {
@@ -3278,11 +3278,12 @@ fn a_house_over_http() {
 /// child of `YOUNG` has no needs, so it is no person; before the first morning no child is
 /// shown either. From it, where the child is by the clock: on Tuesday (day 1) at 6:00 asleep
 /// in the flat's night room, at 9:00 at the kindergarten until 15:00 of that day, at 16:00 in
-/// its day room, at 20:00 asleep again; on Saturday (day 5) at 9:00 in its day room. Both rooms
-/// of the flat are `kids`, its room 5.
+/// its day room, at 20:00 asleep again; on Saturday (day 5) at 9:00 in its day room. The flat's
+/// night room is `kids`, its room 5; its day room is `living`, its room 2 (ADR-0024 section 4).
 #[test]
 fn young_children_in_the_house() {
     const KIDS: u8 = 5;
+    const LIVING: u8 = 2;
     let (server, home, _) = served("young", YOUNG);
     let port = server.port;
     let path = format!("/api/runs/couple/house/{home}");
@@ -3328,7 +3329,8 @@ fn young_children_in_the_house() {
         }])
     };
     let at_home = |asleep: bool, familiarity: i64| {
-        child(json!({"room": KIDS, "asleep": asleep}), familiarity)
+        let room = if asleep { KIDS } else { LIVING };
+        child(json!({"room": room, "asleep": asleep}), familiarity)
     };
     step("morning", MORNING);
     let at_six = house(MORNING);

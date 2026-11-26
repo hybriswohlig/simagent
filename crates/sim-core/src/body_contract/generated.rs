@@ -6,10 +6,10 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 /// The version of the contract these types come from.
-pub const CONTRACT_VERSION: &str = "0.1.1";
+pub const CONTRACT_VERSION: &str = "0.1.2";
 
 /// `stable_hash64` over the bytes of `contracts/body.json`.
-pub const SOURCE_HASH: u64 = 0x8832819242b0c331;
+pub const SOURCE_HASH: u64 = 0xb633231ebc8ea568;
 
 /// A parameter of the body contract, in the order of the contract file. The variants
 /// have no stable numbers and no order: both would be positional.
@@ -73,6 +73,10 @@ pub enum BodyParamKey {
     IrisMelanin,
     /// Hair curl: 0 is straight, 1 is very curly.
     HairCurl,
+    /// Thickness of one scalp hair: 0 is fine, 1 is coarse.
+    HairStrandThickness,
+    /// Scalp-hair condition: 0 is soft and glossy, 1 is dry and brittle.
+    HairDryness,
     /// Scalp hair density; falls with diffuse thinning.
     HairDensity,
     /// Balding stage: receding temples and crown; 7 is bald except for the rim of hair.
@@ -115,7 +119,7 @@ pub struct BodyParamSpec {
 
 impl BodyParamKey {
     /// Every parameter, in the order of the contract file.
-    pub const ALL: [BodyParamKey; 44] = [
+    pub const ALL: [BodyParamKey; 46] = [
         BodyParamKey::BodyFormAge,
         BodyParamKey::FaceFormAge,
         BodyParamKey::HeightCm,
@@ -145,6 +149,8 @@ impl BodyParamKey {
         BodyParamKey::HairPheomelanin,
         BodyParamKey::IrisMelanin,
         BodyParamKey::HairCurl,
+        BodyParamKey::HairStrandThickness,
+        BodyParamKey::HairDryness,
         BodyParamKey::HairDensity,
         BodyParamKey::BaldingStage,
         BodyParamKey::HairGreyFraction,
@@ -194,6 +200,8 @@ impl BodyParamKey {
             BodyParamKey::HairPheomelanin => "hair_pheomelanin",
             BodyParamKey::IrisMelanin => "iris_melanin",
             BodyParamKey::HairCurl => "hair_curl",
+            BodyParamKey::HairStrandThickness => "hair_strand_thickness",
+            BodyParamKey::HairDryness => "hair_dryness",
             BodyParamKey::HairDensity => "hair_density",
             BodyParamKey::BaldingStage => "balding_stage",
             BodyParamKey::HairGreyFraction => "hair_grey_fraction",
@@ -367,6 +375,16 @@ impl BodyParamKey {
                 max: 1.0,
                 default: 0.2,
             },
+            BodyParamKey::HairStrandThickness => BodyParamSpec {
+                min: 0.0,
+                max: 1.0,
+                default: 0.5,
+            },
+            BodyParamKey::HairDryness => BodyParamSpec {
+                min: 0.0,
+                max: 1.0,
+                default: 0.3,
+            },
             BodyParamKey::HairDensity => BodyParamSpec {
                 min: 0.0,
                 max: 1.0,
@@ -480,6 +498,8 @@ pub struct BodyParams {
     pub(super) hair_pheomelanin: f64,
     pub(super) iris_melanin: f64,
     pub(super) hair_curl: f64,
+    pub(super) hair_strand_thickness: f64,
+    pub(super) hair_dryness: f64,
     pub(super) hair_density: f64,
     pub(super) balding_stage: f64,
     pub(super) hair_grey_fraction: f64,
@@ -529,6 +549,8 @@ impl BodyParams {
         hair_pheomelanin: 0.2,
         iris_melanin: 0.5,
         hair_curl: 0.2,
+        hair_strand_thickness: 0.5,
+        hair_dryness: 0.3,
         hair_density: 1.0,
         balding_stage: 0.0,
         hair_grey_fraction: 0.0,
@@ -691,6 +713,16 @@ impl BodyParams {
         self.hair_curl
     }
 
+    /// Thickness of one scalp hair: 0 is fine, 1 is coarse.
+    pub const fn hair_strand_thickness(&self) -> f64 {
+        self.hair_strand_thickness
+    }
+
+    /// Scalp-hair condition: 0 is soft and glossy, 1 is dry and brittle.
+    pub const fn hair_dryness(&self) -> f64 {
+        self.hair_dryness
+    }
+
     /// Scalp hair density; falls with diffuse thinning.
     pub const fn hair_density(&self) -> f64 {
         self.hair_density
@@ -798,6 +830,8 @@ impl BodyParams {
             BodyParamKey::HairPheomelanin => self.hair_pheomelanin,
             BodyParamKey::IrisMelanin => self.iris_melanin,
             BodyParamKey::HairCurl => self.hair_curl,
+            BodyParamKey::HairStrandThickness => self.hair_strand_thickness,
+            BodyParamKey::HairDryness => self.hair_dryness,
             BodyParamKey::HairDensity => self.hair_density,
             BodyParamKey::BaldingStage => self.balding_stage,
             BodyParamKey::HairGreyFraction => self.hair_grey_fraction,
@@ -848,6 +882,8 @@ impl BodyParams {
             BodyParamKey::HairPheomelanin => &mut self.hair_pheomelanin,
             BodyParamKey::IrisMelanin => &mut self.iris_melanin,
             BodyParamKey::HairCurl => &mut self.hair_curl,
+            BodyParamKey::HairStrandThickness => &mut self.hair_strand_thickness,
+            BodyParamKey::HairDryness => &mut self.hair_dryness,
             BodyParamKey::HairDensity => &mut self.hair_density,
             BodyParamKey::BaldingStage => &mut self.balding_stage,
             BodyParamKey::HairGreyFraction => &mut self.hair_grey_fraction,
