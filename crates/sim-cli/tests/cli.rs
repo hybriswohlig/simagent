@@ -135,7 +135,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("input.ndjson")),
         concat!(
-            r#"{"format_version":5,"core_version":78,"data_hash":"6b43f872efc1daa1","build_commit":"unknown"}"#,
+            r#"{"format_version":5,"core_version":79,"data_hash":"6b43f872efc1daa1","build_commit":"unknown"}"#,
             "\n",
             r#"{"t":-1,"seq":1,"input":{"start":{"world_seed":"00000000000000ff","founder_tag":"test:tiny","world_params":{"hereditary_diseases":false,"nutrition":[]},"founders":[{"born":-1,"sex":"female","alleles":[{"locus":"core:disease_ar","copies":[0,1]}]}],"couples":[],"capacity":null,"pool":null}}}"#,
             "\n",
@@ -162,7 +162,7 @@ fn run_writes_the_run_directory() {
     assert_eq!(
         text(&out.join("manifest.json")),
         concat!(
-            r#"{"format_version":5,"core_version":78,"data_hash":"6b43f872efc1daa1","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"7414fc0eae6b5f29"}],"log_hash":"6d23128b21469cb5"}"#,
+            r#"{"format_version":5,"core_version":79,"data_hash":"6b43f872efc1daa1","build_commit":"unknown","world_seed":"00000000000000ff","closed_through":31449599,"year_hashes":[{"year":0,"hash":"c1aa5e7bd2d44ab4"}],"log_hash":"6d23128b21469cb5"}"#,
             "\n",
         )
     );
@@ -173,7 +173,7 @@ fn run_writes_the_run_directory() {
         .collect();
     assert_eq!(
         save,
-        "53494d4147454e54024ea1b587feae8efea16b1b01ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100e4daacea1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00c08f85af8694a9a82be384948ce4ee92851bec81d6e683bcf4f2c1018f8a84dceda0b8aa34c095ce8fa8b9b892269ec1d6a08784d69a21000000000000000001000000000000010100000000000000000000000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100a9beadf3ea81bf8a74"
+        "53494d4147454e54024fa1b587feae8efea16b1c01ff01010000fe87ff1d020102068088ff1d0002060180a8a702fe8ffe3b0007010100fe8ffe3b000100018088ff1dfe9fedd7040006070100e4daacea1300040201a0bb8ca1c58498a01c00b8f4e5ff8c1f0005020185d2bc82f8b2ead44d00080101019893ebf7f7b1d2ec5e00c08f85af8694a9a82be384948ce4ee92851bec81d6e683bcf4f2c1018f8a84dceda0b8aa34c095ce8fa8b9b892269ec1d6a08784d69a21000000000000000001000000000000010100000000000000000000000000000006010004fe87ff1d01000200020002000501010100ff0109746573743a74696e790000010100010f636f72653a646973656173655f61720200010000000100b495d196bdcf97d5c101"
     );
     let mut entries: Vec<_> = fs::read_dir(&out)
         .expect("lists")
@@ -1056,12 +1056,12 @@ fn replay_rejects_foreign_core_version() {
     let original = run_scenario(&dir, TINY_SCENARIO, "tiny");
     let log = original.join("input.ndjson");
     let out = dir.join("out");
-    replace_in(&log, r#""core_version":78"#, r#""core_version":79"#);
+    replace_in(&log, r#""core_version":79"#, r#""core_version":80"#);
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
-        "error: replay_foreign_core_version: the input log is of core version 79, this is 78"
+        "error: replay_foreign_core_version: the input log is of core version 80, this is 79"
     );
-    replace_in(&log, r#""core_version":79"#, r#""core_version":78"#);
+    replace_in(&log, r#""core_version":80"#, r#""core_version":79"#);
     replace_in(&log, "6b43f872efc1daa1", "c3f04a38869c20d7");
     assert_eq!(
         error_of(&["run", "--replay", arg(&log), "--out", arg(&out)]),
@@ -1609,8 +1609,8 @@ fn resume_checks_the_save_and_the_limit() {
     );
     let save = run.join("state.save");
     let mut bytes = fs::read(&save).expect("reads");
-    assert_eq!(bytes[9], 78, "the core version in the header of the save");
-    bytes[9] = 79;
+    assert_eq!(bytes[9], 79, "the core version in the header of the save");
+    bytes[9] = 80;
     fs::write(&save, &bytes).expect("writes");
     assert_eq!(
         error_of(&["run", "--resume", "--out", arg(&run), "--until", "99999999"]),
