@@ -463,6 +463,10 @@ class BodyValues:
         self.gamma = values["core:growth_gamma"]
         self.loss_onset = values["core:height_loss_onset"]
         self.bio_age_weight = values["core:bio_age_weight"]
+        # The seven numbers of the dryness (ADR-0034 section 3), or None without the hair group
+        # (then the mapping gives the contract's defaults directly).
+        keys = [key for key, _, _ in data_reference.HAIR_VALUES]
+        self.hair = {key: values[key] for key in keys} if all(key in values for key in keys) else None
 
     def __getitem__(self, name: str) -> float:
         return self.v[f"core:body_{name}"]
@@ -596,6 +600,12 @@ def raw_values(values: BodyValues, person: dict) -> dict:
     raw["iris_melanin"] = iris
     # 10.6 hair.
     raw["hair_curl"] = logistic(values["curl_offset"] + values["curl_slope"] * z["z_curl"])
+    # Hair thickness and dryness (ADR-0034 section 3): the defaults without the hair group.
+    if values.hair is None:
+        raw["hair_strand_thickness"], raw["hair_dryness"] = HAIR_DEFAULTS["hair_strand_thickness"], HAIR_DEFAULTS["hair_dryness"]
+    else:
+        raw["hair_strand_thickness"] = strand_thickness(z["z_thick"])
+        raw["hair_dryness"] = dryness(values.hair, z["z_curl"], z["z_dry"], b, men)
     raw["hair_density"] = logistic(values["hair_density_offset"] + z["z_den"]) * (
         1.0 - values["hair_density_loss"] * logistic((b - values["hair_density_center"]) / values["hair_density_tempo"])
     )
@@ -669,7 +679,8 @@ def body_params(values: BodyValues, contract: list, person: dict) -> dict:
         else:
             assert low <= value <= high, f"body_param_bounded {key} {value}"
         out[key] = (value, clamped)
-    assert set(out) == set(raw)
+    # A contract before 0.1.2 has no hair thickness and dryness: the mapping still gives them.
+    assert set(out) | {key for key in HAIR_KEYS if key not in out} == set(raw)
     return out, curve
 
 
@@ -708,6 +719,216 @@ def spec_checks(values: BodyValues, contract: list) -> list:
     for name, value, want, tolerance in checks:
         assert abs(value - want) <= tolerance, (name, value, want)
         lines.append(f"body_spec_check {name} {value!r} (the specification prints {want!r}, within {tolerance!r})")
+    return lines
+
+
+# ---------------------------------------------------------------------------------------
+# Hair thickness and dryness (ADR-0034 section 3; Grok's decision of 2026-11-20 and its
+# addendum of 2026-11-24), scalp hair only:
+#
+#   hair_strand_thickness = L(z_thickness)
+#   s_age = L((b - center) / tempo)
+#   hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male)
+#
+# with the seven values of the calibration (`data_reference.HAIR_VALUES`: -0.942, 0.75, 1.30,
+# 2.0, -0.35, 55, 10), the terms added left to right as written, `male` 1 for a man and 0 for
+# a woman, `b` the biological age in years (as balding and grey). Without the hair group the
+# mapping gives the defaults 0.5 and 0.3 directly (not `z = 0`, which would give a dryness by
+# age and sex).
+
+HAIR_KEYS = ("hair_strand_thickness", "hair_dryness")
+HAIR_DEFAULTS = {"hair_strand_thickness": 0.5, "hair_dryness": 0.3}
+# The two contract entries of version 0.1.2, after `hair_curl` (ADR-0034 section 3).
+HAIR_CONTRACT = (
+    {
+        "key": "hair_strand_thickness",
+        "group": "hair",
+        "unit": "fraction",
+        "range": [0, 1],
+        "default": 0.5,
+        "stability": "stable",
+        "description": "Thickness of one scalp hair: 0 is fine, 1 is coarse.",
+    },
+    {
+        "key": "hair_dryness",
+        "group": "hair",
+        "unit": "fraction",
+        "range": [0, 1],
+        "default": 0.3,
+        "stability": "stable",
+        "description": "Scalp-hair condition: 0 is soft and glossy, 1 is dry and brittle.",
+    },
+)
+# The roles of the two new inputs: `z` of the hair traits (read only with the hair group).
+HAIR_ROLES = {"z_thick": data_reference.HAIR_THICKNESS, "z_dry": data_reference.HAIR_DRYNESS}
+
+
+def contract_with_hair(contract: list) -> list:
+    """The contract's parameters of version 0.1.2: those of `contract` with the two hair
+    entries after `hair_curl` (as they are, if `contract` has them already). 46 keys."""
+    if all(any(entry["key"] == key for entry in contract) for key in HAIR_KEYS):
+        out = list(contract)
+    else:
+        assert not any(entry["key"] in HAIR_KEYS for entry in contract), "half of the hair keys"
+        at = [entry["key"] for entry in contract].index("hair_curl") + 1
+        out = list(contract[:at]) + [dict(entry) for entry in HAIR_CONTRACT] + list(contract[at:])
+    keys = [entry["key"] for entry in out]
+    assert len(out) == 46 and keys[keys.index("hair_curl") + 1 : keys.index("hair_curl") + 3] == list(HAIR_KEYS)
+    return out
+
+
+def strand_thickness(z_thickness: float) -> float:
+    """`hair_strand_thickness = L(z_thickness)`."""
+    return logistic(z_thickness)
+
+
+def dryness(numbers: dict, z_curl: float, z_dry: float, b: float, men: bool) -> float:
+    """`hair_dryness = L(offset + curl · z_curl + slope · z_dry + age · s_age + male · male)`,
+    `s_age = L((b − center) / tempo)`, added left to right; `numbers` the seven values by key."""
+    v = {key.removeprefix("core:body_dryness_"): value for key, value in numbers.items()}
+    s_age = logistic((b - v["center"]) / v["tempo"])
+    male = 1.0 if men else 0.0
+    u = (((v["offset"] + v["curl"] * z_curl) + v["slope"] * z_dry) + v["age"] * s_age) + v["male"] * male
+    return logistic(u)
+
+
+def hair_group_check(calibration: dict, genome_map: dict) -> tuple:
+    """The hair group of the body data (ADR-0034 section 3), for `BodyData::new` and
+    `BodyData::census`: (present, reason). Present when any of its parts is there (the two
+    traits in the map, their phenotype rows, the seven values); then every part must be there
+    and each row's child and adult weights equal bit for bit, else the reason of the rejection.
+    Absent: (False, None), the mapping gives the defaults."""
+    traits = {entry["id"] for entry in genome_map["traits"]}
+    rows = {row["trait"]: row for row in calibration["traits"]}
+    keys = [key for key, _, _ in data_reference.HAIR_VALUES]
+    parts = [trait in traits for trait in HAIR_ROLES.values()] + [trait in rows for trait in HAIR_ROLES.values()]
+    parts += [key in calibration["values"] for key in keys]
+    if not any(parts):
+        return False, None
+    if not all(parts):
+        return True, "data.body_traits: half a hair group"
+    for trait in HAIR_ROLES.values():
+        row = rows[trait]
+        for child, adult in (("h2_child", "h2_adult"), ("c2_child", "c2_adult")):
+            if data_reference.f64_bits(float(row[child]["value"])) != data_reference.f64_bits(float(row[adult]["value"])):
+                return True, f"data.body_traits: the weights of {trait} depend on the age"
+    return True, None
+
+
+# Grok's anchors (decision of 2026-11-20, table "Anchors"; ADR-0034 acceptance test), to three
+# decimals: thickness at z, and dryness (z_curl, z_dry, age, man).
+THICKNESS_ANCHORS = ((0.0, 0.500), (1.0, 0.731), (2.0, 0.881), (-1.0, 0.269), (-2.0, 0.119))
+DRYNESS_ANCHORS = (
+    (0.0, 0.0, 25.0, False, 0.300),
+    (0.0, 0.0, 25.0, True, 0.232),
+    (1.0, 0.0, 25.0, False, 0.476),
+    (0.0, 1.0, 25.0, False, 0.611),
+    (1.5, -1.0, 25.0, False, 0.265),
+    (-1.0, 1.0, 25.0, False, 0.426),
+    (0.0, 0.0, 70.0, False, 0.667),
+    (0.0, 0.0, 70.0, True, 0.585),
+)
+# The rows bit for bit for the Rust tests: (z_thickness, z_curl, z_dry, b, man).
+HAIR_ROWS = (
+    (0.0, 0.0, 0.0, 25.0, False),
+    (0.0, 0.0, 0.0, 25.0, True),
+    (1.0, 1.5, -1.0, 25.0, False),
+    (-1.0, -1.0, 1.0, 70.0, True),
+    (0.37, 0.8125, -0.4375, 55.0, False),
+    (-2.5, -2.25, 3.0, 0.0, True),
+    (2.75, 3.5, 1.125, 83.5, False),
+    (-0.125, 0.0625, -2.0, 12.25, True),
+)
+
+
+def androgen_doses():
+    """Every dose vector over the androgen loci, doses 0, 1, 2 (3^8 = 6561)."""
+    import itertools
+
+    return itertools.product((0.0, 1.0, 2.0), repeat=8)
+
+
+def genetic_value_of(terms, doses: dict) -> float:
+    """`G = (A − m_ref) / σ_ref` (genetics specification 4.1, ADR-0008 section 3) with `A`
+    folded from +0.0 over the trait's groups, each locus adding `c · (d − d_ref)`; `doses` by
+    locus ID."""
+    acc = 0.0
+    for loci in terms.groups:
+        for locus, coefficient, d_ref in loci:
+            acc = acc + coefficient * (doses[locus["id"]] - d_ref)
+    if terms.mean_ref is not None:
+        acc = acc - terms.mean_ref
+    return acc / terms.sigma_ref
+
+
+def hair_lines() -> list:
+    """The anchors, the bins of the thickness, `G_dry = −G_androgen` bit for bit, the defaults
+    and the rows bit for bit, on map 6 built from the repository's map 5."""
+    import world_reference
+
+    _, calibration, genome_map = data_reference.map6_documents()
+    numbers = {key: float(entry["value"]) for key, entry in calibration["values"].items() if key.startswith("core:body_dryness_")}
+    assert [(key, numbers[key]) for key, _, _ in data_reference.HAIR_VALUES] == [(key, value) for key, value, _ in data_reference.HAIR_VALUES]
+    present, reason = hair_group_check(calibration, genome_map)
+    assert present and reason is None, reason
+    lines = [f"body_hair_group map6 present reason {reason}"]
+    _, calibration5, map5 = data_reference.documents(data_reference.REPOSITORY_DATA)
+    if len(data_reference.declared_extensions(map5)) == 1:
+        assert hair_group_check(calibration5, map5) == (False, None)
+        lines.append("body_hair_group map5 absent: defaults")
+    half = copy.deepcopy(calibration)
+    half["values"].pop("core:body_dryness_tempo")
+    lines.append(f"body_hair_group map6_without_tempo {hair_group_check(half, genome_map)[1]}")
+    for z, want in THICKNESS_ANCHORS:
+        value = strand_thickness(z)
+        assert round(value, 3) == want, (z, value, want)
+        lines.append(f"body_hair_anchor thickness z {z!r} {value!r} (Grok {want:.3f})")
+    for z_curl, z_dry, b, men, want in DRYNESS_ANCHORS:
+        value = dryness(numbers, z_curl, z_dry, b, men)
+        assert round(value, 3) == want, (z_curl, z_dry, b, men, value, want)
+        lines.append(f"body_hair_anchor dryness z_curl {z_curl!r} z_dry {z_dry!r} b {b!r} {'man' if men else 'woman'} {value!r} (Grok {want:.3f})")
+    # The bins of the thickness (addendum of 2026-11-24: about 27/46/27, 27.2/45.5/27.2 under
+    # the two-locus mixture): z = sqrt(0.6) G + sqrt(0.4) E, G = A at p = 0.5 over two loci.
+    phi = lambda x: 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+    low, high = math.log(0.35 / 0.65), math.log(0.65 / 0.35)
+    mixture = list(zip((1, 4, 6, 4, 1), (-2.0, -1.0, 0.0, 1.0, 2.0)))
+    fine = sum(n / 16 * phi((low - math.sqrt(0.6) * g) / math.sqrt(0.4)) for n, g in mixture)
+    coarse = sum(n / 16 * (1.0 - phi((high - math.sqrt(0.6) * g) / math.sqrt(0.4))) for n, g in mixture)
+    bins = (round(100 * fine, 1), round(100 * (1 - fine - coarse), 1), round(100 * coarse, 1))
+    assert bins == (27.2, 45.5, 27.2), bins
+    lines.append(f"body_hair_thickness_bins fine {bins[0]} medium {bins[1]} coarse {bins[2]} (percent below 0.35, between, above 0.65)")
+    # G_dry = -G_androgen bit for bit for every dose vector of the androgen loci.
+    androgen = world_reference.TraitTerms(data_reference.ANDROGEN, genome_map)
+    dry = world_reference.TraitTerms(data_reference.HAIR_DRYNESS, genome_map)
+    loci = [locus["id"] for locus, _, _ in androgen.groups[0]]
+    assert len(loci) == 8 and dry.groups[0] == [] and [locus["id"] for locus, _, _ in dry.groups[1]] == loci
+    assert all(coefficient == -1.0 for _, coefficient, _ in dry.groups[1])
+    assert bits(dry.sigma_ref) == bits(androgen.sigma_ref) == bits(data_reference.ANDROGEN_SIGMA_REF)
+    assert bits(dry.mean_ref) == bits(-androgen.mean_ref) == bits(data_reference.DRYNESS_MEAN_REF)
+    count = 0
+    for doses in androgen_doses():
+        by_id = dict(zip(loci, doses))
+        g_and, g_dry = genetic_value_of(androgen, by_id), genetic_value_of(dry, by_id)
+        assert bits(g_dry) == bits(-g_and), (doses, g_and, g_dry)
+        count += 1
+    lines.append(
+        f"body_hair_g_dry_negates_androgen dose_vectors {count} all bit for bit sigma_ref {dry.sigma_ref!r} bits {bits(dry.sigma_ref)}"
+        f" mean_ref {dry.mean_ref!r} bits {bits(dry.mean_ref)} androgen mean_ref {androgen.mean_ref!r} bits {bits(androgen.mean_ref)}"
+    )
+    for doses in ((0.0,) * 8, (1.0,) * 8, (2.0,) * 8, (0.0, 1.0, 2.0, 1.0, 0.0, 2.0, 1.0, 1.0)):
+        by_id = dict(zip(loci, doses))
+        g_and, g_dry = genetic_value_of(androgen, by_id), genetic_value_of(dry, by_id)
+        lines.append(f"body_hair_g doses {''.join(str(int(d)) for d in doses)} g_androgen {bits(g_and)} g_dry {bits(g_dry)}")
+    lines.append(
+        f"body_hair_defaults hair_strand_thickness {HAIR_DEFAULTS['hair_strand_thickness']!r} bits {bits(HAIR_DEFAULTS['hair_strand_thickness'])}"
+        f" hair_dryness {HAIR_DEFAULTS['hair_dryness']!r} bits {bits(HAIR_DEFAULTS['hair_dryness'])} (no hair group)"
+    )
+    for z_thick, z_curl, z_dry, b, men in HAIR_ROWS:
+        thick, dry_value = strand_thickness(z_thick), dryness(numbers, z_curl, z_dry, b, men)
+        lines.append(
+            f"body_hair_row z_thickness {z_thick!r} z_curl {z_curl!r} z_dry {z_dry!r} b {b!r} {'man' if men else 'woman'}"
+            f" hair_strand_thickness {thick!r} bits {bits(thick)} hair_dryness {dry_value!r} bits {bits(dry_value)}"
+        )
     return lines
 
 
@@ -827,7 +1048,7 @@ def main(argv) -> int:
         reason = body_data_check(fixture, read)
         print(f"body_data {name} reading {'map4' if read is BODY_TRAITS_MAP4 else 'map3'} names: {'accepted' if reason is None else 'rejected ' + reason}")
     contract = json.loads(CONTRACT.read_text())["parameters"]
-    assert len(contract) == 44
+    assert len(contract) == 46 and contract == contract_with_hair(contract)
     values = BodyValues(data_reference.strip(pigment[0]))
     values_red = BodyValues(data_reference.strip(red[0]))
     values4 = BodyValues(data_reference.strip(map4[0]))
@@ -934,6 +1155,8 @@ def main(argv) -> int:
         f"body_change_round43_summary {len(pigment_changed)} changes over {len({name for name, _ in pigment_changed})} persons"
         f" in {sorted({key_ for _, key_ in pigment_changed})}; every other parameter equal bit for bit"
     )
+    for line in hair_lines():
+        print(line)
     return 0
 
 

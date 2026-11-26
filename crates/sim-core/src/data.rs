@@ -377,6 +377,24 @@ pub struct Genetics {
     /// `m_D` and `s_D` per temperament axis in the order of `development::Axis::ALL`
     /// (ADR-0033 sections 1 and 2); `None` for a calibration without the temperament traits.
     pub development: Option<[(f64, f64); 5]>,
+    /// The numbers of the hair dryness (ADR-0034 section 3); `None` for a calibration
+    /// without the hair extension.
+    pub hair: Option<HairDryness>,
+}
+
+/// The seven calibration values `core:body_dryness_<field>` of the hair dryness (ADR-0034
+/// section 3): `L(offset + curl · z_curl + slope · z_dry + age · s_age + male · m)` with
+/// `s_age = L((b − center) / tempo)`. The five weights in logit, signed (`male` is added);
+/// `center` and `tempo` in years, inside the ages, `tempo > 0`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HairDryness {
+    pub offset: f64,
+    pub curl: f64,
+    pub slope: f64,
+    pub age: f64,
+    pub male: f64,
+    pub center: f64,
+    pub tempo: f64,
 }
 
 /// The numbers of the mapping onto the body contract (genetics specification 10, ADR-0015
@@ -721,10 +739,9 @@ pub enum DataError {
     /// One of the seven loci of the pool is not in the map.
     PoolLocus,
     /// The pool was extracted from other data: its `frozen_hash` is not the hash of these
-    /// data before the pool is appended (Grok K7 and P1, ADR-0020 section 10). Map version
-    /// 5 with the five temperament traits also accepts the hash of those definitions with
-    /// the temperament traits, loci, phenotype rows, sex differences and development
-    /// values removed and `map_version` set back to 4.
+    /// data before the pool is appended (Grok K7 and P1, ADR-0020 section 10). A map with
+    /// extensions (ADR-0034 section 2) also accepts the hash of those definitions with
+    /// everything the extensions own removed and `map_version` set back to 4.
     PoolFrozenHash,
     /// The pool's frequencies do not name exactly the seven pool loci.
     PoolFrequenciesLoci,
@@ -1315,229 +1332,360 @@ fn read_genetics(calibration: &GeneticsCalibration) -> Result<Genetics, DataErro
         longevity_sigma_g: value("core:longevity_sigma_g", Unit::Logit, MAX_SIGMA_G)?,
         fertility: read_fertility(&calibration.fertility)?,
         development: None,
+        hair: None,
     };
-    // Closed set: the 118 values, or those plus the ten development values of the five
-    // temperament traits. A partial set of those ten is missing; any other extra key is
-    // unknown. `development_mean` may be 0, so it does not go through `value`.
-    let development = development_ids();
-    let present = development
+    // Closed set: the 118 values plus all keys of each extension that has any. A partial
+    // set of an extension's keys is missing; any other extra key is unknown. Which
+    // extensions the map declares is checked with the map (`check_extensions`).
+    let extensions = extensions();
+    let present: Vec<bool> = extensions
         .iter()
-        .filter(|(id, _)| calibration.values.contains_key(id))
-        .count();
-    match present {
-        0 => {
-            if calibration.values.len() != 118 {
-                return Err(DataError::CalibrationUnknown);
+        .map(|extension| {
+            let keys = extension.values.iter();
+            let found = keys
+                .filter(|key| calibration.values.contains_key(*key))
+                .count();
+            match found {
+                0 => Ok(false),
+                n if n == extension.values.len() => Ok(true),
+                _ => Err(DataError::CalibrationMissing),
             }
-        }
-        10 => {
-            if calibration.values.len() != 128 {
-                return Err(DataError::CalibrationUnknown);
+        })
+        .collect::<Result<_, _>>()?;
+    let expected = (extensions.iter().zip(&present))
+        .filter(|(_, present)| **present)
+        .fold(BASE_VALUES, |sum, (extension, _)| {
+            sum + extension.values.len()
+        });
+    if calibration.values.len() != expected {
+        return Err(DataError::CalibrationUnknown);
+    }
+    if present[TEMPERAMENT] {
+        // `development_mean` may be 0, so it does not go through `value`.
+        for key in &extensions[TEMPERAMENT].values {
+            let entry = &calibration.values[key];
+            if entry.unit != Unit::StandardDeviation {
+                return Err(DataError::CalibrationUnit);
             }
-            for (id, mean) in &development {
-                let entry = &calibration.values[id];
-                if entry.unit != Unit::StandardDeviation {
-                    return Err(DataError::CalibrationUnit);
-                }
-                let x = entry.value.get();
-                let fits = if *mean {
-                    (-3.0..=3.0).contains(&x)
-                } else {
-                    x >= 0.1
-                };
-                if !fits {
-                    return Err(DataError::CalibrationRange);
-                }
-            }
-            // `m_D` (`_development_mean`) or `s_D` (`_development_sd`) of an axis.
-            let of = |axis: Axis, mean: bool| {
-                let what = if mean { "mean" } else { "sd" };
-                let id = DataId::new(&format!("{}_development_{what}", axis.trait_id().as_str()))
-                    .unwrap_or_else(|_| panic!("invariant data.temperament_id"));
-                calibration.values[&id].value.get()
+            let x = entry.value.get();
+            let fits = if key.as_str().ends_with("_mean") {
+                (-3.0..=3.0).contains(&x)
+            } else {
+                x >= 0.1
             };
-            genetics.development = Some(Axis::ALL.map(|axis| (of(axis, true), of(axis, false))));
+            if !fits {
+                return Err(DataError::CalibrationRange);
+            }
         }
-        _ => return Err(DataError::CalibrationMissing),
+        // `m_D` (`_development_mean`) or `s_D` (`_development_sd`) of an axis.
+        let get = |id: DataId| calibration.values[&id].value.get();
+        let of = |axis: Axis| {
+            let name = axis.trait_id();
+            let mean = formatted_id(format_args!("{}_development_mean", name.as_str()));
+            let sd = formatted_id(format_args!("{}_development_sd", name.as_str()));
+            (get(mean), get(sd))
+        };
+        genetics.development = Some(Axis::ALL.map(of));
+    }
+    if present[HAIR] {
+        genetics.hair = Some(HairDryness {
+            offset: signed("core:body_dryness_offset", Unit::Logit, MAX_LOGIT)?,
+            curl: signed("core:body_dryness_curl", Unit::Logit, MAX_LOGIT)?,
+            slope: signed("core:body_dryness_slope", Unit::Logit, MAX_LOGIT)?,
+            age: signed("core:body_dryness_age", Unit::Logit, MAX_LOGIT)?,
+            male: signed("core:body_dryness_male", Unit::Logit, MAX_LOGIT)?,
+            center: value("core:body_dryness_center", Unit::Year, MAX_AGE)?,
+            tempo: value("core:body_dryness_tempo", Unit::Year, MAX_AGE)?,
+        });
     }
     Ok(genetics)
 }
 
-/// The five temperament traits, in data-id order.
-fn temperament_trait_ids() -> Vec<DataId> {
+/// One load-time extension of the frozen pool (ADR-0033 section 2, ADR-0034 section 2) and
+/// what it owns: its traits, each with the autosomal segments and slots of its own loci
+/// `{trait}_01`, `_02`, ..., the phenotype row of each trait, the sex-difference row of each
+/// trait if `sex_rows`, and its calibration keys. Each locus is additive with exactly one
+/// load, on its own trait. `mirror` names a trait without loci that is the negation of
+/// another bit for bit: its only include is that trait with weight −1, its `sigma_ref` is
+/// that trait's and its `mean_ref` that trait's negated.
+struct Extension {
+    traits: Vec<(DataId, &'static [u8], &'static [u8])>,
+    sex_rows: bool,
+    values: Vec<DataId>,
+    mirror: Option<(DataId, DataId)>,
+}
+
+/// The calibration values of a map without extension (map 4).
+const BASE_VALUES: usize = 118;
+/// The map version without extension; a map with `n` extensions has version 4 + `n`.
+const BASE_MAP_VERSION: u32 = 4;
+const TEMPERAMENT: usize = 0;
+const HAIR: usize = 1;
+
+/// The ordered table of extensions: a map declares a prefix of it.
+fn extensions() -> [Extension; 2] {
+    let id = |text| DataId::new(text).unwrap_or_else(|_| panic!("invariant data.extension_id"));
+    let own = |name, segments: &'static [u8], slots: &'static [u8]| (id(name), segments, slots);
     [
-        "core:agreeableness",
-        "core:conscientiousness",
-        "core:extraversion",
-        "core:neuroticism",
-        "core:openness",
+        Extension {
+            traits: alloc::vec![
+                own(
+                    "core:agreeableness",
+                    &[0, 1, 2, 3, 4, 5, 6, 7],
+                    &[12, 14, 14, 11, 16, 11, 10, 13],
+                ),
+                own(
+                    "core:conscientiousness",
+                    &[3, 4, 5, 6, 7, 0, 1, 2],
+                    &[13, 17, 12, 11, 14, 13, 15, 15],
+                ),
+                own(
+                    "core:extraversion",
+                    &[6, 7, 0, 1, 2, 3, 4, 5],
+                    &[12, 15, 14, 16, 16, 14, 18, 13],
+                ),
+                own(
+                    "core:neuroticism",
+                    &[1, 2, 3, 4, 5, 6, 7, 0],
+                    &[17, 17, 15, 19, 14, 13, 16, 15],
+                ),
+                own(
+                    "core:openness",
+                    &[4, 5, 6, 7, 0, 1, 2, 3],
+                    &[20, 15, 14, 17, 16, 18, 18, 16],
+                ),
+            ],
+            sex_rows: true,
+            mirror: None,
+            values: [
+                "core:agreeableness_development_mean",
+                "core:agreeableness_development_sd",
+                "core:conscientiousness_development_mean",
+                "core:conscientiousness_development_sd",
+                "core:extraversion_development_mean",
+                "core:extraversion_development_sd",
+                "core:neuroticism_development_mean",
+                "core:neuroticism_development_sd",
+                "core:openness_development_mean",
+                "core:openness_development_sd",
+            ]
+            .map(id)
+            .into(),
+        },
+        Extension {
+            traits: alloc::vec![
+                own("core:hair_dryness", &[], &[]),
+                own("core:hair_thickness", &[0, 1], &[17, 19]),
+            ],
+            sex_rows: false,
+            mirror: Some((id("core:hair_dryness"), id("core:androgen"))),
+            values: [
+                "core:body_dryness_offset",
+                "core:body_dryness_curl",
+                "core:body_dryness_slope",
+                "core:body_dryness_age",
+                "core:body_dryness_male",
+                "core:body_dryness_center",
+                "core:body_dryness_tempo",
+            ]
+            .map(id)
+            .into(),
+        },
     ]
-    .into_iter()
-    .map(|text| DataId::new(text).unwrap_or_else(|_| panic!("invariant data.temperament_id")))
+}
+
+/// A data id from formatted text (an extension's locus or calibration key).
+fn formatted_id(text: fmt::Arguments<'_>) -> DataId {
+    DataId::new(&format!("{text}")).unwrap_or_else(|_| panic!("invariant data.extension_id"))
+}
+
+impl Extension {
+    /// `(locus id, trait id, segment, slot)` of each own locus, trait by trait.
+    fn loci(&self) -> Vec<(DataId, DataId, u8, u8)> {
+        let mut loci = Vec::new();
+        for (trait_id, segments, slots) in &self.traits {
+            for (n, (segment, slot)) in (1..).zip(segments.iter().zip(slots.iter())) {
+                let locus = formatted_id(format_args!("{}_{n:02}", trait_id.as_str()));
+                loci.push((locus, trait_id.clone(), *segment, *slot));
+            }
+        }
+        loci
+    }
+
+    fn trait_ids(&self) -> impl Iterator<Item = DataId> {
+        self.traits.iter().map(|(trait_id, ..)| trait_id.clone())
+    }
+}
+
+/// How many extensions the map declares, recognised by their loci: a prefix of the table,
+/// each extension with all its loci on their declared places, and `map_version` 4 + count.
+/// A map with none keeps any version. Some but not all loci of an extension, or an
+/// extension after a missing one, are missing.
+fn declared_extensions(map: &GenomeMap) -> Result<usize, DataError> {
+    let mut declared = 0;
+    for (index, extension) in extensions().iter().enumerate() {
+        let loci = extension.loci();
+        let found: Vec<&Locus> = (loci.iter())
+            .filter_map(|(id, ..)| map.loci.iter().find(|locus| &locus.id == id))
+            .collect();
+        if found.is_empty() {
+            continue;
+        }
+        if found.len() != loci.len() || declared != index {
+            return Err(DataError::CalibrationMissing);
+        }
+        for (locus, (_, _, segment, slot)) in found.iter().zip(&loci) {
+            if locus.position() != (Chromosome::Autosome, *segment, *slot) {
+                return Err(DataError::LocusPosition);
+            }
+        }
+        declared += 1;
+    }
+    let version = u32::try_from(declared).unwrap_or_else(|_| panic!("invariant data.extensions"));
+    if declared > 0 && map.map_version != BASE_MAP_VERSION + version {
+        return Err(DataError::MapVersion);
+    }
+    Ok(declared)
+}
+
+/// The loci of the extensions the map declares, in the order of the table, as the pool
+/// extension writes them. Only for checked definitions.
+fn declared_loci(map: &GenomeMap) -> Vec<Locus> {
+    let declared = declared_extensions(map).unwrap_or_else(|_| panic!("invariant data.extensions"));
+    let extensions = extensions();
+    let ids = extensions[..declared].iter().flat_map(Extension::loci);
+    ids.map(|(id, ..)| {
+        let locus = map.loci.iter().find(|locus| locus.id == id);
+        locus
+            .unwrap_or_else(|| panic!("invariant data.extension_locus"))
+            .clone()
+    })
     .collect()
 }
 
-fn temperament_locus_ids() -> Vec<DataId> {
-    let mut ids = Vec::with_capacity(40);
-    for trait_id in temperament_trait_ids() {
-        for n in 1..=8 {
-            ids.push(
-                DataId::new(&format!("{}_{n:02}", trait_id.as_str()))
-                    .unwrap_or_else(|_| panic!("invariant data.temperament_id")),
-            );
+/// The rules of the extensions (ADR-0034 section 2) beyond the declared prefix, in this
+/// order: an undeclared extension has none of its traits, rows and keys (missing: the
+/// extension is incomplete); a declared one has all its keys and traits (missing); each own
+/// locus is additive with one load, on its own trait (unknown); each trait has its phenotype
+/// row and, if the extension has them, its sex row (missing; an extra sex row is unknown);
+/// no other locus loads on an extension's trait (`LocusLoad`); the mirror trait is the exact
+/// negation (`TraitInclude` for its include, `TraitSigma` for its references); no trait
+/// includes an extension's trait.
+fn check_extensions(definitions: &Definitions) -> Result<(), DataError> {
+    let (map, calibration) = (&definitions.genome_map, &definitions.calibration);
+    let declared = declared_extensions(map)?;
+    let has_key = |key: &DataId| calibration.values.contains_key(key);
+    let has_trait = |id: &DataId| find(&map.traits, id).is_some();
+    let rows = |id: &DataId| {
+        (calibration.traits.iter())
+            .filter(|r| &r.target == id)
+            .count()
+    };
+    let sex_rows = |id: &DataId| {
+        let all = calibration.sex_differences.iter();
+        all.filter(|row| &row.target == id).count()
+    };
+    let extensions = extensions();
+    for (index, extension) in extensions.iter().enumerate() {
+        if index >= declared {
+            let mut traits = extension.trait_ids();
+            let any_row = |id: &DataId| rows(id) > 0 || sex_rows(id) > 0;
+            if traits.any(|id| has_trait(&id) || any_row(&id))
+                || extension.values.iter().any(has_key)
+            {
+                return Err(DataError::CalibrationMissing);
+            }
+            continue;
         }
-    }
-    ids
-}
-
-/// `(id, is_mean)` for `core:{trait}_development_mean` and `_development_sd`.
-fn development_ids() -> Vec<(DataId, bool)> {
-    let mut ids = Vec::with_capacity(10);
-    for trait_id in temperament_trait_ids() {
-        ids.push((
-            DataId::new(&format!("{}_development_mean", trait_id.as_str()))
-                .unwrap_or_else(|_| panic!("invariant data.temperament_id")),
-            true,
-        ));
-        ids.push((
-            DataId::new(&format!("{}_development_sd", trait_id.as_str()))
-                .unwrap_or_else(|_| panic!("invariant data.temperament_id")),
-            false,
-        ));
-    }
-    ids
-}
-
-/// The declared temperament loci, in data-id order, when the map has all forty.
-/// `None` when it has none. A partial set is a data error and is rejected before this
-/// is used to extend a pool.
-fn temperament_loci(map: &GenomeMap) -> Option<Vec<Locus>> {
-    let ids = temperament_locus_ids();
-    if !ids
-        .iter()
-        .all(|id| map.loci.iter().any(|locus| &locus.id == id))
-    {
-        return None;
-    }
-    Some(
-        ids.iter()
-            .map(|id| {
-                map.loci
-                    .iter()
-                    .find(|locus| &locus.id == id)
-                    .unwrap_or_else(|| panic!("invariant data.temperament_locus"))
-                    .clone()
-            })
-            .collect(),
-    )
-}
-
-/// All five traits with their eight autosomal loci, and the ten development values, or
-/// none of them. Keys without the traits are unknown; traits without the keys are missing.
-fn check_temperament(definitions: &Definitions) -> Result<(), DataError> {
-    let map = &definitions.genome_map;
-    let trait_ids = temperament_trait_ids();
-    let locus_ids = temperament_locus_ids();
-    let traits_present = trait_ids
-        .iter()
-        .filter(|id| map.traits.iter().any(|t| &t.id == *id))
-        .count();
-    let loci_present = locus_ids
-        .iter()
-        .filter(|id| map.loci.iter().any(|locus| &locus.id == *id))
-        .count();
-    let keys_present = development_ids()
-        .iter()
-        .filter(|(id, _)| definitions.calibration.values.contains_key(id))
-        .count();
-    if traits_present == 0 && loci_present == 0 && keys_present == 0 {
-        return Ok(());
-    }
-    if traits_present != 5 || loci_present != 40 {
-        return Err(DataError::CalibrationUnknown);
-    }
-    if keys_present != 10 {
-        return Err(DataError::CalibrationMissing);
-    }
-    for (index, locus_id) in locus_ids.iter().enumerate() {
-        let locus = map
-            .loci
-            .iter()
-            .find(|locus| &locus.id == locus_id)
-            .unwrap_or_else(|| panic!("invariant data.temperament_locus"));
-        if locus.chromosome != Chromosome::Autosome {
-            return Err(DataError::CalibrationUnknown);
-        }
-        // Exactly one load, on its own axis: the stripped hash drops the whole locus, so a
-        // second load on an old trait would change that trait unseen.
-        let Action::Additive(weights) = &locus.action else {
-            return Err(DataError::CalibrationUnknown);
-        };
-        if weights.loads.len() != 1 || weights.loads[0].target != trait_ids[index / 8] {
-            return Err(DataError::CalibrationUnknown);
-        }
-    }
-    // One phenotype row and one sex-difference row per axis.
-    for trait_id in &trait_ids {
-        let rows = definitions
-            .calibration
-            .traits
-            .iter()
-            .filter(|row| &row.target == trait_id)
-            .count();
-        let sex_rows = definitions
-            .calibration
-            .sex_differences
-            .iter()
-            .filter(|row| &row.target == trait_id)
-            .count();
-        if rows != 1 || sex_rows != 1 {
+        if !extension.values.iter().all(has_key) || !extension.trait_ids().all(|id| has_trait(&id))
+        {
             return Err(DataError::CalibrationMissing);
         }
-    }
-    for trait_id in &trait_ids {
-        let loaded = map
-            .loci
-            .iter()
-            .filter(|locus| {
-                locus.action.weights().is_some_and(|weights| {
-                    weights.loads.iter().any(|load| &load.target == trait_id)
-                })
-            })
-            .count();
-        if loaded != 8 {
-            return Err(DataError::CalibrationUnknown);
+        let own = extension.loci();
+        for (locus_id, trait_id, ..) in &own {
+            let locus = map.loci.iter().find(|locus| &locus.id == locus_id);
+            let locus = locus.unwrap_or_else(|| panic!("invariant data.extension_locus"));
+            let Action::Additive(weights) = &locus.action else {
+                return Err(DataError::CalibrationUnknown);
+            };
+            if weights.loads.len() != 1 || &weights.loads[0].target != trait_id {
+                return Err(DataError::CalibrationUnknown);
+            }
         }
+        for id in extension.trait_ids() {
+            let wanted = usize::from(extension.sex_rows);
+            if sex_rows(&id) > wanted {
+                return Err(DataError::CalibrationUnknown);
+            }
+            if rows(&id) != 1 || sex_rows(&id) != wanted {
+                return Err(DataError::CalibrationMissing);
+            }
+        }
+        for id in extension.trait_ids() {
+            // The own loci are the only loads: the stripped hash drops them whole.
+            let loaded = (map.loci.iter().filter_map(|locus| locus.action.weights()))
+                .filter(|weights| weights.loads.iter().any(|load| load.target == id))
+                .count();
+            if loaded != own.iter().filter(|(_, of, ..)| *of == id).count() {
+                return Err(DataError::LocusLoad);
+            }
+        }
+        if let Some((mirror, of)) = &extension.mirror {
+            check_mirror(map, mirror, of)?;
+        }
+    }
+    let owned: BTreeSet<DataId> = extensions.iter().flat_map(Extension::trait_ids).collect();
+    let mut includes = map.traits.iter().flat_map(|t| t.includes.iter());
+    if includes.any(|include| owned.contains(&include.target)) {
+        return Err(DataError::TraitInclude);
     }
     Ok(())
 }
 
-/// The hash of the definitions as they were before the temperament traits: those traits,
-/// their loci, their phenotype and sex-difference rows and their development values are
-/// removed, and `map_version` is set back to 4.
+/// `mirror` is `−of` bit for bit (ADR-0034 section 1): its only include is `of` with weight
+/// −1, its `sigma_ref` is that of `of` and its `mean_ref` the negated one of `of`.
+fn check_mirror(map: &GenomeMap, mirror: &DataId, of: &DataId) -> Result<(), DataError> {
+    let mirror = find(&map.traits, mirror).unwrap_or_else(|| panic!("invariant data.mirror"));
+    let Some(of) = find(&map.traits, of) else {
+        return Err(DataError::TraitInclude);
+    };
+    let [include] = &mirror.includes[..] else {
+        return Err(DataError::TraitInclude);
+    };
+    if include.target != of.id || include.weight.get().to_bits() != (-1.0_f64).to_bits() {
+        return Err(DataError::TraitInclude);
+    }
+    let bits = |x: Option<f64>| x.map(f64::to_bits);
+    let negated = of.mean_ref.map(|mean| -mean.get());
+    if mirror.sigma_ref.get().to_bits() != of.sigma_ref.get().to_bits()
+        || bits(mirror.mean_ref.map(FiniteF64::get)) != bits(negated)
+    {
+        return Err(DataError::TraitSigma);
+    }
+    Ok(())
+}
+
+/// The hash of the definitions without the extensions (map 4): everything the extensions
+/// own is removed (traits, loci, phenotype and sex-difference rows, calibration keys) and
+/// `map_version` is set back to 4.
 fn stripped_definitions_hash(definitions: &Definitions) -> u64 {
-    let trait_ids: BTreeSet<DataId> = temperament_trait_ids().into_iter().collect();
-    let locus_ids: BTreeSet<DataId> = temperament_locus_ids().into_iter().collect();
+    let extensions = extensions();
+    let traits: BTreeSet<DataId> = extensions.iter().flat_map(Extension::trait_ids).collect();
+    let loci: BTreeSet<DataId> = (extensions.iter().flat_map(Extension::loci))
+        .map(|(id, ..)| id)
+        .collect();
     let mut stripped = definitions.clone();
-    stripped
-        .genome_map
-        .traits
-        .retain(|t| !trait_ids.contains(&t.id));
-    stripped
-        .genome_map
-        .loci
-        .retain(|locus| !locus_ids.contains(&locus.id));
-    stripped.genome_map.map_version = 4;
-    stripped
-        .calibration
-        .traits
-        .retain(|row| !trait_ids.contains(&row.target));
-    stripped
-        .calibration
-        .sex_differences
-        .retain(|row| !trait_ids.contains(&row.target));
-    for (id, _) in development_ids() {
-        stripped.calibration.values.remove(&id);
+    let (map, calibration) = (&mut stripped.genome_map, &mut stripped.calibration);
+    map.traits.retain(|t| !traits.contains(&t.id));
+    map.loci.retain(|locus| !loci.contains(&locus.id));
+    map.map_version = BASE_MAP_VERSION;
+    let kept = |row: &DataId| !traits.contains(row);
+    calibration.traits.retain(|row| kept(&row.target));
+    calibration.sex_differences.retain(|row| kept(&row.target));
+    for extension in &extensions {
+        for key in &extension.values {
+            calibration.values.remove(key);
+        }
     }
     stable_hash64(&encode(&stripped))
 }
@@ -1889,7 +2037,7 @@ impl Data {
                 return Err(DataError::TraitNamed);
             }
         }
-        check_temperament(&definitions)?;
+        check_extensions(&definitions)?;
         let hash = stable_hash64(&encode(&definitions));
         let loci = (0..)
             .zip(&definitions.genome_map.loci)
@@ -1961,11 +2109,11 @@ impl Data {
     /// checks, then these checks in this order: every carer is a member of its household,
     /// every genome fits its sex, the seven loci of the pool are in the map, the pool's
     /// `frozen_hash` is the hash of these definitions (the pool was extracted from these
-    /// data, Grok K7 and P1), or, for map version 5 with the temperament traits, the hash
-    /// of those definitions with the temperament extension removed. The frequencies name
-    /// exactly the seven loci, each `0 < q < 1`. When the map declares the forty
-    /// temperament loci, they are written into every pool genome after the frozen-hash
-    /// check and before the pool is hashed or indexed.
+    /// data, Grok K7 and P1), or, for a map with extensions (ADR-0034 section 2), the hash
+    /// of those definitions with every extension removed. The frequencies name exactly the
+    /// seven loci, each `0 < q < 1`. The loci of the declared extensions (temperament, then
+    /// hair) are written into every pool genome after the frozen-hash check and before the
+    /// pool is hashed or indexed.
     /// The data hash then also covers the pool: xxh3 of the definitions' bytes followed by
     /// the postcard bytes of `(pool_seed, pool_hash, frequencies)`, the frequencies as
     /// `(locus id, q)` ascending by id.
@@ -2004,11 +2152,11 @@ impl Data {
             return Err(DataError::PoolLocus);
         }
         // `data.hash` is still the hash of the definitions alone: the pool's bytes are
-        // appended below. Map version 5 keeps the file's frozen hash equal to the
-        // definitions with the temperament extension removed.
+        // appended below. A map with extensions keeps the file's frozen hash equal to the
+        // definitions with every extension removed.
+        let extended = declared_loci(&data.definitions.genome_map);
         let frozen_ok = pool.frozen_hash == data.hash
-            || (data.definitions.genome_map.map_version == 5
-                && temperament_loci(&data.definitions.genome_map).is_some()
+            || (!extended.is_empty()
                 && pool.frozen_hash == stripped_definitions_hash(&data.definitions));
         if !frozen_ok {
             return Err(DataError::PoolFrozenHash);
@@ -2027,9 +2175,7 @@ impl Data {
         {
             return Err(DataError::PoolFrequencyRange);
         }
-        if let Some(loci) = temperament_loci(&data.definitions.genome_map) {
-            crate::pool::extend_temperament(&mut pool, &loci);
-        }
+        crate::pool::extend_loci(&mut pool, &extended);
         let mut unborn = BTreeMap::new();
         for (h, household) in pool.households.iter().enumerate() {
             for (p, pregnancy) in household.pregnancies.iter().enumerate() {
@@ -2446,8 +2592,8 @@ mod tests {
     }
 
     #[test]
-    fn the_repository_temperament_passes() {
-        assert_eq!(check_temperament(&repository_definitions()), Ok(()));
+    fn the_repository_extensions_pass() {
+        assert_eq!(check_extensions(&repository_definitions()), Ok(()));
     }
 
     /// The stripped hash drops a temperament locus whole, so a second load on an old
@@ -2463,7 +2609,7 @@ mod tests {
             weight: FiniteF64::try_new(0.01).expect("finite"),
         });
         assert_eq!(
-            check_temperament(&definitions),
+            check_extensions(&definitions),
             Err(DataError::CalibrationUnknown)
         );
     }
@@ -2475,7 +2621,27 @@ mod tests {
         let weights = locus.action.weights().expect("weights").clone();
         locus.action = Action::Threshold(weights);
         assert_eq!(
-            check_temperament(&definitions),
+            check_extensions(&definitions),
+            Err(DataError::CalibrationUnknown)
+        );
+    }
+
+    /// The locus checks come before the row checks, as before the table of extensions: a
+    /// threshold action on a temperament locus is unknown even with the axis's rows gone.
+    #[test]
+    fn a_threshold_temperament_locus_is_unknown_before_its_missing_rows() {
+        let openness = DataId::new("core:openness").expect("id");
+        let mut definitions = repository_definitions();
+        let locus = openness_01(&mut definitions);
+        let weights = locus.action.weights().expect("weights").clone();
+        locus.action = Action::Threshold(weights);
+        let calibration = &mut definitions.calibration;
+        calibration.traits.retain(|row| row.target != openness);
+        calibration
+            .sex_differences
+            .retain(|row| row.target != openness);
+        assert_eq!(
+            check_extensions(&definitions),
             Err(DataError::CalibrationUnknown)
         );
     }
@@ -2489,7 +2655,7 @@ mod tests {
             .traits
             .retain(|row| row.target != openness);
         assert_eq!(
-            check_temperament(&no_phenotype),
+            check_extensions(&no_phenotype),
             Err(DataError::CalibrationMissing)
         );
         let mut no_sex = repository_definitions();
@@ -2498,7 +2664,7 @@ mod tests {
             .sex_differences
             .retain(|row| row.target != openness);
         assert_eq!(
-            check_temperament(&no_sex),
+            check_extensions(&no_sex),
             Err(DataError::CalibrationMissing)
         );
     }

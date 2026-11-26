@@ -31,10 +31,10 @@ use crate::world::World;
 /// The format of the pool file.
 pub const POOL_FORMAT: u64 = 2;
 
-/// The version of the load-time extension that writes the temperament loci into a pool
-/// whose map declares them. Applying one version twice writes the same alleles. The
-/// constant is not stored in the pool file.
-pub const TEMPERAMENT_POOL_EXTENSION: u32 = 1;
+/// The version of the load-time extension that writes the loci of the extensions a map
+/// declares (temperament, then hair) into a pool. Applying one version twice writes the same
+/// alleles. The constant is not stored in the pool file and enters no hash.
+pub const POOL_EXTENSION_VERSION: u32 = 2;
 
 /// The seven loci the pre-run leaves at the reference allele and the pool assigns
 /// (ADR-0020 section 4).
@@ -1132,7 +1132,7 @@ fn extension_visits(pool: &Pool) -> Vec<(LineageKey, ExtensionPlace)> {
 /// independently at `p = 0.5`. Slots the slice does not name stay as they are. The same
 /// draws address a genome key, so identical twins stay identical, and a second call
 /// writes the same alleles.
-pub fn extend_temperament(pool: &mut Pool, loci: &[crate::data::Locus]) {
+pub fn extend_loci(pool: &mut Pool, loci: &[crate::data::Locus]) {
     let loci: Vec<&crate::data::Locus> = loci
         .iter()
         .filter(|locus| locus.chromosome == Chromosome::Autosome)
@@ -1391,6 +1391,35 @@ mod tests {
             }
         })
         .collect()
+    }
+
+    /// The two hair loci after the forty (ADR-0034 section 1): the smallest free places of
+    /// map 5 in segments 0 and 1.
+    fn hair_loci() -> Vec<Locus> {
+        let template = temperament_loci().remove(0);
+        [
+            ("core:hair_thickness_01", 0, 17),
+            ("core:hair_thickness_02", 1, 19),
+        ]
+        .into_iter()
+        .map(|(id, segment, slot)| {
+            let mut locus = template.clone();
+            locus.id = DataId::new(id).expect("id");
+            locus.segment = segment;
+            locus.slot = slot;
+            if let Action::Additive(weights) = &mut locus.action {
+                weights.loads[0].target = DataId::new("core:hair_thickness").expect("id");
+            }
+            locus
+        })
+        .collect()
+    }
+
+    /// The 42 loci of map 6 in the order of the table: temperament, then hair.
+    fn map6_loci() -> Vec<Locus> {
+        let mut loci = temperament_loci();
+        loci.extend(hair_loci());
+        loci
     }
 
     fn founder(index: u64) -> LineageKey {
@@ -1655,7 +1684,7 @@ mod tests {
 
     #[test]
     fn the_temperament_extension_matches_the_fixture() {
-        assert_eq!(TEMPERAMENT_POOL_EXTENSION, 1);
+        assert_eq!(POOL_EXTENSION_VERSION, 2);
         let loci = temperament_loci();
         let (mut pool, keys) = fixture();
         let [
@@ -1679,9 +1708,9 @@ mod tests {
         assert_eq!(unborn_twin.get(), 0x6e0c_6db4_f88a_57e2);
         assert_eq!(absent.get(), 0x4162_142f_d46c_25be);
         let before = pool.clone();
-        extend_temperament(&mut pool, &loci);
+        extend_loci(&mut pool, &loci);
         let once = pool.clone();
-        extend_temperament(&mut pool, &loci);
+        extend_loci(&mut pool, &loci);
         assert_eq!(pool, once);
         let expected = [
             (
@@ -1742,6 +1771,57 @@ mod tests {
         }));
     }
 
+    /// The fixture extended with the 42 loci of map 6 (tools/pool_extension_reference.py,
+    /// rows `fixture_map6_...`): the temperament alleles are those of the 40-locus extension
+    /// bit for bit, the hair alleles and checksums the reference's.
+    #[test]
+    fn the_map6_extension_matches_the_fixture() {
+        let (mut forty, keys) = fixture();
+        extend_loci(&mut forty, &temperament_loci());
+        let (mut pool, _) = fixture();
+        let before = pool.clone();
+        let loci = map6_loci();
+        extend_loci(&mut pool, &loci);
+        let once = pool.clone();
+        extend_loci(&mut pool, &loci);
+        assert_eq!(pool, once);
+        let hair = [
+            b"1111", b"0001", b"1011", b"1010", b"1011", b"1011", b"1011", b"1011",
+        ];
+        for (key, bits) in keys[..8].iter().zip(hair) {
+            assert_alleles(genome_of(&pool, *key), &hair_loci(), bits);
+            assert_eq!(
+                clear_loci(genome_of(&pool, *key), &hair_loci()),
+                genome_of(&forty, *key)
+            );
+            assert_eq!(
+                clear_loci(genome_of(&before, *key), &loci),
+                clear_loci(genome_of(&pool, *key), &loci)
+            );
+        }
+        assert_eq!(allele_checksum(&pool, &loci), 0x9684_201d_bd96_2624);
+        assert_eq!(
+            allele_checksum(&pool, &temperament_loci()),
+            0xf215_2566_5def_1e5f
+        );
+        assert_eq!(allele_checksum(&pool, &hair_loci()), 0x6a24_842a_7d50_6e0c);
+        assert_eq!(mendelian_genomes(&pool), 6);
+        let [
+            mother,
+            father,
+            child,
+            _,
+            twin_a,
+            twin_b,
+            unborn_key,
+            unborn_twin,
+            _,
+        ] = keys;
+        assert_eq!(genome_of(&pool, twin_a), genome_of(&pool, twin_b));
+        assert_eq!(genome_of(&pool, unborn_key), genome_of(&pool, unborn_twin));
+        assert!(child_shares(&pool, child, mother, father, &loci));
+    }
+
     /// The mother born at the twins' second, so she may be visited between them: the
     /// twins still get the same new alleles (tools/pool_extension_reference.py, line
     /// `fixture_late_mother_twin_a`).
@@ -1752,7 +1832,7 @@ mod tests {
         let [mother, _, _, _, twin_a, twin_b, _, _, _] = keys;
         pool.households[0].members[0].born = SimTime::from_secs(200);
         assert_eq!(pool.households[0].members[0].lineage_key, mother);
-        extend_temperament(&mut pool, &loci);
+        extend_loci(&mut pool, &loci);
         assert_alleles(
             genome_of(&pool, twin_a),
             &loci,
@@ -1771,9 +1851,9 @@ mod tests {
         assert_eq!(pool.hash(), 0x5cc9_dc3e_b6db_8524);
         let before = pool.clone();
         let loci = temperament_loci();
-        extend_temperament(&mut pool, &loci);
+        extend_loci(&mut pool, &loci);
         let once = pool.clone();
-        extend_temperament(&mut pool, &loci);
+        extend_loci(&mut pool, &loci);
         assert_eq!(pool, once);
         assert_eq!(pool.hash(), 0x12ec_62c5_7af2_a290);
         assert_eq!(allele_checksum(&pool, &loci), 0x7151_a1c8_95a7_3f91);
@@ -1834,6 +1914,41 @@ mod tests {
             member.father.expect("father"),
             &loci
         ));
+    }
+
+    /// The repository pool extended with the 42 loci of map 6 (tools/pool_extension_reference.py
+    /// real, rows `map6_...`): the hash of the extended pool, the checksum of the hair alleles,
+    /// and the temperament alleles of the 40-locus extension unchanged (their checksum is the
+    /// regression value of map 5).
+    #[test]
+    fn the_repository_pool_extends_with_the_hair_loci() {
+        let mut pool =
+            Pool::from_bytes(include_bytes!("../../../data/pool/pool.bin")).expect("pool");
+        let loci = map6_loci();
+        extend_loci(&mut pool, &loci);
+        assert_eq!(pool.hash(), 0x20e1_34c2_1553_132b);
+        let mut genomes = BTreeMap::new();
+        for household in &pool.households {
+            for member in &household.members {
+                genomes.insert(member.lineage_key, member.genome);
+            }
+            for pregnancy in &household.pregnancies {
+                for child in &pregnancy.children {
+                    genomes.insert(child.lineage_key, child.genome);
+                }
+            }
+        }
+        let checksum = |loci: &[Locus]| {
+            let mut bytes = Vec::new();
+            for (key, _) in extension_visits(&pool) {
+                for locus in loci {
+                    bytes.extend(genomes[&key].copies(locus));
+                }
+            }
+            stable_hash64(&bytes)
+        };
+        assert_eq!(checksum(&temperament_loci()), 0x7151_a1c8_95a7_3f91);
+        assert_eq!(checksum(&hair_loci()), 0x7ce7_6d2c_50d4_d8ca);
     }
 
     #[test]

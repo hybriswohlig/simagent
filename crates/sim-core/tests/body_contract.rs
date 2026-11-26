@@ -29,13 +29,14 @@ fn contract() -> Vec<(String, f64, f64, f64)> {
         .collect()
 }
 
-/// ADR-0005 `body_contract_key_roundtrip`: every key of `contracts/body.json`, 44 in the
-/// start state (section 4), with its range and default, and the version and hash of the
-/// file.
+/// ADR-0005 `body_contract_key_roundtrip`: every key of `contracts/body.json`, 46 since
+/// version 0.1.2 (the 44 of the start state, section 4, and the hair strand thickness and
+/// dryness of ADR-0034 section 3), with its range and default, and the version and hash of
+/// the file.
 #[test]
 fn body_contract_key_roundtrip() {
     let contract = contract();
-    assert_eq!(contract.len(), 44);
+    assert_eq!(contract.len(), 46);
     assert_eq!(BodyParamKey::ALL.len(), contract.len());
     for (key, (name, min, max, default)) in BodyParamKey::ALL.into_iter().zip(&contract) {
         assert_eq!(key.as_str(), name);
@@ -163,7 +164,7 @@ fn body_params_serialize_as_a_map() {
     );
     let parsed: Value = serde_json::from_str(&json).expect("JSON");
     let object = parsed.as_object().expect("a map");
-    assert_eq!(object.len(), 44);
+    assert_eq!(object.len(), 46);
     for (name, _, _, default) in contract() {
         assert_eq!(
             object[&name].as_f64(),
@@ -174,7 +175,7 @@ fn body_params_serialize_as_a_map() {
 
     // postcard: the number of entries, then per entry the key (length and bytes) and the
     // number as eight bytes, little endian. Lengths below 128 take one byte.
-    let mut expected = vec![44_u8];
+    let mut expected = vec![46_u8];
     for (name, _, _, default) in contract() {
         assert!(name.len() < 128, "{name}");
         expected.push(u8::try_from(name.len()).expect("a short key"));

@@ -1,0 +1,186 @@
+{
+  "map_version": 6,
+  "traits": [
+    {
+      "id": "core:hair_dryness",
+      "sigma_ref": 2.0091115153283217,
+      "mean_ref": -0.011102035190670132,
+      "exclusive": false,
+      "includes": [
+        {
+          "trait": "core:androgen",
+          "weight": -1.0
+        }
+      ],
+      "description": "Hair dryness without own loci; includes core:androgen with weight -1, sigma_ref is core:androgen's and mean_ref its negation, so G = -G of core:androgen bit for bit (ADR-0034 section 1)."
+    },
+    {
+      "id": "core:hair_thickness",
+      "sigma_ref": 1.0,
+      "mean_ref": 0.0,
+      "exclusive": false,
+      "includes": [],
+      "description": "Hair thickness with 2 own additive loci. d_ref 1 per locus, sigma_ref 1 and mean_ref 0 are the exact parameters of the Hardy-Weinberg distribution at p = 0.5 (Var(A) = 2 * 2p(1-p) = 1), an exception to measuring them (ADR-0034 section 1)."
+    }
+  ],
+  "loci": [
+    {
+      "id": "core:hair_thickness_01",
+      "chromosome": "autosome",
+      "segment": 0,
+      "slot": 17,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_thickness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 1 of core:hair_thickness (ADR-0020 section 1, ADR-0034 section 1)."
+    },
+    {
+      "id": "core:hair_thickness_02",
+      "chromosome": "autosome",
+      "segment": 1,
+      "slot": 19,
+      "action": {
+        "additive": {
+          "effect": 1.0,
+          "d_ref": 1.0,
+          "loads": [
+            {
+              "trait": "core:hair_thickness",
+              "weight": 1.0
+            }
+          ]
+        }
+      },
+      "mark": "small",
+      "mutation": "both",
+      "description": "Additive locus 2 of core:hair_thickness (ADR-0020 section 1, ADR-0034 section 1)."
+    }
+  ],
+  "calibration_traits": [
+    {
+      "trait": "core:hair_dryness",
+      "h2_child": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "h2 of the child (ADR-0034 section 1)"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "c2 of the child (ADR-0034 section 1)"
+      },
+      "h2_adult": {
+        "value": 0.15,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "h2 of the adult (ADR-0034 section 1)"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "c2 of the adult (ADR-0034 section 1)"
+      }
+    },
+    {
+      "trait": "core:hair_thickness",
+      "h2_child": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "h2 of the child (ADR-0034 section 1)"
+      },
+      "c2_child": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "c2 of the child (ADR-0034 section 1)"
+      },
+      "h2_adult": {
+        "value": 0.6,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "h2 of the adult (ADR-0034 section 1)"
+      },
+      "c2_adult": {
+        "value": 0.0,
+        "unit": "fraction",
+        "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+        "as_of": "2026-11-20",
+        "note": "c2 of the adult (ADR-0034 section 1)"
+      }
+    }
+  ],
+  "sex_differences": [],
+  "values": {
+    "core:body_dryness_offset": {
+      "value": -0.942,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+      "as_of": "2026-11-20",
+      "note": "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male), s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+    },
+    "core:body_dryness_curl": {
+      "value": 0.75,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+      "as_of": "2026-11-20",
+      "note": "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male), s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+    },
+    "core:body_dryness_slope": {
+      "value": 1.3,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+      "as_of": "2026-11-20",
+      "note": "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male), s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+    },
+    "core:body_dryness_age": {
+      "value": 2.0,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+      "as_of": "2026-11-20",
+      "note": "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male), s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+    },
+    "core:body_dryness_male": {
+      "value": -0.35,
+      "unit": "logit",
+      "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+      "as_of": "2026-11-20",
+      "note": "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male), s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+    },
+    "core:body_dryness_center": {
+      "value": 55.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+      "as_of": "2026-11-20",
+      "note": "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male), s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+    },
+    "core:body_dryness_tempo": {
+      "value": 10.0,
+      "unit": "year",
+      "source": "play value decided by Grok 4.7 on 2026-11-20 (ADR-0011)",
+      "as_of": "2026-11-20",
+      "note": "hair_dryness = L(offset + curl * z_curl + slope * z_dry + age * s_age + male * male), s_age = L((b - center) / tempo) (ADR-0034 section 3)"
+    }
+  }
+}

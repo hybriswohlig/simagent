@@ -29,7 +29,7 @@ fn the_types_name_every_parameter_with_its_numbers() {
     );
     assert!(lines.contains(&version.as_str()), "{version}");
     let parameters = body["parameters"].as_array().expect("parameters");
-    assert_eq!(parameters.len(), 44);
+    assert_eq!(parameters.len(), 46);
     let start = lines
         .iter()
         .position(|l| *l == "export const BODY_PARAM_KEYS = [")
