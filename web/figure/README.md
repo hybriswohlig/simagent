@@ -22,7 +22,7 @@ MakeHuman is a trademark of its owners; this project is not affiliated with them
 
 ## Building body.glb and the proxy pack
 
-The scripts are on the branch `art-baby` (commit `76ec59381b90398adc550fd411f1ed63b8371f97`), not on main. With the
+The scripts are on the branch `art-rest-mouth` (commit `d4aaa0e7cef0316d57ce1bbc0238a2375cfa5842`), not on main. With the
 mpfb2 clone and the system-assets zip in a cache folder, and Blender 5.2.1 LTS:
 
 ```
@@ -32,6 +32,8 @@ SIMAGENT_ART_OUT=<out> python3 art/pack_proxies.py
 
 The body has 61 shape keys: the baby, child, young and old shape per sex (each the mean of
 the three MakeHuman targets of that age), and the keys of build, face and proportions.
+The base mesh carries 0.6 of the target `mouth/mouth-angles-up`, a resting mouth whose
+corners do not turn down; the proxy pack is unchanged by it.
 `proxies/proxies.json` is the pack's file with the texture names below.
 
 ## Changes to the textures

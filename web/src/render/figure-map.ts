@@ -13,13 +13,16 @@ const GREY = "#c4c4c4";
 
 const HAIR_STYLES = ["hair_short", "hair_medium", "hair_long", "hair_tied", "hair_braid"] as const;
 
+/** Adults wear muted but distinct colours over calm trousers and skirts. */
 const DYES: readonly (readonly [string, string])[] = [
-  ["#6d7c8a", "#2c333c"],
-  ["#8d735c", "#3a342c"],
-  ["#5e7268", "#2e3832"],
-  ["#8a8070", "#24312e"],
-  ["#7a624e", "#343c4c"],
-  ["#6a6258", "#4a433c"],
+  ["#4f6f94", "#2f3540"],
+  ["#9c5548", "#3b4a63"],
+  ["#5f8068", "#3a3632"],
+  ["#d9cdb8", "#44536b"],
+  ["#b59a5a", "#33383f"],
+  ["#3f7f86", "#8b7b62"],
+  ["#7f5a86", "#2f3540"],
+  ["#8c98a5", "#2c3a52"],
 ];
 
 /** Children wear clear colours: the top stands out, the trousers stay calm. */
