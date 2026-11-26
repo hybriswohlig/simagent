@@ -204,15 +204,15 @@ test("hair style and clothes follow the sim id", () => {
   assert.deepEqual(clothes("male", "1"), {
     suit: "cloth_shirt",
     shoes: "shoes_brown",
-    top: "#8d735c",
-    bottom: "#3a342c",
+    top: "#9c5548",
+    bottom: "#3b4a63",
     child: false,
   });
   assert.deepEqual(clothes("female", "1"), {
     suit: "cloth_skirt",
     shoes: "shoes_black",
-    top: "#8d735c",
-    bottom: "#3a342c",
+    top: "#9c5548",
+    bottom: "#3b4a63",
     child: false,
   });
   assert.deepEqual(clothes("male", "1", 10), {
