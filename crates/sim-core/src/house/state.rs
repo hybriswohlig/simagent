@@ -129,8 +129,9 @@ pub struct Decisions {
 /// The house part of the domain state, each map in the projection after `pool_used`, then the
 /// social part (ADR-0030 section 5, ADR-0031 section 7, ADR-0032 section 6, projection 24), then
 /// who was raised in a house (ADR-0033 sections 3 to 5, projection 25; its days of a need at 0
-/// and a running action's `commanded`, projection 26): in a run without
-/// `MoveIn` it is ten zero lengths. The talk's day counters and last-talk seconds live in
+/// and a running action's `commanded`, projection 26; its practice seconds and a running action's
+/// second of arrival, projection 27; each person's habits and a running action's quarter of the
+/// day, projection 28): in a run without `MoveIn` it is ten zero lengths. The talk's day counters and last-talk seconds live in
 /// `InHouse` and `MovedIn`, and an open Talk lives in the queue.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HouseState {

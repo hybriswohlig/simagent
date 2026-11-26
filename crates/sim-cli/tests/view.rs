@@ -3454,7 +3454,7 @@ fn why_over_http() {
             json_of(&body),
             json!({
                 "format": "simagent.view.why",
-                "version": 11,
+                "version": 12,
                 "entry": entry,
                 "sim": sim,
                 "at": dated(MORNING),
@@ -4042,7 +4042,7 @@ fn why_names_what_is_urgent() {
     )
     .expect("answers")
     .expect("a choice");
-    assert_eq!(why["version"], json!(11));
+    assert_eq!(why["version"], json!(12));
     assert_eq!(why["needs"], json!(needs));
     assert_eq!((&why["chosen"], &why["now"]), (&Value::Null, &Value::Null));
     let offers = why["offers"].as_array().expect("offers");
@@ -4246,7 +4246,7 @@ fn why_names_what_a_time_filler_ends_for_when_a_wait_follows() {
         )
         .expect("answers")
         .expect("a choice");
-        assert_eq!(why["version"], json!(11));
+        assert_eq!(why["version"], json!(12));
         let told = &why["filler"];
         assert_eq!(
             (&told["until"], &told["ends"], &told["then"]),
@@ -4990,7 +4990,7 @@ fn why_names_the_temper_and_the_unscaled_company() {
     };
     let now = ask(&[felt(1, t, -300)], 5_600);
     assert_eq!(now["temper"], json!(-300));
-    assert_eq!(now["version"], json!(11));
+    assert_eq!(now["version"], json!(12));
     assert_eq!(now["company"][0]["company"], json!(5_600));
     assert_eq!(now["company"][0]["plain"], json!(8_000));
     assert_eq!(ask(&[felt(1, t - DAY, -300)], 5_600)["temper"], json!(-200));

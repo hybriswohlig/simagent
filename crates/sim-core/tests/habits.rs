@@ -14,9 +14,9 @@ use serde_json::json;
 use sim_core::data::Data;
 use sim_core::data_id::DataId;
 use sim_core::habit::{self, Habit};
-use sim_core::house::choice::{Bonus, Choice, ENOUGH, choose, score};
+use sim_core::house::choice::{Bonus, Choice, ENOUGH, age, choose, crosses_departure, score};
 use sim_core::house::data::{House, HouseData};
-use sim_core::house::day::night;
+use sim_core::house::day::{departure, night, work_draw};
 use sim_core::house::state::{Broken, HouseState, Place, consistent};
 use sim_core::ids::SimId;
 use sim_core::input::{Command, Input};
@@ -329,6 +329,8 @@ struct Seen {
     leanings: usize,
     rows: usize,
     tipped: usize,
+    /// Of `tipped`, the time-fillers.
+    fillers: usize,
 }
 
 /// Runs the family for `days` twice: once for its log, once a second at a time, replaying the
@@ -337,15 +339,17 @@ struct Seen {
 /// state passes the loader's checks. Each `core:leaning` comes by day, its rows the offers whose
 /// habit the replay holds above 0 at that second, in order, with `15 · strength` points and no
 /// niche; each choice by day of an offer with a habit above 0 has one with a row for it, but a
-/// time-filler, which may take an offer the departure closed.
+/// time-filler at an offer today's departure closed, which the choice did not weigh.
 fn replay(days: i64) -> Seen {
     let (mut first, home) = Run::family(life_data(), 7, "test:habits", &FAMILY, 0);
     first.advance(days * DAY.as_secs());
     let log = first.log.clone();
     let houses = first.world.data().houses().expect("houses");
     let house = &first.world.state().house().households[&home].house;
-    let def = houses.house(house).expect("its house").def();
-    let kinds: Vec<DataId> = def.objects.iter().map(|o| o.kind.clone()).collect();
+    let house_def = houses.house(house).expect("its house");
+    let kinds: Vec<DataId> = (house_def.def().objects.iter())
+        .map(|o| o.kind.clone())
+        .collect();
     let (mut run, _) = Run::family(life_data(), 7, "test:habits", &FAMILY, 0);
     let mut next = log
         .iter()
@@ -407,18 +411,33 @@ fn replay(days: i64) -> Seen {
                     offer,
                     commanded,
                     filler,
+                    room,
+                    needs,
                     ..
                 } => {
                     running.insert(who, (*commanded, habit::quarter(entry.t)));
                     let rows = leaned.remove(&who).filter(|(when, _)| *when == t);
-                    // A time-filler may be an offer the departure closed, which is not weighed.
-                    if !commanded && !filler && by_day && strength(*object, *offer) > 0 {
+                    // A time-filler may take an offer today's departure closed, which the choice
+                    // did not weigh; any other it chose was weighed.
+                    let seed = state.world_seed().expect("started");
+                    let key = state.lineage_key(who).expect("a person");
+                    let leaves = departure(&day_rules, born, || work_draw(seed, key), entry.t);
+                    let depart_in = leaves.map(|leaves| (leaves - entry.t).as_secs());
+                    let kind = houses.kind(&kinds[usize::from(*object)]).expect("a kind");
+                    let def = &kind.offers[usize::from(*offer)];
+                    let years = age(born, entry.t).expect("an age");
+                    let walk = house_def.walk_to(*room, *object);
+                    let closed =
+                        crosses_departure(def, houses.rates(), (years, *needs), walk, depart_in);
+                    let weighed = !filler || !closed;
+                    if !commanded && weighed && by_day && strength(*object, *offer) > 0 {
                         let rows = rows.expect("a leaning before the choice").1;
                         assert!(
                             rows.iter()
                                 .any(|r| (r.object, r.offer) == (*object, *offer))
                         );
                         seen.tipped += 1;
+                        seen.fillers += usize::from(*filler);
                     }
                 }
                 LogPayload::Idle { .. } => {
@@ -478,7 +497,7 @@ fn a_run_keeps_its_habits_as_the_reference() {
         seen.leanings >= 20 && seen.rows >= seen.leanings,
         "{seen:?}"
     );
-    assert!(seen.tipped >= 10, "{seen:?}");
+    assert!(seen.tipped >= 10 && seen.fillers >= 10, "{seen:?}");
 }
 
 /// A reading begun by a command strengthens no habit at its end, though it ends `done`.

@@ -681,12 +681,13 @@ fn places_taken(
 /// raises (version 8, ADR-0021, addendum of 2026-11-05 on the house page). For the person's latest
 /// choice in the log, `latest`, its reserve at the clock as the house answer gives it (version 9,
 /// ADR-0026, addendum of 2026-11-06 on hunger at 0), else `null`. `bonus(object, offer)` is that
-/// furniture's company minus its avoid, from the choice's `core:company` entry, plus the offer's
-/// habit and niche from its `core:leaning` entry, outside the mood; 0 where those entries have no
-/// row for it (ADR-0030 section 4, ADR-0033 section 7). `company` names those rows and the
+/// furniture's company minus its avoid, from the choice's `core:company` entry, outside the mood;
+/// 0 where that entry has no row for it (ADR-0030 section 4). `company` names those rows and the
 /// bond and belief lines the avoid step is read from (version 10, ADR-0031 section 5).
 /// `temper` is that person's temper at the choice, and each company row names the unscaled
-/// company beside the logged one (version 11, ADR-0032 section 7). `None` for any other entry.
+/// company beside the logged one (version 11, ADR-0032 section 7). The points include the
+/// offer's habit and niche from the choice's `core:leaning` entry, which `bonus` adds too
+/// (version 12, ADR-0033 section 7). `None` for any other entry.
 pub fn why_answer(
     world: &World,
     entry: &sim_core::log::LogEntry,
@@ -889,7 +890,7 @@ pub fn why_answer(
     let company = social_view::company_rows(world, *sim, entry.t, company)?;
     Ok(Some(serde_json::json!({
         "format": "simagent.view.why",
-        "version": 11,
+        "version": 12,
         "entry": id,
         "sim": sim.get(),
         "at": dated(entry.t),
