@@ -1,7 +1,9 @@
 //! Which diffs take the short gate (ADR-0000): one that changes display files only. The
-//! tests of the workspace, the canaries, the no-std build, the gate run with its goldens,
-//! the export types and the story read none of these files, so the short gate leaves them
-//! out. Every push to main takes the full gate.
+//! canaries, the no-std build, the gate run with its goldens, the export types and the
+//! story read none of these files. Of the workspace tests only two of this crate do (the
+//! scan of the web sources and the texts of the codes), and the web build, which the short
+//! gate keeps, runs both checks itself. So the short gate leaves all of them out. Every
+//! push to main takes the full gate.
 
 /// Whether a diff against the merge base with origin/main takes the short gate. `changed`
 /// holds every path the diff names, a rename as its old and its new path; `None` stands
